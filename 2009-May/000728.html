@@ -1,0 +1,391 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1944 - in trunk: doc src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1944%20-%20in%20trunk%3A%20doc%20src/jtag&In-Reply-To=%3C200905300132.n4U1WOea006387%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000727.html">
+   <LINK REL="Next"  HREF="000729.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1944 - in trunk: doc src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1944%20-%20in%20trunk%3A%20doc%20src/jtag&In-Reply-To=%3C200905300132.n4U1WOea006387%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1944 - in trunk: doc src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Sat May 30 03:32:24 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000727.html">[Openocd-svn] r1943 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000729.html">[Openocd-svn] r1945 - in trunk: doc src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#728">[ date ]</a>
+              <a href="thread.html#728">[ thread ]</a>
+              <a href="subject.html#728">[ subject ]</a>
+              <a href="author.html#728">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-30 03:32:19 +0200 (Sat, 30 May 2009)
+New Revision: 1944
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/jtag/jtag.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Make it so the magic &quot;reset_config&quot; keywords can be provided in any
+order.  This eliminates needless error paths, and makes it easier
+to define things at the right level (adapter, board, target).
+It also includes two other behavioral changes:
+
+  (1)	When &quot;handle_reset_config&quot; sees a parameter error, it
+  	exits without changing anything.   This is best viewed
+	as a bugfix.  (Old behavior:  restore defaults, even if
+	they weren't previously active.)
+
+  (2)	Only the behaviors that were explicitly specified get
+  	changed.  (Old behavior:  everything else gets reset to
+	the &quot;default&quot;.)  So for example you can now specify SRST
+	drive requirements without saying anything about the
+	three unrelated topics you previously had to specify.
+
+That second one might cause confusion for any configs that end
+up calling &quot;reset_config&quot; twice, so it will deserve to be called
+out in the release notes.  (There were no such configurations in
+the current OpenOCD source tree.)
+
+Update docs accordingly.  Note that at least some versions of
+the texi-to-html tools can't handle &quot;@xref{with spaces}&quot;, but
+those work properly in PDF and in the info files.
+
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-05-29 05:50:01 UTC (rev 1943)
++++ trunk/doc/openocd.texi	2009-05-30 01:32:19 UTC (rev 1944)
+@@ -1574,9 +1574,13 @@
+ 
+ Every system configuration may require a different reset
+ configuration. This can also be quite confusing.
++Resets also interact with @var{reset-init} event handlers,
++which do things like setting up clocks and DRAM, and
++JTAG clock rates.  (@xref{JTAG Speed}.)
+ Please see the various board files for examples.
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{Note} to maintainers and integrators:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at quotation</A> Note
++To maintainers and integrators:
+ Reset configuration touches several things at once.
+ Normally the board configuration file
+ should define it and assume that the JTAG adapter supports
+@@ -1587,6 +1591,7 @@
+ And when the JTAG adapter doesn't support everything, the
+ system configuration file will need to override parts of
+ the reset configuration provided by other files.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> quotation
+ 
+ @section Types of Reset
+ 
+@@ -1671,12 +1676,19 @@
+ 
+ There can also be other issues.
+ Some devices don't fully conform to the JTAG specifications.
+-Others have chip-specific extensions like extra steps needed
+-during TAP reset, or a requirement to use the normally-optional TRST
+-signal.
+ Trivial system-specific differences are common, such as
+ SRST and TRST using slightly different names.
++There are also vendors who distribute key JTAG documentation for
++their chips only to developers who have signed a Non-Disclosure
++Agreement (NDA).
+ 
++Sometimes there are chip-specific extensions like a requirement to use
++the normally-optional TRST signal (precluding use of JTAG adapters which
++don't pass TRST through), or needing extra steps to complete a TAP reset.
++
++In short, SRST and especially TRST handling may be very finicky,
++needing to cope with both architecture and board specific constraints.
++
+ @section Commands for Handling Resets
+ 
+ @deffn {Command} jtag_nsrst_delay milliseconds
+@@ -1691,31 +1703,58 @@
+ nTRST (active-low JTAG TAP reset) before starting new JTAG operations.
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffn</A> {Command} reset_config signals [combination [trst_type [srst_type]]]
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> {Command} reset_config mode_flag ...
+ This command tells OpenOCD the reset configuration
+ of your combination of JTAG interface, board, and target.
+-If the JTAG interface provides SRST, but the board doesn't connect
+-that signal properly, then OpenOCD can't use it. @var{signals} can
+-be @option{none}, @option{trst_only}, @option{srst_only} or
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{trst_and_srst}.
+ 
++The @var{mode_flag} options can be specified in any order, but only one
++of each type -- @var{signals}, @var{combination}, @var{trst_type},
++and @var{srst_type} -- may be specified at a time.
++If you don't provide a new value for a given type, its previous
++value (perhaps the default) is unchanged.
++For example, this means that you don't need to say anything at all about
++TRST just to declare that if the JTAG adapter should want to drive SRST,
++it must explicitly be driven high (@option{srst_push_pull}).
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at var</A>{signals} can specify which of the reset signals are connected.
++For example, If the JTAG interface provides SRST, but the board doesn't
++connect that signal properly, then OpenOCD can't use it.
++Possible values are @option{none} (the default), @option{trst_only},
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{srst_only} and @option{trst_and_srst}.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at quotation</A> Tip
++If your board provides SRST or TRST through the JTAG connector,
++you must declare that or else those signals will not be used.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> quotation
++
+ The @var{combination} is an optional value specifying broken reset
+-signal implementations.  @option{srst_pulls_trst} states that the
++signal implementations.
++The default behaviour if no option given is @option{separate},
++indicating everything behaves normally.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{srst_pulls_trst} states that the
+ test logic is reset together with the reset of the system (e.g. Philips
+ LPC2000, &quot;broken&quot; board layout), @option{trst_pulls_srst} says that
+ the system is reset together with the test logic (only hypothetical, I
+ haven't seen hardware with such a bug, and can be worked around).
+ @option{combined} implies both @option{srst_pulls_trst} and
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{trst_pulls_srst}.  The default behaviour if no option given is
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{separate}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{trst_pulls_srst}.
+ 
+ The optional @var{trst_type} and @var{srst_type} parameters allow the
+-driver type of the reset lines to be specified. Possible values are
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{trst_push_pull} (default) and @option{trst_open_drain} for the
+-test reset signal, and @option{srst_open_drain} (default) and
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{srst_push_pull} for the system reset. These values only affect
+-JTAG interfaces with support for different drivers, like the Amontec
+-JTAGkey and JTAGAccelerator.
++driver mode of each reset line to be specified.  These values only affect
++JTAG interfaces with support for different driver modes, like the Amontec
++JTAGkey and JTAGAccelerator.  Also, they are necessarily ignored if the
++relevant signal (TRST or SRST) is not connected.
++
++Possible @var{trst_type} driver modes for the test reset signal (TRST)
++are @option{trst_push_pull} (default) and @option{trst_open_drain}.
++Most boards connect this signal to a pulldown, so the JTAG TAPs
++never leave reset unless they are hooked up to a JTAG adapter.
++
++Possible @var{srst_type} driver modes for the system reset signal (SRST)
++are the default @option{srst_open_drain}, and @option{srst_push_pull}.
++Most boards connect this signal to a pullup, and allow the
++signal to be pulled low by various events including system
++powerup and pressing a reset button.
+ @end deffn
+ 
+ 
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-05-29 05:50:01 UTC (rev 1943)
++++ trunk/src/jtag/jtag.c	2009-05-30 01:32:19 UTC (rev 1944)
+@@ -2651,77 +2651,111 @@
+ 
+ static int handle_reset_config_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
++	int new_cfg = 0;
++	int mask = 0;
++
+ 	if (argc &lt; 1)
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 
+-	if (argc &gt;= 1)
+-	{
+-		if (strcmp(args[0], &quot;none&quot;) == 0)
+-			jtag_reset_config = RESET_NONE;
+-		else if (strcmp(args[0], &quot;trst_only&quot;) == 0)
+-			jtag_reset_config = RESET_HAS_TRST;
+-		else if (strcmp(args[0], &quot;srst_only&quot;) == 0)
+-			jtag_reset_config = RESET_HAS_SRST;
+-		else if (strcmp(args[0], &quot;trst_and_srst&quot;) == 0)
+-			jtag_reset_config = RESET_TRST_AND_SRST;
++	/* Original versions cared about the order of these tokens:
++	 *   reset_config signals [combination [trst_type [srst_type]]]
++	 * They also clobbered the previous configuration even on error.
++	 *
++	 * Here we don't care about the order, and only change values
++	 * which have been explicitly specified.
++	 */
++	for (; argc; argc--, args++) {
++		int tmp = 0;
++		int m;
++
++		/* signals */
++		m = RESET_HAS_TRST | RESET_HAS_SRST;
++		if (strcmp(*args, &quot;none&quot;) == 0)
++			tmp = RESET_NONE;
++		else if (strcmp(*args, &quot;trst_only&quot;) == 0)
++			tmp = RESET_HAS_TRST;
++		else if (strcmp(*args, &quot;srst_only&quot;) == 0)
++			tmp = RESET_HAS_SRST;
++		else if (strcmp(*args, &quot;trst_and_srst&quot;) == 0)
++			tmp = RESET_HAS_TRST | RESET_HAS_SRST;
+ 		else
+-		{
+-			LOG_ERROR(&quot;(1) invalid reset_config argument (%s), defaulting to none&quot;, args[0]);
+-			jtag_reset_config = RESET_NONE;
++			m = 0;
++		if (mask &amp; m) {
++			LOG_ERROR(&quot;extra reset_config %s spec (%s)&quot;,
++					&quot;signal&quot;, *args);
+ 			return ERROR_INVALID_ARGUMENTS;
+ 		}
+-	}
++		if (m)
++			goto next;
+ 
+-	if (argc &gt;= 2)
+-	{
+-		if (strcmp(args[1], &quot;separate&quot;) == 0)
+-		{
+-			/* seperate reset lines - default */
+-		} else
+-		{
+-			if (strcmp(args[1], &quot;srst_pulls_trst&quot;) == 0)
+-				jtag_reset_config |= RESET_SRST_PULLS_TRST;
+-			else if (strcmp(args[1], &quot;trst_pulls_srst&quot;) == 0)
+-				jtag_reset_config |= RESET_TRST_PULLS_SRST;
+-			else if (strcmp(args[1], &quot;combined&quot;) == 0)
+-				jtag_reset_config |= RESET_SRST_PULLS_TRST | RESET_TRST_PULLS_SRST;
+-			else
+-			{
+-				LOG_ERROR(&quot;(2) invalid reset_config argument (%s), defaulting to none&quot;, args[1]);
+-				jtag_reset_config = RESET_NONE;
+-				return ERROR_INVALID_ARGUMENTS;
+-			}
++		/* combination (options for broken wiring) */
++		m = RESET_SRST_PULLS_TRST | RESET_TRST_PULLS_SRST;
++		if (strcmp(*args, &quot;separate&quot;) == 0)
++			/* separate reset lines - default */;
++		else if (strcmp(*args, &quot;srst_pulls_trst&quot;) == 0)
++			tmp |= RESET_SRST_PULLS_TRST;
++		else if (strcmp(*args, &quot;trst_pulls_srst&quot;) == 0)
++			tmp |= RESET_TRST_PULLS_SRST;
++		else if (strcmp(*args, &quot;combined&quot;) == 0)
++			tmp |= RESET_SRST_PULLS_TRST | RESET_TRST_PULLS_SRST;
++		else
++			m = 0;
++		if (mask &amp; m) {
++			LOG_ERROR(&quot;extra reset_config %s spec (%s)&quot;,
++					&quot;combination&quot;, *args);
++			return ERROR_INVALID_ARGUMENTS;
+ 		}
+-	}
++		if (m)
++			goto next;
+ 
+-	if (argc &gt;= 3)
+-	{
+-		if (strcmp(args[2], &quot;trst_open_drain&quot;) == 0)
+-			jtag_reset_config |= RESET_TRST_OPEN_DRAIN;
+-		else if (strcmp(args[2], &quot;trst_push_pull&quot;) == 0)
+-			jtag_reset_config &amp;= ~RESET_TRST_OPEN_DRAIN;
++		/* trst_type (NOP without HAS_TRST) */
++		m = RESET_TRST_OPEN_DRAIN;
++		if (strcmp(*args, &quot;trst_open_drain&quot;) == 0)
++			tmp |= RESET_TRST_OPEN_DRAIN;
++		else if (strcmp(*args, &quot;trst_push_pull&quot;) == 0)
++			/* push/pull from adapter - default */;
+ 		else
+-		{
+-			LOG_ERROR(&quot;(3) invalid reset_config argument (%s) defaulting to none&quot;, args[2] );
+-			jtag_reset_config = RESET_NONE;
++			m = 0;
++		if (mask &amp; m) {
++			LOG_ERROR(&quot;extra reset_config %s spec (%s)&quot;,
++					&quot;trst_type&quot;, *args);
+ 			return ERROR_INVALID_ARGUMENTS;
+ 		}
+-	}
++		if (m)
++			goto next;
+ 
+-	if (argc &gt;= 4)
+-	{
+-		if (strcmp(args[3], &quot;srst_push_pull&quot;) == 0)
+-			jtag_reset_config |= RESET_SRST_PUSH_PULL;
+-		else if (strcmp(args[3], &quot;srst_open_drain&quot;) == 0)
+-			jtag_reset_config &amp;= ~RESET_SRST_PUSH_PULL;
++		/* srst_type (NOP without HAS_SRST) */
++		m |= RESET_SRST_PUSH_PULL;
++		if (strcmp(*args, &quot;srst_push_pull&quot;) == 0)
++			tmp |= RESET_SRST_PUSH_PULL;
++		else if (strcmp(*args, &quot;srst_open_drain&quot;) == 0)
++			/* open drain from adapter - default */;
+ 		else
+-		{
+-			LOG_ERROR(&quot;(4) invalid reset_config argument (%s), defaulting to none&quot;, args[3]);
+-			jtag_reset_config = RESET_NONE;
++			m = 0;
++		if (mask &amp; m) {
++			LOG_ERROR(&quot;extra reset_config %s spec (%s)&quot;,
++					&quot;srst_type&quot;, *args);
+ 			return ERROR_INVALID_ARGUMENTS;
+ 		}
++		if (m)
++			goto next;
++
++		/* caller provided nonsense; fail */
++		LOG_ERROR(&quot;unknown reset_config flag (%s)&quot;, *args);
++		return ERROR_INVALID_ARGUMENTS;
++
++next:
++		/* Remember the bits which were specified (mask)
++		 * and their new values (new_cfg).
++		 */
++		mask |= m;
++		new_cfg |= tmp;
+ 	}
+ 
++	/* clear previous values of those bits, save new values */
++	jtag_reset_config &amp;= ~mask;
++	jtag_reset_config |= new_cfg;
++
+ 	return ERROR_OK;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000727.html">[Openocd-svn] r1943 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000729.html">[Openocd-svn] r1945 - in trunk: doc src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#728">[ date ]</a>
+              <a href="thread.html#728">[ thread ]</a>
+              <a href="subject.html#728">[ subject ]</a>
+              <a href="author.html#728">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

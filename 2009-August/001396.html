@@ -1,0 +1,254 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2613 - in trunk: doc src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2613%20-%20in%20trunk%3A%20doc%20src/target&In-Reply-To=%3C200908250709.n7P79nvn006306%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001395.html">
+   <LINK REL="Next"  HREF="001397.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2613 - in trunk: doc src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2613%20-%20in%20trunk%3A%20doc%20src/target&In-Reply-To=%3C200908250709.n7P79nvn006306%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2613 - in trunk: doc src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Tue Aug 25 09:09:49 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001395.html">[Openocd-svn] r2612 - trunk/src/svf
+</A></li>
+        <LI>Next message: <A HREF="001397.html">[Openocd-svn] r2614 - trunk/tcl/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1396">[ date ]</a>
+              <a href="thread.html#1396">[ thread ]</a>
+              <a href="subject.html#1396">[ subject ]</a>
+              <a href="author.html#1396">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-08-25 09:09:48 +0200 (Tue, 25 Aug 2009)
+New Revision: 2613
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/target/xscale.c
+Log:
+Michael Schwingen &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">rincewind at discworld.dascon.de</A>&gt; The attached patch adds a &quot;xscale vector_table&quot; command that allows to set
+the values that are written in the mini-IC (plus documentation updates that
+describe why this is needed).
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-08-25 07:04:25 UTC (rev 2612)
++++ trunk/doc/openocd.texi	2009-08-25 07:09:48 UTC (rev 2613)
+@@ -4877,6 +4877,52 @@
+ @subsection XScale specific commands
+ @cindex XScale
+ 
++Some notes about the debug implementation on the XScale CPUs:
++
++The XScale CPU provides a special debug-only mini-instruction cache
++(mini-IC) in which exception vectors and target-resident debug handler
++code are placed by OpenOCD. In order to get access to the CPU, OpenOCD
++must point vector 0 (the reset vector) to the entry of the debug
++handler. However, this means that the complete first cacheline in the
++mini-IC is marked valid, which makes the CPU fetch all exception
++handlers from the mini-IC, ignoring the code in RAM.
++
++OpenOCD currently does not sync the mini-IC entries with the RAM
++contents (which would fail anyway while the target is running), so
++the user must provide appropriate values using the @code{xscale
++vector_table} command.
++
++It is recommended to place a pc-relative indirect branch in the vector
++table, and put the branch destination somewhere in memory. Doing so
++makes sure the code in the vector table stays constant regardless of
++code layout in memory:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++_vectors:
++        ldr     pc,[pc,#0x100-8]
++        ldr     pc,[pc,#0x100-8]
++        ldr     pc,[pc,#0x100-8]
++        ldr     pc,[pc,#0x100-8]
++        ldr     pc,[pc,#0x100-8]
++        ldr     pc,[pc,#0x100-8]
++        ldr     pc,[pc,#0x100-8]
++        ldr     pc,[pc,#0x100-8]
++        .org 0x100
++        .long real_reset_vector
++        .long real_ui_handler
++        .long real_swi_handler
++        .long real_pf_abort
++        .long real_data_abort
++        .long 0 /* unused */
++        .long real_irq_handler
++        .long real_fiq_handler
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
++
++The debug handler must be placed somewhere in the address space using
++the @code{xscale debug_handler} command.  The allowed locations for the
++debug handler are either (0x800 - 0x1fef800) or (0xfe000800 -
++0xfffff800). The default value is 0xfe000800.
++
++
+ These commands are available to XScale based CPUs,
+ which are implementations of the ARMv5TE architecture.
+ 
+@@ -4938,6 +4984,33 @@
+ If the optional parameter is provided, first set the bitmask to that value.
+ @end deffn
+ 
++The mask bits correspond with bit 16..23 in the DCSR:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++0x01    Trap Reset
++0x02    Trap Undefined Instructions
++0x04    Trap Software Interrupt
++0x08    Trap Prefetch Abort
++0x10    Trap Data Abort
++0x20    reserved
++0x40    Trap IRQ
++0x80    Trap FIQ
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
++
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at anchor</A>{xscale vector_table}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {xscale vector_table} [&lt;low|high&gt; &lt;index&gt; &lt;value&gt;]
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at cindex</A> vector_table
++
++Set an entry in the mini-IC vector table. There are two tables: one for
++low vectors (at 0x00000000), and one for high vectors (0xFFFF0000), each
++holding the 8 exception vectors. @var{index} can be 1-7, because vector 0
++points to the debug handler entry and can not be overwritten.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at var</A>{value} holds the 32-bit opcode that is placed in the mini-IC.
++
++Without arguments, the current settings are displayed.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+ @section ARMv6 Architecture
+ @cindex ARMv6
+ 
+
+Modified: trunk/src/target/xscale.c
+===================================================================
+--- trunk/src/target/xscale.c	2009-08-25 07:04:25 UTC (rev 2612)
++++ trunk/src/target/xscale.c	2009-08-25 07:09:48 UTC (rev 2613)
+@@ -5,6 +5,9 @@
+  *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
+  *                                                                         *
++ *   Copyright (C) 2009 Michael Schwingen                                  *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">michael at schwingen.org</A>                                                 *
++ *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -3384,6 +3387,65 @@
+ }
+ 
+ 
++int xscale_handle_vector_table_command(command_context_t *cmd_ctx, char *cmd, char **args, int argc)
++{
++	target_t *target = get_current_target(cmd_ctx);
++	armv4_5_common_t *armv4_5;
++	xscale_common_t *xscale;
++	int err = 0;
++
++	if (xscale_get_arch_pointers(target, &amp;armv4_5, &amp;xscale) != ERROR_OK)
++	{
++		return ERROR_OK;
++	}
++
++	if (argc == 0) /* print current settings */
++	{
++		int idx;
++
++		command_print(cmd_ctx, &quot;active user-set static vectors:&quot;);
++		for (idx = 1; idx &lt; 8; idx++)
++			if (xscale-&gt;static_low_vectors_set &amp; (1 &lt;&lt; idx))
++				command_print(cmd_ctx, &quot;low  %d: 0x%x&quot;, idx, xscale-&gt;static_low_vectors[idx]);
++		for (idx = 1; idx &lt; 8; idx++)
++			if (xscale-&gt;static_high_vectors_set &amp; (1 &lt;&lt; idx))
++				command_print(cmd_ctx, &quot;high %d: 0x%x&quot;, idx, xscale-&gt;static_high_vectors[idx]);
++		return ERROR_OK;
++	}
++
++	if (argc != 3)
++		err = 1;
++	else
++	{
++		int idx;
++		uint32_t vec;
++		idx = strtoul(args[1], NULL, 0);
++		vec = strtoul(args[2], NULL, 0);
++
++		if (idx &lt; 1 || idx &gt;= 8)
++			err = 1;
++
++		if (!err &amp;&amp; strcmp(args[0], &quot;low&quot;) == 0)
++		{
++			xscale-&gt;static_low_vectors_set |= (1&lt;&lt;idx);
++			xscale-&gt;static_low_vectors[idx] = vec;
++		}
++		else if (!err &amp;&amp; (strcmp(args[0], &quot;high&quot;) == 0))
++		{
++			xscale-&gt;static_high_vectors_set |= (1&lt;&lt;idx);
++			xscale-&gt;static_high_vectors[idx] = vec;
++		}
++		else
++			err = 1;
++	}
++
++	if (err)
++		command_print(cmd_ctx, &quot;usage: xscale vector_table &lt;high|low&gt; &lt;index&gt; &lt;code&gt;&quot;);
++
++	return ERROR_OK;
++}
++
++
+ int xscale_handle_trace_buffer_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
+ 	target_t *target = get_current_target(cmd_ctx);
+@@ -3692,6 +3754,7 @@
+ 	register_command(cmd_ctx, xscale_cmd, &quot;dcache&quot;, xscale_handle_idcache_command, COMMAND_EXEC, &quot;['enable'|'disable'] the DCache&quot;);
+ 
+ 	register_command(cmd_ctx, xscale_cmd, &quot;vector_catch&quot;, xscale_handle_vector_catch_command, COMMAND_EXEC, &quot;&lt;mask&gt; of vectors that should be catched&quot;);
++	register_command(cmd_ctx, xscale_cmd, &quot;vector_table&quot;, xscale_handle_vector_table_command, COMMAND_EXEC, &quot;&lt;high|low&gt; &lt;index&gt; &lt;code&gt; set static code for exception handler entry&quot;);
+ 
+ 	register_command(cmd_ctx, xscale_cmd, &quot;trace_buffer&quot;, xscale_handle_trace_buffer_command, COMMAND_EXEC, &quot;&lt;enable | disable&gt; ['fill' [n]|'wrap']&quot;);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001395.html">[Openocd-svn] r2612 - trunk/src/svf
+</A></li>
+	<LI>Next message: <A HREF="001397.html">[Openocd-svn] r2614 - trunk/tcl/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1396">[ date ]</a>
+              <a href="thread.html#1396">[ thread ]</a>
+              <a href="subject.html#1396">[ subject ]</a>
+              <a href="author.html#1396">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2646 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2646%20-%20trunk/src/target&In-Reply-To=%3C200908280947.n7S9lSFx008244%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001428.html">
+   <LINK REL="Next"  HREF="001430.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2646 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2646%20-%20trunk/src/target&In-Reply-To=%3C200908280947.n7S9lSFx008244%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2646 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Fri Aug 28 11:47:28 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001428.html">[Openocd-svn] r2645 - trunk/tcl/board
+</A></li>
+        <LI>Next message: <A HREF="001430.html">[Openocd-svn] r2647 - in trunk: . src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1429">[ date ]</a>
+              <a href="thread.html#1429">[ thread ]</a>
+              <a href="subject.html#1429">[ subject ]</a>
+              <a href="author.html#1429">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-08-28 11:47:19 +0200 (Fri, 28 Aug 2009)
+New Revision: 2646
+
+Modified:
+   trunk/src/target/arm7_9_common.c
+   trunk/src/target/arm7_9_common.h
+Log:
+restore ICE watchpoint registers when the *last* software breakpoint is removed
+
+Modified: trunk/src/target/arm7_9_common.c
+===================================================================
+--- trunk/src/target/arm7_9_common.c	2009-08-28 06:53:35 UTC (rev 2645)
++++ trunk/src/target/arm7_9_common.c	2009-08-28 09:47:19 UTC (rev 2646)
+@@ -61,6 +61,7 @@
+ 	LOG_DEBUG(&quot;-&quot;);
+ 	embeddedice_write_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W0_CONTROL_VALUE], 0x0);
+ 	embeddedice_write_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W1_CONTROL_VALUE], 0x0);
++	arm7_9-&gt;sw_breakpoint_count = 0;
+ 	arm7_9-&gt;sw_breakpoints_added = 0;
+ 	arm7_9-&gt;wp0_used = 0;
+ 	arm7_9-&gt;wp1_used = arm7_9-&gt;wp1_used_default;
+@@ -274,9 +275,6 @@
+ 	}
+ 	else if (breakpoint-&gt;type == BKPT_SOFT)
+ 	{
+-		if ((retval = arm7_9_set_software_breakpoints(arm7_9)) != ERROR_OK)
+-			return retval;
+-
+ 		/* did we already set this breakpoint? */
+ 		if (breakpoint-&gt;set)
+ 			return ERROR_OK;
+@@ -329,6 +327,12 @@
+ 				return ERROR_OK;
+ 			}
+ 		}
++
++		if ((retval = arm7_9_set_software_breakpoints(arm7_9)) != ERROR_OK)
++			return retval;
++
++		arm7_9-&gt;sw_breakpoint_count++;
++
+ 		breakpoint-&gt;set = 1;
+ 	}
+ 
+@@ -415,6 +419,20 @@
+ 					return retval;
+ 				}
+ 		}
++
++		if (--arm7_9-&gt;sw_breakpoint_count==0)
++		{
++			/* We have removed the last sw breakpoint, clear the hw breakpoint we used to implement it */
++			if (arm7_9-&gt;sw_breakpoints_added == 1)
++			{
++				embeddedice_set_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W0_CONTROL_VALUE], 0);
++			}
++			else if (arm7_9-&gt;sw_breakpoints_added == 2)
++			{
++				embeddedice_set_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W1_CONTROL_VALUE], 0);
++			}
++		}
++
+ 		breakpoint-&gt;set = 0;
+ 	}
+ 
+@@ -3109,6 +3127,7 @@
+ 	arm7_9-&gt;wp_available = 0; /* this is set up in arm7_9_clear_watchpoints() */
+ 	arm7_9-&gt;wp_available_max = 2;
+ 	arm7_9-&gt;sw_breakpoints_added = 0;
++	arm7_9-&gt;sw_breakpoint_count = 0;
+ 	arm7_9-&gt;breakpoint_count = 0;
+ 	arm7_9-&gt;wp0_used = 0;
+ 	arm7_9-&gt;wp1_used = 0;
+
+Modified: trunk/src/target/arm7_9_common.h
+===================================================================
+--- trunk/src/target/arm7_9_common.h	2009-08-28 06:53:35 UTC (rev 2645)
++++ trunk/src/target/arm7_9_common.h	2009-08-28 09:47:19 UTC (rev 2646)
+@@ -47,6 +47,7 @@
+ 	uint32_t arm_bkpt; /**&lt; ARM breakpoint instruction */
+ 	uint16_t thumb_bkpt; /**&lt; Thumb breakpoint instruction */
+ 	int sw_breakpoints_added; /**&lt; Specifies which watchpoint software breakpoints are setup on */
++	int sw_breakpoint_count; /**&lt; keep track of number of software breakpoints we have set */
+ 	int breakpoint_count; /**&lt; Current number of set breakpoints */
+ 	int wp_available; /**&lt; Current number of available watchpoint units */
+ 	int wp_available_max; /**&lt; Maximum number of available watchpoint units */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001428.html">[Openocd-svn] r2645 - trunk/tcl/board
+</A></li>
+	<LI>Next message: <A HREF="001430.html">[Openocd-svn] r2647 - in trunk: . src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1429">[ date ]</a>
+              <a href="thread.html#1429">[ thread ]</a>
+              <a href="subject.html#1429">[ subject ]</a>
+              <a href="author.html#1429">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

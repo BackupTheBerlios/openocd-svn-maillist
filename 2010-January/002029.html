@@ -1,0 +1,245 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-103-gd91941d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-103-gd91941d&In-Reply-To=%3CE1NV1N2-0006Xp-1B%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002028.html">
+   <LINK REL="Next"  HREF="002030.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-103-gd91941d</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-103-gd91941d&In-Reply-To=%3CE1NV1N2-0006Xp-1B%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-103-gd91941d">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Wed Jan 13 12:26:38 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002028.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-102-gb8e930e
+</A></li>
+        <LI>Next message: <A HREF="002030.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-105-gb60dd35
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2029">[ date ]</a>
+              <a href="thread.html#2029">[ thread ]</a>
+              <a href="subject.html#2029">[ subject ]</a>
+              <a href="author.html#2029">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  d91941d5a01ca0b9d43571edc03ba18741076cca (commit)
+      from  b8e930e3bfc78f4a0582edb8b7cec44b5c9f4cad (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit d91941d5a01ca0b9d43571edc03ba18741076cca
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Wed Jan 13 03:16:37 2010 -0800
+
+    Cortex-M3: improved core exception handling
+    
+    This updates three aspects of debugger/exception interactions:
+    
+     - Save the user's &quot;vector_catch&quot; setting, and restore it after reset.
+       Previously, it was obliterated (rather annoyingly) each time.
+    
+     - Don't catch BusFault and HardFault exceptions unless the user says
+       to do so.  Target firmware may need to handle them.
+    
+     - Don't modify SHCSR to prevent escalating BusFault to HardFault.
+       Target firmware may expect to handle it as a HardFault.
+    
+    Those simplifications fix several bugs.  In one annoying case, OpenOCD
+    would cause the target to lock up on ome faults which triggered after
+    the debugger disconnected.
+    
+    NOTE:  a known remaining issue is that OpenOCD can still leave DEMCR
+    set after an otherwise-clean OpenOCD shutdown.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/NEWS b/NEWS
+index b169606..a8b2b44 100644
+--- a/NEWS
++++ b/NEWS
+@@ -34,6 +34,8 @@ Target Layer:
+ 		- watchpoint support
+ 	Cortex-M3
+ 		- Exposed DWT registers like cycle counter
++		- vector_catch settings not clobbered by resets
++		- no longer interferes with firmware's fault handling
+ 	ETM, ETB
+ 		- &quot;trigger_percent&quot; command moved ETM --&gt; ETB
+ 		- &quot;etm trigger_debug&quot; command added
+diff --git a/src/target/armv7m.h b/src/target/armv7m.h
+index ac559b9..86caae2 100644
+--- a/src/target/armv7m.h
++++ b/src/target/armv7m.h
+@@ -106,9 +106,14 @@ struct armv7m_common
+ 	int exception_number;
+ 	struct swjdp_common swjdp_info;
+ 
++	uint32_t demcr;
++
+ 	/* Direct processor core register read and writes */
+-	int (*load_core_reg_u32)(struct target *target, enum armv7m_regtype type, uint32_t num, uint32_t *value);
+-	int (*store_core_reg_u32)(struct target *target, enum armv7m_regtype type, uint32_t num, uint32_t value);
++	int (*load_core_reg_u32)(struct target *target,
++		enum armv7m_regtype type, uint32_t num, uint32_t *value);
++	int (*store_core_reg_u32)(struct target *target,
++		enum armv7m_regtype type, uint32_t num, uint32_t value);
++
+ 	/* register cache to processor synchronization */
+ 	int (*read_core_reg)(struct target *target, unsigned num);
+ 	int (*write_core_reg)(struct target *target, unsigned num);
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index c6b1bb2..48f8114 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -185,11 +185,12 @@ static int cortex_m3_endreset_event(struct target *target)
+ 	int i;
+ 	uint32_t dcb_demcr;
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
++	struct armv7m_common *armv7m = &amp;cortex_m3-&gt;armv7m;
+ 	struct swjdp_common *swjdp = &amp;cortex_m3-&gt;armv7m.swjdp_info;
+ 	struct cortex_m3_fp_comparator *fp_list = cortex_m3-&gt;fp_comparator_list;
+ 	struct cortex_m3_dwt_comparator *dwt_list = cortex_m3-&gt;dwt_comparator_list;
+ 
+-	/* FIXME handling of DEMCR clobbers vector_catch config ... */
++	/* REVISIT The four debug monitor bits are currently ignored... */
+ 	mem_ap_read_atomic_u32(swjdp, DCB_DEMCR, &amp;dcb_demcr);
+ 	LOG_DEBUG(&quot;DCB_DEMCR = 0x%8.8&quot; PRIx32 &quot;&quot;,dcb_demcr);
+ 
+@@ -204,21 +205,14 @@ static int cortex_m3_endreset_event(struct target *target)
+ 	/* clear any interrupt masking */
+ 	cortex_m3_write_debug_halt_mask(target, 0, C_MASKINTS);
+ 
+-	/* Enable trace and DWT; trap hard and bus faults.
++	/* Enable features controlled by ITM and DWT blocks, and catch only
++	 * the vectors we were told to pay attention to.
+ 	 *
+-	 * REVISIT why trap those two?  And why trash the vector_catch
+-	 * config, instead of preserving it?  Catching HARDERR and BUSERR
+-	 * will interfere with code that handles those itself...
++	 * Target firmware is responsible for all fault handling policy
++	 * choices *EXCEPT* explicitly scripted overrides like &quot;vector_catch&quot;
++	 * or manual updates to the NVIC SHCSR and CCR registers.
+ 	 */
+-	mem_ap_write_u32(swjdp, DCB_DEMCR, TRCENA | VC_HARDERR | VC_BUSERR);
+-
+-	/* Monitor bus faults as such (instead of as generic HARDERR), but
+-	 * leave memory management and usage faults disabled.
+-	 *
+-	 * REVISIT setting BUSFAULTENA interferes with code which relies
+-	 * on the default setting.  Why do it?
+-	 */
+-	mem_ap_write_u32(swjdp, NVIC_SHCSR, SHCSR_BUSFAULTENA);
++	mem_ap_write_u32(swjdp, DCB_DEMCR, TRCENA | armv7m-&gt;demcr);
+ 
+ 	/* Paranoia: evidently some (early?) chips don't preserve all the
+ 	 * debug state (including FBP, DWT, etc) across reset...
+@@ -533,7 +527,7 @@ static int cortex_m3_soft_reset_halt(struct target *target)
+ 	uint32_t dcb_dhcsr = 0;
+ 	int retval, timeout = 0;
+ 
+-	/* Enter debug state on reset; see end_reset_event() */
++	/* Enter debug state on reset; restore DEMCR in endreset_event() */
+ 	mem_ap_write_u32(swjdp, DCB_DEMCR,
+ 			TRCENA | VC_HARDERR | VC_BUSERR | VC_CORERESET);
+ 
+@@ -782,14 +776,15 @@ static int cortex_m3_assert_reset(struct target *target)
+ 
+ 		/* clear C_HALT in dhcsr reg */
+ 		cortex_m3_write_debug_halt_mask(target, 0, C_HALT);
+-
+-		/* Enter debug state on reset, cf. end_reset_event() */
+-		mem_ap_write_u32(swjdp, DCB_DEMCR,
+-				TRCENA | VC_HARDERR | VC_BUSERR);
+ 	}
+ 	else
+ 	{
+-		/* Enter debug state on reset, cf. end_reset_event() */
++		/* Halt in debug on reset; endreset_event() restores DEMCR.
++		 *
++		 * REVISIT catching BUSERR presumably helps to defend against
++		 * bad vector table entries.  Should this include MMERR or
++		 * other flags too?
++		 */
+ 		mem_ap_write_atomic_u32(swjdp, DCB_DEMCR,
+ 				TRCENA | VC_HARDERR | VC_BUSERR | VC_CORERESET);
+ 	}
+@@ -1938,12 +1933,20 @@ COMMAND_HANDLER(handle_cortex_m3_vector_catch_command)
+ 			}
+ 		}
+ write:
++		/* For now, armv7m-&gt;demcr only stores vector catch flags. */
++		armv7m-&gt;demcr = catch;
++
+ 		demcr &amp;= ~0xffff;
+ 		demcr |= catch;
+ 
+-		/* write, but don't assume it stuck */
++		/* write, but don't assume it stuck (why not??) */
+ 		mem_ap_write_u32(swjdp, DCB_DEMCR, demcr);
+ 		mem_ap_read_atomic_u32(swjdp, DCB_DEMCR, &amp;demcr);
++
++		/* FIXME be sure to clear DEMCR on clean server shutdown.
++		 * Otherwise the vector catch hardware could fire when there's
++		 * no debugger hooked up, causing much confusion...
++		 */
+ 	}
+ 
+ 	for (unsigned i = 0; i &lt; ARRAY_SIZE(vec_ids); i++)
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ NEWS                   |    2 ++
+ src/target/armv7m.h    |    9 +++++++--
+ src/target/cortex_m3.c |   45 ++++++++++++++++++++++++---------------------
+ 3 files changed, 33 insertions(+), 23 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002028.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-102-gb8e930e
+</A></li>
+	<LI>Next message: <A HREF="002030.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-105-gb60dd35
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2029">[ date ]</a>
+              <a href="thread.html#2029">[ thread ]</a>
+              <a href="subject.html#2029">[ subject ]</a>
+              <a href="author.html#2029">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

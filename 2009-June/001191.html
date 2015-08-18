@@ -1,0 +1,200 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2407 - trunk/src/flash
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2407%20-%20trunk/src/flash&In-Reply-To=%3C200906271651.n5RGpkC5012722%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001190.html">
+   <LINK REL="Next"  HREF="001192.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2407 - trunk/src/flash</H1>
+    <B>duane at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2407%20-%20trunk/src/flash&In-Reply-To=%3C200906271651.n5RGpkC5012722%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2407 - trunk/src/flash">duane at mail.berlios.de
+       </A><BR>
+    <I>Sat Jun 27 18:51:46 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001190.html">[Openocd-svn] r2406 - trunk/src/helper
+</A></li>
+        <LI>Next message: <A HREF="001192.html">[Openocd-svn] r2408 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1191">[ date ]</a>
+              <a href="thread.html#1191">[ thread ]</a>
+              <a href="subject.html#1191">[ subject ]</a>
+              <a href="author.html#1191">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: duane
+Date: 2009-06-27 18:51:41 +0200 (Sat, 27 Jun 2009)
+New Revision: 2407
+
+Modified:
+   trunk/src/flash/at91sam3.c
+Log:
+Change from alloca() to malloc()
+
+Modified: trunk/src/flash/at91sam3.c
+===================================================================
+--- trunk/src/flash/at91sam3.c	2009-06-27 16:44:35 UTC (rev 2406)
++++ trunk/src/flash/at91sam3.c	2009-06-27 16:51:41 UTC (rev 2407)
+@@ -2121,19 +2121,25 @@
+ 	struct sam3_bank_private *pPrivate;
+ 	uint8_t *pagebuffer;
+ 
++	// incase we bail further below, set this to null
++	pagebuffer = NULL;
++
+ 	// ignore dumb requests
+ 	if (count == 0) {
+-		return ERROR_OK;
++		r = ERROR_OK;
++		goto done;
+ 	}
+ 
+ 	if (bank-&gt;target-&gt;state != TARGET_HALTED) {
+ 		LOG_ERROR(&quot;Target not halted&quot;);
+-		return ERROR_TARGET_NOT_HALTED;
++		r = ERROR_TARGET_NOT_HALTED;
++		goto done;
+ 	}
+ 
+ 	pPrivate = get_sam3_bank_private(bank);
+ 	if (!(pPrivate-&gt;probed)) {
+-		return ERROR_FLASH_BANK_NOT_PROBED;
++		r = ERROR_FLASH_BANK_NOT_PROBED;
++		goto done;
+ 	}
+ 
+ 
+@@ -2143,10 +2149,16 @@
+ 				  (unsigned int)(offset),
+ 				  (unsigned int)(count),
+ 				  (unsigned int)(pPrivate-&gt;size_bytes));
+-		return ERROR_FAIL;
++		r = ERROR_FAIL;
++		goto done;
+ 	}
+ 
+-	pagebuffer = alloca(pPrivate-&gt;page_size);
++	pagebuffer = malloc(pPrivate-&gt;page_size);
++	if( !pagebuffer ){
++		LOG_ERROR(&quot;No memory for %d Byte page buffer&quot;, (int)(pPrivate-&gt;page_size));
++		r = ERROR_FAIL;
++		goto done;
++	}
+ 
+ 	// what page do we start &amp; end in?
+ 	page_cur = offset / pPrivate-&gt;page_size;
+@@ -2167,7 +2179,7 @@
+ 		LOG_DEBUG(&quot;Special case, all in one page&quot;);
+ 		r = sam3_page_read(pPrivate, page_cur, pagebuffer);
+ 		if (r != ERROR_OK) {
+-			return r;
++			goto done;
+ 		}
+ 
+ 		page_offset = (offset &amp; (pPrivate-&gt;page_size-1));
+@@ -2177,9 +2189,10 @@
+ 
+ 		r = sam3_page_write(pPrivate, page_cur, pagebuffer);
+ 		if (r != ERROR_OK) {
+-			return r;
++			goto done;
+ 		}
+-		return ERROR_OK;
++		r = ERROR_OK;
++		goto done;
+ 	}
+ 
+ 	// non-aligned start
+@@ -2189,7 +2202,7 @@
+ 		// read the partial
+ 		r = sam3_page_read(pPrivate, page_cur, pagebuffer);
+ 		if (r != ERROR_OK) {
+-			return r;
++			goto done;
+ 		}
+ 
+ 		// over-write with new data
+@@ -2200,7 +2213,7 @@
+ 
+ 		r = sam3_page_write(pPrivate, page_cur, pagebuffer);
+ 		if (r != ERROR_OK) {
+-			return r;
++			goto done;
+ 		}
+ 
+ 		count  -= n;
+@@ -2219,7 +2232,7 @@
+ 		   (count &gt;= pPrivate-&gt;page_size)) {
+ 		r = sam3_page_write(pPrivate, page_cur, buffer);
+ 		if (r != ERROR_OK) {
+-			return r;
++			goto done;
+ 		}
+ 		count    -= pPrivate-&gt;page_size;
+ 		buffer   += pPrivate-&gt;page_size;
+@@ -2232,19 +2245,24 @@
+ 		// we have a partial page
+ 		r = sam3_page_read(pPrivate, page_cur, pagebuffer);
+ 		if (r != ERROR_OK) {
+-			return r;
++			goto done;
+ 		}
+ 		// data goes at start
+ 		memcpy(pagebuffer, buffer, count);
+ 		r = sam3_page_write(pPrivate, page_cur, pagebuffer);
+ 		if (r != ERROR_OK) {
+-			return r;
++			goto done;
+ 		}
+ 		buffer += count;
+ 		count  -= count;
+ 	}
+ 	LOG_DEBUG(&quot;Done!&quot;);
+-	return ERROR_OK;
++	r = ERROR_OK;
++ done:
++	if( pagebuffer ){
++		free(pagebuffer);
++	}
++	return r;
+ }
+ 
+ static int
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001190.html">[Openocd-svn] r2406 - trunk/src/helper
+</A></li>
+	<LI>Next message: <A HREF="001192.html">[Openocd-svn] r2408 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1191">[ date ]</a>
+              <a href="thread.html#1191">[ thread ]</a>
+              <a href="subject.html#1191">[ subject ]</a>
+              <a href="author.html#1191">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

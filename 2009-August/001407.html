@@ -1,0 +1,262 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2624 - in trunk: doc src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2624%20-%20in%20trunk%3A%20doc%20src/target&In-Reply-To=%3C200908252002.n7PK2JKF003830%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001406.html">
+   <LINK REL="Next"  HREF="001408.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2624 - in trunk: doc src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2624%20-%20in%20trunk%3A%20doc%20src/target&In-Reply-To=%3C200908252002.n7PK2JKF003830%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2624 - in trunk: doc src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Tue Aug 25 22:02:19 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001406.html">[Openocd-svn] r2623 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="001408.html">[Openocd-svn] r2625 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1407">[ date ]</a>
+              <a href="thread.html#1407">[ thread ]</a>
+              <a href="subject.html#1407">[ subject ]</a>
+              <a href="author.html#1407">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-08-25 22:02:19 +0200 (Tue, 25 Aug 2009)
+New Revision: 2624
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/target/armv4_5.c
+   trunk/src/target/cortex_m3.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt; Tweak disassembly commands:
+
+ For ARMv4/ARMv5:
+  - better command parameter error checking
+  - don't require an instruction count; default to one
+  - recognize thumb function addresses
+  - make function static
+  - shorten some too-long lines
+ For Cortex-M3:
+  - don't require an instruction count; default to one
+
+With the relevant doc updates.
+---
+Nyet done:  invoke the thumb2 disassembler on v4/v5,
+to better handle branch instructions.
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-08-25 19:59:55 UTC (rev 2623)
++++ trunk/doc/openocd.texi	2009-08-25 20:02:19 UTC (rev 2624)
+@@ -4612,10 +4612,12 @@
+ that is not currently supported in OpenOCD.)
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffn</A> Command {armv4_5 disassemble} address count [thumb]
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {armv4_5 disassemble} address [count [@option{thumb}]]
+ @cindex disassemble
+ Disassembles @var{count} instructions starting at @var{address}.
+-If @option{thumb} is specified, Thumb (16-bit) instructions are used;
++If @var{count} is not specified, a single instruction is disassembled.
++If @option{thumb} is specified, or the low bit of the address is set,
++Thumb (16-bit) instructions are used;
+ else ARM (32-bit) instructions are used.
+ (Processors may also support the Jazelle state, but
+ those instructions are not currently understood by OpenOCD.)
+@@ -5086,9 +5088,10 @@
+ @subsection Cortex-M3 specific commands
+ @cindex Cortex-M3
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffn</A> Command {cortex_m3 disassemble} address count
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {cortex_m3 disassemble} address [count]
+ @cindex disassemble
+ Disassembles @var{count} Thumb2 instructions starting at @var{address}.
++If @var{count} is not specified, a single instruction is disassembled.
+ @end deffn
+ 
+ @deffn Command {cortex_m3 maskisr} (@option{on}|@option{off})
+
+Modified: trunk/src/target/armv4_5.c
+===================================================================
+--- trunk/src/target/armv4_5.c	2009-08-25 19:59:55 UTC (rev 2623)
++++ trunk/src/target/armv4_5.c	2009-08-25 20:02:19 UTC (rev 2624)
+@@ -387,13 +387,15 @@
+ 	return ERROR_OK;
+ }
+ 
+-int handle_armv4_5_disassemble_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++static int
++handle_armv4_5_disassemble_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
+ {
+ 	int retval = ERROR_OK;
+ 	target_t *target = get_current_target(cmd_ctx);
+ 	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+ 	uint32_t address;
+-	int count;
++	int count = 1;
+ 	int i;
+ 	arm_instruction_t cur_instruction;
+ 	uint32_t opcode;
+@@ -406,19 +408,32 @@
+ 		return ERROR_OK;
+ 	}
+ 
+-	if (argc &lt; 2)
+-	{
+-		command_print(cmd_ctx, &quot;usage: armv4_5 disassemble &lt;address&gt; &lt;count&gt; ['thumb']&quot;);
++	switch (argc) {
++	case 3:
++		if (strcmp(args[2], &quot;thumb&quot;) != 0)
++			goto usage;
++		thumb = 1;
++		/* FALL THROUGH */
++	case 2:
++		count = strtoul(args[1], NULL, 0);
++		/* FALL THROUGH */
++	case 1:
++		address = strtoul(args[0], NULL, 0);
++		if (address &amp; 0x01) {
++			if (!thumb) {
++				command_print(cmd_ctx, &quot;Disassemble as Thumb&quot;);
++				thumb = 1;
++			}
++			address &amp;= ~1;
++		}
++		break;
++	default:
++usage:
++		command_print(cmd_ctx,
++			&quot;usage: armv4_5 disassemble &lt;address&gt; [&lt;count&gt; ['thumb']]&quot;);
+ 		return ERROR_OK;
+ 	}
+ 
+-	address = strtoul(args[0], NULL, 0);
+-	count = strtoul(args[1], NULL, 0);
+-
+-	if (argc &gt;= 3)
+-		if (strcmp(args[2], &quot;thumb&quot;) == 0)
+-			thumb = 1;
+-
+ 	for (i = 0; i &lt; count; i++)
+ 	{
+ 		if (thumb)
+@@ -453,12 +468,20 @@
+ {
+ 	command_t *armv4_5_cmd;
+ 
+-	armv4_5_cmd = register_command(cmd_ctx, NULL, &quot;armv4_5&quot;, NULL, COMMAND_ANY, &quot;armv4/5 specific commands&quot;);
++	armv4_5_cmd = register_command(cmd_ctx, NULL, &quot;armv4_5&quot;,
++			NULL, COMMAND_ANY,
++			&quot;armv4/5 specific commands&quot;);
+ 
+-	register_command(cmd_ctx, armv4_5_cmd, &quot;reg&quot;, handle_armv4_5_reg_command, COMMAND_EXEC, &quot;display ARM core registers&quot;);
+-	register_command(cmd_ctx, armv4_5_cmd, &quot;core_state&quot;, handle_armv4_5_core_state_command, COMMAND_EXEC, &quot;display/change ARM core state &lt;arm | thumb&gt;&quot;);
++	register_command(cmd_ctx, armv4_5_cmd, &quot;reg&quot;,
++			handle_armv4_5_reg_command, COMMAND_EXEC,
++			&quot;display ARM core registers&quot;);
++	register_command(cmd_ctx, armv4_5_cmd, &quot;core_state&quot;,
++			handle_armv4_5_core_state_command, COMMAND_EXEC,
++			&quot;display/change ARM core state &lt;arm | thumb&gt;&quot;);
++	register_command(cmd_ctx, armv4_5_cmd, &quot;disassemble&quot;,
++			handle_armv4_5_disassemble_command, COMMAND_EXEC,
++			&quot;disassemble instructions &lt;address&gt; [&lt;count&gt; ['thumb']]&quot;);
+ 
+-	register_command(cmd_ctx, armv4_5_cmd, &quot;disassemble&quot;, handle_armv4_5_disassemble_command, COMMAND_EXEC, &quot;disassemble instructions &lt;address&gt; &lt;count&gt; ['thumb']&quot;);
+ 	return ERROR_OK;
+ }
+ 
+
+Modified: trunk/src/target/cortex_m3.c
+===================================================================
+--- trunk/src/target/cortex_m3.c	2009-08-25 19:59:55 UTC (rev 2623)
++++ trunk/src/target/cortex_m3.c	2009-08-25 20:02:19 UTC (rev 2624)
+@@ -1702,23 +1702,27 @@
+ 	int retval = ERROR_OK;
+ 	target_t *target = get_current_target(cmd_ctx);
+ 	uint32_t address;
+-	unsigned long count;
++	unsigned long count = 1;
+ 	arm_instruction_t cur_instruction;
+ 
+-	if (argc != 2) {
++	errno = 0;
++	switch (argc) {
++	case 2:
++		count = strtoul(args[1], NULL, 0);
++		if (errno)
++			return ERROR_FAIL;
++		/* FALL THROUGH */
++	case 1:
++		address = strtoul(args[0], NULL, 0);
++		if (errno)
++			return ERROR_FAIL;
++		break;
++	default:
+ 		command_print(cmd_ctx,
+-			&quot;usage: cortex_m3 disassemble &lt;address&gt; &lt;count&gt;&quot;);
++			&quot;usage: cortex_m3 disassemble &lt;address&gt; [&lt;count&gt;]&quot;);
+ 		return ERROR_OK;
+ 	}
+ 
+-	errno = 0;
+-	address = strtoul(args[0], NULL, 0);
+-	if (errno)
+-		return ERROR_FAIL;
+-	count = strtoul(args[1], NULL, 0);
+-	if (errno)
+-		return ERROR_FAIL;
+-
+ 	while (count--) {
+ 		retval = thumb2_opcode(target, address, &amp;cur_instruction);
+ 		if (retval != ERROR_OK)
+@@ -1809,7 +1813,7 @@
+ 
+ 	register_command(cmd_ctx, cortex_m3_cmd, &quot;disassemble&quot;,
+ 			handle_cortex_m3_disassemble_command, COMMAND_EXEC,
+-			&quot;disassemble Thumb2 instructions &lt;address&gt; &lt;count&gt;&quot;);
++			&quot;disassemble Thumb2 instructions &lt;address&gt; [&lt;count&gt;]&quot;);
+ 	register_command(cmd_ctx, cortex_m3_cmd, &quot;maskisr&quot;,
+ 			handle_cortex_m3_mask_interrupts_command, COMMAND_EXEC,
+ 			&quot;mask cortex_m3 interrupts ['on'|'off']&quot;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001406.html">[Openocd-svn] r2623 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="001408.html">[Openocd-svn] r2625 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1407">[ date ]</a>
+              <a href="thread.html#1407">[ thread ]</a>
+              <a href="subject.html#1407">[ subject ]</a>
+              <a href="author.html#1407">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

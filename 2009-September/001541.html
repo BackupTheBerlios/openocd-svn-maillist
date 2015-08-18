@@ -1,0 +1,204 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2758 - in trunk: doc src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2758%20-%20in%20trunk%3A%20doc%20src/jtag&In-Reply-To=%3C200909261908.n8QJ8aeF030734%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001540.html">
+   <LINK REL="Next"  HREF="001542.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2758 - in trunk: doc src/jtag</H1>
+    <B>dbrownell at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2758%20-%20in%20trunk%3A%20doc%20src/jtag&In-Reply-To=%3C200909261908.n8QJ8aeF030734%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2758 - in trunk: doc src/jtag">dbrownell at mail.berlios.de
+       </A><BR>
+    <I>Sat Sep 26 21:08:36 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001540.html">[Openocd-svn] r2757 - trunk/tcl/target
+</A></li>
+        <LI>Next message: <A HREF="001542.html">[Openocd-svn] r2759 - in trunk/src: helper jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1541">[ date ]</a>
+              <a href="thread.html#1541">[ thread ]</a>
+              <a href="subject.html#1541">[ subject ]</a>
+              <a href="author.html#1541">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: dbrownell
+Date: 2009-09-26 21:08:34 +0200 (Sat, 26 Sep 2009)
+New Revision: 2758
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/jtag/tcl.c
+Log:
+Streamline Capture-IR handling and integrity test.
+
+Change the handling of the &quot;-ircapture&quot; and &quot;-irmask&quot; parameters
+to be slightly more sensible, given that the JTAG spec describes
+what is required, and that we already require that conformance in
+one place.  IR scan returns some bitstring with LSBs &quot;01&quot;.
+
+ - First, provide and use default values that satisfy the IEEE spec.
+   Existing TAP configs will override the defaults, but those parms
+   are no longer required.
+
+ - Second, warn if any TAP gets set up to violate the JTAG spec.
+   It's likely a bug, but maybe not; else this should be an error.
+   Improve the related diagnostics to say which TAP is affected.
+
+And associated minor fixes/cleanups to comments and diagnostics.
+
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-09-25 17:02:59 UTC (rev 2757)
++++ trunk/doc/openocd.texi	2009-09-26 19:08:34 UTC (rev 2758)
+@@ -2309,19 +2309,9 @@
+ Every TAP requires at least the following @var{configparams}:
+ 
+ @itemize @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @code{-ircapture} @var{NUMBER}
+-@*The bit pattern loaded by the TAP into the JTAG shift register
+-on entry to the @sc{ircapture} state, such as 0x01.
+-JTAG requires the two LSBs of this value to be 01.
+-The value is used to verify that instruction scans work correctly.
+ @item @code{-irlen} @var{NUMBER}
+ @*The length in bits of the
+ instruction register, such as 4 or 5 bits.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @code{-irmask} @var{NUMBER}
+-@*A mask for the IR register.
+-For some devices, there are bits in the IR that aren't used.
+-This lets OpenOCD mask them off when doing IDCODE comparisons.
+-In general, this should just be all ones for the size of the IR.
+ @end itemize
+ 
+ A TAP may also provide optional @var{configparams}:
+@@ -2340,6 +2330,18 @@
+ These codes are not required by all JTAG devices.
+ @emph{Repeat the option} as many times as required if more than one
+ ID code could appear (for example, multiple versions).
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{-ircapture} @var{NUMBER}
++@*The bit pattern loaded by the TAP into the JTAG shift register
++on entry to the @sc{ircapture} state, such as 0x01.
++JTAG requires the two LSBs of this value to be 01.
++By default, @code{-ircapture} and @code{-irmask} are set
++up to verify that two-bit value; but you may provide
++additional bits, if you know them.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{-irmask} @var{NUMBER}
++@*A mask used with @code{-ircapture}
++to verify that instruction scans work correctly.
++Such scans are not used by OpenOCD except to verify that
++there seems to be no problems with JTAG scan chain operations.
+ @end itemize
+ @end deffn
+ 
+
+Modified: trunk/src/jtag/tcl.c
+===================================================================
+--- trunk/src/jtag/tcl.c	2009-09-25 17:02:59 UTC (rev 2757)
++++ trunk/src/jtag/tcl.c	2009-09-26 19:08:34 UTC (rev 2758)
+@@ -242,13 +242,15 @@
+ 	LOG_DEBUG(&quot;Creating New Tap, Chip: %s, Tap: %s, Dotted: %s, %d params&quot;,
+ 			  pTap-&gt;chip, pTap-&gt;tapname, pTap-&gt;dotted_name, goi-&gt;argc);
+ 
+-	/* deal with options */
+-#define NTREQ_IRLEN      1
+-#define NTREQ_IRCAPTURE  2
+-#define NTREQ_IRMASK     4
++	/* IEEE specifies that the two LSBs of an IR scan are 01, so make
++	 * that the default.  The &quot;-irlen&quot; and &quot;-irmask&quot; options are only
++	 * needed to cope with nonstandard TAPs, or to specify more bits.
++	 */
++	pTap-&gt;ir_capture_mask = 0x03;
++	pTap-&gt;ir_capture_value = 0x01;
+ 
+-	/* clear them as we find them */
+-	reqbits = (NTREQ_IRLEN | NTREQ_IRCAPTURE | NTREQ_IRMASK);
++	/* clear flags for &quot;required options&quot; them as we find them */
++	reqbits = 1;
+ 
+ 	while (goi-&gt;argc) {
+ 		e = Jim_GetOpt_Nvp(goi, opts, &amp;n);
+@@ -308,31 +310,39 @@
+ 			switch (n-&gt;value) {
+ 			case NTAP_OPT_IRLEN:
+ 				if (w &gt; (jim_wide) (8 * sizeof(pTap-&gt;ir_capture_value)))
+-					LOG_WARNING(&quot;huge IR length %d&quot;, (int) w);
++					LOG_WARNING(&quot;%s: huge IR length %d&quot;,
++							pTap-&gt;dotted_name,
++							(int) w);
+ 				pTap-&gt;ir_length = w;
+-				reqbits &amp;= (~(NTREQ_IRLEN));
++				reqbits = 0;
+ 				break;
+ 			case NTAP_OPT_IRMASK:
+ 				if (is_bad_irval(pTap-&gt;ir_length, w)) {
+-					LOG_ERROR(&quot;IR mask %x too big&quot;,
++					LOG_ERROR(&quot;%s: IR mask %x too big&quot;,
++							pTap-&gt;dotted_name,
+ 							(int) w);
+ 					free((void *)pTap-&gt;dotted_name);
+ 					free(pTap);
+ 					return ERROR_FAIL;
+ 				}
++				if ((w &amp; 3) != 3)
++					LOG_WARNING(&quot;%s: nonstandard IR mask&quot;,
++							pTap-&gt;dotted_name);
+ 				pTap-&gt;ir_capture_mask = w;
+-				reqbits &amp;= (~(NTREQ_IRMASK));
+ 				break;
+ 			case NTAP_OPT_IRCAPTURE:
+ 				if (is_bad_irval(pTap-&gt;ir_length, w)) {
+-					LOG_ERROR(&quot;IR capture %x too big&quot;,
++					LOG_ERROR(&quot;%s: IR capture %x too big&quot;,
++							pTap-&gt;dotted_name,
+ 							(int) w);
+ 					free((void *)pTap-&gt;dotted_name);
+ 					free(pTap);
+ 					return ERROR_FAIL;
+ 				}
++				if ((w &amp; 3) != 1)
++					LOG_WARNING(&quot;%s: nonstandard IR value&quot;,
++							pTap-&gt;dotted_name);
+ 				pTap-&gt;ir_capture_value = w;
+-				reqbits &amp;= (~(NTREQ_IRCAPTURE));
+ 				break;
+ 			}
+ 		} /* switch (n-&gt;value) */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001540.html">[Openocd-svn] r2757 - trunk/tcl/target
+</A></li>
+	<LI>Next message: <A HREF="001542.html">[Openocd-svn] r2759 - in trunk/src: helper jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1541">[ date ]</a>
+              <a href="thread.html#1541">[ thread ]</a>
+              <a href="subject.html#1541">[ subject ]</a>
+              <a href="author.html#1541">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

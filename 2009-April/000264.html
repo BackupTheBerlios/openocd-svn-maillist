@@ -1,0 +1,436 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1480 - in trunk: . src/flash
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1480%20-%20in%20trunk%3A%20.%20src/flash&In-Reply-To=%3C200904210531.n3L5VNgl008856%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000263.html">
+   <LINK REL="Next"  HREF="000265.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1480 - in trunk: . src/flash</H1>
+    <B>oharboe at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1480%20-%20in%20trunk%3A%20.%20src/flash&In-Reply-To=%3C200904210531.n3L5VNgl008856%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1480 - in trunk: . src/flash">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Tue Apr 21 07:31:23 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000263.html">[Openocd-svn] r1479 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000265.html">[Openocd-svn] r1481 - in trunk/src: helper jtag target xsvf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#264">[ date ]</a>
+              <a href="thread.html#264">[ thread ]</a>
+              <a href="subject.html#264">[ subject ]</a>
+              <a href="author.html#264">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-04-21 07:31:18 +0200 (Tue, 21 Apr 2009)
+New Revision: 1480
+
+Modified:
+   trunk/AUTHORS
+   trunk/src/flash/cfi.c
+   trunk/src/flash/cfi.h
+   trunk/src/flash/non_cfi.c
+   trunk/src/flash/non_cfi.h
+Log:
+Michael Schwingen &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">rincewind at discworld.dascon.de</A>&gt; add non-CFI SST flashs
+
+Modified: trunk/AUTHORS
+===================================================================
+--- trunk/AUTHORS	2009-04-21 05:29:23 UTC (rev 1479)
++++ trunk/AUTHORS	2009-04-21 05:31:18 UTC (rev 1480)
+@@ -5,3 +5,4 @@
+ Carsten Schlote &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">schlote at vahanus.net</A>&gt;
+ &#216;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+ Duane Ellis &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">openocd at duaneellis.com</A>&gt;
++Michael Schwingen &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">michael at schwingen.org</A>&gt;
+
+Modified: trunk/src/flash/cfi.c
+===================================================================
+--- trunk/src/flash/cfi.c	2009-04-21 05:29:23 UTC (rev 1479)
++++ trunk/src/flash/cfi.c	2009-04-21 05:31:18 UTC (rev 1480)
+@@ -296,13 +296,14 @@
+ int cfi_spansion_wait_status_busy(flash_bank_t *bank, int timeout)
+ {
+ 	u8 status, oldstatus;
++	cfi_flash_bank_t *cfi_info = bank-&gt;driver_priv;
+ 
+ 	oldstatus = cfi_get_u8(bank, 0, 0x0);
+ 
+ 	do {
+ 		status = cfi_get_u8(bank, 0, 0x0);
+ 		if ((status ^ oldstatus) &amp; 0x40) {
+-			if (status &amp; 0x20) {
++			if (status &amp; cfi_info-&gt;status_poll_mask &amp; 0x20) {
+ 				oldstatus = cfi_get_u8(bank, 0, 0x0);
+ 				status = cfi_get_u8(bank, 0, 0x0);
+ 				if ((status ^ oldstatus) &amp; 0x40) {
+@@ -313,7 +314,7 @@
+ 					return(ERROR_OK);
+ 				}
+ 			}
+-		} else {
++		} else { /* no toggle: finished, OK */
+ 			LOG_DEBUG(&quot;status: 0x%x&quot;, status);
+ 			return(ERROR_OK);
+ 		}
+@@ -2283,6 +2284,7 @@
+ 				break;
+ 			/* AMD/Spansion, Atmel, ... command set */
+ 			case 0x0002:
++				cfi_info-&gt;status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7; /* default for all CFI flashs */
+ 				cfi_read_0002_pri_ext(bank);
+ 				break;
+ 			default:
+@@ -2303,7 +2305,7 @@
+ 		{
+ 			return retval;
+ 		}
+-	}
++	} /* end CFI case */
+ 
+ 	/* apply fixups depending on the primary command set */
+ 	switch(cfi_info-&gt;pri_id)
+
+Modified: trunk/src/flash/cfi.h
+===================================================================
+--- trunk/src/flash/cfi.h	2009-04-21 05:29:23 UTC (rev 1479)
++++ trunk/src/flash/cfi.h	2009-04-21 05:31:18 UTC (rev 1480)
+@@ -23,11 +23,13 @@
+ #include &quot;flash.h&quot;
+ #include &quot;target.h&quot;
+ 
++#define CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7 0xE0 /* DQ5..DQ7 */
++#define CFI_STATUS_POLL_MASK_DQ6_DQ7     0xC0 /* DQ6..DQ7 */
++
+ typedef struct cfi_flash_bank_s
+ {
+ 	working_area_t *write_algorithm;
+ 
+-
+ 	int x16_as_x8;
+ 	int jedec_probe;
+ 	int not_cfi;
+@@ -58,6 +60,8 @@
+ 	u8 block_erase_timeout_max;
+ 	u8 chip_erase_timeout_max;
+ 
++	u8 status_poll_mask;
++
+ 	/* flash geometry */
+ 	u32 dev_size;
+ 	u16 interface_desc;
+
+Modified: trunk/src/flash/non_cfi.c
+===================================================================
+--- trunk/src/flash/non_cfi.c	2009-04-21 05:29:23 UTC (rev 1479)
++++ trunk/src/flash/non_cfi.c	2009-04-21 05:31:18 UTC (rev 1480)
+@@ -44,6 +44,7 @@
+ 		.dev_size = 64*KB,
+ 		.interface_desc = 0x0,		/* x8 only device */
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 1,
+ 		.erase_region_info =
+ 		{
+@@ -57,6 +58,7 @@
+ 		.dev_size = 128*KB,
+ 		.interface_desc = 0x0,		/* x8 only device */
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 1,
+ 		.erase_region_info =
+ 		{
+@@ -70,6 +72,7 @@
+ 		.dev_size = 256*KB,
+ 		.interface_desc = 0x0,		/* x8 only device */
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 1,
+ 		.erase_region_info =
+ 		{
+@@ -83,6 +86,7 @@
+ 		.dev_size = 512*KB,
+ 		.interface_desc = 0x0,		/* x8 only device */
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 1,
+ 		.erase_region_info =
+ 		{
+@@ -96,6 +100,7 @@
+ 		.dev_size = 512*KB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device */
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 1,
+ 		.erase_region_info =
+ 		{
+@@ -109,6 +114,7 @@
+ 		.dev_size = 512*KB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+@@ -125,6 +131,7 @@
+ 		.dev_size = 512*KB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+@@ -134,13 +141,102 @@
+ 			ERASE_REGION( 1, 16*KB)
+ 		}
+ 	},
++
++	/* SST 39VF* do not support DQ5 status polling - this currently is
++	   only supported by the host algorithm, not by the target code using
++	   the work area. */
+ 	{
++		.mfr = CFI_MFR_SST,
++		.id = 0x2782,				/* SST39xF160 */
++		.pri_id = 0x02,
++		.dev_size = 2*MB,
++		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
++		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ6_DQ7,
++		.num_erase_regions = 1,
++		.erase_region_info =
++		{
++			ERASE_REGION(512, 4*KB)
++		}
++	},
++	{
++		.mfr = CFI_MFR_SST,
++		.id = 0x2783,				/* SST39VF320 */
++		.pri_id = 0x02,
++		.dev_size = 4*MB,
++		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
++		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ6_DQ7,
++		.num_erase_regions = 1,
++		.erase_region_info =
++		{
++			ERASE_REGION(1024, 4*KB)
++		}
++	},
++	{
++		.mfr = CFI_MFR_SST,
++		.id = 0x234b,				/* SST39VF1601 */
++		.pri_id = 0x02,
++		.dev_size = 2*MB,
++		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
++		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ6_DQ7,
++		.num_erase_regions = 1,
++		.erase_region_info =
++		{
++			ERASE_REGION(512, 4*KB)
++		}
++	},
++	{
++		.mfr = CFI_MFR_SST,
++		.id = 0x234a,				/* SST39VF1602 */
++		.pri_id = 0x02,
++		.dev_size = 2*MB,
++		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
++		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ6_DQ7,
++		.num_erase_regions = 1,
++		.erase_region_info =
++		{
++			ERASE_REGION(512, 4*KB)
++		}
++	},
++	{
++		.mfr = CFI_MFR_SST,
++		.id = 0x235b,				/* SST39VF3201 */
++		.pri_id = 0x02,
++		.dev_size = 4*MB,
++		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
++		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ6_DQ7,
++		.num_erase_regions = 1,
++		.erase_region_info =
++		{
++			ERASE_REGION(1024, 4*KB)
++		}
++	},
++	{
++		.mfr = CFI_MFR_SST,
++		.id = 0x235a,				/* SST39VF3202 */
++		.pri_id = 0x02,
++		.dev_size = 4*MB,
++		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
++		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ6_DQ7,
++		.num_erase_regions = 1,
++		.erase_region_info =
++		{
++			ERASE_REGION(1024, 4*KB)
++		}
++	},
++	{
+ 		.mfr = CFI_MFR_AMD,
+ 		.id = 0x22ab,				/* AM29F400BB */
+ 		.pri_id = 0x02,
+ 		.dev_size = 512*KB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+@@ -157,6 +253,7 @@
+ 		.dev_size = 512*KB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+@@ -173,6 +270,7 @@
+ 		.dev_size = 1*MB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+@@ -189,6 +287,7 @@
+ 		.dev_size = 1*MB,
+ 		.interface_desc = 0x2,
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+@@ -205,6 +304,7 @@
+ 		.dev_size = 1*MB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+@@ -222,6 +322,7 @@
+ 		.dev_size = 2*MB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+@@ -238,6 +339,7 @@
+ 		.dev_size = 2*MB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+@@ -248,25 +350,13 @@
+ 		}
+ 	},
+ 	{
+-		.mfr = CFI_MFR_SST,
+-		.id = 0x2782,				/* SST39xF160 */
+-		.pri_id = 0x02,
+-		.dev_size = 2*MB,
+-		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+-		.max_buf_write_size = 0x0,
+-		.num_erase_regions = 1,
+-		.erase_region_info =
+-		{
+-			ERASE_REGION(512, 4*KB)
+-		}
+-	},
+-	{
+ 		.mfr = CFI_MFR_ATMEL,
+ 		.id = 0x00c0,				/* Atmel 49BV1614 */
+ 		.pri_id = 0x02,
+ 		.dev_size = 2*MB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 3,
+ 		.erase_region_info =
+ 		{
+@@ -282,6 +372,7 @@
+ 		.dev_size = 2*MB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 3,
+ 		.erase_region_info =
+ 		{
+@@ -297,6 +388,7 @@
+ 		.dev_size = 1*MB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
++		.status_poll_mask = CFI_STATUS_POLL_MASK_DQ5_DQ6_DQ7,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+@@ -358,6 +450,7 @@
+ 
+ 	cfi_info-&gt;interface_desc = non_cfi-&gt;interface_desc;
+ 	cfi_info-&gt;max_buf_write_size = non_cfi-&gt;max_buf_write_size;
++	cfi_info-&gt;status_poll_mask = non_cfi-&gt;status_poll_mask;
+ 	cfi_info-&gt;num_erase_regions = non_cfi-&gt;num_erase_regions;
+ 	cfi_info-&gt;erase_region_info = non_cfi-&gt;erase_region_info;
+ 	cfi_info-&gt;dev_size = non_cfi-&gt;dev_size;
+
+Modified: trunk/src/flash/non_cfi.h
+===================================================================
+--- trunk/src/flash/non_cfi.h	2009-04-21 05:29:23 UTC (rev 1479)
++++ trunk/src/flash/non_cfi.h	2009-04-21 05:31:18 UTC (rev 1480)
+@@ -32,6 +32,7 @@
+ 	u16 max_buf_write_size;
+ 	u8 num_erase_regions;
+ 	u32 erase_region_info[6];
++	u8  status_poll_mask;
+ } non_cfi_t;
+ 
+ extern non_cfi_t non_cfi_flashes[];
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000263.html">[Openocd-svn] r1479 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000265.html">[Openocd-svn] r1481 - in trunk/src: helper jtag target xsvf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#264">[ date ]</a>
+              <a href="thread.html#264">[ thread ]</a>
+              <a href="subject.html#264">[ subject ]</a>
+              <a href="author.html#264">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

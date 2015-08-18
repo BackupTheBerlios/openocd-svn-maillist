@@ -1,0 +1,258 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1500 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1500%20-%20trunk/src/jtag&In-Reply-To=%3C200904220655.n3M6tbBZ010843%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000283.html">
+   <LINK REL="Next"  HREF="000285.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1500 - trunk/src/jtag</H1>
+    <B>kc8apf at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1500%20-%20trunk/src/jtag&In-Reply-To=%3C200904220655.n3M6tbBZ010843%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1500 - trunk/src/jtag">kc8apf at mail.berlios.de
+       </A><BR>
+    <I>Wed Apr 22 08:55:37 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000283.html">[Openocd-svn] r1499 - trunk/src/target/interface
+</A></li>
+        <LI>Next message: <A HREF="000285.html">[Openocd-svn] r1501 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#284">[ date ]</a>
+              <a href="thread.html#284">[ thread ]</a>
+              <a href="subject.html#284">[ subject ]</a>
+              <a href="author.html#284">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kc8apf
+Date: 2009-04-22 08:55:34 +0200 (Wed, 22 Apr 2009)
+New Revision: 1500
+
+Modified:
+   trunk/src/jtag/jlink.c
+Log:
+refactor jlink_execute_queue courtesy of Zach Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+
+Modified: trunk/src/jtag/jlink.c
+===================================================================
+--- trunk/src/jtag/jlink.c	2009-04-22 06:16:53 UTC (rev 1499)
++++ trunk/src/jtag/jlink.c	2009-04-22 06:55:34 UTC (rev 1500)
+@@ -130,95 +130,113 @@
+ 	.quit = jlink_quit
+ };
+ 
+-static int jlink_execute_queue(void)
++static void jlink_execute_end_state(jtag_command_t *cmd)
+ {
+-	jtag_command_t *cmd = jtag_command_queue;
+-	int scan_size;
+-	enum scan_type type;
+-	u8 *buffer;
++	DEBUG_JTAG_IO(&quot;end_state: %i&quot;, cmd-&gt;cmd.end_state-&gt;end_state);
+ 
+-	while (cmd != NULL)
+-	{
+-		switch (cmd-&gt;type)
+-		{
+-			case JTAG_END_STATE:
+-				DEBUG_JTAG_IO(&quot;end_state: %i&quot;, cmd-&gt;cmd.end_state-&gt;end_state);
++	if (cmd-&gt;cmd.end_state-&gt;end_state != TAP_INVALID)
++		jlink_end_state(cmd-&gt;cmd.end_state-&gt;end_state);
++}
+ 
+-				if (cmd-&gt;cmd.end_state-&gt;end_state != TAP_INVALID)
+-				{
+-					jlink_end_state(cmd-&gt;cmd.end_state-&gt;end_state);
+-				}
+-				break;
++static void jlink_execute_runtest(jtag_command_t *cmd)
++{
++	DEBUG_JTAG_IO(&quot;runtest %i cycles, end in %i&quot;,
++			cmd-&gt;cmd.runtest-&gt;num_cycles,
++			cmd-&gt;cmd.runtest-&gt;end_state);
+ 
+-			case JTAG_RUNTEST:
+-				DEBUG_JTAG_IO( &quot;runtest %i cycles, end in %i&quot;, cmd-&gt;cmd.runtest-&gt;num_cycles, \
+-					cmd-&gt;cmd.runtest-&gt;end_state);
++	if (cmd-&gt;cmd.runtest-&gt;end_state != TAP_INVALID)
++		jlink_end_state(cmd-&gt;cmd.runtest-&gt;end_state);
+ 
+-				if (cmd-&gt;cmd.runtest-&gt;end_state != TAP_INVALID)
+-				{
+-					jlink_end_state(cmd-&gt;cmd.runtest-&gt;end_state);
+-				}
+-				jlink_runtest(cmd-&gt;cmd.runtest-&gt;num_cycles);
+-				break;
++	jlink_runtest(cmd-&gt;cmd.runtest-&gt;num_cycles);
++}
+ 
+-			case JTAG_STATEMOVE:
+-				DEBUG_JTAG_IO(&quot;statemove end in %i&quot;, cmd-&gt;cmd.statemove-&gt;end_state);
++static void jlink_execute_statemove(jtag_command_t *cmd)
++{
++	DEBUG_JTAG_IO(&quot;statemove end in %i&quot;, cmd-&gt;cmd.statemove-&gt;end_state);
+ 
+-				if (cmd-&gt;cmd.statemove-&gt;end_state != TAP_INVALID)
+-				{
+-					jlink_end_state(cmd-&gt;cmd.statemove-&gt;end_state);
+-				}
+-				jlink_state_move();
+-				break;
++	if (cmd-&gt;cmd.statemove-&gt;end_state != TAP_INVALID)
++	{
++		jlink_end_state(cmd-&gt;cmd.statemove-&gt;end_state);
++	}
++	jlink_state_move();
++}
+ 
+-			case JTAG_PATHMOVE:
+-				DEBUG_JTAG_IO(&quot;pathmove: %i states, end in %i&quot;, \
+-					cmd-&gt;cmd.pathmove-&gt;num_states, \
+-					cmd-&gt;cmd.pathmove-&gt;path[cmd-&gt;cmd.pathmove-&gt;num_states - 1]);
++static void jlink_execute_pathmove(jtag_command_t *cmd)
++{
++	DEBUG_JTAG_IO(&quot;pathmove: %i states, end in %i&quot;,
++		cmd-&gt;cmd.pathmove-&gt;num_states,
++		cmd-&gt;cmd.pathmove-&gt;path[cmd-&gt;cmd.pathmove-&gt;num_states - 1]);
+ 
+-				jlink_path_move(cmd-&gt;cmd.pathmove-&gt;num_states, cmd-&gt;cmd.pathmove-&gt;path);
+-				break;
++	jlink_path_move(cmd-&gt;cmd.pathmove-&gt;num_states,
++			cmd-&gt;cmd.pathmove-&gt;path);
++}
+ 
+-			case JTAG_SCAN:
+-				DEBUG_JTAG_IO(&quot;scan end in %i&quot;, cmd-&gt;cmd.scan-&gt;end_state);
++static void jlink_execute_scan(jtag_command_t *cmd)
++{
++	int scan_size;
++	enum scan_type type;
++	u8 *buffer;
+ 
+-				if (cmd-&gt;cmd.scan-&gt;end_state != TAP_INVALID)
+-				{
+-					jlink_end_state(cmd-&gt;cmd.scan-&gt;end_state);
+-				}
++	DEBUG_JTAG_IO(&quot;scan end in %i&quot;, cmd-&gt;cmd.scan-&gt;end_state);
+ 
+-				scan_size = jtag_build_buffer(cmd-&gt;cmd.scan, &amp;buffer);
+-				DEBUG_JTAG_IO(&quot;scan input, length = %d&quot;, scan_size);
++	if (cmd-&gt;cmd.scan-&gt;end_state != TAP_INVALID)
++		jlink_end_state(cmd-&gt;cmd.scan-&gt;end_state);
+ 
++	scan_size = jtag_build_buffer(cmd-&gt;cmd.scan, &amp;buffer);
++	DEBUG_JTAG_IO(&quot;scan input, length = %d&quot;, scan_size);
++
+ #ifdef _DEBUG_USB_COMMS_
+-				jlink_debug_buffer(buffer, (scan_size + 7) / 8);
++	jlink_debug_buffer(buffer, (scan_size + 7) / 8);
+ #endif
+-				type = jtag_scan_type(cmd-&gt;cmd.scan);
+-				jlink_scan(cmd-&gt;cmd.scan-&gt;ir_scan, type, buffer, scan_size, cmd-&gt;cmd.scan);
+-				break;
++	type = jtag_scan_type(cmd-&gt;cmd.scan);
++	jlink_scan(cmd-&gt;cmd.scan-&gt;ir_scan,
++			type, buffer, scan_size, cmd-&gt;cmd.scan);
++}
+ 
+-			case JTAG_RESET:
+-				DEBUG_JTAG_IO(&quot;reset trst: %i srst %i&quot;, cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
++static void jlink_execute_reset(jtag_command_t *cmd)
++{
++	DEBUG_JTAG_IO(&quot;reset trst: %i srst %i&quot;,
++			cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
+ 
+-				jlink_tap_execute();
++	jlink_tap_execute();
+ 
+-				if (cmd-&gt;cmd.reset-&gt;trst == 1)
+-				{
+-					tap_set_state(TAP_RESET);
+-				}
+-				jlink_reset(cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
+-				break;
++	if (cmd-&gt;cmd.reset-&gt;trst == 1)
++		tap_set_state(TAP_RESET);
+ 
+-			case JTAG_SLEEP:
+-				DEBUG_JTAG_IO(&quot;sleep %i&quot;, cmd-&gt;cmd.sleep-&gt;us);
+-				jlink_tap_execute();
+-				jtag_sleep(cmd-&gt;cmd.sleep-&gt;us);
+-				break;
++	jlink_reset(cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
++}
+ 
+-			default:
+-				LOG_ERROR(&quot;BUG: unknown JTAG command type encountered&quot;);
+-				exit(-1);
+-		}
++static void jlink_execute_sleep(jtag_command_t *cmd)
++{
++	DEBUG_JTAG_IO(&quot;sleep %i&quot;, cmd-&gt;cmd.sleep-&gt;us);
++	jlink_tap_execute();
++	jtag_sleep(cmd-&gt;cmd.sleep-&gt;us);
++}
++
++static void jlink_execute_command(jtag_command_t *cmd)
++{
++	switch (cmd-&gt;type)
++	{
++	case JTAG_END_STATE: jlink_execute_end_state(cmd); break;
++	case JTAG_RUNTEST:   jlink_execute_runtest(cmd); break;
++	case JTAG_STATEMOVE: jlink_execute_statemove(cmd); break;
++	case JTAG_PATHMOVE:  jlink_execute_pathmove(cmd); break;
++	case JTAG_SCAN:      jlink_execute_scan(cmd); break;
++	case JTAG_RESET:     jlink_execute_reset(cmd); break;
++	case JTAG_SLEEP:     jlink_execute_sleep(cmd); break;
++	default:
++		LOG_ERROR(&quot;BUG: unknown JTAG command type encountered&quot;);
++		exit(-1);
++	}
++}
++
++static int jlink_execute_queue(void)
++{
++	jtag_command_t *cmd = jtag_command_queue;
++
++	while (cmd != NULL)
++	{
++		jlink_execute_command(cmd);
+ 		cmd = cmd-&gt;next;
+ 	}
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000283.html">[Openocd-svn] r1499 - trunk/src/target/interface
+</A></li>
+	<LI>Next message: <A HREF="000285.html">[Openocd-svn] r1501 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#284">[ date ]</a>
+              <a href="thread.html#284">[ thread ]</a>
+              <a href="subject.html#284">[ subject ]</a>
+              <a href="author.html#284">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

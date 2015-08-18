@@ -1,0 +1,169 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2583 - trunk/tcl/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2583%20-%20trunk/tcl/target&In-Reply-To=%3C200908161158.n7GBweCE031195%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001365.html">
+   <LINK REL="Next"  HREF="001367.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2583 - trunk/tcl/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2583%20-%20trunk/tcl/target&In-Reply-To=%3C200908161158.n7GBweCE031195%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2583 - trunk/tcl/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Sun Aug 16 13:58:40 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001365.html">[Openocd-svn] r2582 - in trunk/tcl: board target
+</A></li>
+        <LI>Next message: <A HREF="001367.html">[Openocd-svn] r2584 - in trunk/tcl: board target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1366">[ date ]</a>
+              <a href="thread.html#1366">[ thread ]</a>
+              <a href="subject.html#1366">[ subject ]</a>
+              <a href="author.html#1366">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-08-16 13:58:40 +0200 (Sun, 16 Aug 2009)
+New Revision: 2583
+
+Added:
+   trunk/tcl/target/c100.cfg
+   trunk/tcl/target/telo.cfg
+Log:
+michal smulski &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">michal.smulski at ooma.com</A>&gt; arm11 target config files
+
+Added: trunk/tcl/target/c100.cfg
+===================================================================
+--- trunk/tcl/target/c100.cfg	2009-08-16 11:54:56 UTC (rev 2582)
++++ trunk/tcl/target/c100.cfg	2009-08-16 11:58:40 UTC (rev 2583)
+@@ -0,0 +1,65 @@
++# c100 config
++#
++#jtag_nsrst_delay 5000
++#jtag_ntrst_delay 3000
++#reset_config none
++reset_config trst_and_srst separate
++#reset_config srst_only srst_pulls_trst
++
++if { [info exists CHIPNAME] } {	
++   set  _CHIPNAME $CHIPNAME    
++} else {	 
++   set  _CHIPNAME c100
++}
++
++if { [info exists ENDIAN] } {	
++   set  _ENDIAN $ENDIAN    
++} else {	 
++   set  _ENDIAN little
++}
++
++if { [info exists CPUTAPID ] } {
++   set _CPUTAPID $CPUTAPID
++} else {
++   set _CPUTAPID 0x27b3645b
++}
++
++if { [info exists DSPTAPID ] } {
++   set _DSPTAPID $DSPTAPID
++} else {
++   set _DSPTAPID 0x27b3645b
++}
++
++jtag newtap $_CHIPNAME dsp -irlen 5 -ircapture 0x1 -irmask 0x1f -expected-id $_DSPTAPID
++
++
++# Per ARM: DDI0211J_arm1136_r1p5_trm.pdf - the ARM 1136 as a 5 bit IR register
++jtag newtap $_CHIPNAME cpu -irlen 5 -ircapture 0x1 -irmask 0x1f -expected-id $_CPUTAPID
++
++set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
++target create $_TARGETNAME arm11 -endian $_ENDIAN -chain-position $_TARGETNAME
++
++# C100's ARAM 64k SRAM
++$_TARGETNAME configure -work-area-phys 0x0a000000 -work-area-size 0x10000 -work-area-backup 0
++
++
++proc power_restore {} { puts &quot;Sensed power restore. No action.&quot; } 
++proc srst_deasserted {} { puts &quot;Sensed nSRST deasserted. No action.&quot; }
++
++
++# issue telnet: reset init
++# issue gdb: monitor reset init
++$_TARGETNAME configure -event reset-init {
++	# Force target into ARM state.
++#	soft_reset_halt # not implemented on ARM11
++	puts &quot;Halting C100.CPU&quot;
++	halt
++}
++
++$_TARGETNAME configure -event reset-deassert-post {
++	# Force target into ARM state.
++#	soft_reset_halt # not implemented on ARM11
++	puts &quot;Detected SRSRT asserted on C100.CPU&quot;
++	
++}
++# Valid events: old-gdb_program_config, old-pre_resume, early-halted, halted, resumed, resume-start, resume-end, gdb-start, gdb-end, reset-start, reset-assert-pre, reset-assert-post, reset-deassert-pre, reset-deassert-post, reset-halt-pre, reset-halt-post, reset-wait-pre, reset-wait-post, reset-init, reset-end, examine-start, examine-end, debug-halted, debug-resumed, gdb-attach, gdb-detach, gdb-flash-write-start, gdb-flash-write-end, gdb-flash-erase-start, gdb-flash-erase-end, resume-start, resume-ok, or resume-end
+
+
+Property changes on: trunk/tcl/target/c100.cfg
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/tcl/target/telo.cfg
+===================================================================
+--- trunk/tcl/target/telo.cfg	2009-08-16 11:54:56 UTC (rev 2582)
++++ trunk/tcl/target/telo.cfg	2009-08-16 11:58:40 UTC (rev 2583)
+@@ -0,0 +1,9 @@
++source [find c100.cfg]
++
++# boots from NOR on CS0:  8 MBytes CFI flash, 16-bit bus
++# it's really 16MB but the upper 8mb is controller via gpio?
++flash bank cfi 0x20000000 0x01000000 2 2 $_TARGETNAME
++
++# 
++gdb_memory_map enable
++
+
+
+Property changes on: trunk/tcl/target/telo.cfg
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001365.html">[Openocd-svn] r2582 - in trunk/tcl: board target
+</A></li>
+	<LI>Next message: <A HREF="001367.html">[Openocd-svn] r2584 - in trunk/tcl: board target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1366">[ date ]</a>
+              <a href="thread.html#1366">[ thread ]</a>
+              <a href="subject.html#1366">[ subject ]</a>
+              <a href="author.html#1366">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

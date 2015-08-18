@@ -1,0 +1,164 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-433-g4a91b07
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.2.0-433-g4a91b07&In-Reply-To=%3CE1N2ezq-0004Jq-LU%409j8yhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001686.html">
+   <LINK REL="Next"  HREF="001688.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-433-g4a91b07</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.2.0-433-g4a91b07&In-Reply-To=%3CE1N2ezq-0004Jq-LU%409j8yhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-433-g4a91b07">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Tue Oct 27 06:53:30 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001686.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-432-gddade10
+</A></li>
+        <LI>Next message: <A HREF="001688.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-436-g1020569
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1687">[ date ]</a>
+              <a href="thread.html#1687">[ thread ]</a>
+              <a href="subject.html#1687">[ subject ]</a>
+              <a href="author.html#1687">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  4a91b070ffd7890c5a0b6381997787136d797bd5 (commit)
+      from  ddade10d4a9309ea252b0a03cde9f757b5c71778 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 4a91b070ffd7890c5a0b6381997787136d797bd5
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Oct 26 22:53:18 2009 -0700
+
+    omap3530: target reset/init improvements
+    
+    Now I can issue &quot;reset halt&quot; and have everything act smoothly;
+    the vector_catch hardware is obviously not kicking in, but the
+    rest of the reset sequence acts sanely.
+    
+     - TAP &quot;setup&quot; event enables the DAP, not omap3_dbginit
+       (resolving a chicken/egg bug I noted a while back)
+     - Remove stuff from omap3_dbginit which should never be
+       used in event handlers
+     - Cope better with slow clocking during reset
+    
+    Also, stop hard-wiring the target name: use the input params in
+    the standard way, and set up $_TARGETNAME as an output param.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/tcl/target/omap3530.cfg b/tcl/target/omap3530.cfg
+index 8446070..45f3c01 100644
+--- a/tcl/target/omap3530.cfg
++++ b/tcl/target/omap3530.cfg
+@@ -34,28 +34,38 @@ if { [info exists JRC_TAPID ] } {
+ jtag newtap $_CHIPNAME jrc -irlen 6 -ircapture 0x1 -irmask 0x3f \
+ 	-expected-id $_JRC_TAPID
+ 
+-jtag configure $_CHIPNAME.jrc -event post-reset &quot;runtest 100&quot;
+-
+ # GDB target:  Cortex-A8, using DAP
+-target create omap3.cpu cortex_a8 -chain-position $_CHIPNAME.dap
++set _TARGETNAME $_CHIPNAME.cpu
++target create $_TARGETNAME cortex_a8 -chain-position $_CHIPNAME.dap
++
++###################
+ 
+-# FIXME much of this should be in reset event handlers
+-proc omap3_dbginit { } {
+-     poll off
+-     sleep 100
++# the reset sequence is event-driven
++# and kind of finicky...
++
++# some TCK tycles are required to activate the DEBUG power domain
++jtag configure $_CHIPNAME.jrc -event post-reset &quot;runtest 100&quot;
+ 
+-     jtag tapenable omap3530.dap
+-     targets
++# have the DAP &quot;always&quot; be active
++jtag configure $_CHIPNAME.jrc -event setup &quot;jtag tapenable $_CHIPNAME.dap&quot;
++
++proc omap3_dbginit {target} {
+      # General Cortex A8 debug initialisation
+      cortex_a8 dbginit
+      # Enable DBGU signal for OMAP353x
+-     omap3.cpu mww 0x5401d030 0x00002000
+-     poll on
++     $target mww 0x5401d030 0x00002000
+ }
+ 
+-set PRM_RSTCTRL 0x48307250
+-
+-omap3.cpu configure -event reset-start &quot;omap3.cpu mww $PRM_RSTCTRL 2&quot;
+-omap3.cpu configure -event reset-assert-pre &quot;omap3_dbginit&quot;
++# be absolutely certain the JTAG clock will work with the worst-case
++# 16.8MHz/2 = 8.4MHz core clock, even before a bootloader kicks in.
++# OK to speed up *after* PLL and clock tree setup.
++jtag_rclk 1000
++$_TARGETNAME configure -event &quot;reset-start&quot; { jtag_rclk 1000 }
+ 
++# REVISIT This assumes that SRST is unavailable, so we must assert reset
++# ourselves using PRM_RSTCTRL.  RST_GS (2) is a warm reset, like ICEpick
++# would issue.  RST_DPLL3 (4) is a cold reset.
++set PRM_RSTCTRL 0x48307250
++$_TARGETNAME configure -event reset-assert-pre &quot;$_TARGETNAME mww $PRM_RSTCTRL 2&quot;
+ 
++$_TARGETNAME configure -event reset-assert-post &quot;omap3_dbginit $_TARGETNAME&quot;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ tcl/target/omap3530.cfg |   40 +++++++++++++++++++++++++---------------
+ 1 files changed, 25 insertions(+), 15 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001686.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-432-gddade10
+</A></li>
+	<LI>Next message: <A HREF="001688.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-436-g1020569
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1687">[ date ]</a>
+              <a href="thread.html#1687">[ thread ]</a>
+              <a href="subject.html#1687">[ subject ]</a>
+              <a href="author.html#1687">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

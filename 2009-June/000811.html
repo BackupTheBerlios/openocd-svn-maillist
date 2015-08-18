@@ -1,0 +1,414 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2027 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2027%20-%20trunk/src/jtag&In-Reply-To=%3C200906030608.n5368HcH031346%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000810.html">
+   <LINK REL="Next"  HREF="000812.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2027 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2027%20-%20trunk/src/jtag&In-Reply-To=%3C200906030608.n5368HcH031346%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2027 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Wed Jun  3 08:08:17 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000810.html">[Openocd-svn] r2026 - in trunk: . doc/manual doc/manual/primer
+</A></li>
+        <LI>Next message: <A HREF="000812.html">[Openocd-svn] r2028 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#811">[ date ]</a>
+              <a href="thread.html#811">[ thread ]</a>
+              <a href="subject.html#811">[ subject ]</a>
+              <a href="author.html#811">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-03 08:08:07 +0200 (Wed, 03 Jun 2009)
+New Revision: 2027
+
+Added:
+   trunk/src/jtag/commands.h
+Modified:
+   trunk/src/jtag/Makefile.am
+   trunk/src/jtag/jtag.h
+Log:
+Move JTAG command APIs into new jtag/commands.h header file.
+
+Modified: trunk/src/jtag/Makefile.am
+===================================================================
+--- trunk/src/jtag/Makefile.am	2009-06-03 04:44:38 UTC (rev 2026)
++++ trunk/src/jtag/Makefile.am	2009-06-03 06:08:07 UTC (rev 2027)
+@@ -138,6 +138,7 @@
+ 
+ noinst_HEADERS = \
+ 	interface.h \
++	commands.h \
+ 	minidriver.h \
+ 	bitbang.h \
+ 	jtag.h \
+
+Added: trunk/src/jtag/commands.h
+===================================================================
+--- trunk/src/jtag/commands.h	2009-06-03 04:44:38 UTC (rev 2026)
++++ trunk/src/jtag/commands.h	2009-06-03 06:08:07 UTC (rev 2027)
+@@ -0,0 +1,162 @@
++/***************************************************************************
++ *   Copyright (C) 2005 by Dominic Rath                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
++ *                                                                         *
++ *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
++ *                                                                         *
++ *   Copyright (C) 2009 Zachary T Welch                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>                                                  *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifndef JTAG_COMMANDS_H
++#define JTAG_COMMANDS_H
++
++#include &quot;jtag.h&quot;
++
++/**
++ * The inferred type of a scan_command_s structure, indicating whether
++ * the command has the host scan in from the device, the host scan out
++ * to the device, or both.
++ */
++enum scan_type {
++	/// From device to host,
++	SCAN_IN = 1,
++	/// From host to device,
++	SCAN_OUT = 2,
++	/// Full-duplex scan.
++	SCAN_IO = 3
++};
++
++/**
++ * The scan_command provide a means of encapsulating a set of scan_field_s
++ * structures that should be scanned in/out to the device.
++ */
++typedef struct scan_command_s
++{
++	/// instruction/not data scan
++	bool ir_scan;
++	/// number of fields in *fields array
++	int num_fields;
++	/// pointer to an array of data scan fields
++	scan_field_t* fields;
++	/// state in which JTAG commands should finish
++	tap_state_t end_state;
++} scan_command_t;
++
++typedef struct statemove_command_s
++{
++	/// state in which JTAG commands should finish
++	tap_state_t end_state;
++} statemove_command_t;
++
++typedef struct pathmove_command_s
++{
++	/// number of states in *path
++	int num_states;
++	/// states that have to be passed
++	tap_state_t* path;
++} pathmove_command_t;
++
++typedef struct runtest_command_s
++{
++	/// number of cycles to spend in Run-Test/Idle state
++	int num_cycles;
++	/// state in which JTAG commands should finish
++	tap_state_t end_state;
++} runtest_command_t;
++
++
++typedef struct stableclocks_command_s
++{
++	/// number of clock cycles that should be sent
++	int num_cycles;
++} stableclocks_command_t;
++
++
++typedef struct reset_command_s
++{
++	/// Set TRST output: 0=deassert, 1=assert, -1=no change
++	int trst;
++	/// Set SRST output: 0=deassert, 1=assert, -1=no change
++	int srst;
++} reset_command_t;
++
++typedef struct end_state_command_s
++{
++	/// state in which JTAG commands should finish
++	tap_state_t end_state;
++} end_state_command_t;
++
++typedef struct sleep_command_s
++{
++	/// number of microseconds to sleep
++	u32 us;
++} sleep_command_t;
++
++/**
++ * Defines a container type that hold a pointer to a JTAG command
++ * structure of any defined type.
++ */
++typedef union jtag_command_container_u
++{
++	scan_command_t*         scan;
++	statemove_command_t*    statemove;
++	pathmove_command_t*     pathmove;
++	runtest_command_t*      runtest;
++	stableclocks_command_t* stableclocks;
++	reset_command_t*        reset;
++	end_state_command_t*    end_state;
++	sleep_command_t* sleep;
++} jtag_command_container_t;
++
++/**
++ * The type of the @c jtag_command_container_u contained by a
++ * @c jtag_command_s structure.
++ */
++enum jtag_command_type {
++	JTAG_SCAN         = 1,
++	JTAG_STATEMOVE    = 2,
++	JTAG_RUNTEST      = 3,
++	JTAG_RESET        = 4,
++	JTAG_PATHMOVE     = 6,
++	JTAG_SLEEP        = 7,
++	JTAG_STABLECLOCKS = 8
++};
++
++typedef struct jtag_command_s
++{
++	jtag_command_container_t cmd;
++	enum jtag_command_type   type;
++	struct jtag_command_s*   next;
++} jtag_command_t;
++
++/// The current queue of jtag_command_s structures.
++jtag_command_t* jtag_command_queue;
++
++void* cmd_queue_alloc(size_t size);
++void cmd_queue_free(void);
++
++void jtag_queue_command(jtag_command_t *cmd);
++void jtag_command_queue_reset(void);
++
++enum scan_type jtag_scan_type(const scan_command_t* cmd);
++int jtag_scan_size(const scan_command_t* cmd);
++int jtag_read_buffer(u8* buffer, const scan_command_t* cmd);
++int jtag_build_buffer(const scan_command_t* cmd, u8** buffer);
++
++#endif // JTAG_COMMANDS_H
+
+
+Property changes on: trunk/src/jtag/commands.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-06-03 04:44:38 UTC (rev 2026)
++++ trunk/src/jtag/jtag.h	2009-06-03 06:08:07 UTC (rev 2027)
+@@ -142,136 +142,6 @@
+ 	u8 intmp[4];
+ } scan_field_t;
+ 
+-#ifdef INCLUDE_JTAG_INTERFACE_H
+-
+-/**
+- * The inferred type of a scan_command_s structure, indicating whether
+- * the command has the host scan in from the device, the host scan out
+- * to the device, or both.
+- */
+-enum scan_type {
+-	/// From device to host,
+-	SCAN_IN = 1,
+-	/// From host to device,
+-	SCAN_OUT = 2,
+-	/// Full-duplex scan.
+-	SCAN_IO = 3
+-};
+-
+-/**
+- * The scan_command provide a means of encapsulating a set of scan_field_s
+- * structures that should be scanned in/out to the device.
+- */
+-typedef struct scan_command_s
+-{
+-	/// instruction/not data scan
+-	bool ir_scan;
+-	/// number of fields in *fields array
+-	int num_fields;
+-	/// pointer to an array of data scan fields
+-	scan_field_t* fields;
+-	/// state in which JTAG commands should finish
+-	tap_state_t end_state;
+-} scan_command_t;
+-
+-typedef struct statemove_command_s
+-{
+-	/// state in which JTAG commands should finish
+-	tap_state_t end_state;
+-} statemove_command_t;
+-
+-typedef struct pathmove_command_s
+-{
+-	/// number of states in *path
+-	int num_states;
+-	/// states that have to be passed
+-	tap_state_t* path;
+-} pathmove_command_t;
+-
+-typedef struct runtest_command_s
+-{
+-	/// number of cycles to spend in Run-Test/Idle state
+-	int num_cycles;
+-	/// state in which JTAG commands should finish
+-	tap_state_t end_state;
+-} runtest_command_t;
+-
+-
+-typedef struct stableclocks_command_s
+-{
+-	/// number of clock cycles that should be sent
+-	int num_cycles;
+-} stableclocks_command_t;
+-
+-
+-typedef struct reset_command_s
+-{
+-	/// Set TRST output: 0=deassert, 1=assert, -1=no change
+-	int trst;
+-	/// Set SRST output: 0=deassert, 1=assert, -1=no change
+-	int srst;
+-} reset_command_t;
+-
+-typedef struct end_state_command_s
+-{
+-	/// state in which JTAG commands should finish
+-	tap_state_t end_state;
+-} end_state_command_t;
+-
+-typedef struct sleep_command_s
+-{
+-	/// number of microseconds to sleep
+-	u32 us;
+-} sleep_command_t;
+-
+-/**
+- * Defines a container type that hold a pointer to a JTAG command
+- * structure of any defined type.
+- */
+-typedef union jtag_command_container_u
+-{
+-	scan_command_t*         scan;
+-	statemove_command_t*    statemove;
+-	pathmove_command_t*     pathmove;
+-	runtest_command_t*      runtest;
+-	stableclocks_command_t* stableclocks;
+-	reset_command_t*        reset;
+-	end_state_command_t*    end_state;
+-	sleep_command_t* sleep;
+-} jtag_command_container_t;
+-
+-/**
+- * The type of the @c jtag_command_container_u contained by a
+- * @c jtag_command_s structure.
+- */
+-enum jtag_command_type {
+-	JTAG_SCAN         = 1,
+-	JTAG_STATEMOVE    = 2,
+-	JTAG_RUNTEST      = 3,
+-	JTAG_RESET        = 4,
+-	JTAG_PATHMOVE     = 6,
+-	JTAG_SLEEP        = 7,
+-	JTAG_STABLECLOCKS = 8
+-};
+-
+-typedef struct jtag_command_s
+-{
+-	jtag_command_container_t cmd;
+-	enum jtag_command_type   type;
+-	struct jtag_command_s*   next;
+-} jtag_command_t;
+-
+-/// The current queue of jtag_command_s structures.
+-extern jtag_command_t* jtag_command_queue;
+-
+-extern void* cmd_queue_alloc(size_t size);
+-extern void cmd_queue_free(void);
+-
+-extern void jtag_queue_command(jtag_command_t *cmd);
+-extern void jtag_command_queue_reset(void);
+-
+-#endif // INCLUDE_JTAG_INTERFACE_H
+-
+ typedef struct jtag_tap_event_action_s jtag_tap_event_action_t;
+ 
+ /* this is really: typedef jtag_tap_t */
+@@ -683,10 +553,7 @@
+ extern void jtag_check_value_mask(scan_field_t *field, u8 *value, u8 *mask);
+ 
+ #ifdef INCLUDE_JTAG_INTERFACE_H
+-extern enum scan_type jtag_scan_type(const scan_command_t* cmd);
+-extern int jtag_scan_size(const scan_command_t* cmd);
+-extern int jtag_read_buffer(u8* buffer, const scan_command_t* cmd);
+-extern int jtag_build_buffer(const scan_command_t* cmd, u8** buffer);
++#include &quot;commands.h&quot;
+ #endif // INCLUDE_JTAG_INTERFACE_H
+ 
+ extern void jtag_sleep(u32 us);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000810.html">[Openocd-svn] r2026 - in trunk: . doc/manual doc/manual/primer
+</A></li>
+	<LI>Next message: <A HREF="000812.html">[Openocd-svn] r2028 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#811">[ date ]</a>
+              <a href="thread.html#811">[ thread ]</a>
+              <a href="subject.html#811">[ subject ]</a>
+              <a href="author.html#811">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

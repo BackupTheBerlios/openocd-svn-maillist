@@ -1,0 +1,463 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2644 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2644%20-%20trunk/src/target&In-Reply-To=%3C200908280652.n7S6qACM000056%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001426.html">
+   <LINK REL="Next"  HREF="001428.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2644 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2644%20-%20trunk/src/target&In-Reply-To=%3C200908280652.n7S6qACM000056%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2644 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Fri Aug 28 08:52:10 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001426.html">[Openocd-svn] r2643 - in trunk: . src/target
+</A></li>
+        <LI>Next message: <A HREF="001428.html">[Openocd-svn] r2645 - trunk/tcl/board
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1427">[ date ]</a>
+              <a href="thread.html#1427">[ thread ]</a>
+              <a href="subject.html#1427">[ subject ]</a>
+              <a href="author.html#1427">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-08-28 08:52:08 +0200 (Fri, 28 Aug 2009)
+New Revision: 2644
+
+Modified:
+   trunk/src/target/arm_disassembler.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt; ARM disassembly support for about five dozen non-Thumb instructions
+that were added after ARMv5TE was defined:
+
+ - ARMv5J &quot;BXJ&quot; (for Java/Jazelle)
+ - ARMv6 &quot;media&quot; instructions (for OMAP2420, i.MX31, etc)
+
+Compile-tested.  This might not set up the simulator right for the
+ARMv6 single step support; only BXJ branches though, and docs to
+support Jazelle branching are non-public (still, sigh).
+
+ARMv6 instructions known to be mis-handled by this disassembler
+include:  UMAAL, LDREX, STREX, CPS, SETEND, RFE, SRS, MCRR2, MRRC2
+
+Modified: trunk/src/target/arm_disassembler.c
+===================================================================
+--- trunk/src/target/arm_disassembler.c	2009-08-27 10:37:01 UTC (rev 2643)
++++ trunk/src/target/arm_disassembler.c	2009-08-28 06:52:08 UTC (rev 2644)
+@@ -438,6 +438,323 @@
+ 	return ERROR_OK;
+ }
+ 
++static int evaluate_extend(uint32_t opcode, uint32_t address, char *cp)
++{
++	unsigned rm = (opcode &gt;&gt; 0) &amp; 0xf;
++	unsigned rd = (opcode &gt;&gt; 12) &amp; 0xf;
++	unsigned rn = (opcode &gt;&gt; 16) &amp; 0xf;
++	char *type, *rot;
++
++	switch ((opcode &gt;&gt; 24) &amp; 0x3) {
++	case 0:
++		type = &quot;B16&quot;;
++		break;
++	case 1:
++		sprintf(cp, &quot;UNDEFINED&quot;);
++		return ARM_UNDEFINED_INSTRUCTION;
++	case 2:
++		type = &quot;B&quot;;
++		break;
++	case 3:
++		type = &quot;H&quot;;
++		break;
++	}
++
++	switch ((opcode &gt;&gt; 10) &amp; 0x3) {
++	case 0:
++		rot = &quot;&quot;;
++		break;
++	case 1:
++		rot = &quot;, ROR #8&quot;;
++		break;
++	case 2:
++		rot = &quot;, ROR #16&quot;;
++		break;
++	case 3:
++		rot = &quot;, ROR #24&quot;;
++		break;
++	}
++
++	if (rn == 0xf) {
++		sprintf(cp, &quot;%cXT%s%s\tr%d, r%d%s&quot;,
++				(opcode &amp; (1 &lt;&lt; 22)) ? 'U' : 'S',
++				type, COND(opcode),
++				rd, rm, rot);
++		return ARM_MOV;
++	} else {
++		sprintf(cp, &quot;%cXTA%s%s\tr%d, r%d, r%d%s&quot;,
++				(opcode &amp; (1 &lt;&lt; 22)) ? 'U' : 'S',
++				type, COND(opcode),
++				rd, rn, rm, rot);
++		return ARM_ADD;
++	}
++}
++
++static int evaluate_p_add_sub(uint32_t opcode, uint32_t address, char *cp)
++{
++	char *prefix;
++	char *op;
++	int type;
++
++	switch ((opcode &gt;&gt; 20) &amp; 0x7) {
++	case 1:
++		prefix = &quot;S&quot;;
++		break;
++	case 2:
++		prefix = &quot;Q&quot;;
++		break;
++	case 3:
++		prefix = &quot;SH&quot;;
++		break;
++	case 5:
++		prefix = &quot;U&quot;;
++		break;
++	case 6:
++		prefix = &quot;UQ&quot;;
++		break;
++	case 7:
++		prefix = &quot;UH&quot;;
++		break;
++	default:
++		goto undef;
++	}
++
++	switch ((opcode &gt;&gt; 5) &amp; 0x7) {
++	case 0:
++		op = &quot;ADD16&quot;;
++		type = ARM_ADD;
++		break;
++	case 1:
++		op = &quot;ADDSUBX&quot;;
++		type = ARM_ADD;
++		break;
++	case 2:
++		op = &quot;SUBADDX&quot;;
++		type = ARM_SUB;
++		break;
++	case 3:
++		op = &quot;SUB16&quot;;
++		type = ARM_SUB;
++		break;
++	case 4:
++		op = &quot;ADD8&quot;;
++		type = ARM_ADD;
++		break;
++	case 7:
++		op = &quot;SUB8&quot;;
++		type = ARM_SUB;
++		break;
++	default:
++		goto undef;
++	}
++
++	sprintf(cp, &quot;%s%s%s\tr%d, r%d, r%d&quot;, prefix, op, COND(opcode),
++			(int) (opcode &gt;&gt; 12) &amp; 0xf,
++			(int) (opcode &gt;&gt; 16) &amp; 0xf,
++			(int) (opcode &gt;&gt; 0) &amp; 0xf);
++	return type;
++
++undef:
++	/* these opcodes might be used someday */
++	sprintf(cp, &quot;UNDEFINED&quot;);
++	return ARM_UNDEFINED_INSTRUCTION;
++}
++
++/* ARMv6 and later support &quot;media&quot; instructions (includes SIMD) */
++static int evaluate_media(uint32_t opcode, uint32_t address,
++		arm_instruction_t *instruction)
++{
++	char *cp = instruction-&gt;text;
++	char *mnemonic = NULL;
++
++	sprintf(cp,
++		&quot;0x%8.8&quot; PRIx32 &quot;\t0x%8.8&quot; PRIx32 &quot;\t&quot;,
++		address, opcode);
++	cp = strchr(cp, 0);
++
++	/* parallel add/subtract */
++	if ((opcode &amp; 0x01800000) == 0x00000000) {
++		instruction-&gt;type = evaluate_p_add_sub(opcode, address, cp);
++		return ERROR_OK;
++	}
++
++	/* halfword pack */
++	if ((opcode &amp; 0x01f00020) == 0x00800000) {
++		char *type, *shift;
++		unsigned imm = (unsigned) (opcode &gt;&gt; 7) &amp; 0x1f;
++
++		if (opcode &amp; (1 &lt;&lt; 6)) {
++			type = &quot;TB&quot;;
++			shift = &quot;ASR&quot;;
++			if (imm == 0)
++				imm = 32;
++		} else {
++			type = &quot;BT&quot;;
++			shift = &quot;LSL&quot;;
++		}
++		sprintf(cp, &quot;PKH%s%s\tr%d, r%d, r%d, %s #%d&quot;,
++			type, COND(opcode),
++			(int) (opcode &gt;&gt; 12) &amp; 0xf,
++			(int) (opcode &gt;&gt; 16) &amp; 0xf,
++			(int) (opcode &gt;&gt; 0) &amp; 0xf,
++			shift, imm);
++		return ERROR_OK;
++	}
++
++	/* word saturate */
++	if ((opcode &amp; 0x01a00020) == 0x00a00000) {
++		char *shift;
++		unsigned imm = (unsigned) (opcode &gt;&gt; 7) &amp; 0x1f;
++
++		if (opcode &amp; (1 &lt;&lt; 6)) {
++			shift = &quot;ASR&quot;;
++			if (imm == 0)
++				imm = 32;
++		} else {
++			shift = &quot;LSL&quot;;
++		}
++
++		sprintf(cp, &quot;%cSAT%s\tr%d, #%d, r%d, %s #%d&quot;,
++			(opcode &amp; (1 &lt;&lt; 22)) ? 'U' : 'S',
++			COND(opcode),
++			(int) (opcode &gt;&gt; 12) &amp; 0xf,
++			(int) (opcode &gt;&gt; 16) &amp; 0x1f,
++			(int) (opcode &gt;&gt; 0) &amp; 0xf,
++			shift, imm);
++		return ERROR_OK;
++	}
++
++	/* sign extension */
++	if ((opcode &amp; 0x018000f0) == 0x00800070) {
++		instruction-&gt;type = evaluate_extend(opcode, address, cp);
++		return ERROR_OK;
++	}
++
++	/* multiplies */
++	if ((opcode &amp; 0x01f00080) == 0x01000000) {
++		unsigned rn = (opcode &gt;&gt; 12) &amp; 0xf;
++
++		if (rn != 0xf)
++			sprintf(cp, &quot;SML%cD%s%s\tr%d, r%d, r%d, r%d&quot;,
++				(opcode &amp; (1 &lt;&lt; 6)) ? 'S' : 'A',
++				(opcode &amp; (1 &lt;&lt; 5)) ? &quot;X&quot; : &quot;&quot;,
++				COND(opcode),
++				(int) (opcode &gt;&gt; 16) &amp; 0xf,
++				(int) (opcode &gt;&gt; 0) &amp; 0xf,
++				(int) (opcode &gt;&gt; 8) &amp; 0xf,
++				rn);
++		else
++			sprintf(cp, &quot;SMU%cD%s%s\tr%d, r%d, r%d&quot;,
++				(opcode &amp; (1 &lt;&lt; 6)) ? 'S' : 'A',
++				(opcode &amp; (1 &lt;&lt; 5)) ? &quot;X&quot; : &quot;&quot;,
++				COND(opcode),
++				(int) (opcode &gt;&gt; 16) &amp; 0xf,
++				(int) (opcode &gt;&gt; 0) &amp; 0xf,
++				(int) (opcode &gt;&gt; 8) &amp; 0xf);
++		return ERROR_OK;
++	}
++	if ((opcode &amp; 0x01f00000) == 0x01400000) {
++		sprintf(cp, &quot;SML%cLD%s%s\tr%d, r%d, r%d, r%d&quot;,
++			(opcode &amp; (1 &lt;&lt; 6)) ? 'S' : 'A',
++			(opcode &amp; (1 &lt;&lt; 5)) ? &quot;X&quot; : &quot;&quot;,
++			COND(opcode),
++			(int) (opcode &gt;&gt; 12) &amp; 0xf,
++			(int) (opcode &gt;&gt; 16) &amp; 0xf,
++			(int) (opcode &gt;&gt; 0) &amp; 0xf,
++			(int) (opcode &gt;&gt; 8) &amp; 0xf);
++		return ERROR_OK;
++	}
++	if ((opcode &amp; 0x01f00000) == 0x01500000) {
++		unsigned rn = (opcode &gt;&gt; 12) &amp; 0xf;
++
++		switch (opcode &amp; 0xc0) {
++		case 3:
++			if (rn == 0xf)
++				goto undef;
++			/* FALL THROUGH */
++		case 0:
++			break;
++		default:
++			goto undef;
++		}
++
++		if (rn != 0xf)
++			sprintf(cp, &quot;SMML%c%s%s\tr%d, r%d, r%d, r%d&quot;,
++				(opcode &amp; (1 &lt;&lt; 6)) ? 'S' : 'A',
++				(opcode &amp; (1 &lt;&lt; 5)) ? &quot;R&quot; : &quot;&quot;,
++				COND(opcode),
++				(int) (opcode &gt;&gt; 16) &amp; 0xf,
++				(int) (opcode &gt;&gt; 0) &amp; 0xf,
++				(int) (opcode &gt;&gt; 8) &amp; 0xf,
++				rn);
++		else
++			sprintf(cp, &quot;SMMUL%s%s\tr%d, r%d, r%d&quot;,
++				(opcode &amp; (1 &lt;&lt; 5)) ? &quot;R&quot; : &quot;&quot;,
++				COND(opcode),
++				(int) (opcode &gt;&gt; 16) &amp; 0xf,
++				(int) (opcode &gt;&gt; 0) &amp; 0xf,
++				(int) (opcode &gt;&gt; 8) &amp; 0xf);
++		return ERROR_OK;
++	}
++
++
++	/* simple matches against the remaining decode bits */
++	switch (opcode &amp; 0x01f000f0) {
++	case 0x00a00030:
++	case 0x00e00030:
++		/* parallel halfword saturate */
++		sprintf(cp, &quot;%cSAT16%s\tr%d, #%d, r%d&quot;,
++			(opcode &amp; (1 &lt;&lt; 22)) ? 'U' : 'S',
++			COND(opcode),
++			(int) (opcode &gt;&gt; 12) &amp; 0xf,
++			(int) (opcode &gt;&gt; 16) &amp; 0xf,
++			(int) (opcode &gt;&gt; 0) &amp; 0xf);
++		return ERROR_OK;
++	case 0x00b00030:
++		mnemonic = &quot;REV&quot;;
++		break;
++	case 0x00b000b0:
++		mnemonic = &quot;REV16&quot;;
++		break;
++	case 0x00f000b0:
++		mnemonic = &quot;REVSH&quot;;
++		break;
++	case 0x008000b0:
++		/* select bytes */
++		sprintf(cp, &quot;SEL%s\tr%d, r%d, r%d&quot;, COND(opcode),
++			(int) (opcode &gt;&gt; 12) &amp; 0xf,
++			(int) (opcode &gt;&gt; 16) &amp; 0xf,
++			(int) (opcode &gt;&gt; 0) &amp; 0xf);
++		return ERROR_OK;
++	case 0x01800010:
++		/* unsigned sum of absolute differences */
++		if (((opcode &gt;&gt; 12) &amp; 0xf) == 0xf)
++			sprintf(cp, &quot;USAD8%s\tr%d, r%d, r%d&quot;, COND(opcode),
++				(int) (opcode &gt;&gt; 16) &amp; 0xf,
++				(int) (opcode &gt;&gt; 0) &amp; 0xf,
++				(int) (opcode &gt;&gt; 8) &amp; 0xf);
++		else
++			sprintf(cp, &quot;USADA8%s\tr%d, r%d, r%d, r%d&quot;, COND(opcode),
++				(int) (opcode &gt;&gt; 16) &amp; 0xf,
++				(int) (opcode &gt;&gt; 0) &amp; 0xf,
++				(int) (opcode &gt;&gt; 8) &amp; 0xf,
++				(int) (opcode &gt;&gt; 12) &amp; 0xf);
++		return ERROR_OK;
++	}
++	if (mnemonic) {
++		unsigned rm = (opcode &gt;&gt; 0) &amp; 0xf;
++		unsigned rd = (opcode &gt;&gt; 12) &amp; 0xf;
++
++		sprintf(cp, &quot;%s%s\tr%d, r%d&quot;, mnemonic, COND(opcode), rm, rd);
++		return ERROR_OK;
++	}
++
++undef:
++	/* these opcodes might be used someday */
++	sprintf(cp, &quot;UNDEFINED&quot;);
++	return ERROR_OK;
++}
++
+ /* Miscellaneous load/store instructions */
+ int evaluate_misc_load_store(uint32_t opcode, uint32_t address, arm_instruction_t *instruction)
+ {
+@@ -821,6 +1138,21 @@
+ 		instruction-&gt;info.b_bl_bx_blx.target_address = -1;
+ 	}
+ 
++	/* BXJ - &quot;Jazelle&quot; support (ARMv5-J) */
++	if ((opcode &amp; 0x006000f0) == 0x00200020)
++	{
++		uint8_t Rm;
++		instruction-&gt;type = ARM_BX;
++		Rm = opcode &amp; 0xf;
++
++		snprintf(instruction-&gt;text, 128,
++				&quot;0x%8.8&quot; PRIx32 &quot;\t0x%8.8&quot; PRIx32 &quot;\tBXJ%s r%i&quot;,
++				 address, opcode, COND(opcode), Rm);
++
++		instruction-&gt;info.b_bl_bx_blx.reg_operand = Rm;
++		instruction-&gt;info.b_bl_bx_blx.target_address = -1;
++	}
++
+ 	/* CLZ */
+ 	if ((opcode &amp; 0x006000f0) == 0x00600010)
+ 	{
+@@ -1272,17 +1604,24 @@
+ 	/* catch opcodes with [27:25] = b011 */
+ 	if ((opcode &amp; 0x0e000000) == 0x06000000)
+ 	{
+-		/* Undefined instruction */
+-		if ((opcode &amp; 0x00000010) == 0x00000010)
++		/* Load/store register offset */
++		if ((opcode &amp; 0x00000010) == 0x00000000)
++			return evaluate_load_store(opcode, address, instruction);
++
++		/* Architecturally Undefined instruction
++		 * ... don't expect these to ever be used
++		 */
++		if ((opcode &amp; 0x07f000f0) == 0x07f000f0)
+ 		{
+ 			instruction-&gt;type = ARM_UNDEFINED_INSTRUCTION;
+-			snprintf(instruction-&gt;text, 128, &quot;0x%8.8&quot; PRIx32 &quot;\t0x%8.8&quot; PRIx32 &quot;\tUNDEFINED INSTRUCTION&quot;, address, opcode);
++			snprintf(instruction-&gt;text, 128,
++				&quot;0x%8.8&quot; PRIx32 &quot;\t0x%8.8&quot; PRIx32 &quot;\tUNDEF&quot;,
++				address, opcode);
+ 			return ERROR_OK;
+ 		}
+ 
+-		/* Load/store register offset */
+-		return evaluate_load_store(opcode, address, instruction);
+-
++		/* &quot;media&quot; instructions */
++		return evaluate_media(opcode, address, instruction);
+ 	}
+ 
+ 	/* catch opcodes with [27:25] = b100 */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001426.html">[Openocd-svn] r2643 - in trunk: . src/target
+</A></li>
+	<LI>Next message: <A HREF="001428.html">[Openocd-svn] r2645 - trunk/tcl/board
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1427">[ date ]</a>
+              <a href="thread.html#1427">[ thread ]</a>
+              <a href="subject.html#1427">[ subject ]</a>
+              <a href="author.html#1427">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

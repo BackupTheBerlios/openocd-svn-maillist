@@ -1,0 +1,201 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1556 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1556%20-%20trunk/src/jtag&In-Reply-To=%3C200904281740.n3SHe4VZ023327%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000339.html">
+   <LINK REL="Next"  HREF="000341.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1556 - trunk/src/jtag</H1>
+    <B>mlu at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1556%20-%20trunk/src/jtag&In-Reply-To=%3C200904281740.n3SHe4VZ023327%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1556 - trunk/src/jtag">mlu at mail.berlios.de
+       </A><BR>
+    <I>Tue Apr 28 19:40:04 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000339.html">[Openocd-svn] r1555 - trunk/src/helper
+</A></li>
+        <LI>Next message: <A HREF="000341.html">[Openocd-svn] r1557 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#340">[ date ]</a>
+              <a href="thread.html#340">[ thread ]</a>
+              <a href="subject.html#340">[ subject ]</a>
+              <a href="author.html#340">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: mlu
+Date: 2009-04-28 19:40:02 +0200 (Tue, 28 Apr 2009)
+New Revision: 1556
+
+Modified:
+   trunk/src/jtag/jlink.c
+Log:
+Correctedout  buffer size and missing jlink_tap_init() call.
+Expanded JLink adapter info at startup.
+
+
+Modified: trunk/src/jtag/jlink.c
+===================================================================
+--- trunk/src/jtag/jlink.c	2009-04-28 13:40:06 UTC (rev 1555)
++++ trunk/src/jtag/jlink.c	2009-04-28 17:40:02 UTC (rev 1556)
+@@ -44,7 +44,7 @@
+ 
+ // See Section 1.3.2 of the Segger JLink USB protocol manual
+ #define JLINK_IN_BUFFER_SIZE			2048
+-#define JLINK_OUT_BUFFER_SIZE			2048
++#define JLINK_OUT_BUFFER_SIZE			2*2048+4
+ #define JLINK_EMU_RESULT_BUFFER_SIZE	64
+ 
+ /* Global USB buffers */
+@@ -53,14 +53,16 @@
+ static u8 usb_emu_result_buffer[JLINK_EMU_RESULT_BUFFER_SIZE];
+ 
+ /* Constants for JLink command */
+-#define EMU_CMD_VERSION     0x01
+-#define EMU_CMD_SET_SPEED   0x05
+-#define EMU_CMD_GET_STATE   0x07
+-#define EMU_CMD_HW_JTAG3    0xcf
+-#define EMU_CMD_HW_RESET0   0xdc
+-#define EMU_CMD_HW_RESET1   0xdd
+-#define EMU_CMD_HW_TRST0    0xde
+-#define EMU_CMD_HW_TRST1    0xdf
++#define EMU_CMD_VERSION     		0x01
++#define EMU_CMD_SET_SPEED   		0x05
++#define EMU_CMD_GET_STATE   		0x07
++#define EMU_CMD_HW_JTAG3    		0xcf
++#define EMU_CMD_GET_MAX_MEM_BLOCK   0xd4
++#define EMU_CMD_HW_RESET0   		0xdc
++#define EMU_CMD_HW_RESET1   		0xdd
++#define EMU_CMD_HW_TRST0    		0xde
++#define EMU_CMD_HW_TRST1    		0xdf
++#define EMU_CMD_GET_CAPS    		0xe8
+ 
+ /* max speed 12MHz v5.0 jlink */
+ #define JLINK_MAX_SPEED 12000
+@@ -530,6 +532,7 @@
+ {
+ 	int result;
+ 	int len;
++	u32 jlink_caps, jlink_max_size;
+ 
+ 	/* query hardware version */
+ 	jlink_simple_command(EMU_CMD_VERSION);
+@@ -537,8 +540,7 @@
+ 	result = jlink_usb_read(jlink_jtag_handle, 2);
+ 	if (2 != result)
+ 	{
+-		LOG_ERROR(&quot;J-Link command EMU_CMD_VERSION failed (%d)\n&quot;,
+-				result);
++		LOG_ERROR(&quot;J-Link command EMU_CMD_VERSION failed (%d)\n&quot;, result);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+@@ -546,14 +548,41 @@
+ 	result = jlink_usb_read(jlink_jtag_handle, len);
+ 	if (result != len)
+ 	{
+-		LOG_ERROR(&quot;J-Link command EMU_CMD_VERSION failed (%d)\n&quot;,
+-				result);
++		LOG_ERROR(&quot;J-Link command EMU_CMD_VERSION failed (%d)\n&quot;, result);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+ 	usb_in_buffer[result] = 0;
+ 	LOG_INFO(&quot;%s&quot;, (char *)usb_in_buffer);
+ 
++	/* query hardware capabilities */
++	jlink_simple_command(EMU_CMD_GET_CAPS);
++
++	result = jlink_usb_read(jlink_jtag_handle, 4);
++	if (4 != result)
++	{
++		LOG_ERROR(&quot;J-Link command EMU_CMD_GET_CAPS failed (%d)\n&quot;, result);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	jlink_caps = buf_get_u32(usb_in_buffer, 0, 32);
++	LOG_INFO(&quot;JLink caps 0x%x&quot;, jlink_caps);
++
++
++	/* query hardware maximum memory block */
++	jlink_simple_command(EMU_CMD_GET_MAX_MEM_BLOCK);
++
++	result = jlink_usb_read(jlink_jtag_handle, 4);
++	if (4 != result)
++	{
++		LOG_ERROR(&quot;J-Link command EMU_CMD_GET_MAX_MEM_BLOCK failed (%d)\n&quot;, result);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	jlink_max_size = buf_get_u32(usb_in_buffer, 0, 32);
++	LOG_INFO(&quot;JLink max mem block %i&quot;, jlink_max_size);
++
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -689,8 +718,8 @@
+ 	result = jlink_usb_message(jlink_jtag_handle, 4 + 2 * byte_length, byte_length);
+ 	if (result != byte_length)
+ 	{
+-		LOG_ERROR(&quot;jlink_tap_execute, wrong result %d (expected %d)&quot;,
+-				result, byte_length);
++		LOG_ERROR(&quot;jlink_tap_execute, wrong result %d (expected %d)&quot;, result, byte_length);
++		jlink_tap_init();
+ 		return ERROR_JTAG_QUEUE_FAILED;
+ 	}
+ 
+@@ -726,7 +755,6 @@
+ 	}
+ 
+ 	jlink_tap_init();
+-
+ 	return ERROR_OK;
+ }
+ 
+@@ -800,7 +828,7 @@
+ 	}
+ 
+ 	result = jlink_usb_read(jlink_jtag, in_length);
+-	if ((result != in_length) &amp;&amp; (result != in_length + 1))
++	if ((result != in_length) &amp;&amp; (result != (in_length + 1)))
+ 	{
+ 		LOG_ERROR(&quot;usb_bulk_read failed (requested=%d, result=%d)&quot;,
+ 				in_length, result);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000339.html">[Openocd-svn] r1555 - trunk/src/helper
+</A></li>
+	<LI>Next message: <A HREF="000341.html">[Openocd-svn] r1557 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#340">[ date ]</a>
+              <a href="thread.html#340">[ thread ]</a>
+              <a href="subject.html#340">[ subject ]</a>
+              <a href="author.html#340">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

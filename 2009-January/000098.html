@@ -1,0 +1,137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1314 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1314%20-%20trunk/src/target&In-Reply-To=%3C200901131345.n0DDj9VF023958%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000097.html">
+   <LINK REL="Next"  HREF="000099.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1314 - trunk/src/target</H1>
+    <B>ntfreak at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1314%20-%20trunk/src/target&In-Reply-To=%3C200901131345.n0DDj9VF023958%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1314 - trunk/src/target">ntfreak at mail.berlios.de
+       </A><BR>
+    <I>Tue Jan 13 14:45:09 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000097.html">[Openocd-svn] r1313 - in trunk/src: jtag target target/target
+</A></li>
+        <LI>Next message: <A HREF="000099.html">[Openocd-svn] r1315 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#98">[ date ]</a>
+              <a href="thread.html#98">[ thread ]</a>
+              <a href="subject.html#98">[ subject ]</a>
+              <a href="author.html#98">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: ntfreak
+Date: 2009-01-13 14:45:08 +0100 (Tue, 13 Jan 2009)
+New Revision: 1314
+
+Modified:
+   trunk/src/target/mips32.c
+Log:
+- fix mips issues with newer versions of gdb
+- we simply add more dummy registers
+
+Modified: trunk/src/target/mips32.c
+===================================================================
+--- trunk/src/target/mips32.c	2009-01-13 11:33:19 UTC (rev 1313)
++++ trunk/src/target/mips32.c	2009-01-13 13:45:08 UTC (rev 1314)
+@@ -85,18 +85,16 @@
+ 	{37, NULL, NULL},
+ };
+ 
+-u8 mips32_gdb_dummy_fsr_value[] = {0, 0, 0, 0};
++/* number of mips dummy fp regs fp0 - fp31 + fsr and fir
++ * we also add 18 unknown registers to handle gdb requests */
+ 
+-reg_t mips32_gdb_dummy_fsr_reg =
+-{
+-	&quot;GDB dummy floating-point status register&quot;, mips32_gdb_dummy_fsr_value, 0, 1, 32, NULL, 0, NULL, 0
+-};
++#define MIPS32NUMFPREGS 34 + 18
+ 
+-u8 mips32_gdb_dummy_fir_value[] = {0, 0, 0, 0};
++u8 mips32_gdb_dummy_fp_value[] = {0, 0, 0, 0};
+ 
+-reg_t mips32_gdb_dummy_fir_reg =
++reg_t mips32_gdb_dummy_fp_reg =
+ {
+-	&quot;GDB dummy floating-point register&quot;, mips32_gdb_dummy_fir_value, 0, 1, 32, NULL, 0, NULL, 0
++	&quot;GDB dummy floating-point register&quot;, mips32_gdb_dummy_fp_value, 0, 1, 32, NULL, 0, NULL, 0
+ };
+ 
+ int mips32_core_reg_arch_type = -1;
+@@ -198,8 +196,8 @@
+ 	mips32_common_t *mips32 = target-&gt;arch_info;
+ 	int i;
+ 	
+-	/* include fsr/fir reg */
+-	*reg_list_size = MIPS32NUMCOREREGS + 2;
++	/* include floating point registers */
++	*reg_list_size = MIPS32NUMCOREREGS + MIPS32NUMFPREGS;
+ 	*reg_list = malloc(sizeof(reg_t*) * (*reg_list_size));
+ 	
+ 	for (i = 0; i &lt; MIPS32NUMCOREREGS; i++)
+@@ -208,9 +206,11 @@
+ 	}
+ 	
+ 	/* add dummy floating points regs */
+-	(*reg_list)[38] = &amp;mips32_gdb_dummy_fsr_reg;
+-	(*reg_list)[39] = &amp;mips32_gdb_dummy_fir_reg;
+-	
++	for (i = MIPS32NUMCOREREGS; i &lt; (MIPS32NUMCOREREGS + MIPS32NUMFPREGS); i++)
++	{
++		(*reg_list)[i] = &amp;mips32_gdb_dummy_fp_reg;
++	}
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -290,8 +290,7 @@
+ 	if (mips32_core_reg_arch_type == -1)
+ 		mips32_core_reg_arch_type = register_reg_arch_type(mips32_get_core_reg, mips32_set_core_reg);
+ 
+-	register_init_dummy(&amp;mips32_gdb_dummy_fsr_reg);
+-	register_init_dummy(&amp;mips32_gdb_dummy_fir_reg);
++	register_init_dummy(&amp;mips32_gdb_dummy_fp_reg);
+ 
+ 	/* Build the process context cache */ 
+ 	cache-&gt;name = &quot;mips32 registers&quot;;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000097.html">[Openocd-svn] r1313 - in trunk/src: jtag target target/target
+</A></li>
+	<LI>Next message: <A HREF="000099.html">[Openocd-svn] r1315 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#98">[ date ]</a>
+              <a href="thread.html#98">[ thread ]</a>
+              <a href="subject.html#98">[ subject ]</a>
+              <a href="author.html#98">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

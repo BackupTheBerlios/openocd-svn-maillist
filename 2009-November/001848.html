@@ -1,0 +1,238 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-538-geeb4276
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-538-geeb4276&In-Reply-To=%3CE1NCYcP-0006If-Gw%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001847.html">
+   <LINK REL="Next"  HREF="001849.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-538-geeb4276</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-538-geeb4276&In-Reply-To=%3CE1NCYcP-0006If-Gw%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-538-geeb4276">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Mon Nov 23 14:06:12 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001847.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-537-gb8b1353
+</A></li>
+        <LI>Next message: <A HREF="001849.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-539-g828d006
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1848">[ date ]</a>
+              <a href="thread.html#1848">[ thread ]</a>
+              <a href="subject.html#1848">[ subject ]</a>
+              <a href="author.html#1848">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  eeb4276deb5c3ba6621b8121d460bc50857c8d53 (commit)
+      from  b8b1353dd798d4aa811cdccc8eb2d6b41c1090d4 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit eeb4276deb5c3ba6621b8121d460bc50857c8d53
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Mon Oct 26 14:08:43 2009 +0100
+
+    arm926ejs: retire cp15 commands, handled by mrc/mcr.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index 9659e92..cff7fc5 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -5704,13 +5704,6 @@ they are not built from ARM926ej-s designs.
+ Print information about the caches found.
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffn</A> Command {arm926ejs cp15} opcode1 opcode2 CRn CRm regnum [value]
+-Accesses cp15 register @var{regnum} using
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at var</A>{opcode1}, @var{opcode2}, @var{CRn}, and @var{CRm}.
+-If a @var{value} is provided, that value is written to that register.
+-Else that register is read and displayed.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> deffn
+-
+ @subsection ARM966E specific commands
+ @cindex ARM966E
+ 
+diff --git a/src/target/arm926ejs.c b/src/target/arm926ejs.c
+index 56d86cc..24488c4 100644
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -713,67 +713,6 @@ static int arm926ejs_target_create(struct target *target, Jim_Interp *interp)
+ 	return arm926ejs_init_arch_info(target, arm926ejs, target-&gt;tap);
+ }
+ 
+-COMMAND_HANDLER(arm926ejs_handle_cp15_command)
+-{
+-	int retval;
+-	struct target *target = get_current_target(CMD_CTX);
+-	struct arm926ejs_common *arm926ejs = target_to_arm926(target);
+-	int opcode_1;
+-	int opcode_2;
+-	int CRn;
+-	int CRm;
+-
+-	if ((CMD_ARGC &lt; 4) || (CMD_ARGC &gt; 5))
+-	{
+-		command_print(CMD_CTX, &quot;usage: arm926ejs cp15 &lt;opcode_1&gt; &lt;opcode_2&gt; &lt;CRn&gt; &lt;CRm&gt; [value]&quot;);
+-		return ERROR_OK;
+-	}
+-
+-	COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], opcode_1);
+-	COMMAND_PARSE_NUMBER(int, CMD_ARGV[1], opcode_2);
+-	COMMAND_PARSE_NUMBER(int, CMD_ARGV[2], CRn);
+-	COMMAND_PARSE_NUMBER(int, CMD_ARGV[3], CRm);
+-
+-	retval = arm926ejs_verify_pointer(CMD_CTX, arm926ejs);
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		command_print(CMD_CTX, &quot;target must be stopped for \&quot;%s\&quot; command&quot;, CMD_NAME);
+-		return ERROR_OK;
+-	}
+-
+-	if (CMD_ARGC == 4)
+-	{
+-		uint32_t value;
+-		if ((retval = arm926ejs-&gt;read_cp15(target, opcode_1, opcode_2, CRn, CRm, &amp;value)) != ERROR_OK)
+-		{
+-			command_print(CMD_CTX, &quot;couldn't access register&quot;);
+-			return ERROR_OK;
+-		}
+-		if ((retval = jtag_execute_queue()) != ERROR_OK)
+-		{
+-			return retval;
+-		}
+-
+-		command_print(CMD_CTX, &quot;%i %i %i %i: %8.8&quot; PRIx32 &quot;&quot;, opcode_1, opcode_2, CRn, CRm, value);
+-	}
+-	else
+-	{
+-		uint32_t value;
+-		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[4], value);
+-		if ((retval = arm926ejs-&gt;write_cp15(target, opcode_1, opcode_2, CRn, CRm, value)) != ERROR_OK)
+-		{
+-			command_print(CMD_CTX, &quot;couldn't access register&quot;);
+-			return ERROR_OK;
+-		}
+-		command_print(CMD_CTX, &quot;%i %i %i %i: %8.8&quot; PRIx32 &quot;&quot;, opcode_1, opcode_2, CRn, CRm, value);
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+ COMMAND_HANDLER(arm926ejs_handle_cache_info_command)
+ {
+ 	int retval;
+@@ -829,11 +768,6 @@ int arm926ejs_register_commands(struct command_context *cmd_ctx)
+ 		NULL, COMMAND_ANY,
+ 		&quot;arm926ejs specific commands&quot;);
+ 
+-	register_command(cmd_ctx, arm926ejs_cmd, &quot;cp15&quot;,
+-		arm926ejs_handle_cp15_command, COMMAND_EXEC,
+-		&quot;display/modify cp15 register &quot;
+-		&quot;&lt;opcode_1&gt; &lt;opcode_2&gt; &lt;CRn&gt; &lt;CRm&gt; [value]&quot;);
+-
+ 	register_command(cmd_ctx, arm926ejs_cmd, &quot;cache_info&quot;,
+ 		arm926ejs_handle_cache_info_command, COMMAND_EXEC,
+ 		&quot;display information about target caches&quot;);
+diff --git a/tcl/board/dm355evm.cfg b/tcl/board/dm355evm.cfg
+index 1f814b2..2e298b7 100644
+--- a/tcl/board/dm355evm.cfg
++++ b/tcl/board/dm355evm.cfg
+@@ -182,7 +182,7 @@ proc dm355evm_init {} {
+ 	########################
+ 
+ 	# turn on icache - set I bit in cp15 register c1
+-	arm926ejs cp15 0 0 1 0 0x00051078
++	mcr 0 0 1 0 0x00051078
+ }
+ 
+ # NAND -- socket has two chipselects, MT29F16G08FAA puts 1GByte on each one.
+diff --git a/tcl/board/openrd.cfg b/tcl/board/openrd.cfg
+index e8784d4..4bc708d 100644
+--- a/tcl/board/openrd.cfg
++++ b/tcl/board/openrd.cfg
+@@ -29,7 +29,7 @@ proc openrd_init { } {
+ 	jtag_reset 0 0
+ 	wait_halt
+ 
+-	arm926ejs cp15 0 0 1 0 0x00052078
++	mcr 0 0 1 0 0x00052078
+ 
+ 	mww 0xD0001400 0x43000C30 #  DDR SDRAM Configuration Register
+ 	mww 0xD0001404 0x37543000 #  Dunit Control Low Register
+diff --git a/tcl/board/sheevaplug.cfg b/tcl/board/sheevaplug.cfg
+index afd621a..8e8396d 100644
+--- a/tcl/board/sheevaplug.cfg
++++ b/tcl/board/sheevaplug.cfg
+@@ -29,7 +29,7 @@ proc sheevaplug_init { } {
+ 	jtag_reset 0 0
+ 	wait_halt
+ 
+-	arm926ejs cp15 0 0 1 0 0x00052078
++	mcr 0 0 1 0 0x00052078
+ 
+ 	mww 0xD0001400 0x43000C30 #  DDR SDRAM Configuration Register
+ 	mww 0xD0001404 0x39543000 #  Dunit Control Low Register
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ doc/openocd.texi         |    7 -----
+ src/target/arm926ejs.c   |   66 ----------------------------------------------
+ tcl/board/dm355evm.cfg   |    2 +-
+ tcl/board/openrd.cfg     |    2 +-
+ tcl/board/sheevaplug.cfg |    2 +-
+ 5 files changed, 3 insertions(+), 76 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001847.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-537-gb8b1353
+</A></li>
+	<LI>Next message: <A HREF="001849.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-539-g828d006
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1848">[ date ]</a>
+              <a href="thread.html#1848">[ thread ]</a>
+              <a href="subject.html#1848">[ subject ]</a>
+              <a href="author.html#1848">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,366 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2590 - in trunk/src: helper jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2590%20-%20in%20trunk/src%3A%20helper%20jtag&In-Reply-To=%3C200908181214.n7ICE2fL004061%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001372.html">
+   <LINK REL="Next"  HREF="001374.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2590 - in trunk/src: helper jtag</H1>
+    <B>ntfreak at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2590%20-%20in%20trunk/src%3A%20helper%20jtag&In-Reply-To=%3C200908181214.n7ICE2fL004061%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2590 - in trunk/src: helper jtag">ntfreak at mail.berlios.de
+       </A><BR>
+    <I>Tue Aug 18 14:14:02 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001372.html">[Openocd-svn] r2589 - trunk/tcl/target
+</A></li>
+        <LI>Next message: <A HREF="001374.html">[Openocd-svn] r2591 - in trunk: . src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1373">[ date ]</a>
+              <a href="thread.html#1373">[ thread ]</a>
+              <a href="subject.html#1373">[ subject ]</a>
+              <a href="author.html#1373">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: ntfreak
+Date: 2009-08-18 14:14:01 +0200 (Tue, 18 Aug 2009)
+New Revision: 2590
+
+Modified:
+   trunk/src/helper/startup.tcl
+   trunk/src/jtag/core.c
+   trunk/src/jtag/jtag.h
+   trunk/src/jtag/tcl.c
+Log:
+Jonas Horberg [<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">jhorberg at sauer-danfoss.com</A>]
+Change jtag_rclk behaviour so it can be called before the interface init function
+
+Modified: trunk/src/helper/startup.tcl
+===================================================================
+--- trunk/src/helper/startup.tcl	2009-08-18 10:27:24 UTC (rev 2589)
++++ trunk/src/helper/startup.tcl	2009-08-18 12:14:01 UTC (rev 2590)
+@@ -134,15 +134,6 @@
+ 	reset halt
+ }
+ 
+-# If RCLK is not supported, use fallback_speed_khz
+-proc jtag_rclk {fallback_speed_khz} {
+-	if {[catch {jtag_khz 0}]!=0} {
+-		jtag_khz $fallback_speed_khz
+-	}
+-}
+-
+-add_help_text jtag_rclk &quot;fallback_speed_khz - set JTAG speed to RCLK or use fallback speed&quot;
+-
+ proc ocd_process_reset { MODE } {
+ 
+ 	# If this target must be halted...
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-08-18 10:27:24 UTC (rev 2589)
++++ trunk/src/jtag/core.c	2009-08-18 12:14:01 UTC (rev 2590)
+@@ -101,8 +101,9 @@
+ 
+ /* speed in kHz*/
+ static int speed_khz = 0;
+-/* flag if the kHz speed was defined */
+-static bool hasKHz = false;
++/* speed to fallback to when RCLK is requested but not supported */
++static int rclk_fallback_speed_khz = 0;
++static enum {CLOCK_MODE_SPEED, CLOCK_MODE_KHZ, CLOCK_MODE_RCLK} clock_mode;
+ static int jtag_speed = 0;
+ 
+ static struct jtag_interface_s *jtag = NULL;
+@@ -1140,16 +1141,34 @@
+ 		LOG_ERROR(&quot;JTAG interface has to be specified, see \&quot;interface\&quot; command&quot;);
+ 		return ERROR_JTAG_INVALID_INTERFACE;
+ 	}
+-	if (hasKHz)
+-	{
+-		jtag_interface-&gt;khz(jtag_get_speed_khz(), &amp;jtag_speed);
+-		hasKHz = false;
+-	}
+ 
++	jtag = jtag_interface;
+ 	if (jtag_interface-&gt;init() != ERROR_OK)
++	{
++		jtag = NULL;
+ 		return ERROR_JTAG_INIT_FAILED;
++	}
+ 
+-	jtag = jtag_interface;
++	int requested_khz = jtag_get_speed_khz();
++	int actual_khz = requested_khz;
++	int retval = jtag_get_speed_readable(&amp;actual_khz);
++	if (ERROR_OK != retval)
++		return retval;
++
++	if (actual_khz)
++	{
++		if ((CLOCK_MODE_RCLK == clock_mode)
++			|| ((CLOCK_MODE_KHZ == clock_mode) &amp;&amp; !requested_khz))
++		{
++			LOG_INFO(&quot;RCLK (adaptive clock speed) not supported - fallback to %d kHz&quot;
++				, actual_khz);
++		}
++		else
++			LOG_INFO(&quot;clock speed %d kHz&quot;, actual_khz);
++	}
++	else
++		LOG_INFO(&quot;RCLK (adaptive clock speed)&quot;);
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -1255,20 +1274,15 @@
+ 	return jtag_init_reset(cmd_ctx);
+ }
+ 
+-void jtag_set_speed_khz(unsigned khz)
+-{
+-	speed_khz = khz;
+-}
+ unsigned jtag_get_speed_khz(void)
+ {
+ 	return speed_khz;
+ }
+-int jtag_config_khz(unsigned khz)
++
++static int jtag_khz_to_speed(unsigned khz, int* speed)
+ {
+-	LOG_DEBUG(&quot;handle jtag khz&quot;);
+-	jtag_set_speed_khz(khz);
+-
+-	int cur_speed = 0;
++	LOG_DEBUG(&quot;convert khz to interface specific speed value&quot;);
++	speed_khz = khz;
+ 	if (jtag != NULL)
+ 	{
+ 		LOG_DEBUG(&quot;have interface set up&quot;);
+@@ -1276,34 +1290,85 @@
+ 		int retval = jtag-&gt;khz(jtag_get_speed_khz(), &amp;speed_div1);
+ 		if (ERROR_OK != retval)
+ 		{
+-			jtag_set_speed_khz(0);
+ 			return retval;
+ 		}
+-		cur_speed = speed_div1;
++		*speed = speed_div1;
+ 	}
+-	return jtag_set_speed(cur_speed);
++	return ERROR_OK;
+ }
+ 
+-int jtag_get_speed(void)
++static int jtag_rclk_to_speed(unsigned fallback_speed_khz, int* speed)
+ {
+-	return jtag_speed;
++	int retval = jtag_khz_to_speed(0, speed);
++	if ((ERROR_OK != retval) &amp;&amp; fallback_speed_khz)
++	{
++		LOG_DEBUG(&quot;trying fallback speed...&quot;);
++		retval = jtag_khz_to_speed(fallback_speed_khz, speed);
++	}
++	return retval;
+ }
+ 
+-int jtag_set_speed(int speed)
++static int jtag_set_speed(int speed)
+ {
+ 	jtag_speed = speed;
+ 	/* this command can be called during CONFIG,
+ 	 * in which case jtag isn't initialized */
+-	hasKHz = !jtag;
+ 	return jtag ? jtag-&gt;speed(speed) : ERROR_OK;
+ }
+ 
+-int jtag_get_speed_readable(int *speed)
++int jtag_config_speed(int speed)
+ {
+-	return jtag ? jtag-&gt;speed_div(jtag_get_speed(), speed) : ERROR_OK;
++	LOG_DEBUG(&quot;handle jtag speed&quot;);
++	clock_mode = CLOCK_MODE_SPEED;
++	return jtag_set_speed(speed);
+ }
+ 
++int jtag_config_khz(unsigned khz)
++{
++	LOG_DEBUG(&quot;handle jtag khz&quot;);
++	clock_mode = CLOCK_MODE_KHZ;
++	int speed = 0;
++	int retval = jtag_khz_to_speed(khz, &amp;speed);
++	return (ERROR_OK != retval) ? retval : jtag_set_speed(speed);
++}
+ 
++int jtag_config_rclk(unsigned fallback_speed_khz)
++{
++	LOG_DEBUG(&quot;handle jtag rclk&quot;);
++	clock_mode = CLOCK_MODE_RCLK;
++	rclk_fallback_speed_khz = fallback_speed_khz;
++	int speed = 0;
++	int retval = jtag_rclk_to_speed(fallback_speed_khz, &amp;speed);
++	return (ERROR_OK != retval) ? retval : jtag_set_speed(speed);
++}
++
++int jtag_get_speed(void)
++{
++	int speed;
++	switch(clock_mode)
++	{
++		case CLOCK_MODE_SPEED:
++			speed = jtag_speed;
++			break;
++		case CLOCK_MODE_KHZ:
++			jtag_khz_to_speed(jtag_get_speed_khz(), &amp;speed);
++			break;
++		case CLOCK_MODE_RCLK:
++			jtag_rclk_to_speed(rclk_fallback_speed_khz, &amp;speed);
++			break;
++		default:
++			LOG_ERROR(&quot;BUG: unknown jtag clock mode&quot;);
++			speed = 0;
++			break;
++	}
++	return speed;
++}
++
++int jtag_get_speed_readable(int *khz)
++{
++	return jtag ? jtag-&gt;speed_div(jtag_get_speed(), khz) : ERROR_OK;
++}
++
+ void jtag_set_verify(bool enable)
+ {
+ 	jtag_verify = enable;
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-08-18 10:27:24 UTC (rev 2589)
++++ trunk/src/jtag/jtag.h	2009-08-18 12:14:01 UTC (rev 2590)
+@@ -252,13 +252,16 @@
+  * @returns ERROR_OK during configuration or on success, or an error
+  *   code returned from the interface @c speed callback.
+  */
+-int jtag_set_speed(int speed);
++int jtag_config_speed(int speed);
+ 
+ 
+ /// Attempt to configure the interface for the specified KHz.
+ int jtag_config_khz(unsigned khz);
+-/// Set the clock speed of the JTAG interface in KHz.
+-void jtag_set_speed_khz(unsigned speed);
++/**
++ * Attempt to enable RTCK/RCLK. If that fails, fallback to the
++ * specified frequency.
++ */
++int jtag_config_rclk(unsigned fallback_speed_khz);
+ /// Retreives the clock speed of the JTAG interface in KHz.
+ unsigned jtag_get_speed_khz(void);
+ 
+
+Modified: trunk/src/jtag/tcl.c
+===================================================================
+--- trunk/src/jtag/tcl.c	2009-08-18 10:27:24 UTC (rev 2589)
++++ trunk/src/jtag/tcl.c	2009-08-18 12:14:01 UTC (rev 2590)
+@@ -55,6 +55,7 @@
+ static int handle_interface_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int handle_jtag_speed_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int handle_jtag_khz_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++static int handle_jtag_rclk_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int handle_jtag_device_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int handle_reset_config_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int handle_jtag_nsrst_delay_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+@@ -577,6 +578,8 @@
+ 	register_command(cmd_ctx, NULL, &quot;jtag_khz&quot;, handle_jtag_khz_command,
+ 		COMMAND_ANY, &quot;set maximum jtag speed (if supported); &quot;
+ 		&quot;parameter is maximum khz, or 0 for adaptive clocking (RTCK).&quot;);
++	register_command(cmd_ctx, NULL, &quot;jtag_rclk&quot;, handle_jtag_rclk_command,
++		COMMAND_ANY, &quot;fallback_speed_khz - set JTAG speed to RCLK or use fallback speed&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;jtag_device&quot;, handle_jtag_device_command,
+ 		COMMAND_CONFIG, &quot;(DEPRECATED) jtag_device &lt;ir_length&gt; &lt;ir_expected&gt; &lt;ir_mask&gt;&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;reset_config&quot;, handle_reset_config_command,
+@@ -955,7 +958,7 @@
+ 		int retval = parse_uint(args[0], &amp;cur_speed);
+ 		if (ERROR_OK != retval)
+ 			return retval;
+-		retval = jtag_set_speed(cur_speed);
++		retval = jtag_config_speed(cur_speed);
+ 
+ 	}
+ 	command_print(cmd_ctx, &quot;jtag_speed: %d&quot;, jtag_get_speed());
+@@ -993,6 +996,36 @@
+ 	return retval;
+ }
+ 
++static int handle_jtag_rclk_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	if (argc &gt; 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	int retval = ERROR_OK;
++	if (argc == 1)
++	{
++		unsigned khz = 0;
++		int retval = parse_uint(args[0], &amp;khz);
++		if (ERROR_OK != retval)
++			return retval;
++		retval = jtag_config_rclk(khz);
++		if (ERROR_OK != retval)
++			return retval;
++	}
++
++	int cur_khz = jtag_get_speed_khz();
++	retval = jtag_get_speed_readable(&amp;cur_khz);
++	if (ERROR_OK != retval)
++		return retval;
++
++	if (cur_khz)
++		command_print(cmd_ctx, &quot;RCLK not supported - fallback to %d kHz&quot;, cur_khz);
++	else
++		command_print(cmd_ctx, &quot;RCLK - adaptive&quot;);
++
++	return retval;
++}
++
+ static int handle_jtag_reset_command(struct command_context_s *cmd_ctx,
+ 		char *cmd, char **args, int argc)
+ {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001372.html">[Openocd-svn] r2589 - trunk/tcl/target
+</A></li>
+	<LI>Next message: <A HREF="001374.html">[Openocd-svn] r2591 - in trunk: . src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1373">[ date ]</a>
+              <a href="thread.html#1373">[ thread ]</a>
+              <a href="subject.html#1373">[ subject ]</a>
+              <a href="author.html#1373">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

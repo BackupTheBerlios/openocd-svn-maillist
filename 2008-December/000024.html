@@ -1,0 +1,956 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1242 - in trunk: doc src/helper src/server src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1242%20-%20in%20trunk%3A%20doc%20src/helper%20src/server%20src/target&In-Reply-To=%3C200812150943.mBF9hRPx028652%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000023.html">
+   <LINK REL="Next"  HREF="000025.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1242 - in trunk: doc src/helper src/server src/target</H1>
+    <B>ntfreak at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1242%20-%20in%20trunk%3A%20doc%20src/helper%20src/server%20src/target&In-Reply-To=%3C200812150943.mBF9hRPx028652%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1242 - in trunk: doc src/helper src/server src/target">ntfreak at mail.berlios.de
+       </A><BR>
+    <I>Mon Dec 15 10:43:27 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000023.html">[Openocd-svn] r1241 - in trunk/src: . target
+</A></li>
+        <LI>Next message: <A HREF="000025.html">[Openocd-svn] r1243 - trunk trunk/src trunk/src/helper	trunk/src/jtag zy1000/trunk/build zy1000/trunk/build/include	zy1000/trunk/build/tcl
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#24">[ date ]</a>
+              <a href="thread.html#24">[ thread ]</a>
+              <a href="subject.html#24">[ subject ]</a>
+              <a href="author.html#24">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: ntfreak
+Date: 2008-12-15 10:43:26 +0100 (Mon, 15 Dec 2008)
+New Revision: 1242
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/helper/Makefile.am
+   trunk/src/helper/log.c
+   trunk/src/helper/options.c
+   trunk/src/server/gdb_server.c
+   trunk/src/server/server.c
+   trunk/src/server/server.h
+   trunk/src/server/tcl_server.c
+   trunk/src/server/telnet_server.c
+   trunk/src/target/target.c
+Log:
+- add ability for openocd to communicate to gdb using pipes (stdin/stdout).
+- this is enabled by new command line option option --pipe.
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2008-12-15 09:05:16 UTC (rev 1241)
++++ trunk/doc/openocd.texi	2008-12-15 09:43:26 UTC (rev 1242)
+@@ -15,7 +15,7 @@
+ 
+ @itemize @bullet
+ @item Copyright @copyright{} 2008 The OpenOCD Project
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> Copyright @copyright{} 2007-2008 Spen @email{spen@@spen-soft.co.uk}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> Copyright @copyright{} 2007-2008 Spencer Oliver @email{spen@@spen-soft.co.uk}
+ @item Copyright @copyright{} 2008 Oyvind Harboe @email{oyvind.harboe@@zylin.com}
+ @item Copyright @copyright{} 2008 Duane Ellis @email{openocd@@duaneellis.com}
+ @end itemize
+@@ -411,9 +411,10 @@
+ --debug      | -d       set debug level &lt;0-3&gt;
+ --log_output | -l       redirect log output to file &lt;name&gt;
+ --command    | -c       run &lt;command&gt;
++--pipe       | -p       use pipes when talking to gdb
+ @end verbatim
+ 
+-By default openocd reads the file configuration file ``openocd.cfg''
++By default OpenOCD reads the file configuration file ``openocd.cfg''
+ in the current directory.  To specify a different (or multiple)
+ configuration file, you can use the ``-f'' option. For example:
+ 
+@@ -445,6 +446,9 @@
+ the @option{-s &lt;search&gt;} switch. The current directory and the OpenOCD
+ target library is in the search path by default.
+ 
++For details on the @option{-p} option. @xref{Connecting to GDB}.
++Option @option{-p} is not currently supported under native win32.
++
+ Note! OpenOCD will launch the GDB &amp; telnet server even if it can not
+ establish a connection with the target. In general, it is possible for
+ the JTAG controller to be unresponsive until the target is set up
+@@ -455,7 +459,7 @@
+ @cindex configuration
+ 
+ @section Outline
+-There are 4 basic ways of ``configurating'' openocd to run, they are:
++There are 4 basic ways of ``configurating'' OpenOCD to run, they are:
+ 
+ @enumerate
+ @item A small openocd.cfg file which ``sources'' other configuration files
+@@ -671,7 +675,7 @@
+ every chip. If the @t{-expected-id} is nonzero, OpenOCD attempts
+ to verify the tap id number verses configuration file and may issue an
+ error or warning like this. The hope is this will help pin point
+-problem openocd configurations.
++problem OpenOCD configurations.
+ 
+ @example
+ Info:   JTAG tap: sam7x256.cpu tap/device found: 0x3f0f0f0f (Manufacturer: 0x787, Part: 0xf0f0, Version: 0x3)
+@@ -904,7 +908,7 @@
+ JIM-Tcl commands, and (older) the orginal command interpretor.
+ 
+ @item @b{Commands}
+-@* At the openocd telnet command line (or via the GDB mon command) one
++@* At the OpenOCD telnet command line (or via the GDB mon command) one
+ can type a Tcl for() loop, set variables, etc.
+ 
+ @item @b{Historical Note}
+@@ -1145,7 +1149,7 @@
+ @b{TODO:} Confirm the following: On windows the name needs to end with
+ a ``space A''? Or not? It has to do with the FTD2xx driver. When must
+ this be added and when must it not be added? Why can't the code in the
+-interface or in openocd automatically add this if needed? -- Duane.
++interface or in OpenOCD automatically add this if needed? -- Duane.
+ 
+ @item @b{ft2232_serial} &lt;@var{serial-number}&gt;
+ @cindex ft2232_serial
+@@ -1527,7 +1531,7 @@
+ circuit and skipped.
+ 
+ 
+-From OpenOCDs view point, a JTAG TAP is in one of 3 states:
++From OpenOCD's view point, a JTAG TAP is in one of 3 states:
+ 
+ @itemize @bullet
+ @item @b{Enabled - Not In ByPass} and has a variable bit length
+@@ -1640,7 +1644,7 @@
+     puts [format &quot;The button is %s&quot; $x]
+ @end example
+     
+-In OpenOCDs terms, the ``target'' is an object just like a Tcl/Tk
++In OpenOCD's terms, the ``target'' is an object just like a Tcl/Tk
+ button. Commands avaialble as a ``target object'' are:
+ 
+ @comment START targetobj commands.
+@@ -1841,7 +1845,7 @@
+ @item @b{-work-area-size [ADDRESS]} specify/set the work area
+ @item @b{-work-area-backup [0|1]} does the work area get backed up
+ @item @b{-endian  [big|little]} 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{-variant [NAME]} some chips have varients openocd needs to know about
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @b{-variant [NAME]} some chips have varients OpenOCD needs to know about
+ @item @b{-chain-position DOTTED.NAME} the tap name this target refers to.
+ @end itemize
+ Example:
+@@ -1870,7 +1874,7 @@
+ @* None (this is also used as the ARM946)
+ @item @b{cortex_m3}
+ @* use variant &lt;@var{-variant lm3s}&gt; when debugging luminary lm3s targets. This will cause
+-openocd to use a software reset rather than asserting SRST to avoid a issue with clearing
++OpenOCD to use a software reset rather than asserting SRST to avoid a issue with clearing
+ the debug registers. This is fixed in Fury Rev B, DustDevil Rev B, Tempest, these revisions will
+ be detected and the normal reset behaviour used.
+ @item @b{xscale}
+@@ -1880,9 +1884,9 @@
+ @item @b{mips_m4k}
+ @* Use variant @option{ejtag_srst} when debugging targets that do not
+ provide a functional SRST line on the EJTAG connector.  This causes
+-openocd to instead use an EJTAG software reset command to reset the
++OpenOCD to instead use an EJTAG software reset command to reset the
+ processor.  You still need to enable @option{srst} on the reset
+-configuration command to enable openocd hardware reset functionality.
++configuration command to enable OpenOCD hardware reset functionality.
+ @comment END varients
+ @end itemize
+ @section working_area - Command Removed
+@@ -2004,7 +2008,7 @@
+ @end itemize
+ 
+ @section flash bank command
+-The @b{flash bank} command is used to configure one or more flash chips (or banks in openocd terms)
++The @b{flash bank} command is used to configure one or more flash chips (or banks in OpenOCD terms)
+ 
+ @example
+ @b{flash bank} &lt;@var{driver}&gt; &lt;@var{base}&gt; &lt;@var{size}&gt; &lt;@var{chip_width}&gt;
+@@ -2170,7 +2174,7 @@
+ @end itemize
+ 
+ Note: Before using the str9xpec driver here is some background info to help
+-you better understand how the drivers works. Openocd has two flash drivers for
++you better understand how the drivers works. OpenOCD has two flash drivers for
+ the str9.
+ @enumerate
+ @item
+@@ -2793,41 +2797,52 @@
+ OpenOCD complies with the remote gdbserver protocol, and as such can be used
+ to debug remote targets.
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at section</A> Connecting to gdb
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at cindex</A> Connecting to gdb
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at section</A> Connecting to GDB
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at cindex</A> Connecting to GDB
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at anchor</A>{Connecting to GDB}
+ Use GDB 6.7 or newer with OpenOCD if you run into trouble. For
+ instance 6.3 has a known bug where it produces bogus memory access
+ errors, which has since been fixed: look up 1836 in
+ @url{<A HREF="http://sourceware.org/cgi-bin/gnatsweb.pl?database=gdb">http://sourceware.org/cgi-bin/gnatsweb.pl?database=gdb</A>}
+ 
+-
+-A connection is typically started as follows:
++@*OpenOCD can communicate with GDB in two ways:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at enumerate</A>
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A>
++A socket (tcp) connection is typically started as follows:
+ @example
+ target remote localhost:3333
+ @end example
+-This would cause gdb to connect to the gdbserver on the local pc using port 3333.
++This would cause GDB to connect to the gdbserver on the local pc using port 3333.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A>
++A pipe connection is typically started as follows:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++target remote openocd --pipe
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
++This would cause GDB to run OpenOCD and communicate using pipes (stdin/stdout).
++Using this method has the advantage of GDB starting/stopping OpenOCD for debug session.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> enumerate
+ 
+-To see a list of available OpenOCD commands type @option{monitor help} on the
+-gdb commandline.
++@*To see a list of available OpenOCD commands type @option{monitor help} on the
++GDB commandline.
+ 
+ OpenOCD supports the gdb @option{qSupported} packet, this enables information
+-to be sent by the gdb server (openocd) to gdb. Typical information includes
++to be sent by the gdb server (OpenOCD) to GDB. Typical information includes
+ packet size and device memory map.
+ 
+-Previous versions of OpenOCD required the following gdb options to increase
+-the packet size and speed up gdb communication.
++Previous versions of OpenOCD required the following GDB options to increase
++the packet size and speed up GDB communication.
+ @example
+ set remote memory-write-packet-size 1024
+ set remote memory-write-packet-size fixed
+ set remote memory-read-packet-size 1024
+ set remote memory-read-packet-size fixed
+ @end example
+-This is now handled in the @option{qSupported} PacketSize.
++This is now handled in the @option{qSupported} PacketSize and should not be required.
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at section</A> Programming using gdb
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at cindex</A> Programming using gdb
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at section</A> Programming using GDB
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at cindex</A> Programming using GDB
+ 
+-By default the target memory map is sent to gdb, this can be disabled by
++By default the target memory map is sent to GDB, this can be disabled by
+ the following OpenOCD config option:
+ @example
+ gdb_memory_map disable
+@@ -2836,34 +2851,34 @@
+ in OpenOCD. For faster performance you should also configure a valid 
+ working area.
+ 
+-Informing gdb of the memory map of the target will enable gdb to protect any
++Informing GDB of the memory map of the target will enable GDB to protect any
+ flash area of the target and use hardware breakpoints by default. This means
+ that the OpenOCD option @option{gdb_breakpoint_override} is not required when
+ using a memory map. @xref{gdb_breakpoint_override}.
+ 
+-To view the configured memory map in gdb, use the gdb command @option{info mem}
+-All other unasigned addresses within gdb are treated as RAM.
++To view the configured memory map in GDB, use the gdb command @option{info mem}
++All other unasigned addresses within GDB are treated as RAM.
+ 
+ GDB 6.8 and higher set any memory area not in the memory map as inaccessible,
+-this can be changed to the old behaviour by using the following gdb command.
++this can be changed to the old behaviour by using the following GDB command.
+ @example
+ set mem inaccessible-by-default off
+ @end example
+ 
+-If @option{gdb_flash_program enable} is also used, gdb will be able to
++If @option{gdb_flash_program enable} is also used, GDB will be able to
+ program any flash memory using the vFlash interface.
+ 
+-gdb will look at the target memory map when a load command is given, if any
++GDB will look at the target memory map when a load command is given, if any
+ areas to be programmed lie within the target flash area the vFlash packets
+ will be used.
+ 
+-If the target needs configuring before gdb programming, an event
++If the target needs configuring before GDB programming, an event
+ script can be executed.
+ @example
+ $_TARGETNAME configure -event EVENTNAME BODY
+ @end example
+ 
+-To verify any flash programming the gdb command @option{compare-sections}
++To verify any flash programming the GDB command @option{compare-sections}
+ can be used.
+ 
+ @node TCL scripting API
+@@ -3598,7 +3613,7 @@
+ OpenOCD comes with a target configuration script library. These scripts can be
+ used as-is or serve as a starting point.
+ 
+-The target library is published together with the openocd executable and 
++The target library is published together with the OpenOCD executable and 
+ the path to the target library is in the OpenOCD script search path.
+ Similarly there are example scripts for configuring the JTAG interface. 
+ 
+
+Modified: trunk/src/helper/Makefile.am
+===================================================================
+--- trunk/src/helper/Makefile.am	2008-12-15 09:05:16 UTC (rev 1241)
++++ trunk/src/helper/Makefile.am	2008-12-15 09:43:26 UTC (rev 1242)
+@@ -1,4 +1,4 @@
+-INCLUDES = -I$(top_srcdir)/src $(all_includes) -I$(top_srcdir)/src/target
++INCLUDES = -I$(top_srcdir)/src $(all_includes) -I$(top_srcdir)/src/target -I$(top_srcdir)/src/server
+ METASOURCES = AUTO
+ AM_CPPFLAGS = -DPKGDATADIR=\&quot;$(pkgdatadir)\&quot; -DPKGLIBDIR=\&quot;$(pkglibdir)\&quot; @CPPFLAGS@
+ noinst_LIBRARIES = libhelper.a
+
+Modified: trunk/src/helper/log.c
+===================================================================
+--- trunk/src/helper/log.c	2008-12-15 09:05:16 UTC (rev 1241)
++++ trunk/src/helper/log.c	2008-12-15 09:43:26 UTC (rev 1242)
+@@ -31,6 +31,7 @@
+ #include &quot;configuration.h&quot;
+ #include &quot;time_support.h&quot;
+ #include &quot;command.h&quot;
++#include &quot;server.h&quot;
+ 
+ #include &lt;stdio.h&gt;
+ #include &lt;stdlib.h&gt;
+@@ -108,9 +109,11 @@
+ #endif
+ 					string);
+ 		}
+-		else
++		else if(server_use_pipes == 0)
+ 		{
+-			if (strcmp(string, &quot;\n&quot;)!=0)
++			/* if we are using gdb through pipes then we do not want any output
++			 * to the pipe otherwise we get repeated strings */
++			if (strcmp(string, &quot;\n&quot;) != 0)
+ 			{
+ 				/* print human readable output - but skip empty lines */
+ 				fprintf(log_output, &quot;%s%s&quot;,
+@@ -203,6 +206,18 @@
+ 	if (debug_level &gt; 3)
+ 		debug_level = 3;
+ 
++	if (debug_level &gt;= LOG_LVL_DEBUG &amp;&amp; server_use_pipes == 1)
++	{
++		/* if we are enabling debug info then we need to write to a log file
++		 * otherwise the pipe will get full and cause issues with gdb */
++		FILE* file = fopen(&quot;openocd.log&quot;, &quot;w&quot;);
++		if (file)
++		{
++			log_output = file;
++			LOG_WARNING(&quot;enabling log output as we are using pipes&quot;);
++		}
++	}
++	
+ 	return ERROR_OK;
+ }
+ 
+
+Modified: trunk/src/helper/options.c
+===================================================================
+--- trunk/src/helper/options.c	2008-12-15 09:05:16 UTC (rev 1241)
++++ trunk/src/helper/options.c	2008-12-15 09:43:26 UTC (rev 1242)
+@@ -24,10 +24,13 @@
+ #include &quot;config.h&quot;
+ #endif
+ 
++#include &quot;replacements.h&quot;
++
+ #include &quot;types.h&quot;
+ #include &quot;command.h&quot;
+ #include &quot;configuration.h&quot;
+ #include &quot;log.h&quot;
++#include &quot;server.h&quot;
+ 
+ #include &lt;stdio.h&gt;
+ #include &lt;stdlib.h&gt;
+@@ -43,8 +46,9 @@
+ 	{&quot;debug&quot;,	optional_argument,	0,		'd'},
+ 	{&quot;file&quot;, 	required_argument,	0,		'f'},
+ 	{&quot;search&quot;,	required_argument,	0,		's'},
+-	{&quot;log_output&quot;,	required_argument,	0,		'l'},
++	{&quot;log_output&quot;,	required_argument,	0,	'l'},
+ 	{&quot;command&quot;,	required_argument,	0,		'c'},
++	{&quot;pipe&quot;,	no_argument,		0,		'p'},
+ 	{0, 0, 0, 0}
+ };
+ 
+@@ -95,7 +99,7 @@
+ 		/* getopt_long stores the option index here. */
+ 		int option_index = 0;
+ 		
+-		c = getopt_long(argc, argv, &quot;hvd::l:f:s:c:&quot;, long_options, &amp;option_index);
++		c = getopt_long(argc, argv, &quot;hvd::l:f:s:c:p&quot;, long_options, &amp;option_index);
+ 		
+ 		/* Detect the end of the options. */
+ 		if (c == -1)
+@@ -140,7 +144,20 @@
+ 					add_config_command(optarg);
+ 				}	
+ 				break;
+-				
++			case 'p':	/* --pipe | -p */
++#if BUILD_ECOSBOARD == 1
++				/* pipes unsupported on hosted platforms */
++				LOG_WARNING(&quot;pipes not supported on this platform&quot;);
++#else
++#ifdef IS_MINGW
++				/* pipes currently unsupported on win32 */
++				LOG_WARNING(&quot;pipes currently unsupported on win32&quot;);
++				exit(1);
++#else
++				server_use_pipes = 1;
++#endif
++#endif
++				break;
+ 		}
+ 	}
+ 
+@@ -154,6 +171,7 @@
+ 		LOG_OUTPUT(&quot;--debug      | -d\tset debug level &lt;0-3&gt;\n&quot;);
+ 		LOG_OUTPUT(&quot;--log_output | -l\tredirect log output to file &lt;name&gt;\n&quot;);
+ 		LOG_OUTPUT(&quot;--command    | -c\trun &lt;command&gt;\n&quot;);
++		LOG_OUTPUT(&quot;--pipe       | -p\tuse pipes for gdb communication\n&quot;);
+ 		exit(-1);
+ 	}	
+ 
+@@ -161,7 +179,7 @@
+ 	{
+ 		/* Nothing to do, version gets printed automatically. */
+ 		exit(-1);
+-	}	
+-
++	}
++	
+ 	return ERROR_OK;
+ }
+
+Modified: trunk/src/server/gdb_server.c
+===================================================================
+--- trunk/src/server/gdb_server.c	2008-12-15 09:05:16 UTC (rev 1241)
++++ trunk/src/server/gdb_server.c	2008-12-15 09:43:26 UTC (rev 1242)
+@@ -169,10 +169,18 @@
+ 
+ 	for (;;)
+ 	{
+-		retval=check_pending(connection, 1, NULL);
+-		if (retval!=ERROR_OK)
+-			return retval;
+-		gdb_con-&gt;buf_cnt = read_socket(connection-&gt;fd, gdb_con-&gt;buffer, GDB_BUFFER_SIZE);
++		if (connection-&gt;service-&gt;type == CONNECTION_PIPE)
++		{
++			gdb_con-&gt;buf_cnt = read(connection-&gt;fd, gdb_con-&gt;buffer, GDB_BUFFER_SIZE);
++		}
++		else
++		{
++			retval = check_pending(connection, 1, NULL);
++			if (retval != ERROR_OK)
++				return retval;
++			gdb_con-&gt;buf_cnt = read_socket(connection-&gt;fd, gdb_con-&gt;buffer, GDB_BUFFER_SIZE);
++		}
++		
+ 		if (gdb_con-&gt;buf_cnt &gt; 0)
+ 		{
+ 			break;
+@@ -268,11 +276,22 @@
+ 	gdb_connection_t *gdb_con = connection-&gt;priv;
+ 	if (gdb_con-&gt;closed)
+ 		return ERROR_SERVER_REMOTE_CLOSED;
+-
+-	if (write_socket(connection-&gt;fd, data, len) == len)
++	
++	if (connection-&gt;service-&gt;type == CONNECTION_PIPE)
+ 	{
+-		return ERROR_OK;
++		/* write to stdout */
++		if (write(STDOUT_FILENO, data, len) == len)
++		{
++			return ERROR_OK;
++		}
+ 	}
++	else
++	{
++		if (write_socket(connection-&gt;fd, data, len) == len)
++		{
++			return ERROR_OK;
++		}
++	}
+ 	gdb_con-&gt;closed = 1;
+ 	return ERROR_SERVER_REMOTE_CLOSED;
+ }
+@@ -2158,7 +2177,7 @@
+ 	if (retval == ERROR_SERVER_REMOTE_CLOSED)
+ 		return retval;
+ 
+-	/* logging does not propagate the error, yet can set th gdb_con-&gt;closed flag */
++	/* logging does not propagate the error, yet can set the gdb_con-&gt;closed flag */
+ 	if (gdb_con-&gt;closed)
+ 		return ERROR_SERVER_REMOTE_CLOSED;
+ 
+@@ -2177,34 +2196,37 @@
+ 		return ERROR_OK;
+ 	}
+ 
+-	if (gdb_port == 0)
++	if (gdb_port == 0 &amp;&amp; server_use_pipes == 0)
+ 	{
+ 		LOG_WARNING(&quot;no gdb port specified, using default port 3333&quot;);
+ 		gdb_port = 3333;
+ 	}
+ 
+-	while (target)
++	if (server_use_pipes)
+ 	{
+-		char service_name[8];
+-
+-		snprintf(service_name, 8, &quot;gdb-%2.2i&quot;, target-&gt;target_number);
+-
++		/* only a single gdb connection when using a pipe */
++		
+ 		gdb_service = malloc(sizeof(gdb_service_t));
+ 		gdb_service-&gt;target = target;
+ 
+-		add_service(&quot;gdb&quot;, CONNECTION_GDB,
+-			    gdb_port + target-&gt;target_number,
+-			    1, gdb_new_connection, gdb_input,
+-			    gdb_connection_closed,
+-			    gdb_service);
++		add_service(&quot;gdb&quot;, CONNECTION_PIPE, 0, 1, gdb_new_connection, gdb_input, gdb_connection_closed, gdb_service);
+ 
+-		LOG_DEBUG(&quot;gdb service for target %s at port %i&quot;,
+-			  target-&gt;type-&gt;name,
+-			  gdb_port + target-&gt;target_number);
++		LOG_DEBUG(&quot;gdb service for target %s using pipes&quot;, target-&gt;type-&gt;name);
++	}
++	else
++	{
++		while (target)
++		{
++			gdb_service = malloc(sizeof(gdb_service_t));
++			gdb_service-&gt;target = target;
+ 
+-		target = target-&gt;next;
++			add_service(&quot;gdb&quot;, CONNECTION_TCP, gdb_port + target-&gt;target_number, 1, gdb_new_connection, gdb_input, gdb_connection_closed, gdb_service);
++			
++			LOG_DEBUG(&quot;gdb service for target %s at port %i&quot;, target-&gt;type-&gt;name, gdb_port + target-&gt;target_number);
++			target = target-&gt;next;
++		}
+ 	}
+-
++	
+ 	return ERROR_OK;
+ }
+ 
+
+Modified: trunk/src/server/server.c
+===================================================================
+--- trunk/src/server/server.c	2008-12-15 09:05:16 UTC (rev 1241)
++++ trunk/src/server/server.c	2008-12-15 09:43:26 UTC (rev 1242)
+@@ -53,6 +53,9 @@
+ static int shutdown_openocd = 0;
+ int handle_shutdown_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ 
++/* set when using pipes rather than tcp */
++int server_use_pipes = 0;
++
+ int add_connection(service_t *service, command_context_t *cmd_ctx)
+ {
+ 	unsigned int address_size;
+@@ -69,28 +72,44 @@
+ 	c-&gt;priv = NULL;
+ 	c-&gt;next = NULL;
+ 
+-	address_size = sizeof(c-&gt;sin);
+-	
+-	c-&gt;fd = accept(service-&gt;fd, (struct sockaddr *)&amp;service-&gt;sin, &amp;address_size);
+-	
+-	/* This increases performance dramatically for e.g. GDB load which
+-	 * does not have a sliding window protocol. */
+-	retval=setsockopt(c-&gt;fd,	/* socket affected */
+-			IPPROTO_TCP,		/* set option at TCP level */
+-			TCP_NODELAY,		/* name of option */
+-			(char *)&amp;flag,		/* the cast is historical cruft */
+-			sizeof(int));		/* length of option value */
++	if (service-&gt;type == CONNECTION_TCP)
++	{
++		address_size = sizeof(c-&gt;sin);
+ 		
+-	LOG_INFO(&quot;accepting '%s' connection from %i&quot;, service-&gt;name, c-&gt;sin.sin_port);
+-	if ((retval = service-&gt;new_connection(c)) == ERROR_OK)
+-	{
++		c-&gt;fd = accept(service-&gt;fd, (struct sockaddr *)&amp;service-&gt;sin, &amp;address_size);
++		
++		/* This increases performance dramatically for e.g. GDB load which
++		 * does not have a sliding window protocol. */
++		retval=setsockopt(c-&gt;fd,	/* socket affected */
++				IPPROTO_TCP,		/* set option at TCP level */
++				TCP_NODELAY,		/* name of option */
++				(char *)&amp;flag,		/* the cast is historical cruft */
++				sizeof(int));		/* length of option value */
++			
++		LOG_INFO(&quot;accepting '%s' connection from %i&quot;, service-&gt;name, c-&gt;sin.sin_port);
++		if ((retval = service-&gt;new_connection(c)) != ERROR_OK)
++		{
++			close_socket(c-&gt;fd);
++			LOG_ERROR(&quot;attempted '%s' connection rejected&quot;, service-&gt;name);
++			free(c);
++			return retval;
++		}
+ 	}
+-	else
++	else if (service-&gt;type == CONNECTION_PIPE)
+ 	{
+-		close_socket(c-&gt;fd);
+-		LOG_ERROR(&quot;attempted '%s' connection rejected&quot;, service-&gt;name);
+-		free(c);
+-		return retval;
++#ifndef _WIN32
++		c-&gt;fd = service-&gt;fd;
++		
++		/* do not check for new connections again on stdin */
++		service-&gt;fd = -1;
++#endif
++		LOG_INFO(&quot;accepting '%s' connection from pipe&quot;, service-&gt;name);
++		if ((retval = service-&gt;new_connection(c)) != ERROR_OK)
++		{
++			LOG_ERROR(&quot;attempted '%s' connection rejected&quot;, service-&gt;name);
++			free(c);
++			return retval;
++		}
+ 	}
+ 	
+ 	/* add to the end of linked list */
+@@ -113,7 +132,8 @@
+ 		if (c-&gt;fd == connection-&gt;fd)
+ 		{	
+ 			service-&gt;connection_closed(c);
+-			close_socket(c-&gt;fd);
++			if (service-&gt;type == CONNECTION_TCP)
++				close_socket(c-&gt;fd);
+ 			command_done(c-&gt;cmd_ctx);
+ 			
+ 			/* delete connection */
+@@ -150,45 +170,68 @@
+ 	c-&gt;priv = priv;
+ 	c-&gt;next = NULL;
+ 	
+-	if ((c-&gt;fd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
++	if (type == CONNECTION_TCP)
+ 	{
+-		LOG_ERROR(&quot;error creating socket: %s&quot;, strerror(errno));
+-		exit(-1);
+-	}
+-	
+-	setsockopt(c-&gt;fd, SOL_SOCKET, SO_REUSEADDR, (void*)&amp;so_reuseaddr_option, sizeof(int));
+-	
+-	socket_nonblock(c-&gt;fd);
+-	
+-	memset(&amp;c-&gt;sin, 0, sizeof(c-&gt;sin));
+-	c-&gt;sin.sin_family = AF_INET;
+-	c-&gt;sin.sin_addr.s_addr = INADDR_ANY;
+-	c-&gt;sin.sin_port = htons(port);
+-	
+-	if (bind(c-&gt;fd, (struct sockaddr *)&amp;c-&gt;sin, sizeof(c-&gt;sin)) == -1)
+-	{
+-		LOG_ERROR(&quot;couldn't bind to socket: %s&quot;, strerror(errno));
+-		exit(-1);
+-	}
+-	
++		if ((c-&gt;fd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
++		{
++			LOG_ERROR(&quot;error creating socket: %s&quot;, strerror(errno));
++			exit(-1);
++		}
++		
++		setsockopt(c-&gt;fd, SOL_SOCKET, SO_REUSEADDR, (void*)&amp;so_reuseaddr_option, sizeof(int));
++		
++		socket_nonblock(c-&gt;fd);
++		
++		memset(&amp;c-&gt;sin, 0, sizeof(c-&gt;sin));
++		c-&gt;sin.sin_family = AF_INET;
++		c-&gt;sin.sin_addr.s_addr = INADDR_ANY;
++		c-&gt;sin.sin_port = htons(port);
++		
++		if (bind(c-&gt;fd, (struct sockaddr *)&amp;c-&gt;sin, sizeof(c-&gt;sin)) == -1)
++		{
++			LOG_ERROR(&quot;couldn't bind to socket: %s&quot;, strerror(errno));
++			exit(-1);
++		}
++		
+ #ifndef _WIN32
+-	int segsize=65536;
+-	setsockopt(c-&gt;fd, IPPROTO_TCP, TCP_MAXSEG,  &amp;segsize, sizeof(int));
++		int segsize=65536;
++		setsockopt(c-&gt;fd, IPPROTO_TCP, TCP_MAXSEG,  &amp;segsize, sizeof(int));
+ #endif
+-	int window_size = 128 * 1024;	
+-
+-	/* These setsockopt()s must happen before the listen() */
++		int window_size = 128 * 1024;	
+ 	
+-	setsockopt(c-&gt;fd, SOL_SOCKET, SO_SNDBUF,
+-		(char *)&amp;window_size, sizeof(window_size));
+-	setsockopt(c-&gt;fd, SOL_SOCKET, SO_RCVBUF,
+-		(char *)&amp;window_size, sizeof(window_size));
+-	
+-	if (listen(c-&gt;fd, 1) == -1)
++		/* These setsockopt()s must happen before the listen() */
++		
++		setsockopt(c-&gt;fd, SOL_SOCKET, SO_SNDBUF,
++			(char *)&amp;window_size, sizeof(window_size));
++		setsockopt(c-&gt;fd, SOL_SOCKET, SO_RCVBUF,
++			(char *)&amp;window_size, sizeof(window_size));
++		
++		if (listen(c-&gt;fd, 1) == -1)
++		{
++			LOG_ERROR(&quot;couldn't listen on socket: %s&quot;, strerror(errno));
++			exit(-1);
++		}
++	}
++	else if (type == CONNECTION_PIPE)
+ 	{
+-		LOG_ERROR(&quot;couldn't listen on socket: %s&quot;, strerror(errno));
+-		exit(-1);
++		/* use stdin */
++		c-&gt;fd = STDIN_FILENO;
++		
++#ifdef _WIN32
++		/* for win32 set stdin/stdout to binary mode */
++		if (_setmode(_fileno(stdout), _O_BINARY) &lt; 0)
++			LOG_WARNING(&quot;cannot change stdout mode to binary&quot;);
++		if (_setmode(_fileno(stdin), _O_BINARY) &lt; 0)
++			LOG_WARNING(&quot;cannot change stdin mode to binary&quot;);
++#else
++		socket_nonblock(c-&gt;fd);
++#endif
+ 	}
++	else
++	{
++		LOG_ERROR(&quot;unknown connection type: %d&quot;, type);
++		exit(1);
++	}
+ 	
+ 	/* add to the end of linked list */
+ 	for (p = &services; *p; p = &amp;(*p)-&gt;next);
+@@ -310,14 +353,18 @@
+ 		
+ #ifndef _WIN32
+ #if BUILD_ECOSBOARD == 0
+-		/* add STDIN to read_fds */
+-		FD_SET(fileno(stdin), &amp;read_fds);
++		if (server_use_pipes == 0)
++		{
++			/* add STDIN to read_fds */
++			FD_SET(fileno(stdin), &amp;read_fds);
++		}
+ #endif
+ #endif
+ 
+ 		openocd_sleep_prelude();
+ 		kept_alive();
+-		// Only while we're sleeping we'll let others run
++		
++		/* Only while we're sleeping we'll let others run */
+ 		retval = select(fd_max + 1, &amp;read_fds, NULL, NULL, &amp;tv);
+ 		openocd_sleep_postlude();
+ 
+@@ -371,11 +418,14 @@
+ 				}
+ 				else
+ 				{
+-					struct sockaddr_in sin;
+-					unsigned int address_size = sizeof(sin);
+-					int tmp_fd;
+-					tmp_fd = accept(service-&gt;fd, (struct sockaddr *)&amp;service-&gt;sin, &amp;address_size);
+-					close_socket(tmp_fd);
++					if (service-&gt;type != CONNECTION_PIPE)
++					{
++						struct sockaddr_in sin;
++						unsigned int address_size = sizeof(sin);
++						int tmp_fd;
++						tmp_fd = accept(service-&gt;fd, (struct sockaddr *)&amp;service-&gt;sin, &amp;address_size);
++						close_socket(tmp_fd);
++					}
+ 					LOG_INFO(&quot;rejected '%s' connection, no more connections allowed&quot;, service-&gt;name);
+ 				}
+ 			}
+@@ -389,11 +439,16 @@
+ 				{
+ 					if ((FD_ISSET(c-&gt;fd, &amp;read_fds)) || c-&gt;input_pending)
+ 					{
+-						if (service-&gt;input(c) != ERROR_OK)
++						if ((retval = service-&gt;input(c)) != ERROR_OK)
+ 						{
+ 							connection_t *next = c-&gt;next;
++							if (service-&gt;type == CONNECTION_PIPE)
++							{
++								/* if connection uses a pipe then shutdown openocd on error */
++								shutdown_openocd = 1;
++							}
+ 							remove_connection(service, c);
+-							LOG_INFO(&quot;dropped '%s' connection&quot;, service-&gt;name);
++							LOG_INFO(&quot;dropped '%s' connection - error %d&quot;, service-&gt;name, retval);
+ 							c = next;
+ 							continue;
+ 						}
+@@ -405,11 +460,15 @@
+ 		
+ #ifndef _WIN32
+ #if BUILD_ECOSBOARD == 0
+-		if (FD_ISSET(fileno(stdin), &amp;read_fds))
++		/* check for data on stdin if not using pipes */
++		if (server_use_pipes == 0)
+ 		{
+-			if (getc(stdin) == 'x')
++			if (FD_ISSET(fileno(stdin), &amp;read_fds))
+ 			{
+-				shutdown_openocd = 1;
++				if (getc(stdin) == 'x')
++				{
++					shutdown_openocd = 1;
++				}
+ 			}
+ 		}
+ #endif
+@@ -459,7 +518,6 @@
+ 	signal(SIGBREAK, sig_handler);
+ 	signal(SIGABRT, sig_handler);
+ #endif
+-
+ 	
+ 	return ERROR_OK;
+ }
+
+Modified: trunk/src/server/server.h
+===================================================================
+--- trunk/src/server/server.h	2008-12-15 09:05:16 UTC (rev 1241)
++++ trunk/src/server/server.h	2008-12-15 09:43:26 UTC (rev 1242)
+@@ -34,9 +34,8 @@
+ 
+ enum connection_type
+ {
+-	CONNECTION_GDB,
+-	CONNECTION_TELNET,
+-	CONNECTION_TCL,
++	CONNECTION_TCP,
++	CONNECTION_PIPE
+ };
+ 
+ typedef struct connection_s
+@@ -76,6 +75,8 @@
+ extern int server_loop(command_context_t *command_context);
+ extern int server_register_commands(command_context_t *context);
+ 
++extern int server_use_pipes;
++
+ #define ERROR_SERVER_REMOTE_CLOSED	(-400)
+ #define ERROR_CONNECTION_REJECTED	(-401)
+ 
+
+Modified: trunk/src/server/tcl_server.c
+===================================================================
+--- trunk/src/server/tcl_server.c	2008-12-15 09:05:16 UTC (rev 1241)
++++ trunk/src/server/tcl_server.c	2008-12-15 09:43:26 UTC (rev 1242)
+@@ -179,7 +179,7 @@
+ 		tcl_port = 6666;
+ 	}
+ 
+-	retval = add_service(&quot;tcl&quot;, CONNECTION_TCL, tcl_port, 1, tcl_new_connection, tcl_input, tcl_closed, NULL);
++	retval = add_service(&quot;tcl&quot;, CONNECTION_TCP, tcl_port, 1, tcl_new_connection, tcl_input, tcl_closed, NULL);
+ 	return retval;
+ }
+ 
+
+Modified: trunk/src/server/telnet_server.c
+===================================================================
+--- trunk/src/server/telnet_server.c	2008-12-15 09:05:16 UTC (rev 1241)
++++ trunk/src/server/telnet_server.c	2008-12-15 09:43:26 UTC (rev 1242)
+@@ -615,7 +615,7 @@
+ 
+ 	telnet_service-&gt;banner = banner;
+ 
+-	add_service(&quot;telnet&quot;, CONNECTION_TELNET, telnet_port, 1, telnet_new_connection, telnet_input, telnet_connection_closed, telnet_service);
++	add_service(&quot;telnet&quot;, CONNECTION_TCP, telnet_port, 1, telnet_new_connection, telnet_input, telnet_connection_closed, telnet_service);
+ 
+ 	return ERROR_OK;
+ }
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2008-12-15 09:05:16 UTC (rev 1241)
++++ trunk/src/target/target.c	2008-12-15 09:43:26 UTC (rev 1242)
+@@ -232,7 +232,6 @@
+ 	{ .name = NULL, .value = -1 },
+ };
+ 
+-
+ const Jim_Nvp nvp_target_endian[] = {
+ 	{ .name = &quot;big&quot;,    .value = TARGET_BIG_ENDIAN },
+ 	{ .name = &quot;little&quot;, .value = TARGET_LITTLE_ENDIAN },
+@@ -249,8 +248,7 @@
+ 	{ .name = NULL     , .value = -1 },
+ };
+ 
+-static int
+-max_target_number( void )
++static int max_target_number(void)
+ {
+ 	target_t *t;
+ 	int x;
+@@ -267,8 +265,7 @@
+ }
+ 
+ /* determine the number of the new target */
+-static int
+-new_target_number( void )
++static int new_target_number(void)
+ {
+ 	target_t *t;
+ 	int x;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000023.html">[Openocd-svn] r1241 - in trunk/src: . target
+</A></li>
+	<LI>Next message: <A HREF="000025.html">[Openocd-svn] r1243 - trunk trunk/src trunk/src/helper	trunk/src/jtag zy1000/trunk/build zy1000/trunk/build/include	zy1000/trunk/build/tcl
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#24">[ date ]</a>
+              <a href="thread.html#24">[ thread ]</a>
+              <a href="subject.html#24">[ subject ]</a>
+              <a href="author.html#24">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

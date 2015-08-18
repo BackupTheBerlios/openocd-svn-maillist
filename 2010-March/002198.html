@@ -1,0 +1,177 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-141-g33e5dd1
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-141-g33e5dd1&In-Reply-To=%3CE1NwJdw-0003tz-Mi%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002197.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-141-g33e5dd1</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-141-g33e5dd1&In-Reply-To=%3CE1NwJdw-0003tz-Mi%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-141-g33e5dd1">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Mon Mar 29 20:24:55 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002197.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-140-gd60ebc0
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2198">[ date ]</a>
+              <a href="thread.html#2198">[ thread ]</a>
+              <a href="subject.html#2198">[ subject ]</a>
+              <a href="author.html#2198">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  33e5dd12729d995b351ece716e8c835dd8331c71 (commit)
+      from  d60ebc0ab535e54f76e734d00d9ac1b5c9b6eb93 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 33e5dd12729d995b351ece716e8c835dd8331c71
+Author: Mike Dunn &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mikedunn at newsguy.com</A>&gt;
+Date:   Sun Mar 28 15:48:32 2010 -0400
+
+    xscale: fix trace buffer functionality when resuming from a breakpoint
+    
+    Problem: halt at a breakpoint, enable trace buffer ('xscale trace_buffer enable
+    fill'), then resume.  Wait for debug exception when trace buffer fills (if not
+    sooner due to another breakpoint, vector catch, etc).  Instead, never halts.
+    When halted explicitly from OpenOCD and trace buffer dumped, it contains only
+    one entry; a branch to the address of the original breakpoint.  If the above
+    steps are repeated, except that the breakpoint is removed before resuming, the
+    trace buffer fills and the debug exception is generated, as expected.
+    
+    Cause: related to how a breakpoint is stepped over on resume.  The breakpoint is
+    temporarily removed, and a hardware breakpoint is set on the next instruction
+    that will execute.  xscale_debug_entry() is called when that breakpoint hits.
+    This function checks if the trace buffer is enabled, and if so reads the trace
+    buffer from the target and then disables the trace (unless multiple trace
+    buffers are specified by the user when trace is enabled).  Thus you only trace
+    one instruction before it is disabled.
+    
+    Solution: kind of a hack on top of a hack, but it's simple.  Anything better
+    would involve some refactoring.  This has been tested and trace now works as
+    intended, except that the very first instruction is not part of the trace when
+    resuming from a breakpoint.
+    
+    TODO: still many issues with trace: doesn't work during single-stepping (trace
+    buffer is flushed each step), 'xscale analyze_trace' works only marginally for
+    a trace captured in 'fill' mode, and not at all for a trace captured in 'wrap'
+    mode.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index e578a77..24c0794 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -1206,6 +1206,7 @@ static int xscale_resume(struct target *target, int current,
+ 		if (breakpoint != NULL)
+ 		{
+ 			uint32_t next_pc;
++			int saved_trace_buffer_enabled;
+ 
+ 			/* there's a breakpoint at the current PC, we have to step over it */
+ 			LOG_DEBUG(&quot;unset breakpoint at 0x%8.8&quot; PRIx32 &quot;&quot;, breakpoint-&gt;address);
+@@ -1225,15 +1226,8 @@ static int xscale_resume(struct target *target, int current,
+ 			/* restore banked registers */
+ 			retval = xscale_restore_banked(target);
+ 
+-			/* send resume request (command 0x30 or 0x31)
+-			 * clean the trace buffer if it is to be enabled (0x62) */
+-			if (xscale-&gt;trace.buffer_enabled)
+-			{
+-				xscale_send_u32(target, 0x62);
+-				xscale_send_u32(target, 0x31);
+-			}
+-			else
+-				xscale_send_u32(target, 0x30);
++			/* send resume request */
++			xscale_send_u32(target, 0x30);
+ 
+ 			/* send CPSR */
+ 			xscale_send_u32(target,
+@@ -1254,9 +1248,16 @@ static int xscale_resume(struct target *target, int current,
+ 			LOG_DEBUG(&quot;writing PC with value 0x%8.8&quot; PRIx32,
+ 					buf_get_u32(armv4_5-&gt;pc-&gt;value, 0, 32));
+ 
++			/* disable trace data collection in xscale_debug_entry() */
++			saved_trace_buffer_enabled = xscale-&gt;trace.buffer_enabled;
++			xscale-&gt;trace.buffer_enabled = 0;
++
+ 			/* wait for and process debug entry */
+ 			xscale_debug_entry(target);
+ 
++			/* re-enable trace buffer, if enabled previously */
++			xscale-&gt;trace.buffer_enabled = saved_trace_buffer_enabled;
++
+ 			LOG_DEBUG(&quot;disable single-step&quot;);
+ 			xscale_disable_single_step(target);
+ 
+@@ -1276,6 +1277,12 @@ static int xscale_resume(struct target *target, int current,
+ 	 * clean the trace buffer if it is to be enabled (0x62) */
+ 	if (xscale-&gt;trace.buffer_enabled)
+ 	{
++		/* if trace buffer is set to 'fill' mode, save starting pc */
++		if (xscale-&gt;trace.buffer_fill &gt; 0)
++		{
++			xscale-&gt;trace.pc_ok = 1;
++			xscale-&gt;trace.current_pc = buf_get_u32(armv4_5-&gt;pc-&gt;value, 0, 32);
++		}
+ 		xscale_send_u32(target, 0x62);
+ 		xscale_send_u32(target, 0x31);
+ 	}
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/xscale.c |   25 ++++++++++++++++---------
+ 1 files changed, 16 insertions(+), 9 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002197.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-140-gd60ebc0
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2198">[ date ]</a>
+              <a href="thread.html#2198">[ thread ]</a>
+              <a href="subject.html#2198">[ subject ]</a>
+              <a href="author.html#2198">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

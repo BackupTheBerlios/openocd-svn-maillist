@@ -1,0 +1,914 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-510-g69c7519
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-510-g69c7519&In-Reply-To=%3CE1NBdpB-0000wj-SF%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001832.html">
+   <LINK REL="Next"  HREF="001834.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-510-g69c7519</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-510-g69c7519&In-Reply-To=%3CE1NBdpB-0000wj-SF%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-510-g69c7519">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Sat Nov 21 01:27:33 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001832.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-508-g7a67aae
+</A></li>
+        <LI>Next message: <A HREF="001834.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-511-g425e43d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1833">[ date ]</a>
+              <a href="thread.html#1833">[ thread ]</a>
+              <a href="subject.html#1833">[ subject ]</a>
+              <a href="author.html#1833">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  69c751956293e822faa6cf844f2864d81c36a578 (commit)
+       via  85fe1506a2296493d13368e545fa2d4ddb13ea72 (commit)
+      from  7a67aae93c7de1e72baaba65635af0461ad8d040 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 69c751956293e822faa6cf844f2864d81c36a578
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Nov 20 16:27:24 2009 -0800
+
+    ARM: pass 'struct reg *' to register r/w routines
+    
+    Implementations need to access the register struct they modify;
+    make it easier and less error-prone to identify the instance.
+    (This removes over 10% of the ARMV4_5_CORE_REG_MODE nastiness...)
+    
+    Plus some minor fixes noted when making these updates:  ARM7/ARM9
+    accessor methods should be static; don't leave CPSR wrongly marked
+    &quot;dirty&quot;; note significant XScale omissions in register handling;
+    and have armv4_5_build_reg_cache() record its result.
+    
+    Rename &quot;struct armv4_5_core_reg&quot; as &quot;struct arm_reg&quot;; it's used
+    for more than those older architecture generations.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index 7a2b542..3a32764 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -1577,7 +1577,7 @@ int arm7_9_restore_context(struct target *target)
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 	struct armv4_5_common_s *armv4_5 = &amp;arm7_9-&gt;armv4_5_common;
+ 	struct reg *reg;
+-	struct armv4_5_core_reg *reg_arch_info;
++	struct arm_reg *reg_arch_info;
+ 	enum armv4_5_mode current_mode = armv4_5-&gt;core_mode;
+ 	int i, j;
+ 	int dirty;
+@@ -2084,25 +2084,24 @@ int arm7_9_step(struct target *target, int current, uint32_t address, int handle
+ 	return err;
+ }
+ 
+-int arm7_9_read_core_reg(struct target *target, int num, enum armv4_5_mode mode)
++static int arm7_9_read_core_reg(struct target *target, struct reg *r,
++		int num, enum armv4_5_mode mode)
+ {
+ 	uint32_t* reg_p[16];
+ 	uint32_t value;
+ 	int retval;
++	struct arm_reg *areg = r-&gt;arch_info;
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 	struct armv4_5_common_s *armv4_5 = &amp;arm7_9-&gt;armv4_5_common;
+ 
+ 	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 		return ERROR_FAIL;
+-
+-	enum armv4_5_mode reg_mode = ((struct armv4_5_core_reg*)ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).arch_info)-&gt;mode;
+-
+ 	if ((num &lt; 0) || (num &gt; 16))
+ 		return ERROR_INVALID_ARGUMENTS;
+ 
+ 	if ((mode != ARMV4_5_MODE_ANY)
+ 			&amp;&amp; (mode != armv4_5-&gt;core_mode)
+-			&amp;&amp; (reg_mode != ARMV4_5_MODE_ANY))
++			&amp;&amp; (areg-&gt;mode != ARMV4_5_MODE_ANY))
+ 	{
+ 		uint32_t tmp_cpsr;
+ 
+@@ -2125,10 +2124,7 @@ int arm7_9_read_core_reg(struct target *target, int num, enum armv4_5_mode mode)
+ 		/* read a program status register
+ 		 * if the register mode is MODE_ANY, we read the cpsr, otherwise a spsr
+ 		 */
+-		struct armv4_5_core_reg *arch_info = ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).arch_info;
+-		int spsr = (arch_info-&gt;mode == ARMV4_5_MODE_ANY) ? 0 : 1;
+-
+-		arm7_9-&gt;read_xpsr(target, &amp;value, spsr);
++		arm7_9-&gt;read_xpsr(target, &amp;value, areg-&gt;mode != ARMV4_5_MODE_ANY);
+ 	}
+ 
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+@@ -2136,13 +2132,13 @@ int arm7_9_read_core_reg(struct target *target, int num, enum armv4_5_mode mode)
+ 		return retval;
+ 	}
+ 
+-	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).valid = 1;
+-	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).dirty = 0;
+-	buf_set_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).value, 0, 32, value);
++	r-&gt;valid = 1;
++	r-&gt;dirty = 0;
++	buf_set_u32(r-&gt;value, 0, 32, value);
+ 
+ 	if ((mode != ARMV4_5_MODE_ANY)
+ 			&amp;&amp; (mode != armv4_5-&gt;core_mode)
+-			&amp;&amp; (reg_mode != ARMV4_5_MODE_ANY))	{
++			&amp;&amp; (areg-&gt;mode != ARMV4_5_MODE_ANY))	{
+ 		/* restore processor mode (mask T bit) */
+ 		arm7_9-&gt;write_xpsr_im8(target, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8) &amp; ~0x20, 0, 0);
+ 	}
+@@ -2150,23 +2146,22 @@ int arm7_9_read_core_reg(struct target *target, int num, enum armv4_5_mode mode)
+ 	return ERROR_OK;
+ }
+ 
+-int arm7_9_write_core_reg(struct target *target, int num, enum armv4_5_mode mode, uint32_t value)
++static int arm7_9_write_core_reg(struct target *target, struct reg *r,
++		int num, enum armv4_5_mode mode, uint32_t value)
+ {
+ 	uint32_t reg[16];
++	struct arm_reg *areg = r-&gt;arch_info;
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 	struct armv4_5_common_s *armv4_5 = &amp;arm7_9-&gt;armv4_5_common;
+ 
+ 	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 		return ERROR_FAIL;
+-
+-	enum armv4_5_mode reg_mode = ((struct armv4_5_core_reg*)ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).arch_info)-&gt;mode;
+-
+ 	if ((num &lt; 0) || (num &gt; 16))
+ 		return ERROR_INVALID_ARGUMENTS;
+ 
+ 	if ((mode != ARMV4_5_MODE_ANY)
+ 			&amp;&amp; (mode != armv4_5-&gt;core_mode)
+-			&amp;&amp; (reg_mode != ARMV4_5_MODE_ANY))	{
++			&amp;&amp; (areg-&gt;mode != ARMV4_5_MODE_ANY))	{
+ 		uint32_t tmp_cpsr;
+ 
+ 		/* change processor mode (mask T bit) */
+@@ -2188,8 +2183,7 @@ int arm7_9_write_core_reg(struct target *target, int num, enum armv4_5_mode mode
+ 		/* write a program status register
+ 		* if the register mode is MODE_ANY, we write the cpsr, otherwise a spsr
+ 		*/
+-		struct armv4_5_core_reg *arch_info = ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).arch_info;
+-		int spsr = (arch_info-&gt;mode == ARMV4_5_MODE_ANY) ? 0 : 1;
++		int spsr = (areg-&gt;mode != ARMV4_5_MODE_ANY);
+ 
+ 		/* if we're writing the CPSR, mask the T bit */
+ 		if (!spsr)
+@@ -2198,12 +2192,12 @@ int arm7_9_write_core_reg(struct target *target, int num, enum armv4_5_mode mode
+ 		arm7_9-&gt;write_xpsr(target, value, spsr);
+ 	}
+ 
+-	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).valid = 1;
+-	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).dirty = 0;
++	r-&gt;valid = 1;
++	r-&gt;dirty = 0;
+ 
+ 	if ((mode != ARMV4_5_MODE_ANY)
+ 			&amp;&amp; (mode != armv4_5-&gt;core_mode)
+-			&amp;&amp; (reg_mode != ARMV4_5_MODE_ANY))	{
++			&amp;&amp; (areg-&gt;mode != ARMV4_5_MODE_ANY))	{
+ 		/* restore processor mode (mask T bit) */
+ 		arm7_9-&gt;write_xpsr_im8(target, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 8) &amp; ~0x20, 0, 0);
+ 	}
+diff --git a/src/target/arm7_9_common.h b/src/target/arm7_9_common.h
+index 266bf80..2f7132a 100644
+--- a/src/target/arm7_9_common.h
++++ b/src/target/arm7_9_common.h
+@@ -139,7 +139,6 @@ int arm7_9_full_context(struct target *target);
+ int arm7_9_restore_context(struct target *target);
+ int arm7_9_resume(struct target *target, int current, uint32_t address, int handle_breakpoints, int debug_execution);
+ int arm7_9_step(struct target *target, int current, uint32_t address, int handle_breakpoints);
+-int arm7_9_read_core_reg(struct target *target, int num, enum armv4_5_mode mode);
+ int arm7_9_read_memory(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+ int arm7_9_write_memory(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+ int arm7_9_bulk_write_memory(struct target *target, uint32_t address, uint32_t count, uint8_t *buffer);
+diff --git a/src/target/arm7tdmi.c b/src/target/arm7tdmi.c
+index 3bd5236..e7ea768 100644
+--- a/src/target/arm7tdmi.c
++++ b/src/target/arm7tdmi.c
+@@ -644,7 +644,6 @@ static void arm7tdmi_build_reg_cache(struct target *target)
+ 	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
+ 
+ 	(*cache_p) = armv4_5_build_reg_cache(target, armv4_5);
+-	armv4_5-&gt;core_cache = (*cache_p);
+ }
+ 
+ int arm7tdmi_init_target(struct command_context *cmd_ctx, struct target *target)
+diff --git a/src/target/arm9tdmi.c b/src/target/arm9tdmi.c
+index a69e49e..38b2284 100644
+--- a/src/target/arm9tdmi.c
++++ b/src/target/arm9tdmi.c
+@@ -754,7 +754,6 @@ static void arm9tdmi_build_reg_cache(struct target *target)
+ 	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
+ 
+ 	(*cache_p) = armv4_5_build_reg_cache(target, armv4_5);
+-	armv4_5-&gt;core_cache = (*cache_p);
+ }
+ 
+ int arm9tdmi_init_target(struct command_context *cmd_ctx,
+diff --git a/src/target/armv4_5.c b/src/target/armv4_5.c
+index f8ab153..71c7299 100644
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -363,7 +363,7 @@ static void arm_gdb_dummy_init(void)
+ static int armv4_5_get_core_reg(struct reg *reg)
+ {
+ 	int retval;
+-	struct armv4_5_core_reg *armv4_5 = reg-&gt;arch_info;
++	struct arm_reg *armv4_5 = reg-&gt;arch_info;
+ 	struct target *target = armv4_5-&gt;target;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+@@ -372,16 +372,18 @@ static int armv4_5_get_core_reg(struct reg *reg)
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
+-	retval = armv4_5-&gt;armv4_5_common-&gt;read_core_reg(target, armv4_5-&gt;num, armv4_5-&gt;mode);
+-	if (retval == ERROR_OK)
++	retval = armv4_5-&gt;armv4_5_common-&gt;read_core_reg(target, reg, armv4_5-&gt;num, armv4_5-&gt;mode);
++	if (retval == ERROR_OK) {
+ 		reg-&gt;valid = 1;
++		reg-&gt;dirty = 0;
++	}
+ 
+ 	return retval;
+ }
+ 
+ static int armv4_5_set_core_reg(struct reg *reg, uint8_t *buf)
+ {
+-	struct armv4_5_core_reg *armv4_5 = reg-&gt;arch_info;
++	struct arm_reg *armv4_5 = reg-&gt;arch_info;
+ 	struct target *target = armv4_5-&gt;target;
+ 	struct armv4_5_common_s *armv4_5_target = target_to_armv4_5(target);
+ 	uint32_t value = buf_get_u32(buf, 0, 32);
+@@ -392,8 +394,16 @@ static int armv4_5_set_core_reg(struct reg *reg, uint8_t *buf)
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
++	/* Except for CPSR, the &quot;reg&quot; command exposes a writeback model
++	 * for the register cache.
++	 */
++	buf_set_u32(reg-&gt;value, 0, 32, value);
++	reg-&gt;dirty = 1;
++	reg-&gt;valid = 1;
++
+ 	if (reg == &amp;armv4_5_target-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR])
+ 	{
++		/* FIXME handle J bit too; mostly for ThumbEE, also Jazelle */
+ 		if (value &amp; 0x20)
+ 		{
+ 			/* T bit should be set */
+@@ -415,19 +425,23 @@ static int armv4_5_set_core_reg(struct reg *reg, uint8_t *buf)
+ 			}
+ 		}
+ 
++		/* REVISIT Why only update core for mode change, not also
++		 * for state changes?  Possibly older cores need to stay
++		 * in ARM mode during halt mode debug, not execute Thumb;
++		 * v6/v7a/v7r seem to do that automatically...
++		 */
++
+ 		if (armv4_5_target-&gt;core_mode != (enum armv4_5_mode)(value &amp; 0x1f))
+ 		{
+ 			LOG_DEBUG(&quot;changing ARM core mode to '%s'&quot;,
+ 					arm_mode_name(value &amp; 0x1f));
+ 			armv4_5_target-&gt;core_mode = value &amp; 0x1f;
+-			armv4_5_target-&gt;write_core_reg(target, 16, ARMV4_5_MODE_ANY, value);
++			armv4_5_target-&gt;write_core_reg(target, reg,
++					16, ARMV4_5_MODE_ANY, value);
++			reg-&gt;dirty = 0;
+ 		}
+ 	}
+ 
+-	buf_set_u32(reg-&gt;value, 0, 32, value);
+-	reg-&gt;dirty = 1;
+-	reg-&gt;valid = 1;
+-
+ 	return ERROR_OK;
+ }
+ 
+@@ -441,8 +455,7 @@ struct reg_cache* armv4_5_build_reg_cache(struct target *target, struct arm *arm
+ 	int num_regs = ARRAY_SIZE(arm_core_regs);
+ 	struct reg_cache *cache = malloc(sizeof(struct reg_cache));
+ 	struct reg *reg_list = calloc(num_regs, sizeof(struct reg));
+-	struct armv4_5_core_reg *arch_info = calloc(num_regs,
+-					sizeof(struct armv4_5_core_reg));
++	struct arm_reg *arch_info = calloc(num_regs, sizeof(struct arm_reg));
+ 	int i;
+ 
+ 	if (!cache || !reg_list || !arch_info) {
+@@ -480,6 +493,7 @@ struct reg_cache* armv4_5_build_reg_cache(struct target *target, struct arm *arm
+ 		cache-&gt;num_regs++;
+ 	}
+ 
++	armv4_5_common-&gt;core_cache = cache;
+ 	return cache;
+ }
+ 
+@@ -811,9 +825,14 @@ int armv4_5_run_algorithm_inner(struct target *target, int num_mem_params, struc
+ 
+ 	for (i = 0; i &lt;= 16; i++)
+ 	{
+-		if (!ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5_algorithm_info-&gt;core_mode, i).valid)
+-			armv4_5-&gt;read_core_reg(target, i, armv4_5_algorithm_info-&gt;core_mode);
+-		context[i] = buf_get_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5_algorithm_info-&gt;core_mode, i).value, 0, 32);
++		struct reg *r;
++
++		r = &amp;ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
++				armv4_5_algorithm_info-&gt;core_mode, i);
++		if (!r-&gt;valid)
++			armv4_5-&gt;read_core_reg(target, r, i,
++					armv4_5_algorithm_info-&gt;core_mode);
++		context[i] = buf_get_u32(r-&gt;value, 0, 32);
+ 	}
+ 	cpsr = buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32);
+ 
+diff --git a/src/target/armv4_5.h b/src/target/armv4_5.h
+index dbd62c0..c8fc558 100644
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -109,9 +109,9 @@ struct arm
+ 	struct etm_context *etm;
+ 
+ 	int (*full_context)(struct target *target);
+-	int (*read_core_reg)(struct target *target,
++	int (*read_core_reg)(struct target *target, struct reg *reg,
+ 			int num, enum armv4_5_mode mode);
+-	int (*write_core_reg)(struct target *target,
++	int (*write_core_reg)(struct target *target, struct reg *reg,
+ 			int num, enum armv4_5_mode mode, uint32_t value);
+ 	void *arch_info;
+ };
+@@ -137,7 +137,7 @@ struct armv4_5_algorithm
+ 	enum armv4_5_state core_state;
+ };
+ 
+-struct armv4_5_core_reg
++struct arm_reg
+ {
+ 	int num;
+ 	enum armv4_5_mode mode;
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index 168fe12..c6a46c5 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -877,7 +877,7 @@ static int cortex_a8_restore_context(struct target *target)
+ 
+ 		/* write dirty non-{R0,CPSR} registers sharing the same mode */
+ 		for (i = max - 1, r = cache-&gt;reg_list + 1; i &gt; 0; i--, r++) {
+-			struct armv4_5_core_reg *reg;
++			struct arm_reg *reg;
+ 
+ 			if (!r-&gt;dirty || i == ARMV4_5_CPSR)
+ 				continue;
+@@ -1018,16 +1018,17 @@ static int cortex_a8_store_core_reg_u32(struct target *target, int num,
+ #endif
+ 
+ 
+-static int cortex_a8_write_core_reg(struct target *target, int num,
+-		enum armv4_5_mode mode, uint32_t value);
++static int cortex_a8_write_core_reg(struct target *target, struct reg *r,
++		int num, enum armv4_5_mode mode, uint32_t value);
+ 
+-static int cortex_a8_read_core_reg(struct target *target, int num,
+-		enum armv4_5_mode mode)
++static int cortex_a8_read_core_reg(struct target *target, struct reg *r,
++		int num, enum armv4_5_mode mode)
+ {
+ 	uint32_t value;
+ 	int retval;
+ 	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
+ 	struct reg_cache *cache = armv4_5-&gt;core_cache;
++	struct reg *cpsr_r = NULL;
+ 	uint32_t cpsr = 0;
+ 	unsigned cookie = num;
+ 
+@@ -1042,10 +1043,10 @@ static int cortex_a8_read_core_reg(struct target *target, int num,
+ 			mode = ARMV4_5_MODE_ANY;
+ 
+ 		if (mode != ARMV4_5_MODE_ANY) {
+-			cpsr = buf_get_u32(cache -&gt;reg_list[ARMV4_5_CPSR]
+-					.value, 0, 32);
+-			cortex_a8_write_core_reg(target, 16,
+-					ARMV4_5_MODE_ANY, mode);
++			cpsr_r = cache-&gt;reg_list + ARMV4_5_CPSR;
++			cpsr = buf_get_u32(cpsr_r-&gt;value, 0, 32);
++			cortex_a8_write_core_reg(target, cpsr_r,
++					16, ARMV4_5_MODE_ANY, mode);
+ 		}
+ 	}
+ 
+@@ -1066,24 +1067,24 @@ static int cortex_a8_read_core_reg(struct target *target, int num,
+ 	cortex_a8_dap_read_coreregister_u32(target, &amp;value, cookie);
+ 	retval = jtag_execute_queue();
+ 	if (retval == ERROR_OK) {
+-		struct reg *r = &amp;ARMV4_5_CORE_REG_MODE(cache, mode, num);
+-
+ 		r-&gt;valid = 1;
+ 		r-&gt;dirty = 0;
+ 		buf_set_u32(r-&gt;value, 0, 32, value);
+ 	}
+ 
+-	if (cpsr)
+-		cortex_a8_write_core_reg(target, 16, ARMV4_5_MODE_ANY, cpsr);
++	if (cpsr_r)
++		cortex_a8_write_core_reg(target, cpsr_r,
++				16, ARMV4_5_MODE_ANY, cpsr);
+ 	return retval;
+ }
+ 
+-static int cortex_a8_write_core_reg(struct target *target, int num,
+-		enum armv4_5_mode mode, uint32_t value)
++static int cortex_a8_write_core_reg(struct target *target, struct reg *r,
++		int num, enum armv4_5_mode mode, uint32_t value)
+ {
+ 	int retval;
+ 	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
+ 	struct reg_cache *cache = armv4_5-&gt;core_cache;
++	struct reg *cpsr_r = NULL;
+ 	uint32_t cpsr = 0;
+ 	unsigned cookie = num;
+ 
+@@ -1098,10 +1099,10 @@ static int cortex_a8_write_core_reg(struct target *target, int num,
+ 			mode = ARMV4_5_MODE_ANY;
+ 
+ 		if (mode != ARMV4_5_MODE_ANY) {
+-			cpsr = buf_get_u32(cache -&gt;reg_list[ARMV4_5_CPSR]
+-					.value, 0, 32);
+-			cortex_a8_write_core_reg(target, 16,
+-					ARMV4_5_MODE_ANY, mode);
++			cpsr_r = cache-&gt;reg_list + ARMV4_5_CPSR;
++			cpsr = buf_get_u32(cpsr_r-&gt;value, 0, 32);
++			cortex_a8_write_core_reg(target, cpsr_r,
++					16, ARMV4_5_MODE_ANY, mode);
+ 		}
+ 	}
+ 
+@@ -1122,15 +1123,14 @@ static int cortex_a8_write_core_reg(struct target *target, int num,
+ 
+ 	cortex_a8_dap_write_coreregister_u32(target, value, cookie);
+ 	if ((retval = jtag_execute_queue()) == ERROR_OK) {
+-		struct reg *r = &amp;ARMV4_5_CORE_REG_MODE(cache, mode, num);
+-
+ 		buf_set_u32(r-&gt;value, 0, 32, value);
+ 		r-&gt;valid = 1;
+ 		r-&gt;dirty = 0;
+ 	}
+ 
+-	if (cpsr)
+-		cortex_a8_write_core_reg(target, 16, ARMV4_5_MODE_ANY, cpsr);
++	if (cpsr_r)
++		cortex_a8_write_core_reg(target, cpsr_r,
++				16, ARMV4_5_MODE_ANY, cpsr);
+ 	return retval;
+ }
+ 
+@@ -1619,7 +1619,6 @@ static void cortex_a8_build_reg_cache(struct target *target)
+ 	armv4_5-&gt;core_type = ARM_MODE_MON;
+ 
+ 	(*cache_p) = armv4_5_build_reg_cache(target, armv4_5);
+-	armv4_5-&gt;core_cache = (*cache_p);
+ }
+ 
+ 
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index f13366a..c908fd7 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -1646,16 +1646,18 @@ static int xscale_deassert_reset(struct target *target)
+ 	return ERROR_OK;
+ }
+ 
+-static int xscale_read_core_reg(struct target *target, int num,
+-		enum armv4_5_mode mode)
++static int xscale_read_core_reg(struct target *target, struct reg *r,
++		int num, enum armv4_5_mode mode)
+ {
++	/** \todo add debug handler support for core register reads */
+ 	LOG_ERROR(&quot;not implemented&quot;);
+ 	return ERROR_OK;
+ }
+ 
+-static int xscale_write_core_reg(struct target *target, int num,
+-		enum armv4_5_mode mode, uint32_t value)
++static int xscale_write_core_reg(struct target *target, struct reg *r,
++		int num, enum armv4_5_mode mode, uint32_t value)
+ {
++	/** \todo add debug handler support for core register writes */
+ 	LOG_ERROR(&quot;not implemented&quot;);
+ 	return ERROR_OK;
+ }
+@@ -2829,7 +2831,6 @@ static void xscale_build_reg_cache(struct target *target)
+ 	int num_regs = sizeof(xscale_reg_arch_info) / sizeof(struct xscale_reg);
+ 
+ 	(*cache_p) = armv4_5_build_reg_cache(target, armv4_5);
+-	armv4_5-&gt;core_cache = (*cache_p);
+ 
+ 	(*cache_p)-&gt;next = malloc(sizeof(struct reg_cache));
+ 	cache_p = &amp;(*cache_p)-&gt;next;
+
+commit 85fe1506a2296493d13368e545fa2d4ddb13ea72
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Nov 20 16:21:29 2009 -0800
+
+    ARM7/ARM9: remove old &quot;debug commands&quot;
+    
+    Remove two commands that were documented as &quot;debug commands&quot;
+    and where &quot;you probably don't want to use this&quot;.   We never
+    intended to support them, and at least one problem report
+    boiled down to using this when it shouldn't have been used.
+    
+    Update the docs on the existing register commands to talk a
+    bit more about register access and cache behavior.  (Those
+    debug commands existed largely to *bypass* the cache.)  And
+    fix some minor doc goofs that snuck in with recent changes,
+    renaming &quot;armv4_5&quot; as &quot;arm&quot; and &quot;arm9tdmi&quot; as &quot;arm9&quot;.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index 0253dc0..9659e92 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -4933,26 +4933,37 @@ target which should become current.
+ 
+ @deffn Command reg [(number|name) [value]]
+ Access a single register by @var{number} or by its @var{name}.
++The target must generally be halted before access to CPU core
++registers is allowed.  Depending on the hardware, some other
++registers may be accessible while the target is running.
+ 
+ @emph{With no arguments}:
+ list all available registers for the current target,
+ showing number, name, size, value, and cache status.
++For valid entries, a value is shown; valid entries
++which are also dirty (and will be written back later)
++are flagged as such.
+ 
+ @emph{With number/name}: display that register's value.
+ 
+ @emph{With both number/name and value}: set register's value.
++Writes may be held in a writeback cache internal to OpenOCD,
++so that setting the value marks the register as dirty instead
++of immediately flushing that value.  Resuming CPU execution
++(including by single stepping) or otherwise activating the
++relevant module will flush such values.
+ 
+ Cores may have surprisingly many registers in their
+ Debug and trace infrastructure:
+ 
+ @example
+ &gt; reg
+-(0) r0 (/32): 0x0000D3C2 (dirty: 1, valid: 1)
+-(1) r1 (/32): 0xFD61F31C (dirty: 0, valid: 1)
+-(2) r2 (/32): 0x00022551 (dirty: 0, valid: 1)
++===== ARM registers
++(0) r0 (/32): 0x0000D3C2 (dirty)
++(1) r1 (/32): 0xFD61F31C
++(2) r2 (/32)
+ ...
+-(164) ETM_CONTEXTID_COMPARATOR_MASK (/32): \
+-              0x00000000 (dirty: 0, valid: 0)
++(164) ETM_contextid_comparator_mask (/32)
+ &gt;
+ @end example
+ @end deffn
+@@ -5554,17 +5565,25 @@ ThumbEE disassembly currently has no explicit support.
+ 
+ @deffn Command {arm reg}
+ Display a table of all banked core registers, fetching the current value from every
+-core mode if necessary. OpenOCD versions before rev. 60 didn't fetch the current
+-register value.
++core mode if necessary.
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at section</A> ARMv4 and ARMv5 Architecture
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at cindex</A> ARMv4
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at cindex</A> ARMv5
++
++The ARMv4 and ARMv5 architectures are widely used in embedded systems,
++and introduced core parts of the instruction set in use today. 
++That includes the Thumb instruction set, introduced in the ARMv4T
++variant.
++
+ @subsection ARM7 and ARM9 specific commands
+ @cindex ARM7
+ @cindex ARM9
+ 
+ These commands are specific to ARM7 and ARM9 cores, like ARM7TDMI, ARM720T,
+ ARM9TDMI, ARM920T or ARM926EJ-S.
+-They are available in addition to the ARMv4/5 commands,
++They are available in addition to the ARM commands,
+ and any other core-specific commands that may be available.
+ 
+ @deffn Command {arm7_9 dbgrq} (@option{enable}|@option{disable})
+@@ -5591,49 +5610,13 @@ cables (FT2232), but might be unsafe if used with targets running at very low
+ speeds, like the 32kHz startup clock of an AT91RM9200.
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffn</A> {Debug Command} {arm7_9 write_core_reg} num mode word
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at emph</A>{This is intended for use while debugging OpenOCD; you probably
+-shouldn't use it.}
+-
+-Writes a 32-bit @var{word} to register @var{num} (from 0 to 16)
+-as used in the specified @var{mode}
+-(where e.g. mode 16 is &quot;user&quot; and mode 19 is &quot;supervisor&quot;;
+-the M4..M0 bits of the PSR).
+-Registers 0..15 are the normal CPU registers such as r0(0), r1(1) ... pc(15).
+-Register 16 is the mode-specific SPSR,
+-unless the specified mode is 0xffffffff (32-bit all-ones)
+-in which case register 16 is the CPSR.
+-The write goes directly to the CPU, bypassing the register cache.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> deffn
+-
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffn</A> {Debug Command} {arm7_9 write_xpsr} word (@option{0}|@option{1})
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at emph</A>{This is intended for use while debugging OpenOCD; you probably
+-shouldn't use it.}
+-
+-If the second parameter is zero, writes @var{word} to the
+-Current Program Status register (CPSR).
+-Else writes @var{word} to the current mode's Saved PSR (SPSR).
+-In both cases, this bypasses the register cache.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> deffn
+-
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffn</A> {Debug Command} {arm7_9 write_xpsr_im8} byte rotate (@option{0}|@option{1})
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at emph</A>{This is intended for use while debugging OpenOCD; you probably
+-shouldn't use it.}
+-
+-Writes eight bits to the CPSR or SPSR,
+-first rotating them by @math{2*rotate} bits,
+-and bypassing the register cache.
+-This has lower JTAG overhead than writing the entire CPSR or SPSR
+-with @command{arm7_9 write_xpsr}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> deffn
+-
+ @subsection ARM720T specific commands
+ @cindex ARM720T
+ 
+ These commands are available to ARM720T based CPUs,
+ which are implementations of the ARMv4T architecture
+ based on the ARM7TDMI-S integer core.
+-They are available in addition to the ARMv4/5 and ARM7/ARM9 commands.
++They are available in addition to the ARM and ARM7/ARM9 commands.
+ 
+ @deffn Command {arm720t cp15} regnum [value]
+ Display cp15 register @var{regnum};
+@@ -5677,8 +5660,8 @@ or a list with one or more of the following:
+ These commands are available to ARM920T based CPUs,
+ which are implementations of the ARMv4T architecture
+ built using the ARM9TDMI integer core.
+-They are available in addition to the ARMv4/5, ARM7/ARM9,
+-and ARM9TDMI commands.
++They are available in addition to the ARM, ARM7/ARM9,
++and ARM9 commands.
+ 
+ @deffn Command {arm920t cache_info}
+ Print information about the caches found. This allows to see whether your target
+@@ -5711,8 +5694,8 @@ Dump the content of the ITLB and DTLB to a file named @file{filename}.
+ These commands are available to ARM926ej-s based CPUs,
+ which are implementations of the ARMv5TEJ architecture
+ based on the ARM9EJ-S integer core.
+-They are available in addition to the ARMv4/5, ARM7/ARM9,
+-and ARM9TDMI commands.
++They are available in addition to the ARM, ARM7/ARM9,
++and ARM9 commands.
+ 
+ The Feroceon cores also support these commands, although
+ they are not built from ARM926ej-s designs.
+@@ -5733,8 +5716,8 @@ Else that register is read and displayed.
+ 
+ These commands are available to ARM966 based CPUs,
+ which are implementations of the ARMv5TE architecture.
+-They are available in addition to the ARMv4/5, ARM7/ARM9,
+-and ARM9TDMI commands.
++They are available in addition to the ARM, ARM7/ARM9,
++and ARM9 commands.
+ 
+ @deffn Command {arm966e cp15} regnum [value]
+ Display cp15 register @var{regnum};
+@@ -5926,7 +5909,7 @@ cores @emph{except the ARM1176} use the same six bits.
+ @cindex Debug Access Port
+ @cindex DAP
+ These commands are specific to ARM architecture v7 Debug Access Port (DAP),
+-included on cortex-m3 and cortex-a8 systems.
++included on Cortex-M3 and Cortex-A8 systems.
+ They are available in addition to other core-specific commands that may be available.
+ 
+ @deffn Command {dap info} [num]
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index 1c85417..7a2b542 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -2737,124 +2737,6 @@ int arm7_9_examine(struct target *target)
+ 	return retval;
+ }
+ 
+-
+-COMMAND_HANDLER(handle_arm7_9_write_xpsr_command)
+-{
+-	uint32_t value;
+-	int spsr;
+-	int retval;
+-	struct target *target = get_current_target(CMD_CTX);
+-	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+-
+-	if (!is_arm7_9(arm7_9))
+-	{
+-		command_print(CMD_CTX, &quot;current target isn't an ARM7/ARM9 target&quot;);
+-		return ERROR_TARGET_INVALID;
+-	}
+-
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		command_print(CMD_CTX, &quot;can't write registers while running&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	if (CMD_ARGC &lt; 2)
+-	{
+-		command_print(CMD_CTX, &quot;usage: write_xpsr &lt;value&gt; &lt;not cpsr | spsr&gt;&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], value);
+-	COMMAND_PARSE_NUMBER(int, CMD_ARGV[1], spsr);
+-
+-	/* if we're writing the CPSR, mask the T bit */
+-	if (!spsr)
+-		value &amp;= ~0x20;
+-
+-	arm7_9-&gt;write_xpsr(target, value, spsr);
+-	if ((retval = jtag_execute_queue()) != ERROR_OK)
+-	{
+-		LOG_ERROR(&quot;JTAG error while writing to xpsr&quot;);
+-		return retval;
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+-COMMAND_HANDLER(handle_arm7_9_write_xpsr_im8_command)
+-{
+-	uint32_t value;
+-	int rotate;
+-	int spsr;
+-	int retval;
+-	struct target *target = get_current_target(CMD_CTX);
+-	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+-
+-	if (!is_arm7_9(arm7_9))
+-	{
+-		command_print(CMD_CTX, &quot;current target isn't an ARM7/ARM9 target&quot;);
+-		return ERROR_TARGET_INVALID;
+-	}
+-
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		command_print(CMD_CTX, &quot;can't write registers while running&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	if (CMD_ARGC &lt; 3)
+-	{
+-		command_print(CMD_CTX, &quot;usage: write_xpsr_im8 &lt;im8&gt; &lt;rotate&gt; &lt;not cpsr | spsr&gt;&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], value);
+-	COMMAND_PARSE_NUMBER(int, CMD_ARGV[1], rotate);
+-	COMMAND_PARSE_NUMBER(int, CMD_ARGV[2], spsr);
+-
+-	arm7_9-&gt;write_xpsr_im8(target, value, rotate, spsr);
+-	if ((retval = jtag_execute_queue()) != ERROR_OK)
+-	{
+-		LOG_ERROR(&quot;JTAG error while writing 8-bit immediate to xpsr&quot;);
+-		return retval;
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+-COMMAND_HANDLER(handle_arm7_9_write_core_reg_command)
+-{
+-	uint32_t value;
+-	uint32_t mode;
+-	int num;
+-	struct target *target = get_current_target(CMD_CTX);
+-	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+-
+-	if (!is_arm7_9(arm7_9))
+-	{
+-		command_print(CMD_CTX, &quot;current target isn't an ARM7/ARM9 target&quot;);
+-		return ERROR_TARGET_INVALID;
+-	}
+-
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		command_print(CMD_CTX, &quot;can't write registers while running&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	if (CMD_ARGC &lt; 3)
+-	{
+-		command_print(CMD_CTX, &quot;usage: write_core_reg &lt;num&gt; &lt;mode&gt; &lt;value&gt;&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	COMMAND_PARSE_NUMBER(int, CMD_ARGV[0], num);
+-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], mode);
+-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], value);
+-
+-	return arm7_9_write_core_reg(target, num, mode, value);
+-}
+-
+ COMMAND_HANDLER(handle_arm7_9_dbgrq_command)
+ {
+ 	struct target *target = get_current_target(CMD_CTX);
+@@ -2948,18 +2830,6 @@ int arm7_9_register_commands(struct command_context *cmd_ctx)
+ 	arm7_9_cmd = register_command(cmd_ctx, NULL, &quot;arm7_9&quot;,
+ 			NULL, COMMAND_ANY, &quot;arm7/9 specific commands&quot;);
+ 
+-	register_command(cmd_ctx, arm7_9_cmd, &quot;write_xpsr&quot;,
+-			handle_arm7_9_write_xpsr_command, COMMAND_EXEC,
+-			&quot;write program status register &lt;value&gt; &lt;not cpsr | spsr&gt;&quot;);
+-	register_command(cmd_ctx, arm7_9_cmd, &quot;write_xpsr_im8&quot;,
+-			handle_arm7_9_write_xpsr_im8_command, COMMAND_EXEC,
+-			&quot;write program status register &quot;
+-			&quot;&lt;8bit immediate&gt; &lt;rotate&gt; &lt;not cpsr | spsr&gt;&quot;);
+-
+-	register_command(cmd_ctx, arm7_9_cmd, &quot;write_core_reg&quot;,
+-			handle_arm7_9_write_core_reg_command, COMMAND_EXEC,
+-			&quot;write core register &lt;num&gt; &lt;mode&gt; &lt;value&gt;&quot;);
+-
+ 	register_command(cmd_ctx, arm7_9_cmd, &quot;dbgrq&quot;,
+ 			handle_arm7_9_dbgrq_command, COMMAND_ANY,
+ 			&quot;use EmbeddedICE dbgrq instead of breakpoint &quot;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ doc/openocd.texi           |   87 +++++++++-------------
+ src/target/arm7_9_common.c |  172 +++++---------------------------------------
+ src/target/arm7_9_common.h |    1 -
+ src/target/arm7tdmi.c      |    1 -
+ src/target/arm9tdmi.c      |    1 -
+ src/target/armv4_5.c       |   47 +++++++++----
+ src/target/armv4_5.h       |    6 +-
+ src/target/cortex_a8.c     |   47 ++++++------
+ src/target/xscale.c        |   11 ++--
+ 9 files changed, 118 insertions(+), 255 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001832.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-508-g7a67aae
+</A></li>
+	<LI>Next message: <A HREF="001834.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-511-g425e43d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1833">[ date ]</a>
+              <a href="thread.html#1833">[ thread ]</a>
+              <a href="subject.html#1833">[ subject ]</a>
+              <a href="author.html#1833">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

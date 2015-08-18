@@ -1,0 +1,254 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-483-gdce4225
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-483-gdce4225&In-Reply-To=%3CE1Ojp5x-0006ie-5e%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002358.html">
+   <LINK REL="Next"  HREF="002360.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-483-gdce4225</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-483-gdce4225&In-Reply-To=%3CE1Ojp5x-0006ie-5e%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-483-gdce4225">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Aug 13 09:54:22 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002358.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-480-ga72faf6
+</A></li>
+        <LI>Next message: <A HREF="002360.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-484-gf60a239
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2359">[ date ]</a>
+              <a href="thread.html#2359">[ thread ]</a>
+              <a href="subject.html#2359">[ subject ]</a>
+              <a href="author.html#2359">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  dce422516ab1e28bb8045c9c081c73562dd1f163 (commit)
+       via  52ba344a0988088f97c7aa0dc541da022ce960f4 (commit)
+       via  c3ee26d2726c869db3c993dc7b6e6223de624d74 (commit)
+      from  a72faf6405234d2b46e293edfffc7a00d21c7fc8 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit dce422516ab1e28bb8045c9c081c73562dd1f163
+Author: Piotr Esden-Tempski &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">piotr at esden.net</A>&gt;
+Date:   Tue Aug 3 22:04:46 2010 -0700
+
+    Added support for the Lisa/L jtag LEDs.
+
+diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+index ecfa17f..7440f0c 100644
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -188,6 +188,7 @@ static int signalyzer_init(void);
+ static int signalyzer_h_init(void);
+ static int ktlink_init(void);
+ static int redbee_init(void);
++static int lisa_l_init(void);
+ 
+ /* reset procedures for supported layouts */
+ static void ftx23_reset(int trst, int srst);
+@@ -210,6 +211,7 @@ static void flyswatter_jtag_blink(void);
+ static void turtle_jtag_blink(void);
+ static void signalyzer_h_blink(void);
+ static void ktlink_blink(void);
++static void lisa_l_blink(void);
+ 
+ /* common transport support options */
+ 
+@@ -304,8 +306,9 @@ static const struct ft2232_layout  ft2232_layouts[] =
+     	        .channel = INTERFACE_B,
+ 	},
+ 	{ .name = &quot;lisa-l&quot;,
+-		.init = usbjtag_init,
++		.init = lisa_l_init,
+ 		.reset = ftx23_reset,
++		.blink = lisa_l_blink,
+ 		.channel = INTERFACE_B,
+ 	},
+ 	{ .name = NULL, /* END OF TABLE */ },
+@@ -3098,6 +3101,39 @@ static int cortino_jtag_init(void)
+ 	return ERROR_OK;
+ }
+ 
++static int lisa_l_init(void)
++{
++	uint8_t  buf[3];
++	uint32_t bytes_written;
++
++	/*
++	 * NOTE:  This is now _specific_ to the &quot;usbjtag&quot; layout.
++	 * Don't try cram any more layouts into this.
++	 */
++	ftx232_dbus_init();
++
++	nTRST    = 0x10;
++	nTRSTnOE = 0x10;
++	nSRST    = 0x40;
++	nSRSTnOE = 0x40;
++
++	high_output = 0x00;
++	high_direction = 0x18;
++
++	/* initialize high port */
++	buf[0] = 0x82; /* command &quot;set data bits high byte&quot; */
++	buf[1] = high_output;
++	buf[2] = high_direction;
++	LOG_DEBUG(&quot;%2.2x %2.2x %2.2x&quot;, buf[0], buf[1], buf[2]);
++
++	if (ft2232_write(buf, sizeof(buf), &amp;bytes_written) != ERROR_OK)
++	{
++		LOG_ERROR(&quot;couldn't initialize FT2232 with 'lisa_l' layout&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	return ftx232_dbus_write();
++}
+ static void olimex_jtag_blink(void)
+ {
+ 	/* Olimex ARM-USB-OCD has a LED connected to ACBUS3
+@@ -3150,6 +3186,25 @@ static void turtle_jtag_blink(void)
+ 	buffer_write(high_direction);
+ }
+ 
++static void lisa_l_blink(void)
++{
++	/*
++	 * Lisa/L has two LEDs connected to BCBUS3 and ACBUS4
++	 */
++	if (high_output &amp; 0x10)
++	{
++		high_output = 0x08;
++	}
++	else
++	{
++		high_output = 0x10;
++	}
++
++	buffer_write(0x82);
++	buffer_write(high_output);
++	buffer_write(high_direction);
++}
++
+ static int ft2232_quit(void)
+ {
+ #if BUILD_FT2232_FTD2XX == 1
+
+commit 52ba344a0988088f97c7aa0dc541da022ce960f4
+Author: Piotr Esden-Tempski &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">piotr at esden.net</A>&gt;
+Date:   Tue Aug 3 21:00:09 2010 -0700
+
+    Added Lisa/L script as a target board.
+
+diff --git a/tcl/board/lisa-l.cfg b/tcl/board/lisa-l.cfg
+new file mode 100644
+index 0000000..00afa5e
+--- /dev/null
++++ b/tcl/board/lisa-l.cfg
+@@ -0,0 +1,7 @@
++# the Lost Illusions Serendipitous Autopilot
++# <A HREF="http://paparazzi.enac.fr/wiki/Lisa">http://paparazzi.enac.fr/wiki/Lisa</A>
++
++# Work-area size (RAM size) = 20kB for STM32F103RB device
++set WORKAREASIZE 0x5000
++
++source [find target/stm32.cfg]
+
+commit c3ee26d2726c869db3c993dc7b6e6223de624d74
+Author: Piotr Esden-Tempski &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">piotr at esden.net</A>&gt;
+Date:   Tue Aug 3 20:58:29 2010 -0700
+
+    Added support for Lisa/L builtin JTAG interface.
+
+diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+index 1a0eb4b..ecfa17f 100644
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -303,6 +303,11 @@ static const struct ft2232_layout  ft2232_layouts[] =
+ 	        .reset = redbee_reset,
+     	        .channel = INTERFACE_B,
+ 	},
++	{ .name = &quot;lisa-l&quot;,
++		.init = usbjtag_init,
++		.reset = ftx23_reset,
++		.channel = INTERFACE_B,
++	},
+ 	{ .name = NULL, /* END OF TABLE */ },
+ };
+ 
+diff --git a/tcl/interface/lisa-l.cfg b/tcl/interface/lisa-l.cfg
+new file mode 100644
+index 0000000..cc7d6cc
+--- /dev/null
++++ b/tcl/interface/lisa-l.cfg
+@@ -0,0 +1,11 @@
++#
++# Lisa/L
++#
++# <A HREF="http://paparazzi.enac.fr/wiki/Lisa">http://paparazzi.enac.fr/wiki/Lisa</A>
++#
++
++interface ft2232
++ft2232_vid_pid 0x0403 0x6010
++ft2232_device_desc &quot;Lisa/L&quot;
++ft2232_layout &quot;lisa-l&quot;
++ft2232_latency 2
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/drivers/ft2232.c               |   60 +++++++++++++++++++++++++++++++
+ tcl/board/{open-bldc.cfg =&gt; lisa-l.cfg} |    4 +-
+ tcl/interface/lisa-l.cfg                |   11 ++++++
+ 3 files changed, 73 insertions(+), 2 deletions(-)
+ copy tcl/board/{open-bldc.cfg =&gt; lisa-l.cfg} (58%)
+ create mode 100644 tcl/interface/lisa-l.cfg
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002358.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-480-ga72faf6
+</A></li>
+	<LI>Next message: <A HREF="002360.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-484-gf60a239
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2359">[ date ]</a>
+              <a href="thread.html#2359">[ thread ]</a>
+              <a href="subject.html#2359">[ subject ]</a>
+              <a href="author.html#2359">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

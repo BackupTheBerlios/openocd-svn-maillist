@@ -1,0 +1,262 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2540 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2540%20-%20trunk/src/target&In-Reply-To=%3C200907152349.n6FNn3k6021760%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001322.html">
+   <LINK REL="Next"  HREF="001324.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2540 - trunk/src/target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2540%20-%20trunk/src/target&In-Reply-To=%3C200907152349.n6FNn3k6021760%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2540 - trunk/src/target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul 16 01:49:03 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001322.html">[Openocd-svn] r2539 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001324.html">[Openocd-svn] r2541 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1323">[ date ]</a>
+              <a href="thread.html#1323">[ thread ]</a>
+              <a href="subject.html#1323">[ subject ]</a>
+              <a href="author.html#1323">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-07-16 01:49:00 +0200 (Thu, 16 Jul 2009)
+New Revision: 2540
+
+Modified:
+   trunk/src/target/arm_disassembler.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+More 32-bit instruction decoding:
+
+	A5.3.11 Data processing (shifted register)
+
+
+Modified: trunk/src/target/arm_disassembler.c
+===================================================================
+--- trunk/src/target/arm_disassembler.c	2009-07-15 23:48:54 UTC (rev 2539)
++++ trunk/src/target/arm_disassembler.c	2009-07-15 23:49:00 UTC (rev 2540)
+@@ -2989,6 +2989,170 @@
+ 	return ERROR_OK;
+ }
+ 
++static int t2ev_data_shift(uint32_t opcode, uint32_t address,
++		arm_instruction_t *instruction, char *cp)
++{
++	int op = (opcode &gt;&gt; 21) &amp; 0xf;
++	int rd = (opcode &gt;&gt; 8) &amp; 0xf;
++	int rn = (opcode &gt;&gt; 16) &amp; 0xf;
++	int type = (opcode &gt;&gt; 4) &amp; 0x3;
++	int immed = (opcode &gt;&gt; 6) &amp; 0x3;
++	char *mnemonic;
++	char *suffix = &quot;&quot;;
++
++	immed |= (opcode &gt;&gt; 10) &amp; 0x7;
++	if (opcode &amp; (1 &lt;&lt; 21))
++		suffix = &quot;S&quot;;
++
++	switch (op) {
++	case 0:
++		if (rd == 0xf) {
++			if (!(opcode &amp; (1 &lt;&lt; 21)))
++				return ERROR_INVALID_ARGUMENTS;
++			instruction-&gt;type = ARM_TST;
++			mnemonic = &quot;TST&quot;;
++			goto two;
++		}
++		instruction-&gt;type = ARM_AND;
++		mnemonic = &quot;AND&quot;;
++		break;
++	case 1:
++		instruction-&gt;type = ARM_BIC;
++		mnemonic = &quot;BIC&quot;;
++		break;
++	case 2:
++		if (rn == 0xf) {
++			instruction-&gt;type = ARM_MOV;
++			switch (type) {
++			case 0:
++				if (immed == 0) {
++					sprintf(cp, &quot;MOV%s.W\tr%d, r%d&quot;,
++						suffix, rd, (opcode &amp; 0xf));
++					return ERROR_OK;
++				}
++				mnemonic = &quot;LSL&quot;;
++				break;
++			case 1:
++				mnemonic = &quot;LSR&quot;;
++				break;
++			case 2:
++				mnemonic = &quot;ASR&quot;;
++				break;
++			default:
++				if (immed == 0) {
++					sprintf(cp, &quot;RRX%s.W\tr%d, r%d&quot;,
++						suffix, rd, (opcode &amp; 0xf));
++					return ERROR_OK;
++				}
++				mnemonic = &quot;ROR&quot;;
++				break;
++			}
++			goto immediate;
++		} else {
++			instruction-&gt;type = ARM_ORR;
++			mnemonic = &quot;ORR&quot;;
++		}
++		break;
++	case 3:
++		if (rn == 0xf) {
++			instruction-&gt;type = ARM_MVN;
++			mnemonic = &quot;MVN&quot;;
++			rn = rd;
++			goto two;
++		} else {
++			// instruction-&gt;type = ARM_ORN;
++			mnemonic = &quot;ORN&quot;;
++		}
++		break;
++	case 4:
++		if (rd == 0xf) {
++			if (!(opcode &amp; (1 &lt;&lt; 21)))
++				return ERROR_INVALID_ARGUMENTS;
++			instruction-&gt;type = ARM_TEQ;
++			mnemonic = &quot;TEQ&quot;;
++			goto two;
++		}
++		instruction-&gt;type = ARM_EOR;
++		mnemonic = &quot;EOR&quot;;
++		break;
++	case 8:
++		if (rd == 0xf) {
++			if (!(opcode &amp; (1 &lt;&lt; 21)))
++				return ERROR_INVALID_ARGUMENTS;
++			instruction-&gt;type = ARM_CMN;
++			mnemonic = &quot;CMN&quot;;
++			goto two;
++		}
++		instruction-&gt;type = ARM_ADD;
++		mnemonic = &quot;ADD&quot;;
++		break;
++	case 0xa:
++		instruction-&gt;type = ARM_ADC;
++		mnemonic = &quot;ADC&quot;;
++		break;
++	case 0xb:
++		instruction-&gt;type = ARM_SBC;
++		mnemonic = &quot;SBC&quot;;
++		break;
++	case 0xd:
++		if (rd == 0xf) {
++			if (!(opcode &amp; (1 &lt;&lt; 21)))
++				return ERROR_INVALID_ARGUMENTS;
++			instruction-&gt;type = ARM_CMP;
++			mnemonic = &quot;CMP&quot;;
++			goto two;
++		}
++		instruction-&gt;type = ARM_SUB;
++		mnemonic = &quot;SUB&quot;;
++		break;
++	case 0xe:
++		instruction-&gt;type = ARM_RSB;
++		mnemonic = &quot;RSB&quot;;
++		break;
++	default:
++		return ERROR_INVALID_ARGUMENTS;
++	}
++
++	sprintf(cp, &quot;%s%s.W\tr%d, r%d, r%d&quot;,
++		mnemonic, suffix, rd, rn, (opcode &amp; 0xf));
++
++shift:
++	cp = strchr(cp, 0);
++
++	switch (type) {
++	case 0:
++		if (immed == 0)
++			return ERROR_OK;
++		suffix = &quot;LSL&quot;;
++		break;
++	case 1:
++		suffix = &quot;LSR&quot;;
++		break;
++	case 2:
++		suffix = &quot;ASR&quot;;
++		break;
++	case 3:
++		if (immed == 0) {
++			strcpy(cp, &quot;RRX&quot;);
++			return ERROR_OK;
++		}
++		suffix = &quot;ROR&quot;;
++		break;
++	}
++	sprintf(cp, &quot; %s #%d&quot;, suffix, immed ? immed : 32);
++	return ERROR_OK;
++
++two:
++	sprintf(cp, &quot;%s%s.W\tr%d, r%d&quot;,
++		mnemonic, suffix, rn, (opcode &amp; 0xf));
++	goto shift;
++
++immediate:
++	sprintf(cp, &quot;%s%s.W\tr%d, r%d, #%d&quot;,
++		mnemonic, suffix, rd, (opcode &amp; 0xf), immed ? immed : 32);
++	return ERROR_OK;
++}
++
+ /*
+  * REVISIT for Thumb2 instructions, instruction-&gt;type and friends aren't
+  * always set.  That means eventual arm_simulate_step() support for Thumb2
+@@ -3056,6 +3220,10 @@
+ 	else if ((opcode &amp; 0x1f100000) == 0x18000000)
+ 		retval = t2ev_store_single(opcode, address, instruction, cp);
+ 
++	/* ARMv7-M: A5.3.11 Data processing (shifted register) */
++	else if ((opcode &amp; 0x1e000000) == 0x0a000000)
++		retval = t2ev_data_shift(opcode, address, instruction, cp);
++
+ 	/* ARMv7-M: A5.3.14 Multiply, and multiply accumulate */
+ 	else if ((opcode &amp; 0x1f800000) == 0x1b000000)
+ 		retval = t2ev_mul32(opcode, address, instruction, cp);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001322.html">[Openocd-svn] r2539 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001324.html">[Openocd-svn] r2541 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1323">[ date ]</a>
+              <a href="thread.html#1323">[ thread ]</a>
+              <a href="subject.html#1323">[ subject ]</a>
+              <a href="author.html#1323">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

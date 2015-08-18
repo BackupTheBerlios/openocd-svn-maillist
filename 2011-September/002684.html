@@ -1,0 +1,576 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-77-g1411ad1
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-77-g1411ad1&In-Reply-To=%3Cmailman.169.1331736157.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002683.html">
+   <LINK REL="Next"  HREF="002685.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-77-g1411ad1</H1>
+    <B>&#195;&#152;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-77-g1411ad1&In-Reply-To=%3Cmailman.169.1331736157.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-77-g1411ad1">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Sep  2 16:58:46 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002683.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-76-g48e8d2d
+</A></li>
+        <LI>Next message: <A HREF="002685.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-78-gc50ed69
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2684">[ date ]</a>
+              <a href="thread.html#2684">[ thread ]</a>
+              <a href="subject.html#2684">[ subject ]</a>
+              <a href="author.html#2684">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  1411ad11c182d02769bb0954f7f5b01d66652a6b (commit)
+      from  48e8d2d21c2f7c19a7d6616115f06fef99203d7e (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 1411ad11c182d02769bb0954f7f5b01d66652a6b
+Author: Richard Uhler &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ruhler at mit.edu</A>&gt;
+Date:   Thu Aug 25 13:29:33 2011 -0700
+
+    Implementation of a new jtag remote_bitbang driver.
+    
+    The driver sends ascii encoded bitbang commands over unix sockets or TCP to
+    another process. This driver is useful for debugging software running on
+    processors which are being simulated.
+
+diff --git a/configure.ac b/configure.ac
+index b6c04ab..ec51bd7 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -498,6 +498,10 @@ if test $build_zy1000 = yes; then
+ fi
+ AC_MSG_RESULT($build_zy1000)
+ 
++AC_ARG_ENABLE(remote-bitbang,
++  AS_HELP_STRING([--enable-remote-bitbang], [Enable building support for the Remote Bitbang jtag driver]),
++  [build_remote_bitbang=$enableval], [build_remote_bitbang=no])
++
+ 
+ AC_MSG_CHECKING([whether to enable dummy minidriver])
+ if test $build_minidriver_dummy = yes; then
+@@ -778,6 +782,13 @@ if test &quot;$use_internal_jimtcl&quot; = yes; then
+   fi
+ fi
+ 
++if test $build_remote_bitbang = yes; then
++  build_bitbang=yes
++  AC_DEFINE(BUILD_REMOTE_BITBANG, 1, [1 if you want the Remote Bitbang JTAG driver.])
++else
++  AC_DEFINE(BUILD_REMOTE_BITBNAG, 0, [0 if you don't want the Remote Bitbang JTAG driver.])
++fi
++
+ #-- Deal with MingW/Cygwin FTD2XX issues
+ 
+ if test $is_win32 = yes; then
+@@ -1075,6 +1086,7 @@ AM_CONDITIONAL(VSLLINK, test $build_vsllink = yes)
+ AM_CONDITIONAL(RLINK, test $build_rlink = yes)
+ AM_CONDITIONAL(ULINK, test $build_ulink = yes)
+ AM_CONDITIONAL(ARMJTAGEW, test $build_armjtagew = yes)
++AM_CONDITIONAL(REMOTE_BITBANG, test $build_remote_bitbang = yes)
+ AM_CONDITIONAL(BUSPIRATE, test $build_buspirate = yes)
+ AM_CONDITIONAL(USB, test $build_usb = yes)
+ AM_CONDITIONAL(IS_CYGWIN, test $is_cygwin = yes)
+diff --git a/doc/manual/jtag/drivers/remote_bitbang.txt b/doc/manual/jtag/drivers/remote_bitbang.txt
+new file mode 100644
+index 0000000..5a80047
+--- /dev/null
++++ b/doc/manual/jtag/drivers/remote_bitbang.txt
+@@ -0,0 +1,53 @@
++/** @remote_bitbangpage OpenOCD Developer's Guide
++
++The remote_bitbang JTAG driver is used to drive JTAG from a remote process. The
++remote_bitbang driver communicates via TCP or UNIX sockets with some remote
++process using an ASCII encoding of the bitbang interface. The remote process
++presumably then drives the JTAG however it pleases. The remote process should
++act as a server, listening for connections from the openocd remote_bitbang
++driver.
++
++The remote bitbang driver is useful for debugging software running on
++processors which are being simulated.
++
++The bitbang interface consists of the following functions.
++
++blink on
++	Blink a light somewhere. The argument on is either 1 or 0.
++
++read
++	Sample the value of tdo.
++
++write tck tms tdi
++	Set the value of tck, tms, and tdi.
++
++reset trst srst
++	Set the value of trst, srst.
++
++An additional function, quit, is added to the remote_bitbang interface to
++indicate there will be no more requests and the connection with the remote
++driver should be closed.
++
++These five functions are encoded in ascii by assigning a single character to
++each possible request. The assignments are:
++
++	B - Blink on
++	b - Blink off
++	R - Read request
++	Q - Quit request
++	0 - Write 0 0 0
++	1 - Write 0 0 1
++	2 - Write 0 1 0
++	3 - Write 0 1 1
++	4 - Write 1 0 0
++	5 - Write 1 0 1
++	6 - Write 1 1 0
++	7 - Write 1 1 1
++	r - Reset 0 0
++	s - Reset 0 1
++	t - Reset 1 0
++	u - Reset 1 1
++
++The read response is encoded in ascii as either digit 0 or 1.
++
++ */
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index 8b7e588..05c06b8 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -2321,6 +2321,43 @@ ft2232_vid_pid 0x0403 0xbdc8
+ @end example
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> {Interface Driver} {remote_bitbang}
++Drive JTAG from a remote process. This sets up a UNIX or TCP socket connection
++with a remote process and sends ASCII encoded bitbang requests to that process
++instead of directly driving JTAG.
++
++The remote_bitbang driver is useful for debugging software running on
++processors which are being simulated.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> {Config Command} {remote_bitbang_port} number
++Specifies the TCP port of the remote process to connect to or 0 to use UNIX
++sockets instead of TCP.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> {Config Command} {remote_bitbang_host} hostname
++Specifies the hostname of the remote process to connect to using TCP, or the
++name of the UNIX socket to use if remote_bitbang_port is 0.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
++For example, to connect remotely via TCP to the host foobar you might have
++something like:
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++interface remote_bitbang
++remote_bitbang_port 3335
++remote_bitbang_host foobar
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
++
++To connect to another process running locally via UNIX sockets with socket
++named mysocket:
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++interface remote_bitbang
++remote_bitbang_port 0
++remote_bitbang_host mysocket
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+ @deffn {Interface Driver} {usb_blaster}
+ USB JTAG/USB-Blaster compatibles over one of the userspace libraries
+ for FTDI chips.  These interfaces have several commands, used to
+diff --git a/src/jtag/drivers/Makefile.am b/src/jtag/drivers/Makefile.am
+index 805d1a4..408ea81 100644
+--- a/src/jtag/drivers/Makefile.am
++++ b/src/jtag/drivers/Makefile.am
+@@ -81,6 +81,9 @@ endif
+ if BUSPIRATE
+ DRIVERFILES += buspirate.c
+ endif
++if REMOTE_BITBANG
++DRIVERFILES += remote_bitbang.c
++endif
+ 
+ noinst_HEADERS = \
+ 	bitbang.h \
+diff --git a/src/jtag/drivers/remote_bitbang.c b/src/jtag/drivers/remote_bitbang.c
+new file mode 100644
+index 0000000..d3ab1b1
+--- /dev/null
++++ b/src/jtag/drivers/remote_bitbang.c
+@@ -0,0 +1,286 @@
++/***************************************************************************
++ *   Copyright (C) 2011 by Richard Uhler                                   *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ruhler at mit.edu</A>                                                        *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &lt;sys/socket.h&gt;
++#include &lt;sys/un.h&gt;
++#include &lt;netdb.h&gt;
++#include &lt;jtag/interface.h&gt;
++#include &quot;bitbang.h&quot;
++
++// from unix man page and sys/un.h:
++#define UNIX_PATH_MAX 108
++
++// arbitrary limit on host name length:
++#define REMOTE_BITBANG_HOST_MAX 255
++
++#define REMOTE_BITBANG_RAISE_ERROR(expr ...) \
++		LOG_ERROR(expr); LOG_ERROR(&quot;Terminating openocd.&quot;); exit(-1);
++
++static char remote_bitbang_host[REMOTE_BITBANG_HOST_MAX] = &quot;openocd&quot;;
++static uint16_t remote_bitbang_port = 0;
++
++FILE* remote_bitbang_in;
++FILE* remote_bitbang_out;
++
++static void remote_bitbang_putc(int c)
++{
++	if (EOF == fputc(c, remote_bitbang_out)) {
++		REMOTE_BITBANG_RAISE_ERROR(&quot;remote_bitbang_putc: %s&quot;, strerror(errno));
++	}
++}
++
++static int remote_bitbang_quit(void)
++{
++	if (EOF == fputc('Q', remote_bitbang_out)) {
++		LOG_ERROR(&quot;fputs: %s&quot;, strerror(errno));
++		return ERROR_FAIL;
++	}
++
++	if (EOF == fflush(remote_bitbang_out)) {
++		LOG_ERROR(&quot;fflush: %s&quot;, strerror(errno));
++		return ERROR_FAIL;
++	}
++		
++	// We only need to close one of the FILE*s, because they both use the same
++	// underlying file descriptor.
++	if (EOF == fclose(remote_bitbang_out)) {
++		LOG_ERROR(&quot;fclose: %s&quot;, strerror(errno));
++		return ERROR_FAIL;
++	}
++
++	LOG_INFO(&quot;remote_bitbang interface quit&quot;);
++	return ERROR_OK;
++}
++
++// Get the next read response.
++static int remote_bitbang_rread(void)
++{
++	if (EOF == fflush(remote_bitbang_out)) {
++		remote_bitbang_quit();
++		REMOTE_BITBANG_RAISE_ERROR(&quot;fflush: %s&quot;, strerror(errno));
++	}
++
++	int c = fgetc(remote_bitbang_in);
++	switch (c) {
++		case '0': return 0;
++		case '1': return 1;
++		default:
++			remote_bitbang_quit();
++			REMOTE_BITBANG_RAISE_ERROR(
++				&quot;remote_bitbang: invalid read response: %c(%i)&quot;, c, c);
++	}
++}
++
++static int remote_bitbang_read(void)
++{
++	remote_bitbang_putc('R');
++	return remote_bitbang_rread();
++}
++
++static void remote_bitbang_write(int tck, int tms, int tdi)
++{
++	char c = '0' + ((tck ? 0x4 : 0x0) | (tms ? 0x2 : 0x0) | (tdi ? 0x1 : 0x0));
++	remote_bitbang_putc(c);
++}
++
++static void remote_bitbang_reset(int trst, int srst)
++{
++	char c = 'r' + ((trst ? 0x2 : 0x0) | (srst ? 0x1 : 0x0));
++	remote_bitbang_putc(c);
++}
++
++static void remote_bitbang_blink(int on)
++{
++	char c = on ? 'B' : 'b';
++	remote_bitbang_putc(c);
++}
++
++static struct bitbang_interface remote_bitbang_bitbang = {
++	.read = &amp;remote_bitbang_read,
++	.write = &amp;remote_bitbang_write,
++	.reset = &amp;remote_bitbang_reset,
++	.blink = &amp;remote_bitbang_blink,
++};
++
++static int remote_bitbang_speed(int speed)
++{
++	return ERROR_OK;
++}
++
++static int remote_bitbang_init_tcp(void)
++{
++	LOG_INFO(&quot;Connecting to %s:%i&quot;, remote_bitbang_host, remote_bitbang_port);
++	int fd = socket(PF_INET, SOCK_STREAM, 0);
++	if (fd &lt; 0) {
++		LOG_ERROR(&quot;socket: %s&quot;, strerror(errno));
++		return ERROR_FAIL;
++	}
++
++	struct hostent* hent = gethostbyname(remote_bitbang_host);
++	if (hent == NULL) {
++		char* errorstr = &quot;???&quot;;
++		switch (h_errno) {
++			case HOST_NOT_FOUND: errorstr = &quot;host not found&quot;; break;
++			case NO_ADDRESS: errorstr = &quot;no address&quot;; break;
++			case NO_RECOVERY: errorstr = &quot;no recovery&quot;; break;
++			case TRY_AGAIN: errorstr = &quot;try again&quot;; break;
++		}
++		LOG_ERROR(&quot;gethostbyname: %s&quot;, errorstr);
++		return ERROR_FAIL;
++	}
++
++	struct sockaddr_in addr;
++	addr.sin_family = AF_INET;
++	addr.sin_port = htons(remote_bitbang_port);
++	addr.sin_addr = *(struct in_addr*)hent-&gt;h_addr;
++	if (connect(fd, (struct sockaddr*)&amp;addr, sizeof(struct sockaddr_in)) &lt; 0) {
++		LOG_ERROR(&quot;connect: %s&quot;, strerror(errno));
++		return ERROR_FAIL;
++	}
++
++	remote_bitbang_in = fdopen(fd, &quot;r&quot;);
++	if (remote_bitbang_in == NULL) {
++		LOG_ERROR(&quot;fdopen: failed to open read stream&quot;);
++		return ERROR_FAIL;
++	}
++
++	remote_bitbang_out = fdopen(fd, &quot;w&quot;);
++	if (remote_bitbang_out == NULL) {
++		LOG_ERROR(&quot;fdopen: failed to open write stream&quot;);
++		return ERROR_FAIL;
++	}
++
++	LOG_INFO(&quot;remote_bitbang driver initialized&quot;);
++	return ERROR_OK;
++}
++
++static int remote_bitbang_init_unix(void)
++{
++	LOG_INFO(&quot;Connecting to unix socket %s&quot;, remote_bitbang_host);
++	int fd = socket(PF_UNIX, SOCK_STREAM, 0);
++	if (fd &lt; 0) {
++		LOG_ERROR(&quot;socket: %s&quot;, strerror(errno));
++		return ERROR_FAIL;
++	}
++
++	struct sockaddr_un addr;
++	addr.sun_family = AF_UNIX;
++	strncpy(addr.sun_path, remote_bitbang_host, UNIX_PATH_MAX);
++	addr.sun_path[UNIX_PATH_MAX-1] = '\0';
++
++	if (connect(fd, (struct sockaddr*)&amp;addr, sizeof(struct sockaddr_un)) &lt; 0) {
++		LOG_ERROR(&quot;connect: %s&quot;, strerror(errno));
++		return ERROR_FAIL;
++	}
++
++	remote_bitbang_in = fdopen(fd, &quot;r&quot;);
++	if (remote_bitbang_in == NULL) {
++		LOG_ERROR(&quot;fdopen: failed to open read stream&quot;);
++		return ERROR_FAIL;
++	}
++
++	remote_bitbang_out = fdopen(fd, &quot;w&quot;);
++	if (remote_bitbang_out == NULL) {
++		LOG_ERROR(&quot;fdopen: failed to open write stream&quot;);
++		return ERROR_FAIL;
++	}
++
++	LOG_INFO(&quot;remote_bitbang driver initialized&quot;);
++	return ERROR_OK;
++}
++
++static int remote_bitbang_init(void)
++{
++	bitbang_interface = &amp;remote_bitbang_bitbang;
++
++	LOG_INFO(&quot;Initializing remote_bitbang driver&quot;);
++	if (remote_bitbang_port == 0) {
++		return remote_bitbang_init_unix();
++	}
++	return remote_bitbang_init_tcp();
++}
++
++static int remote_bitbang_khz(int khz, int* jtag_speed)
++{
++	*jtag_speed = 0;
++	return ERROR_OK;
++}
++
++static int remote_bitbang_speed_div(int speed, int* khz)
++{
++	// I don't think this really matters any.
++	*khz = 1;
++	return ERROR_OK;
++}
++
++
++COMMAND_HANDLER(remote_bitbang_handle_remote_bitbang_port_command)
++{
++	if (CMD_ARGC == 1) {
++		COMMAND_PARSE_NUMBER(u16, CMD_ARGV[0], remote_bitbang_port);
++		return ERROR_OK;
++	}
++	return ERROR_COMMAND_SYNTAX_ERROR;
++}
++
++COMMAND_HANDLER(remote_bitbang_handle_remote_bitbang_host_command)
++{
++	if (CMD_ARGC == 1) {
++		strncpy(remote_bitbang_host, CMD_ARGV[0], REMOTE_BITBANG_HOST_MAX);
++		remote_bitbang_host[REMOTE_BITBANG_HOST_MAX-1] = '\0';
++		return ERROR_OK;
++	}
++	return ERROR_COMMAND_SYNTAX_ERROR;
++}
++
++
++static const struct command_registration remote_bitbang_command_handlers[] = {
++	{
++		.name = &quot;remote_bitbang_port&quot;,
++		.handler = remote_bitbang_handle_remote_bitbang_port_command,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;Set the port to use to connect to the remote jtag.\n&quot;
++			&quot;  if 0, use unix sockets to connect to the remote jtag.&quot;,
++		.usage = &quot;port_number&quot;,
++	},
++	{
++		.name = &quot;remote_bitbang_host&quot;,
++		.handler = remote_bitbang_handle_remote_bitbang_host_command,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;Set the host to use to connect to the remote jtag.\n&quot;
++			&quot;  if port is 0, this is the name of the unix socket to use.&quot;,
++		.usage = &quot;host_name&quot;,
++	},
++	COMMAND_REGISTRATION_DONE,
++};
++
++struct jtag_interface remote_bitbang_interface = {
++	.name = &quot;remote_bitbang&quot;,
++	.execute_queue = &amp;bitbang_execute_queue,
++	.speed = &amp;remote_bitbang_speed,
++	.commands = remote_bitbang_command_handlers,
++	.init = &amp;remote_bitbang_init,
++	.quit = &amp;remote_bitbang_quit,
++	.khz = &amp;remote_bitbang_khz,
++	.speed_div = &amp;remote_bitbang_speed_div,
++};
+diff --git a/src/jtag/interfaces.c b/src/jtag/interfaces.c
+index dbc69d0..76a4e8d 100644
+--- a/src/jtag/interfaces.c
++++ b/src/jtag/interfaces.c
+@@ -97,6 +97,9 @@ extern struct jtag_interface armjtagew_interface;
+ #if BUILD_BUSPIRATE == 1
+ extern struct jtag_interface buspirate_interface;
+ #endif
++#if BUILD_REMOTE_BITBANG == 1
++extern struct jtag_interface remote_bitbang_interface;
++#endif
+ #endif // standard drivers
+ 
+ /**
+@@ -163,6 +166,9 @@ struct jtag_interface *jtag_interfaces[] = {
+ #if BUILD_BUSPIRATE == 1
+ 		&amp;buspirate_interface,
+ #endif
++#if BUILD_REMOTE_BITBANG == 1
++		&amp;remote_bitbang_interface,
++#endif
+ #endif // standard drivers
+ 		NULL,
+ 	};
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ configure.ac                               |   12 ++
+ doc/manual/jtag/drivers/remote_bitbang.txt |   53 +++++
+ doc/openocd.texi                           |   37 ++++
+ src/jtag/drivers/Makefile.am               |    3 +
+ src/jtag/drivers/remote_bitbang.c          |  286 ++++++++++++++++++++++++++++
+ src/jtag/interfaces.c                      |    6 +
+ 6 files changed, 397 insertions(+), 0 deletions(-)
+ create mode 100644 doc/manual/jtag/drivers/remote_bitbang.txt
+ create mode 100644 src/jtag/drivers/remote_bitbang.c
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002683.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-76-g48e8d2d
+</A></li>
+	<LI>Next message: <A HREF="002685.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-78-gc50ed69
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2684">[ date ]</a>
+              <a href="thread.html#2684">[ thread ]</a>
+              <a href="subject.html#2684">[ subject ]</a>
+              <a href="author.html#2684">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

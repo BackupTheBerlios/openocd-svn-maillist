@@ -1,0 +1,893 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-743-gf4b52e1
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-743-gf4b52e1&In-Reply-To=%3CE1NFi4Z-0000W5-EN%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001898.html">
+   <LINK REL="Next"  HREF="001900.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-743-gf4b52e1</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-743-gf4b52e1&In-Reply-To=%3CE1NFi4Z-0000W5-EN%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-743-gf4b52e1">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Wed Dec  2 06:48:17 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001898.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-740-ga65e75e
+</A></li>
+        <LI>Next message: <A HREF="001900.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-744-gd84fead
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1899">[ date ]</a>
+              <a href="thread.html#1899">[ thread ]</a>
+              <a href="subject.html#1899">[ subject ]</a>
+              <a href="author.html#1899">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  f4b52e1ceb2818d7a388c7aa0a3a7ab9b78f68be (commit)
+       via  66ca84b58114ad73b5843f62f9f5fbead1126fca (commit)
+       via  1c7d3d200c6f20d4bb689176373368cd497d797f (commit)
+      from  a65e75ea34153a8d0a0fe0b07497ad75c5726ab6 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit f4b52e1ceb2818d7a388c7aa0a3a7ab9b78f68be
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Dec 1 21:47:45 2009 -0800
+
+    Cortex-A8: basic watchpoint support
+    
+    Actually this should handle both breakpoints and watchpoints ... but
+    the DPM framework only handles watchpoints for now.  Works on Beagle.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index 81402d7..a289d96 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -460,6 +460,66 @@ static int cortex_a8_instr_read_data_r0(struct arm_dpm *dpm,
+ 	return cortex_a8_read_dcc(a8, data, &amp;dscr);
+ }
+ 
++static int cortex_a8_bpwp_enable(struct arm_dpm *dpm, unsigned index,
++		uint32_t addr, uint32_t control)
++{
++	struct cortex_a8_common *a8 = dpm_to_a8(dpm);
++	uint32_t vr = a8-&gt;armv7a_common.debug_base;
++	uint32_t cr = a8-&gt;armv7a_common.debug_base;
++	int retval;
++
++	switch (index) {
++	case 0 ... 15:		/* breakpoints */
++		vr += CPUDBG_BVR_BASE;
++		cr += CPUDBG_BCR_BASE;
++		break;
++	case 16 ... 31:		/* watchpoints */
++		vr += CPUDBG_WVR_BASE;
++		cr += CPUDBG_WCR_BASE;
++		index -= 16;
++		break;
++	default:
++		return ERROR_FAIL;
++	}
++	vr += 4 * index;
++	cr += 4 * index;
++
++	LOG_DEBUG(&quot;A8: bpwp enable, vr %08x cr %08x&quot;,
++			(unsigned) vr, (unsigned) cr);
++
++	retval = cortex_a8_dap_write_memap_register_u32(dpm-&gt;arm-&gt;target,
++			vr, addr);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cortex_a8_dap_write_memap_register_u32(dpm-&gt;arm-&gt;target,
++			cr, control);
++	return retval;
++}
++
++static int cortex_a8_bpwp_disable(struct arm_dpm *dpm, unsigned index)
++{
++	struct cortex_a8_common *a8 = dpm_to_a8(dpm);
++	uint32_t cr;
++
++	switch (index) {
++	case 0 ... 15:
++		cr = a8-&gt;armv7a_common.debug_base + CPUDBG_BCR_BASE;
++		break;
++	case 16 ... 31:
++		cr = a8-&gt;armv7a_common.debug_base + CPUDBG_WCR_BASE;
++		index -= 16;
++		break;
++	default:
++		return ERROR_FAIL;
++	}
++	cr += 4 * index;
++
++	LOG_DEBUG(&quot;A8: bpwp disable, cr %08x&quot;, (unsigned) cr);
++
++	/* clear control register */
++	return cortex_a8_dap_write_memap_register_u32(dpm-&gt;arm-&gt;target, cr, 0);
++}
++
+ static int cortex_a8_dpm_setup(struct cortex_a8_common *a8, uint32_t didr)
+ {
+ 	struct arm_dpm *dpm = &amp;a8-&gt;armv7a_common.dpm;
+@@ -477,6 +537,9 @@ static int cortex_a8_dpm_setup(struct cortex_a8_common *a8, uint32_t didr)
+ 	dpm-&gt;instr_read_data_dcc = cortex_a8_instr_read_data_dcc;
+ 	dpm-&gt;instr_read_data_r0 = cortex_a8_instr_read_data_r0;
+ 
++	dpm-&gt;bpwp_enable = cortex_a8_bpwp_enable;
++	dpm-&gt;bpwp_disable = cortex_a8_bpwp_disable;
++
+ 	return arm_dpm_setup(dpm);
+ }
+ 
+@@ -745,6 +808,7 @@ static int cortex_a8_debug_entry(struct target *target)
+ 		case 5:		/* vector catch */
+ 			target-&gt;debug_reason = DBG_REASON_BREAKPOINT;
+ 			break;
++		case 2:		/* asynch watchpoint */
+ 		case 10:	/* precise watchpoint */
+ 			target-&gt;debug_reason = DBG_REASON_WATCHPOINT;
+ 			/* REVISIT could collect WFAR later, to see just
+@@ -1276,6 +1340,8 @@ static int cortex_a8_write_memory(struct target *target, uint32_t address,
+ 		 *
+ 		 * For both ICache and DCache, walk all cache lines in the
+ 		 * address range. Cortex-A8 has fixed 64 byte line length.
++		 *
++		 * REVISIT per ARMv7, these may trigger watchpoints ...
+ 		 */
+ 
+ 		/* invalidate I-Cache */
+
+commit 66ca84b58114ad73b5843f62f9f5fbead1126fca
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Dec 1 21:47:45 2009 -0800
+
+    ARM: core DPM support for watchpoints
+    
+    This is a NOP unless the underlying core exposes two new methods, and
+    neither of the two cores using this (ARM11xx, Cortex-A8) do so yet.
+    
+    This patch only updates those cores so they pass a flag saying whether
+    or not to update breakpoint and watchpoint status before resuming; and
+    removing some now-needless anti-segfault code from ARM11.  Cortex-A8
+    didn't have that code ... yes, it segfaulted when setting watchpoints.
+    
+    NOTE:  this uses a slightly different strategy for setting/clearing
+    breakpoints than the ARM7/ARM9/etc code uses.  It leaves them alone
+    unless it's *got* to change something, to speed halt/resume cycles
+    (including single stepping).
+    
+    ALSO NOTE:  this under-delivers for Cortex-A8, where regions with size
+    up to 2 GBytes can be watched ... it handles watchpoints which ARM11 can
+    also handle (size 1/2/4 bytes).  Should get fixed later.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index fd9b465..605e741 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -293,12 +293,11 @@ static int arm11_on_enter_debug_state(struct arm11_common *arm11)
+ 	return ERROR_OK;
+ }
+ 
+-/** Restore processor state
+-  *
+-  * This is called in preparation for the RESTART function.
+-  *
+-  */
+-static int arm11_leave_debug_state(struct arm11_common *arm11)
++/**
++ * Restore processor state.  This is called in preparation for
++ * the RESTART function.
++ */
++static int arm11_leave_debug_state(struct arm11_common *arm11, bool bpwp)
+ {
+ 	int retval;
+ 
+@@ -354,7 +353,7 @@ static int arm11_leave_debug_state(struct arm11_common *arm11)
+ 	/* restore CPSR, PC, and R0 ... after flushing any modified
+ 	 * registers.
+ 	 */
+-	retval = arm_dpm_write_dirty_registers(&amp;arm11-&gt;dpm);
++	retval = arm_dpm_write_dirty_registers(&amp;arm11-&gt;dpm, bpwp);
+ 
+ 	register_cache_invalidate(arm11-&gt;arm.core_cache);
+ 
+@@ -598,7 +597,7 @@ static int arm11_resume(struct target *target, int current,
+ 		arm11_sc7_set_vcr(arm11, arm11_vcr);
+ 	}
+ 
+-	arm11_leave_debug_state(arm11);
++	arm11_leave_debug_state(arm11, handle_breakpoints);
+ 
+ 	arm11_add_IR(arm11, ARM11_RESTART, TAP_IDLE);
+ 
+@@ -762,7 +761,7 @@ static int arm11_step(struct target *target, int current,
+ 			R(DSCR) |= ARM11_DSCR_INTERRUPTS_DISABLE;
+ 
+ 
+-		CHECK_RETVAL(arm11_leave_debug_state(arm11));
++		CHECK_RETVAL(arm11_leave_debug_state(arm11, handle_breakpoints));
+ 
+ 		arm11_add_IR(arm11, ARM11_RESTART, TAP_IDLE);
+ 
+@@ -1203,22 +1202,6 @@ static int arm11_remove_breakpoint(struct target *target,
+ 	return ERROR_OK;
+ }
+ 
+-static int arm11_add_watchpoint(struct target *target,
+-		struct watchpoint *watchpoint)
+-{
+-	LOG_WARNING(&quot;Not implemented: %s&quot;, __func__);
+-
+-	return ERROR_FAIL;
+-}
+-
+-static int arm11_remove_watchpoint(struct target *target,
+-		struct watchpoint *watchpoint)
+-{
+-	LOG_WARNING(&quot;Not implemented: %s&quot;, __func__);
+-
+-	return ERROR_FAIL;
+-}
+-
+ static int arm11_target_create(struct target *target, Jim_Interp *interp)
+ {
+ 	struct arm11_common *arm11;
+@@ -1605,8 +1588,6 @@ struct target_type arm11_target = {
+ 
+ 	.add_breakpoint =	arm11_add_breakpoint,
+ 	.remove_breakpoint =	arm11_remove_breakpoint,
+-	.add_watchpoint =	arm11_add_watchpoint,
+-	.remove_watchpoint =	arm11_remove_watchpoint,
+ 
+ 	.run_algorithm =	armv4_5_run_algorithm,
+ 
+diff --git a/src/target/arm_dpm.c b/src/target/arm_dpm.c
+index 127f87b..f94fcc4 100644
+--- a/src/target/arm_dpm.c
++++ b/src/target/arm_dpm.c
+@@ -25,6 +25,8 @@
+ #include &quot;arm_dpm.h&quot;
+ #include &quot;jtag.h&quot;
+ #include &quot;register.h&quot;
++#include &quot;breakpoints.h&quot;
++#include &quot;target_type.h&quot;
+ 
+ 
+ /**
+@@ -34,6 +36,8 @@
+  * implementation differences between cores like ARM1136 and Cortex-A8.
+  */
+ 
++/*----------------------------------------------------------------------*/
++
+ /*
+  * Coprocessor support
+  */
+@@ -85,6 +89,8 @@ static int dpm_mcr(struct target *target, int cpnum,
+ 	return retval;
+ }
+ 
++/*----------------------------------------------------------------------*/
++
+ /*
+  * Register access utilities
+  */
+@@ -178,7 +184,7 @@ static int dpm_write_reg(struct arm_dpm *dpm, struct reg *r, unsigned regnum)
+ 
+ 	switch (regnum) {
+ 	case 0 ... 14:
+-		/* load register from DCC:  &quot;MCR p14, 0, Rnum, c0, c5, 0&quot; */
++		/* load register from DCC:  &quot;MRC p14, 0, Rnum, c0, c5, 0&quot; */
+ 		retval = dpm-&gt;instr_write_data_dcc(dpm,
+ 				ARMV4_5_MRC(14, 0, regnum, 0, 5, 0),
+ 				value);
+@@ -256,6 +262,11 @@ int arm_dpm_read_current_registers(struct arm_dpm *dpm)
+ 
+ 	/* NOTE: SPSR ignored (if it's even relevant). */
+ 
++	/* REVISIT the debugger can trigger various exceptions.  See the
++	 * ARMv7A architecture spec, section C5.7, for more info about
++	 * what defenses are needed; v6 debug has the most issues.
++	 */
++
+ fail:
+ 	/* (void) */ dpm-&gt;finish(dpm);
+ 	return retval;
+@@ -264,8 +275,11 @@ fail:
+ /**
+  * Writes all modified core registers for all processor modes.  In normal
+  * operation this is called on exit from halting debug state.
++ *
++ * @param bpwp: true ensures breakpoints and watchpoints are set,
++ *	false ensures they are cleared
+  */
+-int arm_dpm_write_dirty_registers(struct arm_dpm *dpm)
++int arm_dpm_write_dirty_registers(struct arm_dpm *dpm, bool bpwp)
+ {
+ 	struct arm *arm = dpm-&gt;arm;
+ 	struct reg_cache *cache = arm-&gt;core_cache;
+@@ -276,6 +290,53 @@ int arm_dpm_write_dirty_registers(struct arm_dpm *dpm)
+ 	if (retval != ERROR_OK)
+ 		goto done;
+ 
++	/* enable/disable watchpoints */
++	for (unsigned i = 0; i &lt; dpm-&gt;nwp; i++) {
++		struct dpm_wp *dwp = dpm-&gt;dwp + i;
++		struct watchpoint *wp = dwp-&gt;wp;
++		bool disable;
++
++		/* Avoid needless I/O ... leave watchpoints alone
++		 * unless they're removed, or need updating because
++		 * of single-stepping or running debugger code.
++		 */
++		if (!wp) {
++			if (!dwp-&gt;dirty)
++				continue;
++			dwp-&gt;dirty = false;
++			/* removed or startup; we must disable it */
++			disable = true;
++		} else if (bpwp) {
++			if (!dwp-&gt;dirty)
++				continue;
++			/* disabled, but we must set it */
++			dwp-&gt;dirty = disable = false;
++			wp-&gt;set = true;
++		} else {
++			if (!wp-&gt;set)
++				continue;
++			/* set, but we must temporarily disable it */
++			dwp-&gt;dirty = disable = true;
++			wp-&gt;set = false;
++		}
++
++		if (disable)
++			retval = dpm-&gt;bpwp_disable(dpm, 16 + i);
++		else
++			retval = dpm-&gt;bpwp_enable(dpm, 16 + i,
++					wp-&gt;address, dwp-&gt;control);
++
++		if (retval != ERROR_OK)
++			LOG_ERROR(&quot;%s: can't %s HW watchpoint %d&quot;,
++					target_name(arm-&gt;target),
++					disable ? &quot;disable&quot; : &quot;enable&quot;,
++					i);
++	}
++
++	/* NOTE:  writes to breakpoint and watchpoint registers might
++	 * be queued, and need (efficient/batched) flushing later.
++	 */
++
+ 	/* Scan the registers until we find one that's both dirty and
+ 	 * eligible for flushing.  Flush that and everything else that
+ 	 * shares the same core mode setting.  Typically this won't
+@@ -399,6 +460,13 @@ static enum armv4_5_mode dpm_mapmode(struct arm *arm,
+ 	return ARMV4_5_MODE_ANY;
+ }
+ 
++
++/*
++ * Standard ARM register accessors ... there are three methods
++ * in &quot;struct arm&quot;, to support individual read/write and bulk read
++ * of registers.
++ */
++
+ static int arm_dpm_read_core_reg(struct target *target, struct reg *r,
+ 		int regnum, enum armv4_5_mode mode)
+ {
+@@ -544,9 +612,141 @@ done:
+ 	return retval;
+ }
+ 
++
++/*----------------------------------------------------------------------*/
++
++/*
++ * Breakpoint and Watchpoint support.
++ *
++ * Hardware {break,watch}points are usually left active, to minimize
++ * debug entry/exit costs.  When they are set or cleared, it's done in
++ * batches.  Also, DPM-conformant hardware can update debug registers
++ * regardless of whether the CPU is running or halted ... though that
++ * fact isn't currently leveraged.
++ */
++
++static int dpm_watchpoint_setup(struct arm_dpm *dpm, unsigned index,
++		struct watchpoint *wp)
++{
++	uint32_t addr = wp-&gt;address;
++	uint32_t control;
++
++	/* this hardware doesn't support data value matching or masking */
++	if (wp-&gt;value || wp-&gt;mask != ~(uint32_t)0) {
++		LOG_DEBUG(&quot;watchpoint values and masking not supported&quot;);
++		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	}
++
++	control = (1 &lt;&lt; 0)	/* enable */
++		| (3 &lt;&lt; 1);	/* both user and privileged access */
++
++	switch (wp-&gt;rw) {
++	case WPT_READ:
++		control |= 1 &lt;&lt; 3;
++		break;
++	case WPT_WRITE:
++		control |= 2 &lt;&lt; 3;
++		break;
++	case WPT_ACCESS:
++		control |= 3 &lt;&lt; 3;
++		break;
++	}
++
++	/* Match 1, 2, or all 4 byte addresses in this word.
++	 *
++	 * FIXME:  v7 hardware allows lengths up to 2 GB, and has eight
++	 * byte address select bits.  Support larger wp-&gt;length, if addr
++	 * is suitably aligned.
++	 */
++	switch (wp-&gt;length) {
++	case 1:
++		control |= (1 &lt;&lt; (addr &amp; 3)) &lt;&lt; 5;
++		addr &amp;= ~3;
++		break;
++	case 2:
++		/* require 2-byte alignment */
++		if (!(addr &amp; 1)) {
++			control |= (3 &lt;&lt; (addr &amp; 2)) &lt;&lt; 5;
++			break;
++		}
++		/* FALL THROUGH */
++	case 4:
++		/* require 4-byte alignment */
++		if (!(addr &amp; 3)) {
++			control |= 0xf &lt;&lt; 5;
++			break;
++		}
++		/* FALL THROUGH */
++	default:
++		LOG_DEBUG(&quot;bad watchpoint length or alignment&quot;);
++		return ERROR_INVALID_ARGUMENTS;
++	}
++
++	/* other control bits:
++	 * bits 9:12 == 0 ... only checking up to four byte addresses (v7 only)
++	 * bits 15:14 == 0 ... both secure and nonsecure states (v6.1+ only)
++	 * bit 20 == 0 ... not linked to a context ID
++	 * bit 28:24 == 0 ... not ignoring N LSBs (v7 only)
++	 */
++
++	dpm-&gt;dwp[index].wp = wp;
++	dpm-&gt;dwp[index].control = control;
++	dpm-&gt;dwp[index].dirty = true;
++
++	/* hardware is updated in write_dirty_registers() */
++	return ERROR_OK;
++}
++
++
++static int dpm_add_watchpoint(struct target *target, struct watchpoint *wp)
++{
++	struct arm *arm = target_to_arm(target);
++	struct arm_dpm *dpm = arm-&gt;dpm;
++	int retval = ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++
++	if (dpm-&gt;bpwp_enable) {
++		for (unsigned i = 0; i &lt; dpm-&gt;nwp; i++) {
++			if (!dpm-&gt;dwp[i].wp) {
++				retval = dpm_watchpoint_setup(dpm, i, wp);
++				break;
++			}
++		}
++	}
++
++	return retval;
++}
++
++static int dpm_remove_watchpoint(struct target *target, struct watchpoint *wp)
++{
++	struct arm *arm = target_to_arm(target);
++	struct arm_dpm *dpm = arm-&gt;dpm;
++	int retval = ERROR_INVALID_ARGUMENTS;
++
++	for (unsigned i = 0; i &lt; dpm-&gt;nwp; i++) {
++		if (dpm-&gt;dwp[i].wp == wp) {
++			dpm-&gt;dwp[i].wp = NULL;
++			dpm-&gt;dwp[i].dirty = true;
++
++			/* hardware is updated in write_dirty_registers() */
++			retval = ERROR_OK;
++			break;
++		}
++	}
++
++	return retval;
++}
++
++/*----------------------------------------------------------------------*/
++
++/*
++ * Setup and management support.
++ */
++
+ /**
+  * Hooks up this DPM to its associated target; call only once.
+  * Initially this only covers the register cache.
++ *
++ * Oh, and watchpoints.  Yeah.
+  */
+ int arm_dpm_setup(struct arm_dpm *dpm)
+ {
+@@ -556,6 +756,7 @@ int arm_dpm_setup(struct arm_dpm *dpm)
+ 
+ 	arm-&gt;dpm = dpm;
+ 
++	/* register access setup */
+ 	arm-&gt;full_context = arm_dpm_full_context;
+ 	arm-&gt;read_core_reg = arm_dpm_read_core_reg;
+ 	arm-&gt;write_core_reg = arm_dpm_write_core_reg;
+@@ -566,9 +767,48 @@ int arm_dpm_setup(struct arm_dpm *dpm)
+ 
+ 	*register_get_last_cache_p(&amp;target-&gt;reg_cache) = cache;
+ 
++	/* coprocessor access setup */
+ 	arm-&gt;mrc = dpm_mrc;
+ 	arm-&gt;mcr = dpm_mcr;
+ 
++	/* breakpoint and watchpoint setup */
++	target-&gt;type-&gt;add_watchpoint = dpm_add_watchpoint;
++	target-&gt;type-&gt;remove_watchpoint = dpm_remove_watchpoint;
++
++	/* FIXME add breakpoint support */
++	/* FIXME add vector catch support */
++
++	dpm-&gt;nbp = 1 + ((dpm-&gt;didr &gt;&gt; 24) &amp; 0xf);
++	dpm-&gt;dbp = calloc(dpm-&gt;nbp, sizeof *dpm-&gt;dbp);
++
++	dpm-&gt;nwp = 1 + ((dpm-&gt;didr &gt;&gt; 28) &amp; 0xf);
++	dpm-&gt;dwp = calloc(dpm-&gt;nwp, sizeof *dpm-&gt;dwp);
++
++	if (!dpm-&gt;dbp || !dpm-&gt;dwp) {
++		free(dpm-&gt;dbp);
++		free(dpm-&gt;dwp);
++		return ERROR_FAIL;
++	}
++
++	/* Disable all breakpoints and watchpoints at startup. */
++	if (dpm-&gt;bpwp_disable) {
++		unsigned i;
++
++		for (i = 0; i &lt; dpm-&gt;nbp; i++)
++			(void) dpm-&gt;bpwp_disable(dpm, i);
++		for (i = 0; i &lt; dpm-&gt;nwp; i++)
++			(void) dpm-&gt;bpwp_disable(dpm, 16 + i);
++	} else
++		LOG_WARNING(&quot;%s: can't disable breakpoints and watchpoints&quot;,
++			target_name(target));
++
++	LOG_INFO(&quot;%s: hardware has %d breakpoints, %d watchpoints&quot;,
++			target_name(target), dpm-&gt;nbp, dpm-&gt;nwp);
++
++	/* REVISIT ... and some of those breakpoints could match
++	 * execution context IDs...
++	 */
++
+ 	return ERROR_OK;
+ }
+ 
+diff --git a/src/target/arm_dpm.h b/src/target/arm_dpm.h
+index 67ce218..5d665a8 100644
+--- a/src/target/arm_dpm.h
++++ b/src/target/arm_dpm.h
+@@ -31,6 +31,26 @@
+  * registers are compatible.
+  */
+ 
++struct dpm_bp {
++	struct breakpoint *bp;
++	/* bp-&gt;address == breakpoint value register
++	 * control == breakpoint control register
++	 */
++	uint32_t control;
++	/* true if hardware state needs flushing */
++	bool dirty;
++};
++
++struct dpm_wp {
++	struct watchpoint *wp;
++	/* wp-&gt;address == watchpoint value register
++	 * control == watchpoint control register
++	 */
++	uint32_t control;
++	/* true if hardware state needs flushing */
++	bool dirty;
++};
++
+ /**
+  * This wraps an implementation of DPM primitives.  Each interface
+  * provider supplies a structure like this, which is the glue between
+@@ -74,9 +94,33 @@ struct arm_dpm {
+ 	int (*instr_read_data_r0)(struct arm_dpm *,
+ 			uint32_t opcode, uint32_t *data);
+ 
+-	// FIXME -- add breakpoint support
+-
+-	// FIXME -- add watchpoint support (including context-sensitive ones)
++	/* BREAKPOINT/WATCHPOINT SUPPORT */
++
++	/**
++	 * Enables one breakpoint or watchpoint by writing to the
++	 * hardware registers.  The specified breakpoint/watchpoint
++	 * must currently be disabled.  Indices 0..15 are used for
++	 * breakpoints; indices 16..31 are for watchpoints.
++	 */
++	int (*bpwp_enable)(struct arm_dpm *, unsigned index,
++			uint32_t addr, uint32_t control);
++
++	/**
++	 * Disables one breakpoint or watchpoint by clearing its
++	 * hardware control registers.  Indices are the same ones
++	 * accepted by bpwp_enable().
++	 */
++	int (*bpwp_disable)(struct arm_dpm *, unsigned index);
++
++	/* The breakpoint and watchpoint arrays are private to the
++	 * DPM infrastructure.  There are nbp indices in the dbp
++	 * array.  There are nwp indices in the dwp array.
++	 */
++
++	unsigned nbp;
++	unsigned nwp;
++	struct dpm_bp *dbp;
++	struct dpm_wp *dwp;
+ 
+ 	// FIXME -- read/write DCSR methods and symbols
+ };
+@@ -85,6 +129,6 @@ int arm_dpm_setup(struct arm_dpm *dpm);
+ int arm_dpm_reinitialize(struct arm_dpm *dpm);
+ 
+ int arm_dpm_read_current_registers(struct arm_dpm *);
+-int arm_dpm_write_dirty_registers(struct arm_dpm *);
++int arm_dpm_write_dirty_registers(struct arm_dpm *, bool bpwp);
+ 
+ #endif /* __ARM_DPM_H */
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index e312e54..81402d7 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -41,7 +41,7 @@
+ 
+ static int cortex_a8_poll(struct target *target);
+ static int cortex_a8_debug_entry(struct target *target);
+-static int cortex_a8_restore_context(struct target *target);
++static int cortex_a8_restore_context(struct target *target, bool bpwp);
+ static int cortex_a8_set_breakpoint(struct target *target,
+ 		struct breakpoint *breakpoint, uint8_t matchmode);
+ static int cortex_a8_unset_breakpoint(struct target *target,
+@@ -602,11 +602,7 @@ static int cortex_a8_resume(struct target *target, int current,
+ 	dap_ap_select(swjdp, swjdp_debugap);
+ 
+ 	if (!debug_execution)
+-	{
+ 		target_free_all_working_areas(target);
+-//		cortex_m3_enable_breakpoints(target);
+-//		cortex_m3_enable_watchpoints(target);
+-	}
+ 
+ #if 0
+ 	if (debug_execution)
+@@ -661,7 +657,7 @@ static int cortex_a8_resume(struct target *target, int current,
+ 	armv4_5-&gt;core_cache-&gt;reg_list[15].dirty = 1;
+ 	armv4_5-&gt;core_cache-&gt;reg_list[15].valid = 1;
+ 
+-	cortex_a8_restore_context(target);
++	cortex_a8_restore_context(target, handle_breakpoints);
+ 
+ #if 0
+ 	/* the front-end may request us not to handle breakpoints */
+@@ -952,7 +948,7 @@ static int cortex_a8_step(struct target *target, int current, uint32_t address,
+ 	return ERROR_OK;
+ }
+ 
+-static int cortex_a8_restore_context(struct target *target)
++static int cortex_a8_restore_context(struct target *target, bool bpwp)
+ {
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 
+@@ -961,7 +957,7 @@ static int cortex_a8_restore_context(struct target *target)
+ 	if (armv7a-&gt;pre_restore_context)
+ 		armv7a-&gt;pre_restore_context(target);
+ 
+-	arm_dpm_write_dirty_registers(&amp;armv7a-&gt;dpm);
++	arm_dpm_write_dirty_registers(&amp;armv7a-&gt;dpm, bpwp);
+ 
+ 	if (armv7a-&gt;post_restore_context)
+ 		armv7a-&gt;post_restore_context(target);
+
+commit 1c7d3d200c6f20d4bb689176373368cd497d797f
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Dec 1 20:39:58 2009 -0800
+
+    ARMv7a: move constants out of Cortex-A8 header
+    
+    These are architecturally defined, not core-specific.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/armv7a.h b/src/target/armv7a.h
+index ee0d2ac..6ccf3e2 100644
+--- a/src/target/armv7a.h
++++ b/src/target/armv7a.h
+@@ -77,6 +77,53 @@ target_to_armv7a(struct target *target)
+ 			armv4_5_common);
+ }
+ 
++/* register offsets from armv7a.debug_base */
++
++/* See ARMv7a arch spec section C10.2 */
++#define CPUDBG_DIDR		0x000
++
++/* See ARMv7a arch spec section C10.3 */
++#define CPUDBG_WFAR		0x018
++/* PCSR at 0x084 -or- 0x0a0 -or- both ... based on flags in DIDR */
++#define CPUDBG_DSCR		0x088
++#define CPUDBG_DRCR		0x090
++#define CPUDBG_PRCR		0x310
++#define CPUDBG_PRSR		0x314
++
++/* See ARMv7a arch spec section C10.4 */
++#define CPUDBG_DTRRX		0x080
++#define CPUDBG_ITR		0x084
++#define CPUDBG_DTRTX		0x08c
++
++/* See ARMv7a arch spec section C10.5 */
++#define CPUDBG_BVR_BASE		0x100
++#define CPUDBG_BCR_BASE		0x140
++#define CPUDBG_WVR_BASE		0x180
++#define CPUDBG_WCR_BASE		0x1C0
++#define CPUDBG_VCR		0x01C
++
++/* See ARMv7a arch spec section C10.6 */
++#define CPUDBG_OSLAR		0x300
++#define CPUDBG_OSLSR		0x304
++#define CPUDBG_OSSRR		0x308
++#define CPUDBG_ECR		0x024
++
++/* See ARMv7a arch spec section C10.7 */
++#define CPUDBG_DSCCR		0x028
++
++/* See ARMv7a arch spec section C10.8 */
++#define CPUDBG_AUTHSTATUS	0xFB8
++
++/* DSCR bit numbers (See ARMv7a arch spec section 12.4.5) */
++#define DSCR_CORE_HALTED	0
++#define DSCR_CORE_RESTARTED	1
++#define DSCR_EXT_INT_EN		13
++#define DSCR_HALT_DBG_MODE	14
++#define DSCR_MON_DBG_MODE	15
++#define DSCR_INSTR_COMP		24
++#define DSCR_DTR_TX_FULL	29
++#define DSCR_DTR_RX_FULL	30
++
+ struct armv7a_algorithm
+ {
+ 	int common_magic;
+diff --git a/src/target/cortex_a8.h b/src/target/cortex_a8.h
+index 1cb0e57..3b2c8b1 100644
+--- a/src/target/cortex_a8.h
++++ b/src/target/cortex_a8.h
+@@ -35,50 +35,16 @@ extern char* cortex_a8_state_strings[];
+ 
+ #define CORTEX_A8_COMMON_MAGIC 0x411fc082
+ 
+-#define CPUID		0x54011D00
+-/* Debug Control Block */
+-#define CPUDBG_DIDR		0x000
+-#define CPUDBG_WFAR		0x018
+-#define CPUDBG_VCR	0x01C
+-#define CPUDBG_ECR	0x024
+-#define CPUDBG_DSCCR	0x028
+-#define CPUDBG_DTRRX	0x080
+-#define CPUDBG_ITR	0x084
+-#define CPUDBG_DSCR	0x088
+-#define CPUDBG_DTRTX	0x08c
+-#define CPUDBG_DRCR	0x090
+-#define CPUDBG_BVR_BASE	0x100
+-#define CPUDBG_BCR_BASE	0x140
+-#define CPUDBG_WVR_BASE	0x180
+-#define CPUDBG_WCR_BASE	0x1C0
+-
+-#define CPUDBG_OSLAR	0x300
+-#define CPUDBG_OSLSR	0x304
+-#define CPUDBG_OSSRR	0x308
+-
+-#define CPUDBG_PRCR	0x310
+-#define CPUDBG_PRSR	0x314
+-
++/* See Cortex-A8 TRM section 12.5 */
+ #define CPUDBG_CPUID	0xD00
+ #define CPUDBG_CTYPR	0xD04
+ #define CPUDBG_TTYPR	0xD0C
+ #define CPUDBG_LOCKACCESS 0xFB0
+ #define CPUDBG_LOCKSTATUS 0xFB4
+-#define CPUDBG_AUTHSTATUS 0xFB8
+ 
+ #define BRP_NORMAL 0
+ #define BRP_CONTEXT 1
+ 
+-/* DSCR Bit offset */
+-#define DSCR_CORE_HALTED		0
+-#define DSCR_CORE_RESTARTED 	1
+-#define DSCR_EXT_INT_EN 		13
+-#define DSCR_HALT_DBG_MODE		14
+-#define DSCR_MON_DBG_MODE 		15
+-#define DSCR_INSTR_COMP 		24
+-#define DSCR_DTR_TX_FULL 		29
+-#define DSCR_DTR_RX_FULL 		30
+-
+ struct cortex_a8_brp
+ {
+ 	int used;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm11.c     |   35 ++------
+ src/target/arm_dpm.c   |  244 +++++++++++++++++++++++++++++++++++++++++++++++-
+ src/target/arm_dpm.h   |   52 ++++++++++-
+ src/target/armv7a.h    |   47 +++++++++
+ src/target/cortex_a8.c |   78 ++++++++++++++--
+ src/target/cortex_a8.h |   36 +-------
+ 6 files changed, 416 insertions(+), 76 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001898.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-740-ga65e75e
+</A></li>
+	<LI>Next message: <A HREF="001900.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-744-gd84fead
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1899">[ date ]</a>
+              <a href="thread.html#1899">[ thread ]</a>
+              <a href="subject.html#1899">[ subject ]</a>
+              <a href="author.html#1899">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

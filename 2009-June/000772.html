@@ -1,0 +1,177 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1988 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1988%20-%20trunk/src/jtag&In-Reply-To=%3C200906012331.n51NV1BS003196%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000771.html">
+   <LINK REL="Next"  HREF="000773.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1988 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1988%20-%20trunk/src/jtag&In-Reply-To=%3C200906012331.n51NV1BS003196%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1988 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun  2 01:31:01 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000771.html">[Openocd-svn] r1987 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000773.html">[Openocd-svn] r1989 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#772">[ date ]</a>
+              <a href="thread.html#772">[ thread ]</a>
+              <a href="subject.html#772">[ subject ]</a>
+              <a href="author.html#772">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-02 01:30:58 +0200 (Tue, 02 Jun 2009)
+New Revision: 1988
+
+Modified:
+   trunk/src/jtag/jtag.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Make the TCL &quot;drscan&quot; and &quot;irscan&quot; commands finish in RUN/IDLE
+unless the user specifies otherwise ... usually they'd choose
+something like DRPAUSE or IRPAUSE, avoiding RUN/IDLE.
+
+The current &quot;end&quot; state is whatever the preceding commands left
+in &quot;cmd_queue_end_state&quot;, which to TCL scripts isn't knowable.
+This change should forestall various surprises/bugs.
+
+Also check that any &quot;end&quot; state specified is safe in case this
+adapter's JTAG clock is free-running.  For now, just issue a
+warning; eventually a hard failure is probably correct.
+
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-01 23:13:24 UTC (rev 1987)
++++ trunk/src/jtag/jtag.c	2009-06-01 23:30:58 UTC (rev 1988)
+@@ -2955,6 +2955,26 @@
+ 
+ }
+ 
++/*
++ * For &quot;irscan&quot; or &quot;drscan&quot; commands, the &quot;end&quot; (really, &quot;next&quot;) state
++ * should be stable ... and *NOT* a shift state, otherwise free-running
++ * jtag clocks could change the values latched by the update state.
++ */
++static bool scan_is_safe(tap_state_t state)
++{
++	switch (state)
++	{
++	case TAP_RESET:
++	case TAP_IDLE:
++	case TAP_DRPAUSE:
++	case TAP_IRPAUSE:
++		return true;
++	default:
++		return false;
++	}
++}
++
++
+ static int handle_irscan_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
+ 	int i;
+@@ -2967,11 +2987,12 @@
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	/* optional &quot;-endstate&quot; */
+-	/*          &quot;statename&quot; */
+-	/* at the end of the arguments. */
+-	/* assume none. */
+-	endstate = cmd_queue_end_state;
++	/* optional &quot;-endstate&quot; &quot;statename&quot; at the end of the arguments,
++	 * so that e.g. IRPAUSE can let us load the data register before
++	 * entering RUN/IDLE to execute the instruction we load here.
++	 */
++	endstate = TAP_IDLE;
++
+ 	if( argc &gt;= 4 ){
+ 		/* have at least one pair of numbers. */
+ 		/* is last pair the magic text? */
+@@ -2988,6 +3009,9 @@
+ 			if( endstate &gt;= TAP_NUM_STATES ){
+ 				return ERROR_COMMAND_SYNTAX_ERROR;
+ 			} else {
++				if (!scan_is_safe(endstate))
++					LOG_WARNING(&quot;irscan with unsafe &quot;
++							&quot;endstate \&quot;%s\&quot;&quot;, cpA);
+ 				/* found - remove the last 2 args */
+ 				argc -= 2;
+ 			}
+@@ -3052,8 +3076,8 @@
+ 		return JIM_ERR;
+ 	}
+ 
+-	/* assume no endstate */
+-	endstate = cmd_queue_end_state;
++	endstate = TAP_IDLE;
++
+ 	/* validate arguments as numbers */
+ 	e = JIM_OK;
+ 	for (i = 2; i &lt; argc; i+=2)
+@@ -3073,7 +3097,10 @@
+ 			return e;
+ 		}
+ 
+-		/* it could be: &quot;-endstate FOO&quot; */
++		/* it could be: &quot;-endstate FOO&quot;
++		 * e.g. DRPAUSE so we can issue more instructions
++		 * before entering RUN/IDLE and executing them.
++		 */
+ 
+ 		/* get arg as a string. */
+ 		cp = Jim_GetString( args[i], NULL );
+@@ -3088,6 +3115,10 @@
+ 				/* update the error message */
+ 				Jim_SetResult_sprintf(interp,&quot;endstate: %s invalid&quot;, cp );
+ 			} else {
++				if (!scan_is_safe(endstate))
++					LOG_WARNING(&quot;drscan with unsafe &quot;
++							&quot;endstate \&quot;%s\&quot;&quot;, cp);
++
+ 				/* valid - so clear the error */
+ 				e = JIM_OK;
+ 				/* and remove the last 2 args */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000771.html">[Openocd-svn] r1987 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000773.html">[Openocd-svn] r1989 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#772">[ date ]</a>
+              <a href="thread.html#772">[ thread ]</a>
+              <a href="subject.html#772">[ subject ]</a>
+              <a href="author.html#772">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

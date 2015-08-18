@@ -1,0 +1,152 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2504 - in trunk/tcl: board target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2504%20-%20in%20trunk/tcl%3A%20board%20target&In-Reply-To=%3C200907100721.n6A7LDVE031005%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001287.html">
+   <LINK REL="Next"  HREF="001289.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2504 - in trunk/tcl: board target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2504%20-%20in%20trunk/tcl%3A%20board%20target&In-Reply-To=%3C200907100721.n6A7LDVE031005%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2504 - in trunk/tcl: board target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul 10 09:21:13 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001287.html">[Openocd-svn] r2503 - trunk/doc/manual
+</A></li>
+        <LI>Next message: <A HREF="001289.html">[Openocd-svn] r2505 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1288">[ date ]</a>
+              <a href="thread.html#1288">[ thread ]</a>
+              <a href="subject.html#1288">[ subject ]</a>
+              <a href="author.html#1288">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-07-10 09:21:12 +0200 (Fri, 10 Jul 2009)
+New Revision: 2504
+
+Added:
+   trunk/tcl/board/ek-lm3s3748.cfg
+Modified:
+   trunk/tcl/target/lm3s3748.cfg
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt; split EK board support out
+from the target CPU support .
+
+Added: trunk/tcl/board/ek-lm3s3748.cfg
+===================================================================
+--- trunk/tcl/board/ek-lm3s3748.cfg	2009-07-08 22:26:42 UTC (rev 2503)
++++ trunk/tcl/board/ek-lm3s3748.cfg	2009-07-10 07:21:12 UTC (rev 2504)
+@@ -0,0 +1,17 @@
++# Stellaris lm3s3748 Evaluation Kit
++#  <A HREF="http://www.luminarymicro.com/products/lm3s3748_usb_h_d_evaluation_kits.html">http://www.luminarymicro.com/products/lm3s3748_usb_h_d_evaluation_kits.html</A>
++
++# NOTE:  to use the on-board FT2232 JTAG interface:
++#  source [find interface/luminary.cfg]
++
++source [find target/lm3s3748.cfg]
++
++# LM3S parts don't support RTCK
++jtag_khz 500
++
++jtag_nsrst_delay 100
++jtag_ntrst_delay 100
++
++# Board has only srst
++reset_config srst_only
++
+
+Modified: trunk/tcl/target/lm3s3748.cfg
+===================================================================
+--- trunk/tcl/target/lm3s3748.cfg	2009-07-08 22:26:42 UTC (rev 2503)
++++ trunk/tcl/target/lm3s3748.cfg	2009-07-10 07:21:12 UTC (rev 2504)
+@@ -1,7 +1,4 @@
+-# Script for luminary lm3s3748
+-#
+-# NB! work in progress! Duplicated from lm3s811.cfg, but does
+-# it need modification??
++# TI/Luminary Stellaris lm3s3748
+ 
+ if { [info exists CHIPNAME] } {	
+    set  _CHIPNAME $CHIPNAME    
+@@ -19,31 +16,21 @@
+ if { [info exists CPUTAPID ] } {
+    set _CPUTAPID $CPUTAPID
+ } else {
+-  # force an error till we get a good number
+    set _CPUTAPID 0x3ba00477
+ }
+ 
+-# RCLK 
+-jtag_khz 500
+-
+-jtag_nsrst_delay 100
+-jtag_ntrst_delay 100
+-
+-#lm3s3748 Evaluation Board has only srst
+-reset_config srst_only
+-
+-#jtag scan chain
++# JTAG scan chain
+ jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 1 -irmask 0xf -expected-id $_CPUTAPID
+ 
++# The &quot;lm3s&quot; variant works around an erratum when using Rev A of &quot;DustDevil&quot;
++# parts (third generation, includes LM3S3748).  It keeps the debug registers
++# from being cleared, by using software reset not SRST; NOP on newer revs.
++set _TARGETNAME $_CHIPNAME.cpu
++target create $_TARGETNAME cortex_m3 -endian $_ENDIAN \
++	-chain-position $_TARGETNAME -variant lm3s
+ 
+-# the luminary variant causes a software reset rather than asserting SRST
+-# this stops the debug registers from being cleared
+-# this will be fixed in later revisions of silicon
+-set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
+-target create $_TARGETNAME cortex_m3 -endian $_ENDIAN -chain-position $_TARGETNAME -variant lm3s
++# 8k working area at base of ram, not backed up
++$_TARGETNAME configure -work-area-phys 0x20000000 -work-area-size 0x2000
+ 
+-# 8k working area at base of ram
+-$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x20000000 -work-area-size 0x2000 -work-area-backup 0
+-
+-#flash configuration
++# flash configuration -- one bank of 128K
+ flash bank stellaris 0 0 0 0 0
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001287.html">[Openocd-svn] r2503 - trunk/doc/manual
+</A></li>
+	<LI>Next message: <A HREF="001289.html">[Openocd-svn] r2505 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1288">[ date ]</a>
+              <a href="thread.html#1288">[ thread ]</a>
+              <a href="subject.html#1288">[ subject ]</a>
+              <a href="author.html#1288">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

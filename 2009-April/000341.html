@@ -1,0 +1,305 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1557 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1557%20-%20trunk/src/jtag&In-Reply-To=%3C200904281902.n3SJ2V6S020269%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000340.html">
+   <LINK REL="Next"  HREF="000342.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1557 - trunk/src/jtag</H1>
+    <B>oharboe at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1557%20-%20trunk/src/jtag&In-Reply-To=%3C200904281902.n3SJ2V6S020269%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1557 - trunk/src/jtag">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Tue Apr 28 21:02:31 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000340.html">[Openocd-svn] r1556 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000342.html">[Openocd-svn] r1558 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#341">[ date ]</a>
+              <a href="thread.html#341">[ thread ]</a>
+              <a href="subject.html#341">[ subject ]</a>
+              <a href="author.html#341">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-04-28 21:02:29 +0200 (Tue, 28 Apr 2009)
+New Revision: 1557
+
+Modified:
+   trunk/src/jtag/jtag.c
+   trunk/src/jtag/jtag.h
+Log:
+Dick Hollenbeck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dick at softplc.com</A>&gt; and Jeff Williams tap_get_tms_path_len()
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-04-28 17:40:02 UTC (rev 1556)
++++ trunk/src/jtag/jtag.c	2009-04-28 19:02:29 UTC (rev 1557)
+@@ -1245,7 +1245,7 @@
+ 	bit_count = 0;
+ 
+ #ifdef _DEBUG_JTAG_IO_
+-	LOG_DEBUG(&quot;num_fields: %i&quot;,cmd-&gt;num_fields);
++	LOG_DEBUG(&quot;%s num_fields: %i&quot;, cmd-&gt;ir_scan ? &quot;IRSCAN&quot; : &quot;DRSCAN&quot;, cmd-&gt;num_fields);
+ #endif
+ 
+ 	for (i = 0; i &lt; cmd-&gt;num_fields; i++)
+@@ -1261,10 +1261,20 @@
+ 			free(char_buf);
+ #endif
+ 		}
++		else
++		{
++#ifdef _DEBUG_JTAG_IO_
++			LOG_DEBUG(&quot;fields[%i].out_value[%i]: NULL&quot;, i, cmd-&gt;fields[i].num_bits);
++#endif
++		}
+ 
+ 		bit_count += cmd-&gt;fields[i].num_bits;
+ 	}
+ 
++#ifdef _DEBUG_JTAG_IO_
++	//LOG_DEBUG(&quot;bit_count totalling: %i&quot;,  bit_count );
++#endif
++
+ 	return bit_count;
+ }
+ 
+@@ -3053,14 +3063,6 @@
+ {
+ 	/* given a stable state, return the index into the tms_seqs[] array within tap_get_tms_path() */
+ 
+-	/* old version
+-	const static int move_map[16] =
+-	{
+-		0, -1, -1,  2, -1,  3, -1, -1,
+-		1, -1, -1,  4, -1,  5, -1, -1
+-	};
+-	*/
+-
+ 	int ndx;
+ 
+ 	switch( astate )
+@@ -3079,48 +3081,109 @@
+ 	return ndx;
+ }
+ 
+-int tap_get_tms_path( tap_state_t from, tap_state_t to )
++
++/* tap_move[i][j]: tap movement command to go from state i to state j
++ * 0: Test-Logic-Reset
++ * 1: Run-Test/Idle
++ * 2: Shift-DR
++ * 3: Pause-DR
++ * 4: Shift-IR
++ * 5: Pause-IR
++ *
++ * DRSHIFT-&gt;DRSHIFT and IRSHIFT-&gt;IRSHIFT have to be caught in interface specific code
++ */
++static struct
+ {
+-	/* tap_move[i][j]: tap movement command to go from state i to state j
+-	 * 0: Test-Logic-Reset
+-	 * 1: Run-Test/Idle
+-	 * 2: Shift-DR
+-	 * 3: Pause-DR
+-	 * 4: Shift-IR
+-	 * 5: Pause-IR
+-	 *
+-	 * DRSHIFT-&gt;DRSHIFT and IRSHIFT-&gt;IRSHIFT have to be caught in interface specific code
++	u8	bits;
++	u8	bit_count;
++
++} tms_seqs[6][6] =		/*  [from_state_ndx][to_state_ndx] */
++{
++	/* value clocked to TMS to move from one of six stable states to another.
++	 * N.B. OOCD clocks TMS from LSB first, so read these right-to-left.
++	 * N.B. These values are tightly bound to the table in tap_get_tms_path_len().
++	 * N.B. Reset only needs to be 0b11111, but in JLink an even byte of 1's is more stable.
++	 * 		These extra ones cause no TAP state problem, because we go into reset and stay in reset.
+ 	 */
+-	static const u8 tms_seqs[6][6] =
+-	{
+-		/* value clocked to TMS to move from one of six stable states to another */
+ 
+-		/* RESET  IDLE  DRSHIFT  DRPAUSE  IRSHIFT  IRPAUSE */
+-		{  0x7f, 0x00,    0x17,    0x0a,    0x1b,    0x16 },	/* RESET */
+-		{  0x7f, 0x00,    0x25,    0x05,    0x2b,    0x0b },	/* IDLE */
+-		{  0x7f, 0x31,    0x00,    0x01,    0x0f,    0x2f },	/* DRSHIFT  */
+-		{  0x7f, 0x30,    0x20,    0x17,    0x1e,    0x2f },	/* DRPAUSE  */
+-		{  0x7f, 0x31,    0x07,    0x17,    0x00,    0x01 },	/* IRSHIFT  */
+-		{  0x7f, 0x30,    0x1c,    0x17,    0x20,    0x2f }	/* IRPAUSE  */
+-	};
++/*
++ * These macros allow us to specify TMS state transitions by bits rather than hex bytes.
++ * Read the bits from LSBit first to MSBit last (right-to-left).
++ */
++#define HEX__(n) 0x##n##LU
+ 
+-	if( !tap_is_state_stable(from) )
+-	{
+-		LOG_ERROR( &quot;fatal: tap_state \&quot;from\&quot; (=%s) is not stable&quot;, tap_state_name(from) );
+-		exit(1);
+-	}
++#define B8__(x) \
++	 (((x) &amp; 0x0000000FLU)?(1&lt;&lt;0):0) \
++	+(((x) &amp; 0x000000F0LU)?(1&lt;&lt;1):0) \
++	+(((x) &amp; 0x00000F00LU)?(1&lt;&lt;2):0) \
++	+(((x) &amp; 0x0000F000LU)?(1&lt;&lt;3):0) \
++	+(((x) &amp; 0x000F0000LU)?(1&lt;&lt;4):0) \
++	+(((x) &amp; 0x00F00000LU)?(1&lt;&lt;5):0) \
++	+(((x) &amp; 0x0F000000LU)?(1&lt;&lt;6):0) \
++	+(((x) &amp; 0xF0000000LU)?(1&lt;&lt;7):0)
+ 
+-	if( !tap_is_state_stable(to) )
+-	{
+-		LOG_ERROR( &quot;fatal: tap_state \&quot;to\&quot; (=%s) is not stable&quot;, tap_state_name(to) );
+-		exit(1);
+-	}
++#define B8(bits,count)		{ ((u8)B8__(HEX__(bits))), (count) }
+ 
+-	/* @todo: support other than 7 clocks ? */
+-	return tms_seqs[tap_move_ndx(from)][tap_move_ndx(to)];
++#if 0 &amp;&amp; ((BUILD_FT2232_FTD2XX==1) || (BUILD_FT2232_LIBFTDI==1))
++	/* 	this is the table submitted by Jeff Williams on 3/30/2009 with this comment:
++
++		OK, I added Peter's version of the state table, and it works OK for
++		me on MC1322x. I've recreated the jlink portion of patch with this
++		new state table. His changes to my state table are pretty minor in
++		terms of total transitions, but Peter feels that his version fixes
++		some long-standing problems.
++		Jeff
++
++		I added the bit count into the table
++		Dick
++	*/
++
++	/* to state: */
++	/*	RESET			IDLE				DRSHIFT			DRPAUSE			IRSHIFT	  		IRPAUSE */		/* from state: */
++	{	B8(11111,5),		B8(0,1),			B8(0010,4), 		B8(01010,5),		B8(00110,5), 	B8(010110,6) },	/* RESET */
++	{	B8(11111,5),		B8(0,1),			B8(001,3),  		B8(0101,4),		B8(0011,4),  	B8(01011,5) },	/* IDLE */
++	{	B8(11111,5),		B8(011,3),		B8(00111,5),		B8(01,2),		B8(001111,6),	B8(0101111,7) },	/* DRSHIFT */
++	{	B8(11111,5),		B8(011,3),		B8(01,2),   		B8(0,1),			B8(001111,6),	B8(0101111,7) },	/* DRPAUSE */
++	{	B8(11111,5),		B8(011,3),		B8(00111,5),		B8(010111,6), 	B8(001111,6),	B8(01,2) },		/* IRSHIFT */
++	{	B8(11111,5),		B8(011,3),		B8(00111,5),		B8(010111,6),	B8(01,2),   		B8(0,1) } 		/* IRPAUSE */
++
++#else	/* this is the old table, converted from hex and with the bit_count set to 7 for each combo, like before */
++
++	/* to state: */
++	/*	RESET			IDLE				DRSHIFT			DRPAUSE			IRSHIFT	  		IRPAUSE */		/* from state: */
++	{	B8(1111111,7),	B8(0000000,7),	B8(0010111,7), 	B8(0001010,7),	B8(0011011,7), 	B8(0010110,7) },	/* RESET */
++	{	B8(1111111,7),	B8(0000000,7),	B8(0100101,7),  	B8(0000101,7),	B8(0101011,7),  	B8(0001011,7) },	/* IDLE */
++	{	B8(1111111,7),	B8(0110001,7),	B8(0000000,7),	B8(0000001,7),	B8(0001111,7),	B8(0101111,7) },	/* DRSHIFT */
++	{	B8(1111111,7),	B8(0110000,7),	B8(0100000,7),  	B8(0010111,7),	B8(0011110,7),	B8(0101111,7) },	/* DRPAUSE */
++	{	B8(1111111,7),	B8(0110001,7),	B8(0000111,7),	B8(0010111,7), 	B8(0000000,7),	B8(0000001,7) },	/* IRSHIFT */
++	{	B8(1111111,7),	B8(0110000,7),	B8(0011100,7),	B8(0010111,7),	B8(0100000,7),  	B8(0101111,7) } 	/* IRPAUSE */
++
++#endif
++
++#if 0 /* keeping old hex stuff for awhile, for reference */
++	/* RESET  			IDLE  			DRSHIFT  		DRPAUSE  		IRSHIFT  		IRPAUSE */
++	{  0x7f, 			0x00,    		0x17,    		0x0a,    		0x1b,    		0x16 },	/* RESET */
++	{  0x7f, 			0x00,    		0x25,    		0x05,    		0x2b,    		0x0b },	/* IDLE */
++	{  0x7f, 			0x31,    		0x00,    		0x01,    		0x0f,    		0x2f },	/* DRSHIFT  */
++	{  0x7f, 			0x30,    		0x20,    		0x17,    		0x1e,    		0x2f },	/* DRPAUSE  */
++	{  0x7f, 			0x31,    		0x07,    		0x17,    		0x00,    		0x01 },	/* IRSHIFT  */
++	{  0x7f, 			0x30,    		0x1c,    		0x17,    		0x20,    		0x2f }	/* IRPAUSE  */
++#endif
++};
++
++
++int tap_get_tms_path( tap_state_t from, tap_state_t to )
++{
++	return tms_seqs[tap_move_ndx(from)][tap_move_ndx(to)].bits;
+ }
+ 
+ 
++int tap_get_tms_path_len( tap_state_t from, tap_state_t to )
++{
++	return tms_seqs[tap_move_ndx(from)][tap_move_ndx(to)].bit_count;
++}
++
++
+ bool tap_is_state_stable(tap_state_t astate)
+ {
+ 	bool is_stable;
+@@ -3250,7 +3313,7 @@
+ 	switch( state )
+ 	{
+ 	case TAP_RESET:		ret = &quot;RESET&quot;;			break;
+-	case TAP_IDLE:		ret = &quot;RUN/IDLE&quot;;			break;
++	case TAP_IDLE:		ret = &quot;RUN/IDLE&quot;;		break;
+ 	case TAP_DRSELECT:	ret = &quot;DRSELECT&quot;;		break;
+ 	case TAP_DRCAPTURE: ret = &quot;DRCAPTURE&quot;;		break;
+ 	case TAP_DRSHIFT:	ret = &quot;DRSHIFT&quot;;			break;
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-04-28 17:40:02 UTC (rev 1556)
++++ trunk/src/jtag/jtag.h	2009-04-28 19:02:29 UTC (rev 1557)
+@@ -181,7 +181,26 @@
+  */
+ int tap_get_tms_path(tap_state_t from, tap_state_t to);
+ 
++
+ /**
++ * Function int tap_get_tms_path_len
++ * returns the total number of bits that represents a TMS path
++ * transition as given by the function tap_get_tms_path().
++ *
++ * For at least one interface (JLink) it's not OK to simply &quot;pad&quot; TMS sequences
++ * to fit a whole byte.  (I suspect this is a general TAP problem within OOCD.)
++ * Padding TMS causes all manner of instability that's not easily
++ * discovered.  Using this routine we can apply EXACTLY the state transitions
++ * required to make something work - no more - no less.
++ *
++ * @param from is the starting state
++ * @param to is the resultant or final state
++ * @return int - the total number of bits in a transition.
++ */
++int tap_get_tms_path_len(tap_state_t from, tap_state_t to);
++
++
++/**
+  * Function tap_move_ndx
+  * when given a stable state, returns an index from 0-5.  The index corresponds to a
+  * sequence of stable states which are given in this order: &lt;p&gt;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000340.html">[Openocd-svn] r1556 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000342.html">[Openocd-svn] r1558 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#341">[ date ]</a>
+              <a href="thread.html#341">[ thread ]</a>
+              <a href="subject.html#341">[ subject ]</a>
+              <a href="author.html#341">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,1103 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-386-g5d1a903
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-386-g5d1a903&In-Reply-To=%3CE1N9jzL-0000Ki-3L%409j8yhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001790.html">
+   <LINK REL="Next"  HREF="001792.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-386-g5d1a903</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-386-g5d1a903&In-Reply-To=%3CE1N9jzL-0000Ki-3L%409j8yhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-386-g5d1a903">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Sun Nov 15 19:38:14 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001790.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-382-gf301366
+</A></li>
+        <LI>Next message: <A HREF="001792.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-391-gb695cb7
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1791">[ date ]</a>
+              <a href="thread.html#1791">[ thread ]</a>
+              <a href="subject.html#1791">[ subject ]</a>
+              <a href="author.html#1791">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  5d1a9033ab89b017c95e79590d76abbfa61f7512 (commit)
+       via  2280ddeea5fd82554696f1caa97f7a485a035da4 (commit)
+       via  269040bbad7f18066f5ec5707447c33de6290ef5 (commit)
+       via  9ac7cdec82c19481b79f2effcefb7106dd7ade41 (commit)
+      from  f30136603e4cc8b2db0112a32f26959d5201e58c (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 5d1a9033ab89b017c95e79590d76abbfa61f7512
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sun Nov 15 10:35:47 2009 -0800
+
+    ARM11: use now-generic memory utils
+    
+    Now the ARM11 cores can use the renamed arm_checksum_memory()
+    and arm_blank_check_memory() routines ... do so.
+    
+    Sanity checked with &quot;flash erase_check&quot; of both NOR banks on an
+    OMAP2420 ... the algorithm code dumped four lines of of &quot;poll&quot;
+    status after each of almost 520 blocks (yes, *very* annoying) but
+    gave plausible results after producing that spam.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/NEWS b/NEWS
+index 813ecda..7387d70 100644
+--- a/NEWS
++++ b/NEWS
+@@ -8,8 +8,16 @@ JTAG Layer:
+ 
+ Boundary Scan:
+ Target Layer:
++	ARM11
++		- Preliminary ETM and ETB hookup
++		- accelerated &quot;flash erase_check&quot;
++		- accelerated GDB memory checksum
++
+ Flash Layer:
+ Board, Target, and Interface Configuration Scripts:
++	ARM9
++		- ETM and ETB hookup for iMX2* targets
++
+ Documentation:
+ Build and Release:
+ 
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 0b2fa2c..348dd87 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -1551,16 +1551,6 @@ static int arm11_bulk_write_memory(struct target *target,
+ 	return arm11_write_memory(target, address, 4, count, buffer);
+ }
+ 
+-/* here we have nothing target specific to contribute, so we fail and then the
+- * fallback code will read data from the target and calculate the CRC on the
+- * host.
+- */
+-static int arm11_checksum_memory(struct target *target,
+-		uint32_t address, uint32_t count, uint32_t* checksum)
+-{
+-	return ERROR_FAIL;
+-}
+-
+ /* target break-/watchpoint control
+ * rw: 0 = write, 1 = read, 2 = access
+ */
+@@ -2203,7 +2193,8 @@ struct target_type arm11_target = {
+ 
+ 	.bulk_write_memory =	arm11_bulk_write_memory,
+ 
+-	.checksum_memory =	arm11_checksum_memory,
++	.checksum_memory =	arm_checksum_memory,
++	.blank_check_memory =	arm_blank_check_memory,
+ 
+ 	.add_breakpoint =	arm11_add_breakpoint,
+ 	.remove_breakpoint =	arm11_remove_breakpoint,
+
+commit 2280ddeea5fd82554696f1caa97f7a485a035da4
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sun Nov 15 10:35:41 2009 -0800
+
+    ARM11: fixup method table
+    
+    Three changes:  remove ARM11_HANDLER() in favor of normal structure
+    initialization syntax; fix goofy indentation in that structure; and
+    don't needlessly export arm11_register_commands(), it's only called
+    through that method table.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index a88d597..0b2fa2c 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -2139,51 +2139,7 @@ static int arm11_mcr(struct target *target, int cpnum,
+ 	return arm11_mrc_inner(target, cpnum, op1, op2, CRn, CRm, &amp;value, false);
+ }
+ 
+-#define ARM11_HANDLER(x)	.x = arm11_##x
+-
+-struct target_type arm11_target = {
+-		.name = &quot;arm11&quot;,
+-
+-		ARM11_HANDLER(poll),
+-		ARM11_HANDLER(arch_state),
+-
+-		ARM11_HANDLER(target_request_data),
+-
+-		ARM11_HANDLER(halt),
+-		ARM11_HANDLER(resume),
+-		ARM11_HANDLER(step),
+-
+-		ARM11_HANDLER(assert_reset),
+-		ARM11_HANDLER(deassert_reset),
+-		ARM11_HANDLER(soft_reset_halt),
+-
+-		ARM11_HANDLER(get_gdb_reg_list),
+-
+-		ARM11_HANDLER(read_memory),
+-		ARM11_HANDLER(write_memory),
+-
+-		ARM11_HANDLER(bulk_write_memory),
+-
+-		ARM11_HANDLER(checksum_memory),
+-
+-		ARM11_HANDLER(add_breakpoint),
+-		ARM11_HANDLER(remove_breakpoint),
+-		ARM11_HANDLER(add_watchpoint),
+-		ARM11_HANDLER(remove_watchpoint),
+-
+-		ARM11_HANDLER(run_algorithm),
+-
+-		ARM11_HANDLER(register_commands),
+-		ARM11_HANDLER(target_create),
+-		ARM11_HANDLER(init_target),
+-		ARM11_HANDLER(examine),
+-
+-		ARM11_HANDLER(mrc),
+-		ARM11_HANDLER(mcr),
+-	};
+-
+-
+-int arm11_register_commands(struct command_context *cmd_ctx)
++static int arm11_register_commands(struct command_context *cmd_ctx)
+ {
+ 	FNC_INFO;
+ 
+@@ -2222,3 +2178,45 @@ int arm11_register_commands(struct command_context *cmd_ctx)
+ 
+ 	return etm_register_commands(cmd_ctx);
+ }
++
++/** Holds methods for ARM11xx targets. */
++struct target_type arm11_target = {
++	.name =			&quot;arm11&quot;,
++
++	.poll =			arm11_poll,
++	.arch_state =		arm11_arch_state,
++
++	.target_request_data =	arm11_target_request_data,
++
++	.halt =			arm11_halt,
++	.resume =		arm11_resume,
++	.step =			arm11_step,
++
++	.assert_reset =		arm11_assert_reset,
++	.deassert_reset =	arm11_deassert_reset,
++	.soft_reset_halt =	arm11_soft_reset_halt,
++
++	.get_gdb_reg_list =	arm11_get_gdb_reg_list,
++
++	.read_memory =		arm11_read_memory,
++	.write_memory =		arm11_write_memory,
++
++	.bulk_write_memory =	arm11_bulk_write_memory,
++
++	.checksum_memory =	arm11_checksum_memory,
++
++	.add_breakpoint =	arm11_add_breakpoint,
++	.remove_breakpoint =	arm11_remove_breakpoint,
++	.add_watchpoint =	arm11_add_watchpoint,
++	.remove_watchpoint =	arm11_remove_watchpoint,
++
++	.run_algorithm =	arm11_run_algorithm,
++
++	.register_commands =	arm11_register_commands,
++	.target_create =	arm11_target_create,
++	.init_target =		arm11_init_target,
++	.examine =		arm11_examine,
++
++	.mrc =			arm11_mrc,
++	.mcr =			arm11_mcr,
++};
+diff --git a/src/target/arm11.h b/src/target/arm11.h
+index e48758f..9bc6eb4 100644
+--- a/src/target/arm11.h
++++ b/src/target/arm11.h
+@@ -188,6 +188,4 @@ struct arm11_reg_state
+ 	struct target *			target;
+ };
+ 
+-int arm11_register_commands(struct command_context *cmd_ctx);
+-
+ #endif /* ARM11_H */
+
+commit 269040bbad7f18066f5ec5707447c33de6290ef5
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sun Nov 15 10:35:34 2009 -0800
+
+    ARM: memory utils aren't ARM7/ARM9 dependent
+    
+    The arm7_9_checksum_memory() and arm7_9_blank_check_memory()
+    routines are not actually specific to the ARM7 and ARM9 core
+    generations ... they can work for any core which can run
+    algorithms using basic ARM (not Thumb) instructions.
+    
+    Rename them; move the declarations to a more generic site;
+    likewise move the code (and tidy it a bit in the process).
+    
+    NOTE:  the blank_check() method falsely returned a success
+    status (0) on one error path, when the algorithm failed.
+    Fixed this bug.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm720t.c b/src/target/arm720t.c
+index eb66b12..7bfb97d 100644
+--- a/src/target/arm720t.c
++++ b/src/target/arm720t.c
+@@ -535,8 +535,9 @@ struct target_type arm720t_target =
+ 	.virt2phys = arm720_virt2phys,
+ 
+ 	.bulk_write_memory = arm7_9_bulk_write_memory,
+-	.checksum_memory = arm7_9_checksum_memory,
+-	.blank_check_memory = arm7_9_blank_check_memory,
++
++	.checksum_memory = arm_checksum_memory,
++	.blank_check_memory = arm_blank_check_memory,
+ 
+ 	.run_algorithm = armv4_5_run_algorithm,
+ 
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index 115a1d6..c35c825 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -2706,156 +2706,6 @@ int arm7_9_bulk_write_memory(struct target *target, uint32_t address, uint32_t c
+ 	return retval;
+ }
+ 
+-int arm7_9_checksum_memory(struct target *target, uint32_t address, uint32_t count, uint32_t* checksum)
+-{
+-	struct working_area *crc_algorithm;
+-	struct armv4_5_algorithm armv4_5_info;
+-	struct reg_param reg_params[2];
+-	int retval;
+-
+-	static const uint32_t arm7_9_crc_code[] = {
+-		0xE1A02000,				/* mov		r2, r0 */
+-		0xE3E00000,				/* mov		r0, #0xffffffff */
+-		0xE1A03001,				/* mov		r3, r1 */
+-		0xE3A04000,				/* mov		r4, #0 */
+-		0xEA00000B,				/* b		ncomp */
+-								/* nbyte: */
+-		0xE7D21004,				/* ldrb	r1, [r2, r4] */
+-		0xE59F7030,				/* ldr		r7, CRC32XOR */
+-		0xE0200C01,				/* eor		r0, r0, r1, asl 24 */
+-		0xE3A05000,				/* mov		r5, #0 */
+-								/* loop: */
+-		0xE3500000,				/* cmp		r0, #0 */
+-		0xE1A06080,				/* mov		r6, r0, asl #1 */
+-		0xE2855001,				/* add		r5, r5, #1 */
+-		0xE1A00006,				/* mov		r0, r6 */
+-		0xB0260007,				/* eorlt	r0, r6, r7 */
+-		0xE3550008,				/* cmp		r5, #8 */
+-		0x1AFFFFF8,				/* bne		loop */
+-		0xE2844001,				/* add		r4, r4, #1 */
+-								/* ncomp: */
+-		0xE1540003,				/* cmp		r4, r3 */
+-		0x1AFFFFF1,				/* bne		nbyte */
+-								/* end: */
+-		0xEAFFFFFE,				/* b		end */
+-		0x04C11DB7				/* CRC32XOR:	.word 0x04C11DB7 */
+-	};
+-
+-	uint32_t i;
+-
+-	if (target_alloc_working_area(target, sizeof(arm7_9_crc_code), &amp;crc_algorithm) != ERROR_OK)
+-	{
+-		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+-	}
+-
+-	/* convert flash writing code into a buffer in target endianness */
+-	for (i = 0; i &lt; (sizeof(arm7_9_crc_code)/sizeof(uint32_t)); i++)
+-	{
+-		if ((retval = target_write_u32(target, crc_algorithm-&gt;address + i*sizeof(uint32_t), arm7_9_crc_code[i])) != ERROR_OK)
+-		{
+-			return retval;
+-		}
+-	}
+-
+-	armv4_5_info.common_magic = ARMV4_5_COMMON_MAGIC;
+-	armv4_5_info.core_mode = ARMV4_5_MODE_SVC;
+-	armv4_5_info.core_state = ARMV4_5_STATE_ARM;
+-
+-	init_reg_param(&amp;reg_params[0], &quot;r0&quot;, 32, PARAM_IN_OUT);
+-	init_reg_param(&amp;reg_params[1], &quot;r1&quot;, 32, PARAM_OUT);
+-
+-	buf_set_u32(reg_params[0].value, 0, 32, address);
+-	buf_set_u32(reg_params[1].value, 0, 32, count);
+-
+-	/* 20 second timeout/megabyte */
+-	int timeout = 20000 * (1 + (count / (1024*1024)));
+-
+-	if ((retval = target_run_algorithm(target, 0, NULL, 2, reg_params,
+-		crc_algorithm-&gt;address, crc_algorithm-&gt;address + (sizeof(arm7_9_crc_code) - 8), timeout, &amp;armv4_5_info)) != ERROR_OK)
+-	{
+-		LOG_ERROR(&quot;error executing arm7_9 crc algorithm&quot;);
+-		destroy_reg_param(&amp;reg_params[0]);
+-		destroy_reg_param(&amp;reg_params[1]);
+-		target_free_working_area(target, crc_algorithm);
+-		return retval;
+-	}
+-
+-	*checksum = buf_get_u32(reg_params[0].value, 0, 32);
+-
+-	destroy_reg_param(&amp;reg_params[0]);
+-	destroy_reg_param(&amp;reg_params[1]);
+-
+-	target_free_working_area(target, crc_algorithm);
+-
+-	return ERROR_OK;
+-}
+-
+-int arm7_9_blank_check_memory(struct target *target, uint32_t address, uint32_t count, uint32_t* blank)
+-{
+-	struct working_area *erase_check_algorithm;
+-	struct reg_param reg_params[3];
+-	struct armv4_5_algorithm armv4_5_info;
+-	int retval;
+-	uint32_t i;
+-
+-	static const uint32_t erase_check_code[] =
+-	{
+-		/* loop: */
+-		0xe4d03001,		/* ldrb r3, [r0], #1 */
+-		0xe0022003,		/* and r2, r2, r3    */
+-		0xe2511001,		/* subs r1, r1, #1   */
+-		0x1afffffb,		/* bne loop          */
+-		/* end: */
+-		0xeafffffe		/* b end             */
+-	};
+-
+-	/* make sure we have a working area */
+-	if (target_alloc_working_area(target, sizeof(erase_check_code), &amp;erase_check_algorithm) != ERROR_OK)
+-	{
+-		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+-	}
+-
+-	/* convert flash writing code into a buffer in target endianness */
+-	for (i = 0; i &lt; (sizeof(erase_check_code)/sizeof(uint32_t)); i++)
+-		if ((retval = target_write_u32(target, erase_check_algorithm-&gt;address + i*sizeof(uint32_t), erase_check_code[i])) != ERROR_OK)
+-		{
+-			return retval;
+-		}
+-
+-	armv4_5_info.common_magic = ARMV4_5_COMMON_MAGIC;
+-	armv4_5_info.core_mode = ARMV4_5_MODE_SVC;
+-	armv4_5_info.core_state = ARMV4_5_STATE_ARM;
+-
+-	init_reg_param(&amp;reg_params[0], &quot;r0&quot;, 32, PARAM_OUT);
+-	buf_set_u32(reg_params[0].value, 0, 32, address);
+-
+-	init_reg_param(&amp;reg_params[1], &quot;r1&quot;, 32, PARAM_OUT);
+-	buf_set_u32(reg_params[1].value, 0, 32, count);
+-
+-	init_reg_param(&amp;reg_params[2], &quot;r2&quot;, 32, PARAM_IN_OUT);
+-	buf_set_u32(reg_params[2].value, 0, 32, 0xff);
+-
+-	if ((retval = target_run_algorithm(target, 0, NULL, 3, reg_params,
+-			erase_check_algorithm-&gt;address, erase_check_algorithm-&gt;address + (sizeof(erase_check_code) - 4), 10000, &amp;armv4_5_info)) != ERROR_OK)
+-	{
+-		destroy_reg_param(&amp;reg_params[0]);
+-		destroy_reg_param(&amp;reg_params[1]);
+-		destroy_reg_param(&amp;reg_params[2]);
+-		target_free_working_area(target, erase_check_algorithm);
+-		return 0;
+-	}
+-
+-	*blank = buf_get_u32(reg_params[2].value, 0, 32);
+-
+-	destroy_reg_param(&amp;reg_params[0]);
+-	destroy_reg_param(&amp;reg_params[1]);
+-	destroy_reg_param(&amp;reg_params[2]);
+-
+-	target_free_working_area(target, erase_check_algorithm);
+-
+-	return ERROR_OK;
+-}
+-
+ /**
+  * Perform per-target setup that requires JTAG access.
+  */
+diff --git a/src/target/arm7_9_common.h b/src/target/arm7_9_common.h
+index bbe95ca..d70bae2 100644
+--- a/src/target/arm7_9_common.h
++++ b/src/target/arm7_9_common.h
+@@ -143,8 +143,6 @@ int arm7_9_read_core_reg(struct target *target, int num, enum armv4_5_mode mode)
+ int arm7_9_read_memory(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+ int arm7_9_write_memory(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+ int arm7_9_bulk_write_memory(struct target *target, uint32_t address, uint32_t count, uint8_t *buffer);
+-int arm7_9_checksum_memory(struct target *target, uint32_t address, uint32_t count, uint32_t* checksum);
+-int arm7_9_blank_check_memory(struct target *target, uint32_t address, uint32_t count, uint32_t* blank);
+ 
+ int arm7_9_run_algorithm(struct target *target, int num_mem_params, struct mem_param *mem_params, int num_reg_prams, struct reg_param *reg_param, uint32_t entry_point, void *arch_info);
+ 
+diff --git a/src/target/arm7tdmi.c b/src/target/arm7tdmi.c
+index 8be8a12..51fbddf 100644
+--- a/src/target/arm7tdmi.c
++++ b/src/target/arm7tdmi.c
+@@ -737,8 +737,9 @@ struct target_type arm7tdmi_target =
+ 	.read_memory = arm7_9_read_memory,
+ 	.write_memory = arm7_9_write_memory,
+ 	.bulk_write_memory = arm7_9_bulk_write_memory,
+-	.checksum_memory = arm7_9_checksum_memory,
+-	.blank_check_memory = arm7_9_blank_check_memory,
++
++	.checksum_memory = arm_checksum_memory,
++	.blank_check_memory = arm_blank_check_memory,
+ 
+ 	.run_algorithm = armv4_5_run_algorithm,
+ 
+diff --git a/src/target/arm920t.c b/src/target/arm920t.c
+index 9aa165c..fd61020 100644
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -1407,8 +1407,9 @@ struct target_type arm920t_target =
+ 	.virt2phys = arm920_virt2phys,
+ 
+ 	.bulk_write_memory = arm7_9_bulk_write_memory,
+-	.checksum_memory = arm7_9_checksum_memory,
+-	.blank_check_memory = arm7_9_blank_check_memory,
++
++	.checksum_memory = arm_checksum_memory,
++	.blank_check_memory = arm_blank_check_memory,
+ 
+ 	.run_algorithm = armv4_5_run_algorithm,
+ 
+diff --git a/src/target/arm926ejs.c b/src/target/arm926ejs.c
+index 51b241a..00b7865 100644
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -864,8 +864,9 @@ struct target_type arm926ejs_target =
+ 	.read_memory = arm7_9_read_memory,
+ 	.write_memory = arm926ejs_write_memory,
+ 	.bulk_write_memory = arm7_9_bulk_write_memory,
+-	.checksum_memory = arm7_9_checksum_memory,
+-	.blank_check_memory = arm7_9_blank_check_memory,
++
++	.checksum_memory = arm_checksum_memory,
++	.blank_check_memory = arm_blank_check_memory,
+ 
+ 	.run_algorithm = armv4_5_run_algorithm,
+ 
+diff --git a/src/target/arm966e.c b/src/target/arm966e.c
+index b3d8e15..3b85a5c 100644
+--- a/src/target/arm966e.c
++++ b/src/target/arm966e.c
+@@ -261,8 +261,9 @@ struct target_type arm966e_target =
+ 	.read_memory = arm7_9_read_memory,
+ 	.write_memory = arm7_9_write_memory,
+ 	.bulk_write_memory = arm7_9_bulk_write_memory,
+-	.checksum_memory = arm7_9_checksum_memory,
+-	.blank_check_memory = arm7_9_blank_check_memory,
++
++	.checksum_memory = arm_checksum_memory,
++	.blank_check_memory = arm_blank_check_memory,
+ 
+ 	.run_algorithm = armv4_5_run_algorithm,
+ 
+diff --git a/src/target/arm9tdmi.c b/src/target/arm9tdmi.c
+index 44a978a..1b7b645 100644
+--- a/src/target/arm9tdmi.c
++++ b/src/target/arm9tdmi.c
+@@ -938,8 +938,9 @@ struct target_type arm9tdmi_target =
+ 	.read_memory = arm7_9_read_memory,
+ 	.write_memory = arm7_9_write_memory,
+ 	.bulk_write_memory = arm7_9_bulk_write_memory,
+-	.checksum_memory = arm7_9_checksum_memory,
+-	.blank_check_memory = arm7_9_blank_check_memory,
++
++	.checksum_memory = arm_checksum_memory,
++	.blank_check_memory = arm_blank_check_memory,
+ 
+ 	.run_algorithm = armv4_5_run_algorithm,
+ 
+diff --git a/src/target/armv4_5.c b/src/target/armv4_5.c
+index aa05e83..f9b22b9 100644
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -707,6 +707,176 @@ int armv4_5_run_algorithm(struct target *target, int num_mem_params, struct mem_
+ 	return armv4_5_run_algorithm_inner(target, num_mem_params, mem_params, num_reg_params, reg_params, entry_point, exit_point, timeout_ms, arch_info, armv4_5_run_algorithm_completion);
+ }
+ 
++/**
++ * Runs ARM code in the target to calculate a CRC32 checksum.
++ *
++ * \todo On ARMv5+, rely on BKPT termination for reduced overhead.
++ */
++int arm_checksum_memory(struct target *target,
++		uint32_t address, uint32_t count, uint32_t *checksum)
++{
++	struct working_area *crc_algorithm;
++	struct armv4_5_algorithm armv4_5_info;
++	struct reg_param reg_params[2];
++	int retval;
++	uint32_t i;
++
++	static const uint32_t arm_crc_code[] = {
++		0xE1A02000,		/* mov		r2, r0 */
++		0xE3E00000,		/* mov		r0, #0xffffffff */
++		0xE1A03001,		/* mov		r3, r1 */
++		0xE3A04000,		/* mov		r4, #0 */
++		0xEA00000B,		/* b		ncomp */
++		/* nbyte: */
++		0xE7D21004,		/* ldrb	r1, [r2, r4] */
++		0xE59F7030,		/* ldr		r7, CRC32XOR */
++		0xE0200C01,		/* eor		r0, r0, r1, asl 24 */
++		0xE3A05000,		/* mov		r5, #0 */
++		/* loop: */
++		0xE3500000,		/* cmp		r0, #0 */
++		0xE1A06080,		/* mov		r6, r0, asl #1 */
++		0xE2855001,		/* add		r5, r5, #1 */
++		0xE1A00006,		/* mov		r0, r6 */
++		0xB0260007,		/* eorlt	r0, r6, r7 */
++		0xE3550008,		/* cmp		r5, #8 */
++		0x1AFFFFF8,		/* bne		loop */
++		0xE2844001,		/* add		r4, r4, #1 */
++		/* ncomp: */
++		0xE1540003,		/* cmp		r4, r3 */
++		0x1AFFFFF1,		/* bne		nbyte */
++		/* end: */
++		0xEAFFFFFE,		/* b		end */
++		/* CRC32XOR: */
++		0x04C11DB7		/* .word 0x04C11DB7 */
++	};
++
++	retval = target_alloc_working_area(target,
++			sizeof(arm_crc_code), &amp;crc_algorithm);
++	if (retval != ERROR_OK)
++		return retval;
++
++	/* convert code into a buffer in target endianness */
++	for (i = 0; i &lt; DIM(arm_crc_code); i++) {
++		retval = target_write_u32(target,
++				crc_algorithm-&gt;address + i * sizeof(uint32_t),
++				arm_crc_code[i]);
++		if (retval != ERROR_OK)
++			return retval;
++	}
++
++	armv4_5_info.common_magic = ARMV4_5_COMMON_MAGIC;
++	armv4_5_info.core_mode = ARMV4_5_MODE_SVC;
++	armv4_5_info.core_state = ARMV4_5_STATE_ARM;
++
++	init_reg_param(&amp;reg_params[0], &quot;r0&quot;, 32, PARAM_IN_OUT);
++	init_reg_param(&amp;reg_params[1], &quot;r1&quot;, 32, PARAM_OUT);
++
++	buf_set_u32(reg_params[0].value, 0, 32, address);
++	buf_set_u32(reg_params[1].value, 0, 32, count);
++
++	/* 20 second timeout/megabyte */
++	int timeout = 20000 * (1 + (count / (1024 * 1024)));
++
++	retval = target_run_algorithm(target, 0, NULL, 2, reg_params,
++			crc_algorithm-&gt;address,
++			crc_algorithm-&gt;address + sizeof(arm_crc_code) - 8,
++			timeout, &amp;armv4_5_info);
++	if (retval != ERROR_OK) {
++		LOG_ERROR(&quot;error executing ARM crc algorithm&quot;);
++		destroy_reg_param(&amp;reg_params[0]);
++		destroy_reg_param(&amp;reg_params[1]);
++		target_free_working_area(target, crc_algorithm);
++		return retval;
++	}
++
++	*checksum = buf_get_u32(reg_params[0].value, 0, 32);
++
++	destroy_reg_param(&amp;reg_params[0]);
++	destroy_reg_param(&amp;reg_params[1]);
++
++	target_free_working_area(target, crc_algorithm);
++
++	return ERROR_OK;
++}
++
++/**
++ * Runs ARM code in the target to check whether a memory block holds
++ * all ones.  NOR flash which has been erased, and thus may be written,
++ * holds all ones.
++ *
++ * \todo On ARMv5+, rely on BKPT termination for reduced overhead.
++ */
++int arm_blank_check_memory(struct target *target,
++		uint32_t address, uint32_t count, uint32_t *blank)
++{
++	struct working_area *check_algorithm;
++	struct reg_param reg_params[3];
++	struct armv4_5_algorithm armv4_5_info;
++	int retval;
++	uint32_t i;
++
++	static const uint32_t check_code[] = {
++		/* loop: */
++		0xe4d03001,		/* ldrb r3, [r0], #1 */
++		0xe0022003,		/* and r2, r2, r3    */
++		0xe2511001,		/* subs r1, r1, #1   */
++		0x1afffffb,		/* bne loop          */
++		/* end: */
++		0xeafffffe		/* b end             */
++	};
++
++	/* make sure we have a working area */
++	retval = target_alloc_working_area(target,
++			sizeof(check_code), &amp;check_algorithm);
++	if (retval != ERROR_OK)
++		return retval;
++
++	/* convert code into a buffer in target endianness */
++	for (i = 0; i &lt; DIM(check_code); i++) {
++		retval = target_write_u32(target,
++				check_algorithm-&gt;address
++						+ i * sizeof(uint32_t),
++				check_code[i]);
++		if (retval != ERROR_OK)
++			return retval;
++	}
++
++	armv4_5_info.common_magic = ARMV4_5_COMMON_MAGIC;
++	armv4_5_info.core_mode = ARMV4_5_MODE_SVC;
++	armv4_5_info.core_state = ARMV4_5_STATE_ARM;
++
++	init_reg_param(&amp;reg_params[0], &quot;r0&quot;, 32, PARAM_OUT);
++	buf_set_u32(reg_params[0].value, 0, 32, address);
++
++	init_reg_param(&amp;reg_params[1], &quot;r1&quot;, 32, PARAM_OUT);
++	buf_set_u32(reg_params[1].value, 0, 32, count);
++
++	init_reg_param(&amp;reg_params[2], &quot;r2&quot;, 32, PARAM_IN_OUT);
++	buf_set_u32(reg_params[2].value, 0, 32, 0xff);
++
++	retval = target_run_algorithm(target, 0, NULL, 3, reg_params,
++			check_algorithm-&gt;address,
++			check_algorithm-&gt;address + sizeof(check_code) - 4,
++			10000, &amp;armv4_5_info);
++	if (retval != ERROR_OK) {
++		destroy_reg_param(&amp;reg_params[0]);
++		destroy_reg_param(&amp;reg_params[1]);
++		destroy_reg_param(&amp;reg_params[2]);
++		target_free_working_area(target, check_algorithm);
++		return retval;
++	}
++
++	*blank = buf_get_u32(reg_params[2].value, 0, 32);
++
++	destroy_reg_param(&amp;reg_params[0]);
++	destroy_reg_param(&amp;reg_params[1]);
++	destroy_reg_param(&amp;reg_params[2]);
++
++	target_free_working_area(target, check_algorithm);
++
++	return ERROR_OK;
++}
++
+ int armv4_5_init_arch_info(struct target *target, struct arm *armv4_5)
+ {
+ 	target-&gt;arch_info = armv4_5;
+diff --git a/src/target/armv4_5.h b/src/target/armv4_5.h
+index 14dfa99..83b38b6 100644
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -190,6 +190,12 @@ int armv4_5_run_algorithm(struct target *target,
+ 
+ int armv4_5_invalidate_core_regs(struct target *target);
+ 
++int arm_checksum_memory(struct target *target,
++		uint32_t address, uint32_t count, uint32_t *checksum);
++int arm_blank_check_memory(struct target *target,
++		uint32_t address, uint32_t count, uint32_t *blank);
++
++
+ /* ARM mode instructions
+  */
+ 
+@@ -369,7 +375,4 @@ static inline uint32_t mrc_opcode(int cpnum, uint32_t op1, uint32_t op2, uint32_
+ 	return t;
+ }
+ 
+-
+-
+-
+ #endif /* ARMV4_5_H */
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index da5e84b..0d00b3a 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -1590,8 +1590,9 @@ struct target_type cortexa8_target = {
+ 	.read_memory = cortex_a8_read_memory,
+ 	.write_memory = cortex_a8_write_memory,
+ 	.bulk_write_memory = cortex_a8_bulk_write_memory,
+-	.checksum_memory = arm7_9_checksum_memory,
+-	.blank_check_memory = arm7_9_blank_check_memory,
++
++	.checksum_memory = arm_checksum_memory,
++	.blank_check_memory = arm_blank_check_memory,
+ 
+ 	.run_algorithm = armv4_5_run_algorithm,
+ 
+diff --git a/src/target/cortex_a8.h b/src/target/cortex_a8.h
+index e7ea6c7..f11d9dd 100644
+--- a/src/target/cortex_a8.h
++++ b/src/target/cortex_a8.h
+@@ -32,7 +32,6 @@
+ #include &quot;register.h&quot;
+ #include &quot;target.h&quot;
+ #include &quot;armv7a.h&quot;
+-#include &quot;arm7_9_common.h&quot;
+ 
+ extern char* cortex_a8_state_strings[];
+ 
+diff --git a/src/target/fa526.c b/src/target/fa526.c
+index 9e7b00d..e7c1a2e 100644
+--- a/src/target/fa526.c
++++ b/src/target/fa526.c
+@@ -380,8 +380,9 @@ struct target_type fa526_target =
+ 	.read_memory = arm920t_read_memory,
+ 	.write_memory = arm920t_write_memory,
+ 	.bulk_write_memory = arm7_9_bulk_write_memory,
+-	.checksum_memory = arm7_9_checksum_memory,
+-	.blank_check_memory = arm7_9_blank_check_memory,
++
++	.checksum_memory = arm_checksum_memory,
++	.blank_check_memory = arm_blank_check_memory,
+ 
+ 	.run_algorithm = armv4_5_run_algorithm,
+ 
+diff --git a/src/target/feroceon.c b/src/target/feroceon.c
+index c029e44..03a5afc 100644
+--- a/src/target/feroceon.c
++++ b/src/target/feroceon.c
+@@ -696,8 +696,9 @@ struct target_type feroceon_target =
+ 	.read_memory = arm7_9_read_memory,
+ 	.write_memory = arm926ejs_write_memory,
+ 	.bulk_write_memory = feroceon_bulk_write_memory,
+-	.checksum_memory = arm7_9_checksum_memory,
+-	.blank_check_memory = arm7_9_blank_check_memory,
++
++	.checksum_memory = arm_checksum_memory,
++	.blank_check_memory = arm_blank_check_memory,
+ 
+ 	.run_algorithm = armv4_5_run_algorithm,
+ 
+@@ -734,8 +735,9 @@ struct target_type dragonite_target =
+ 	.read_memory = arm7_9_read_memory,
+ 	.write_memory = arm7_9_write_memory,
+ 	.bulk_write_memory = feroceon_bulk_write_memory,
+-	.checksum_memory = arm7_9_checksum_memory,
+-	.blank_check_memory = arm7_9_blank_check_memory,
++
++	.checksum_memory = arm_checksum_memory,
++	.blank_check_memory = arm_blank_check_memory,
+ 
+ 	.run_algorithm = armv4_5_run_algorithm,
+ 
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 10ccf5d..0b5b26b 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -3626,8 +3626,9 @@ struct target_type xscale_target =
+ 	.read_memory = xscale_read_memory,
+ 	.write_memory = xscale_write_memory,
+ 	.bulk_write_memory = xscale_bulk_write_memory,
+-	.checksum_memory = arm7_9_checksum_memory,
+-	.blank_check_memory = arm7_9_blank_check_memory,
++
++	.checksum_memory = arm_checksum_memory,
++	.blank_check_memory = arm_blank_check_memory,
+ 
+ 	.run_algorithm = armv4_5_run_algorithm,
+ 
+
+commit 9ac7cdec82c19481b79f2effcefb7106dd7ade41
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sun Nov 15 10:35:25 2009 -0800
+
+    target: make &quot;examined&quot; flag be per-target
+    
+    Previously this flag was stored in &quot;target_type&quot;, so that for example
+    if there were two ARM7TDMI targets in a scan chain, both would claim
+    to have been examined although only the first one actually had its
+    examine() method called.
+    
+    Move this state to where it should have been in the first place, and
+    hide a method that didn't need exposure ... the flag is write-once.
+    
+    Provide some doxygen.  The examine() method is confusing, since it
+    isn't separating one-time setup from the after-each-reset stuff.  And
+    the ARM7/ARM9 version is, somewhat undesirably, not leaving the debug
+    state alone after reset ... probably more of an issue for trace setup
+    than for watchpoints and breakpoints.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 7a30bc7..a88d597 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -1906,12 +1906,6 @@ static int arm11_examine(struct target *target)
+ 		retval = etm_setup(target);
+ 	}
+ 
+-	/* FIXME this sets a flag in the (shared) arm11_target structure,
+-	 * not in the (per-cpu) &quot;target&quot; structure ... so it's clearly
+-	 * wrong in the case of e.g. two different ARM11 chips on the
+-	 * same board.  (Maybe ARM11 MPCore works though.)  Whoever calls
+-	 * the examine() method should set a target-specific flag...
+-	 */
+ 	target_set_examined(target);
+ 
+ 	return ERROR_OK;
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index 730cd33..da5e84b 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -1297,11 +1297,11 @@ static int cortex_a8_dcc_read(struct swjdp_common *swjdp, uint8_t *value, uint8_
+ static int cortex_a8_handle_target_request(void *priv)
+ {
+ 	struct target *target = priv;
+-	if (!target-&gt;type-&gt;examined)
+-		return ERROR_OK;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct swjdp_common *swjdp = &amp;armv7a-&gt;swjdp_info;
+ 
++	if (!target_was_examined(target))
++		return ERROR_OK;
+ 	if (!target-&gt;dbg_msg_enabled)
+ 		return ERROR_OK;
+ 
+@@ -1424,7 +1424,7 @@ static int cortex_a8_examine(struct target *target)
+ 	/* Configure core debug access */
+ 	cortex_a8_init_debug_access(target);
+ 
+-	target-&gt;type-&gt;examined = 1;
++	target_set_examined(target);
+ 
+ 	return retval;
+ }
+diff --git a/src/target/target.c b/src/target/target.c
+index 2385d0f..f7e2ad6 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -644,20 +644,13 @@ int target_run_algorithm(struct target *target,
+ 			entry_point, exit_point, timeout_ms, arch_info);
+ }
+ 
+-/// @returns @c true if the target has been examined.
+-bool target_was_examined(struct target *target)
+-{
+-	return target-&gt;type-&gt;examined;
+-}
+-/// Sets the @c examined flag for the given target.
+-void target_set_examined(struct target *target)
+-{
+-	target-&gt;type-&gt;examined = true;
+-}
+-// Reset the @c examined flag for the given target.
+-void target_reset_examined(struct target *target)
++/**
++ * Reset the @c examined flag for the given target.
++ * Pure paranoia -- targets are zeroed on allocation.
++ */
++static void target_reset_examined(struct target *target)
+ {
+-	target-&gt;type-&gt;examined = false;
++	target-&gt;examined = false;
+ }
+ 
+ 
+diff --git a/src/target/target.h b/src/target/target.h
+index 914d62f..e4de2c7 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -129,7 +129,16 @@ struct target
+ 	const char *cmd_name;				/* tcl Name of target */
+ 	int target_number;					/* DO NOT USE!  field to be removed in 2010 */
+ 	struct jtag_tap *tap;					/* where on the jtag chain is this */
+-	const char *variant;				/* what varient of this chip is it? */
++	const char *variant;				/* what variant of this chip is it? */
++
++	/**
++	 * Indicates whether this target has been examined.
++	 *
++	 * Do @b not access this field directly, use target_was_examined()
++	 * or target_set_examined().
++	 */
++	bool examined;
++
+ 	struct target_event_action *event_action;
+ 
+ 	int reset_halt;						/* attempt resetting the CPU into the halted mode? */
+@@ -289,18 +298,25 @@ struct target *get_target(const char *id);
+ const char *target_get_name(struct target *target);
+ 
+ /**
+- * Examine the specified @a target.
++ * Examine the specified @a target, letting it perform any
++ * initialization that requires JTAG access.
+  *
+  * This routine is a wrapper for target-&gt;type-&gt;examine.
+  */
+ int target_examine_one(struct target *target);
+-/// @returns @c true if the target has been examined.
+-bool target_was_examined(struct target *target);
+-/// Sets the @c examined flag for the given target.
+-void target_set_examined(struct target *target);
+-/// Reset the @c examined flag for the given target.
+-void target_reset_examined(struct target *target);
+ 
++/// @returns @c true if target_set_examined() has been called.
++static inline bool target_was_examined(struct target *target)
++{
++	return target-&gt;examined;
++}
++
++/// Sets the @c examined flag for the given target.
++/// Use in target-&gt;type-&gt;examine() after one-time setup is done.
++static inline void target_set_examined(struct target *target)
++{
++	target-&gt;examined = true;
++}
+ 
+ /**
+  * Add the @a breakpoint for @a target.
+diff --git a/src/target/target_type.h b/src/target/target_type.h
+index f601b19..aa87a74 100644
+--- a/src/target/target_type.h
++++ b/src/target/target_type.h
+@@ -30,22 +30,19 @@
+ 
+ struct target;
+ 
++/**
++ * This holds methods shared between all instances of a given target
++ * type.  For example, all Cortex-M3 targets on a scan chain share
++ * the same method table.
++ */
+ struct target_type
+ {
+ 	/**
+-	 * Name of the target.  Do @b not access this field directly, use
+-	 * target_get_name() instead.
++	 * Name of this type of target.  Do @b not access this
++	 * field directly, use target_get_name() instead.
+ 	 */
+ 	char *name;
+ 
+-	/**
+-	 * Indicates whether this target has been examined.
+-	 *
+-	 * Do @b not access this field directly, use target_was_examined()
+-	 * target_set_examined(), and target_reset_examined().
+-	 */
+-	int examined;
+-
+ 	/* poll current target status */
+ 	int (*poll)(struct target *target);
+ 	/* Invoked only from target_arch_state().
+@@ -165,13 +162,22 @@ struct target_type
+ 	/* returns JIM_OK, or JIM_ERR, or JIM_CONTINUE - if option not understood */
+ 	int (*target_jim_commands)(struct target *target, Jim_GetOptInfo *goi);
+ 
+-	/* invoked after JTAG chain has been examined &amp; validated. During
+-	 * this stage the target is examined and any additional setup is
+-	 * performed.
++	/**
++	 * This method is used to perform target setup that requires
++	 * JTAG access.
++	 *
++	 * This may be called multiple times.  It is called after the
++	 * scan chain is initially validated, or later after the target
++	 * is enabled by a JRC.  It may also be called during some
++	 * parts of the reset sequence.
+ 	 *
+-	 * invoked every time after the jtag chain has been validated/examined
++	 * For one-time initialization tasks, use target_was_examined()
++	 * and target_set_examined().  For example, probe the hardware
++	 * before setting up chip-specific state, and then set that
++	 * flag so you don't do that again.
+ 	 */
+ 	int (*examine)(struct target *target);
++
+ 	/* Set up structures for target.
+ 	 *
+ 	 * It is illegal to talk to the target at this stage as this fn is invoked
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ NEWS                       |    8 ++
+ src/target/arm11.c         |  105 +++++++++++----------------
+ src/target/arm11.h         |    2 -
+ src/target/arm720t.c       |    5 +-
+ src/target/arm7_9_common.c |  150 --------------------------------------
+ src/target/arm7_9_common.h |    2 -
+ src/target/arm7tdmi.c      |    5 +-
+ src/target/arm920t.c       |    5 +-
+ src/target/arm926ejs.c     |    5 +-
+ src/target/arm966e.c       |    5 +-
+ src/target/arm9tdmi.c      |    5 +-
+ src/target/armv4_5.c       |  170 ++++++++++++++++++++++++++++++++++++++++++++
+ src/target/armv4_5.h       |    9 ++-
+ src/target/cortex_a8.c     |   11 ++--
+ src/target/cortex_a8.h     |    1 -
+ src/target/fa526.c         |    5 +-
+ src/target/feroceon.c      |   10 ++-
+ src/target/target.c        |   19 ++----
+ src/target/target.h        |   32 ++++++--
+ src/target/target_type.h   |   34 +++++----
+ src/target/xscale.c        |    5 +-
+ 21 files changed, 314 insertions(+), 279 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001790.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-382-gf301366
+</A></li>
+	<LI>Next message: <A HREF="001792.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-391-gb695cb7
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1791">[ date ]</a>
+              <a href="thread.html#1791">[ thread ]</a>
+              <a href="subject.html#1791">[ subject ]</a>
+              <a href="author.html#1791">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

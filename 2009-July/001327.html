@@ -1,0 +1,400 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2544 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2544%20-%20trunk/src/target&In-Reply-To=%3C200907160008.n6G08hfX023068%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001326.html">
+   <LINK REL="Next"  HREF="001328.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2544 - trunk/src/target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2544%20-%20trunk/src/target&In-Reply-To=%3C200907160008.n6G08hfX023068%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2544 - trunk/src/target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul 16 02:08:43 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001326.html">[Openocd-svn] r2543 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001328.html">[Openocd-svn] r2545 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1327">[ date ]</a>
+              <a href="thread.html#1327">[ thread ]</a>
+              <a href="subject.html#1327">[ subject ]</a>
+              <a href="author.html#1327">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-07-16 02:08:36 +0200 (Thu, 16 Jul 2009)
+New Revision: 2544
+
+Modified:
+   trunk/src/target/arm_adi_v5.c
+   trunk/src/target/arm_adi_v5.h
+   trunk/src/target/armv7m.c
+Log:
+Magnus Lundin &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lundin at mlu.mine.nu</A>&gt;, Oyvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;, David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Move the dap command handler implementations to arm_adi_v5.c,
+leaving just thin wrappers in armv7m.c.  There should be no
+change in functionality here.  (From Magnus.)
+
+Minor style cleanup:  whitespace, line length, etc.  Update spec
+references to use docs which are currently available.  (From Dave.)
+
+
+Modified: trunk/src/target/arm_adi_v5.c
+===================================================================
+--- trunk/src/target/arm_adi_v5.c	2009-07-16 00:08:21 UTC (rev 2543)
++++ trunk/src/target/arm_adi_v5.c	2009-07-16 00:08:36 UTC (rev 2544)
+@@ -29,8 +29,8 @@
+  *                                                                         *
+  * ARM(tm) Debug Interface v5 Architecture Specification    ARM IHI 0031A  *
+  *                                                                         *
+- * CoreSight(tm) DAP-Lite TRM, ARM DDI 0316A                               *
+- * Cortex-M3(tm) TRM, ARM DDI 0337C                                        *
++ * CoreSight(tm) DAP-Lite TRM, ARM DDI 0316D                               *
++ * Cortex-M3(tm) TRM, ARM DDI 0337G                                        *
+  *                                                                         *
+ ***************************************************************************/
+ 
+@@ -1129,3 +1129,85 @@
+ 	return ERROR_OK;
+ }
+ 
++int dap_baseaddr_command(struct command_context_s *cmd_ctx,
++		swjdp_common_t *swjdp, char **args, int argc)
++{
++	uint32_t apsel, apselsave, baseaddr;
++	int retval;
++
++	apsel = swjdp-&gt;apsel;
++	apselsave = swjdp-&gt;apsel;
++	if (argc &gt; 0)
++		apsel = strtoul(args[0], NULL, 0);
++	if (apselsave != apsel)
++		dap_ap_select(swjdp, apsel);
++
++	dap_ap_read_reg_u32(swjdp, 0xF8, &amp;baseaddr);
++	retval = swjdp_transaction_endcheck(swjdp);
++	command_print(cmd_ctx, &quot;0x%8.8x&quot;, baseaddr);
++
++	if (apselsave != apsel)
++		dap_ap_select(swjdp, apselsave);
++
++	return retval;
++}
++
++int dap_memaccess_command(struct command_context_s *cmd_ctx,
++		swjdp_common_t *swjdp, char **args, int argc)
++{
++	uint32_t memaccess_tck;
++
++	memaccess_tck = swjdp-&gt;memaccess_tck;
++	if (argc &gt; 0)
++		memaccess_tck = strtoul(args[0], NULL, 0);
++
++	swjdp-&gt;memaccess_tck = memaccess_tck;
++	command_print(cmd_ctx, &quot;memory bus access delay set to %i tck&quot;,
++			swjdp-&gt;memaccess_tck);
++
++	return ERROR_OK;
++}
++
++int dap_apsel_command(struct command_context_s *cmd_ctx,
++		swjdp_common_t *swjdp, char **args, int argc)
++{
++	uint32_t apsel, apid;
++	int retval;
++
++	apsel = 0;
++	if (argc &gt; 0)
++		apsel = strtoul(args[0], NULL, 0);
++
++	dap_ap_select(swjdp, apsel);
++	dap_ap_read_reg_u32(swjdp, 0xFC, &amp;apid);
++	retval = swjdp_transaction_endcheck(swjdp);
++	command_print(cmd_ctx, &quot;ap %i selected, identification register 0x%8.8x&quot;,
++			apsel, apid);
++
++	return retval;
++}
++
++int dap_apid_command(struct command_context_s *cmd_ctx,
++		swjdp_common_t *swjdp, char **args, int argc)
++{
++	uint32_t apsel, apselsave, apid;
++	int retval;
++
++	apsel = swjdp-&gt;apsel;
++	apselsave = swjdp-&gt;apsel;
++	if (argc &gt; 0)
++		apsel = strtoul(args[0], NULL, 0);
++
++	if (apselsave != apsel)
++		dap_ap_select(swjdp, apsel);
++
++	dap_ap_read_reg_u32(swjdp, 0xFC, &amp;apid);
++	retval = swjdp_transaction_endcheck(swjdp);
++	command_print(cmd_ctx, &quot;0x%8.8x&quot;, apid);
++	if (apselsave != apsel)
++		dap_ap_select(swjdp, apselsave);
++
++	return retval;
++}
++
++
+
+Modified: trunk/src/target/arm_adi_v5.h
+===================================================================
+--- trunk/src/target/arm_adi_v5.h	2009-07-16 00:08:21 UTC (rev 2543)
++++ trunk/src/target/arm_adi_v5.h	2009-07-16 00:08:36 UTC (rev 2544)
+@@ -145,13 +145,17 @@
+ /* Initialisation of the debug system, power domains and registers */
+ extern int ahbap_debugport_init(swjdp_common_t *swjdp);
+ 
+-extern int dap_info_command(struct command_context_s *cmd_ctx, swjdp_common_t *swjdp, int apsel);
++
+ /* Commands for user dap access */
+-/* Currently implemented in armv7m, needs armv7m target structure to find jtag and swjdp structures */
+-extern int handle_dap_info_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-extern int handle_dap_apsel_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-extern int handle_dap_apid_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-extern int handle_dap_baseaddr_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-extern int handle_dap_memaccess_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++int dap_info_command(struct command_context_s *cmd_ctx,
++		swjdp_common_t *swjdp, int apsel);
++int dap_baseaddr_command(struct command_context_s *cmd_ctx,
++		swjdp_common_t *swjdp, char **args, int argc);
++int dap_memaccess_command(struct command_context_s *cmd_ctx,
++		swjdp_common_t *swjdp, char **args, int argc);
++int dap_apsel_command(struct command_context_s *cmd_ctx,
++		swjdp_common_t *swjdp, char **args, int argc);
++int dap_apid_command(struct command_context_s *cmd_ctx,
++		swjdp_common_t *swjdp, char **args, int argc);
+ 
+ #endif
+
+Modified: trunk/src/target/armv7m.c
+===================================================================
+--- trunk/src/target/armv7m.c	2009-07-16 00:08:21 UTC (rev 2543)
++++ trunk/src/target/armv7m.c	2009-07-16 00:08:36 UTC (rev 2544)
+@@ -554,20 +554,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-int armv7m_register_commands(struct command_context_s *cmd_ctx)
+-{
+-	command_t *arm_adi_v5_dap_cmd;
+-
+-	arm_adi_v5_dap_cmd = register_command(cmd_ctx, NULL, &quot;dap&quot;, NULL, COMMAND_ANY, &quot;cortex dap specific commands&quot;);
+-	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;info&quot;, handle_dap_info_command, COMMAND_EXEC, &quot;Displays dap info for ap [num], default currently selected AP&quot;);
+-	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;apsel&quot;, handle_dap_apsel_command, COMMAND_EXEC, &quot;Select a different AP [num] (default 0)&quot;);
+-	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;apid&quot;, handle_dap_apid_command, COMMAND_EXEC, &quot;Displays id reg from AP [num], default currently selected AP&quot;);
+-	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;baseaddr&quot;, handle_dap_baseaddr_command, COMMAND_EXEC, &quot;Displays debug base address from AP [num], default currently selected AP&quot;);
+-	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;memaccess&quot;, handle_dap_memaccess_command, COMMAND_EXEC, &quot;set/get number of extra tck for mem-ap memory bus access [0-255]&quot;);
+-
+-	return ERROR_OK;
+-}
+-
+ int armv7m_checksum_memory(struct target_s *target, uint32_t address, uint32_t count, uint32_t* checksum)
+ {
+ 	working_area_t *crc_algorithm;
+@@ -711,10 +697,12 @@
+ 	return ERROR_OK;
+ }
+ 
+-/********************************************************************************************************************
+-* Return the debug ap baseaddress in hexadecimal, no extra output to simplify script processing
+-*********************************************************************************************************************/
+-int handle_dap_baseaddr_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++/*
++ * Return the debug ap baseaddress in hexadecimal;
++ * no extra output to simplify script processing
++ */
++static int handle_dap_baseaddr_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
+ {
+ 	target_t *target = get_current_target(cmd_ctx);
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+@@ -746,97 +734,83 @@
+ }
+ 
+ 
+-/********************************************************************************************************************
+-* Return the debug ap id in hexadecimal, no extra output to simplify script processing
+-*********************************************************************************************************************/
+-extern int handle_dap_apid_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++/*
++ * Return the debug ap id in hexadecimal;
++ * no extra output to simplify script processing
++ */
++extern int handle_dap_apid_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
+ {
+ 	target_t *target = get_current_target(cmd_ctx);
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+-	uint32_t apsel, apselsave, apid;
+-	int retval;
+ 
+-	apsel = swjdp-&gt;apsel;
+-	apselsave = swjdp-&gt;apsel;
+-	if (argc &gt; 0)
+-	{
+-		apsel = strtoul(args[0], NULL, 0);
+-	}
+-
+-	if (apselsave != apsel)
+-	{
+-		dap_ap_select(swjdp, apsel);
+-	}
+-
+-	dap_ap_read_reg_u32(swjdp, 0xFC, &amp;apid);
+-	retval = swjdp_transaction_endcheck(swjdp);
+-	command_print(cmd_ctx, &quot;0x%8.8&quot; PRIx32 &quot;&quot;, apid);
+-	if (apselsave != apsel)
+-	{
+-		dap_ap_select(swjdp, apselsave);
+-	}
+-
+-	return retval;
++	return dap_apid_command(cmd_ctx, swjdp, args, argc);
+ }
+ 
+-int handle_dap_apsel_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++static int handle_dap_apsel_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
+ {
+ 	target_t *target = get_current_target(cmd_ctx);
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+-	uint32_t apsel, apid;
+-	int retval;
+ 
+-	apsel = 0;
+-	if (argc &gt; 0)
+-	{
+-		apsel = strtoul(args[0], NULL, 0);
+-	}
+-
+-	dap_ap_select(swjdp, apsel);
+-	dap_ap_read_reg_u32(swjdp, 0xFC, &amp;apid);
+-	retval = swjdp_transaction_endcheck(swjdp);
+-	command_print(cmd_ctx, &quot;ap %i selected, identification register 0x%8.8&quot; PRIx32 &quot;&quot;, (int)apsel, apid);
+-
+-	return retval;
++	return dap_apsel_command(cmd_ctx, swjdp, args, argc);
+ }
+ 
+-int handle_dap_memaccess_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++static int handle_dap_memaccess_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
+ {
+ 	target_t *target = get_current_target(cmd_ctx);
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+-	uint32_t memaccess_tck;
+ 
+-	memaccess_tck = swjdp-&gt;memaccess_tck;
+-	if (argc &gt; 0)
+-	{
+-		memaccess_tck = strtoul(args[0], NULL, 0);
+-	}
+-
+-	swjdp-&gt;memaccess_tck = memaccess_tck;
+-	command_print(cmd_ctx, &quot;memory bus access delay set to %i tck&quot;, (int)(swjdp-&gt;memaccess_tck));
+-
+-	return ERROR_OK;
++	return dap_memaccess_command(cmd_ctx, swjdp, args, argc);
+ }
+ 
+-int handle_dap_info_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++
++static int handle_dap_info_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
+ {
+ 	target_t *target = get_current_target(cmd_ctx);
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+-	int retval;
+ 	uint32_t apsel;
+ 
+ 	apsel =  swjdp-&gt;apsel;
+ 	if (argc &gt; 0)
+-	{
+ 		apsel = strtoul(args[0], NULL, 0);
+-	}
+ 
+-	retval = dap_info_command(cmd_ctx, swjdp, apsel);
+-
+-	return retval;
++	return dap_info_command(cmd_ctx, swjdp, apsel);
+ }
+ 
++int armv7m_register_commands(struct command_context_s *cmd_ctx)
++{
++	command_t *arm_adi_v5_dap_cmd;
++
++	arm_adi_v5_dap_cmd = register_command(cmd_ctx, NULL, &quot;dap&quot;,
++			NULL, COMMAND_ANY,
++			&quot;cortex dap specific commands&quot;);
++
++	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;info&quot;,
++			handle_dap_info_command, COMMAND_EXEC,
++			&quot;Displays dap info for ap [num],&quot;
++			&quot;default currently selected AP&quot;);
++	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;apsel&quot;,
++			handle_dap_apsel_command, COMMAND_EXEC,
++			&quot;Select a different AP [num] (default 0)&quot;);
++	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;apid&quot;,
++			handle_dap_apid_command, COMMAND_EXEC,
++			&quot;Displays id reg from AP [num], &quot;
++			&quot;default currently selected AP&quot;);
++	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;baseaddr&quot;,
++			handle_dap_baseaddr_command, COMMAND_EXEC,
++			&quot;Displays debug base address from AP [num],&quot;
++			&quot;default currently selected AP&quot;);
++	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;memaccess&quot;,
++			handle_dap_memaccess_command, COMMAND_EXEC,
++			&quot;set/get number of extra tck for mem-ap &quot;
++			&quot;memory bus access [0-255]&quot;);
++
++	return ERROR_OK;
++}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001326.html">[Openocd-svn] r2543 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001328.html">[Openocd-svn] r2545 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1327">[ date ]</a>
+              <a href="thread.html#1327">[ thread ]</a>
+              <a href="subject.html#1327">[ subject ]</a>
+              <a href="author.html#1327">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,459 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-913-g3d9cb51
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-913-g3d9cb51&In-Reply-To=%3CE1NIbUy-0003OF-PC%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001942.html">
+   <LINK REL="Next"  HREF="001944.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-913-g3d9cb51</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-913-g3d9cb51&In-Reply-To=%3CE1NIbUy-0003OF-PC%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-913-g3d9cb51">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Thu Dec 10 06:23:30 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001942.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-912-g910dd66
+</A></li>
+        <LI>Next message: <A HREF="001944.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-914-g29a8cdc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1943">[ date ]</a>
+              <a href="thread.html#1943">[ thread ]</a>
+              <a href="subject.html#1943">[ subject ]</a>
+              <a href="author.html#1943">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  3d9cb516c2cf4f5c5d77fb96899f1c44eb3f3450 (commit)
+      from  910dd664ceb6faef5e9029e9b0848d7ccc63bf4b (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 3d9cb516c2cf4f5c5d77fb96899f1c44eb3f3450
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Wed Dec 9 21:16:09 2009 -0800
+
+    stellaris: flash protection updates, minor fixes
+    
+    Bugfix the read side of flash protection:
+     - read the right register(s)!
+     - handle more than 64K
+     - record the results in the right places
+     - don't display garbage.
+    
+    Partially bugfix the write side:
+     - use 2KB lock regions instead of 1KB pages (!)
+     - validate input range
+     - don't try to _remove_ protection (it's write-once)
+     - #define values we'll need to commit writes.
+     - ... still doesn't handle pages over 64KB mark, or commit writes
+    
+    And minor cleanup and fixes:
+     - get rid of some forward decls
+     - properly locate a doxygen comment
+     - fix some bad indentation
+     - remove superfluous #include
+     - add a new part ID (many are still missing)
+     - make the downloaded algorithm code be read-only
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/flash/nor/stellaris.c b/src/flash/nor/stellaris.c
+index 3988542..b5e1010 100644
+--- a/src/flash/nor/stellaris.c
++++ b/src/flash/nor/stellaris.c
+@@ -30,7 +30,6 @@
+ 
+ #include &quot;imp.h&quot;
+ #include &quot;stellaris.h&quot;
+-#include &lt;helper/binarybuffer.h&gt;
+ #include &lt;target/algorithm.h&gt;
+ #include &lt;target/armv7m.h&gt;
+ 
+@@ -39,8 +38,6 @@
+ 
+ static int stellaris_read_part_info(struct flash_bank *bank);
+ static uint32_t stellaris_get_flash_status(struct flash_bank *bank);
+-static void stellaris_set_flash_mode(struct flash_bank *bank,int mode);
+-//static uint32_t stellaris_wait_status_busy(struct flash_bank *bank, uint32_t waitbits, int timeout);
+ 
+ static int stellaris_mass_erase(struct flash_bank *bank);
+ 
+@@ -94,6 +91,7 @@ static struct {
+ 	{0x46,&quot;LM3S3759&quot;},
+ 	{0x48,&quot;LM3S3768&quot;},
+ 	{0x49,&quot;LM3S3748&quot;},
++	{0x4B,&quot;LM3S5R36&quot;},
+ 	{0x50,&quot;LM3S2678&quot;},
+ 	{0x51,&quot;LM3S2110&quot;},
+ 	{0x52,&quot;LM3S2739&quot;},
+@@ -302,12 +300,13 @@ static int stellaris_info(struct flash_bank *bank, char *buf, int buf_size)
+ 	if (stellaris_info-&gt;num_lockbits &gt; 0)
+ 	{
+ 		printed = snprintf(buf,
+-				   buf_size,
+-				   &quot;pagesize: %&quot; PRIi32 &quot;, lockbits: %i 0x%4.4&quot; PRIx32 &quot;, pages in lock region: %i \n&quot;,
+-				   stellaris_info-&gt;pagesize,
+-				   stellaris_info-&gt;num_lockbits,
+-				   stellaris_info-&gt;lockbits,
+-				   (int)(stellaris_info-&gt;num_pages/stellaris_info-&gt;num_lockbits));
++				buf_size,
++				&quot;pagesize: %&quot; PRIi32 &quot;, pages: %d, &quot;
++				&quot;lockbits: %i, pages per lockbit: %i\n&quot;,
++				stellaris_info-&gt;pagesize,
++				(unsigned) stellaris_info-&gt;num_pages,
++				stellaris_info-&gt;num_lockbits,
++				(unsigned) stellaris_info-&gt;pages_in_lockregion);
+ 		buf += printed;
+ 		buf_size -= printed;
+ 	}
+@@ -328,7 +327,16 @@ static uint32_t stellaris_get_flash_status(struct flash_bank *bank)
+ 	return fmc;
+ }
+ 
+-/** Read clock configuration and set stellaris_info-&gt;usec_clocks*/
++/* Setup the timimg registers */
++static void stellaris_set_flash_mode(struct flash_bank *bank,int mode)
++{
++	struct stellaris_flash_bank *stellaris_info = bank-&gt;driver_priv;
++	struct target *target = bank-&gt;target;
++	uint32_t usecrl = (stellaris_info-&gt;mck_freq/1000000ul-1);
++
++	LOG_DEBUG(&quot;usecrl = %i&quot;,(int)(usecrl));
++	target_write_u32(target, SCB_BASE | USECRL, usecrl);
++}
+ 
+ static const unsigned rcc_xtal[32] = {
+ 	[0x00] = 1000000,		/* no pll */
+@@ -363,6 +371,7 @@ static const unsigned rcc_xtal[32] = {
+ 	[0x16] = 16384000,
+ };
+ 
++/** Read clock configuration and set stellaris_info-&gt;usec_clocks. */
+ static void stellaris_read_clock_info(struct flash_bank *bank)
+ {
+ 	struct stellaris_flash_bank *stellaris_info = bank-&gt;driver_priv;
+@@ -449,17 +458,6 @@ static void stellaris_read_clock_info(struct flash_bank *bank)
+ 	stellaris_set_flash_mode(bank, 0);
+ }
+ 
+-/* Setup the timimg registers */
+-static void stellaris_set_flash_mode(struct flash_bank *bank,int mode)
+-{
+-	struct stellaris_flash_bank *stellaris_info = bank-&gt;driver_priv;
+-	struct target *target = bank-&gt;target;
+-
+-	uint32_t usecrl = (stellaris_info-&gt;mck_freq/1000000ul-1);
+-	LOG_DEBUG(&quot;usecrl = %i&quot;,(int)(usecrl));
+-	target_write_u32(target, SCB_BASE | USECRL, usecrl);
+-}
+-
+ #if 0
+ static uint32_t stellaris_wait_status_busy(struct flash_bank *bank, uint32_t waitbits, int timeout)
+ {
+@@ -590,7 +588,6 @@ static int stellaris_read_part_info(struct flash_bank *bank)
+ 	stellaris_info-&gt;pagesize = 1024;
+ 	bank-&gt;size = 1024 * stellaris_info-&gt;num_pages;
+ 	stellaris_info-&gt;pages_in_lockregion = 2;
+-	target_read_u32(target, SCB_BASE | FMPPE, &amp;stellaris_info-&gt;lockbits);
+ 
+ 	/* provide this for the benefit of the higher flash driver layers */
+ 	bank-&gt;num_sectors = stellaris_info-&gt;num_pages;
+@@ -617,31 +614,51 @@ static int stellaris_read_part_info(struct flash_bank *bank)
+ 
+ static int stellaris_protect_check(struct flash_bank *bank)
+ {
+-	uint32_t status;
+-
+-	struct stellaris_flash_bank *stellaris_info = bank-&gt;driver_priv;
++	struct stellaris_flash_bank *stellaris = bank-&gt;driver_priv;
++	int status = ERROR_OK;
++	unsigned i;
++	unsigned page;
+ 
+-	if (bank-&gt;target-&gt;state != TARGET_HALTED)
++	if (stellaris-&gt;did1 == 0)
+ 	{
+-		LOG_ERROR(&quot;Target not halted&quot;);
+-		return ERROR_TARGET_NOT_HALTED;
++		status = stellaris_read_part_info(bank);
++		if (status &lt; 0)
++			return status;
+ 	}
+ 
+-	if (stellaris_info-&gt;did1 == 0)
+-	{
+-		stellaris_read_part_info(bank);
+-	}
++	for (i = 0; i &lt; (unsigned) bank-&gt;num_sectors; i++)
++		bank-&gt;sectors[i].is_protected = -1;
+ 
+-	if (stellaris_info-&gt;did1 == 0)
+-	{
+-		LOG_WARNING(&quot;Cannot identify target as Stellaris&quot;);
+-		return ERROR_FLASH_OPERATION_FAILED;
++	/* Read each Flash Memory Protection Program Enable (FMPPE) register
++	 * to report any pages that we can't write.  Ignore the Read Enable
++	 * register (FMPRE).
++	 */
++	for (i = 0, page = 0;
++			i &lt; DIV_ROUND_UP(stellaris-&gt;num_lockbits, 32u);
++			i++) {
++		uint32_t lockbits;
++
++		status = target_read_u32(bank-&gt;target,
++				SCB_BASE + (i ? (FMPPE0 + 4 * i) : FMPPE),
++				&amp;lockbits);
++		LOG_DEBUG(&quot;FMPPE%d = %#8.8x (status %d)&quot;, i, lockbits, status);
++		if (status != ERROR_OK)
++			goto done;
++
++		for (unsigned j = 0; j &lt; 32; j++) {
++			unsigned k;
++
++			for (k = 0; k &lt; stellaris-&gt;pages_in_lockregion; k++) {
++				if (page &gt;= (unsigned) bank-&gt;num_sectors)
++					goto done;
++				bank-&gt;sectors[page++].is_protected =
++						!(lockbits &amp; (1 &lt;&lt; j));
++			}
++		}
+ 	}
+ 
+-	status = stellaris_get_flash_status(bank);
+-	stellaris_info-&gt;lockbits = status &gt;&gt; 16;
+-
+-	return ERROR_OK;
++done:
++	return status;
+ }
+ 
+ static int stellaris_erase(struct flash_bank *bank, int first, int last)
+@@ -728,8 +745,19 @@ static int stellaris_protect(struct flash_bank *bank, int set, int first, int la
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
+-	if ((first &lt; 0) || (last &lt; first) || (last &gt;= stellaris_info-&gt;num_lockbits))
++	if (!set)
++	{
++		LOG_ERROR(&quot;Can't unprotect write-protected pages.&quot;);
++		/* except by the &quot;recover locked device&quot; procedure ... */
++		return ERROR_INVALID_ARGUMENTS;
++	}
++
++	/* lockregions are 2 pages ... must protect [even..odd] */
++	if ((first &lt; 0) || (first &amp; 1)
++			|| (last &lt; first) || !(last &amp; 1)
++			|| (last &gt;= 2 * stellaris_info-&gt;num_lockbits))
+ 	{
++		LOG_ERROR(&quot;Can't protect unaligned or out-of-range sectors.&quot;);
+ 		return ERROR_FLASH_SECTOR_INVALID;
+ 	}
+ 
+@@ -748,27 +776,40 @@ static int stellaris_protect(struct flash_bank *bank, int set, int first, int la
+ 	stellaris_read_clock_info(bank);
+ 	stellaris_set_flash_mode(bank, 0);
+ 
+-	fmppe = stellaris_info-&gt;lockbits;
+-	for (lockregion = first; lockregion &lt;= last; lockregion++)
+-	{
+-		if (set)
+-			fmppe &amp;= ~(1 &lt;&lt; lockregion);
+-		else
+-			fmppe |= (1 &lt;&lt; lockregion);
++	/* convert from pages to lockregions */
++	first /= 2;
++	last /= 2;
++
++	/* FIXME this assumes single FMPPE, for a max of 64K of flash!!
++	 * Current parts can be much bigger.
++	 */
++	if (last &gt;= 32) {
++		LOG_ERROR(&quot;No support yet for protection &gt; 64K&quot;);
++		return ERROR_FLASH_OPERATION_FAILED;
+ 	}
+ 
++	target_read_u32(target, SCB_BASE | FMPPE, &amp;fmppe);
++
++	for (lockregion = first; lockregion &lt;= last; lockregion++)
++		fmppe &amp;= ~(1 &lt;&lt; lockregion);
++
+ 	/* Clear and disable flash programming interrupts */
+ 	target_write_u32(target, FLASH_CIM, 0);
+ 	target_write_u32(target, FLASH_MISC, PMISC | AMISC);
+ 
+ 	LOG_DEBUG(&quot;fmppe 0x%&quot; PRIx32 &quot;&quot;,fmppe);
+ 	target_write_u32(target, SCB_BASE | FMPPE, fmppe);
++
+ 	/* Commit FMPPE */
+ 	target_write_u32(target, FLASH_FMA, 1);
++
+ 	/* Write commit command */
+-	/* TODO safety check, sice this cannot be undone */
++	/* REVISIT safety check, since this cannot be undone
++	 * except by the &quot;Recover a locked device&quot; procedure.
++	 */
+ 	LOG_WARNING(&quot;Flash protection cannot be removed once commited, commit is NOT executed !&quot;);
+ 	/* target_write_u32(target, FLASH_FMC, FMC_WRKEY | FMC_COMT); */
++
+ 	/* Wait until erase complete */
+ 	do
+ 	{
+@@ -785,12 +826,10 @@ static int stellaris_protect(struct flash_bank *bank, int set, int first, int la
+ 		return ERROR_FLASH_OPERATION_FAILED;
+ 	}
+ 
+-	target_read_u32(target, SCB_BASE | FMPPE, &amp;stellaris_info-&gt;lockbits);
+-
+ 	return ERROR_OK;
+ }
+ 
+-static uint8_t stellaris_write_code[] =
++static const uint8_t stellaris_write_code[] =
+ {
+ /*
+ 	Call with :
+@@ -827,10 +866,11 @@ static uint8_t stellaris_write_code[] =
+ /* pFLASH_CTRL_BASE: */
+ 	0x00,0xD0,0x0F,0x40,	/* .word	0x400FD000 */
+ /* FLASHWRITECMD: */
+-	0x01,0x00,0x42,0xA4 	/* .word	0xA4420001 */
++	0x01,0x00,0x42,0xA4	/* .word	0xA4420001 */
+ };
+ 
+-static int stellaris_write_block(struct flash_bank *bank, uint8_t *buffer, uint32_t offset, uint32_t wcount)
++static int stellaris_write_block(struct flash_bank *bank,
++		uint8_t *buffer, uint32_t offset, uint32_t wcount)
+ {
+ 	struct target *target = bank-&gt;target;
+ 	uint32_t buffer_size = 8192;
+@@ -851,7 +891,9 @@ static int stellaris_write_block(struct flash_bank *bank, uint8_t *buffer, uint3
+ 		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+ 	};
+ 
+-	target_write_buffer(target, write_algorithm-&gt;address, sizeof(stellaris_write_code), stellaris_write_code);
++	target_write_buffer(target, write_algorithm-&gt;address,
++			sizeof(stellaris_write_code),
++			(uint8_t *) stellaris_write_code);
+ 
+ 	/* memory buffer */
+ 	while (target_alloc_working_area(target, buffer_size, &amp;source) != ERROR_OK)
+@@ -1182,15 +1224,15 @@ static const struct command_registration stellaris_command_handlers[] = {
+ };
+ 
+ struct flash_driver stellaris_flash = {
+-		.name = &quot;stellaris&quot;,
+-		.commands = stellaris_command_handlers,
+-		.flash_bank_command = &amp;stellaris_flash_bank_command,
+-		.erase = &amp;stellaris_erase,
+-		.protect = &amp;stellaris_protect,
+-		.write = &amp;stellaris_write,
+-		.probe = &amp;stellaris_probe,
+-		.auto_probe = &amp;stellaris_auto_probe,
+-		.erase_check = &amp;default_flash_mem_blank_check,
+-		.protect_check = &amp;stellaris_protect_check,
+-		.info = &amp;stellaris_info,
+-	};
++	.name = &quot;stellaris&quot;,
++	.commands = stellaris_command_handlers,
++	.flash_bank_command = stellaris_flash_bank_command,
++	.erase = stellaris_erase,
++	.protect = stellaris_protect,
++	.write = stellaris_write,
++	.probe = stellaris_probe,
++	.auto_probe = stellaris_auto_probe,
++	.erase_check = default_flash_mem_blank_check,
++	.protect_check = stellaris_protect_check,
++	.info = stellaris_info,
++};
+diff --git a/src/flash/nor/stellaris.h b/src/flash/nor/stellaris.h
+index a5f04e4..4de4f00 100644
+--- a/src/flash/nor/stellaris.h
++++ b/src/flash/nor/stellaris.h
+@@ -39,7 +39,6 @@ struct stellaris_flash_bank
+ 
+ 	/* nv memory bits */
+ 	uint16_t num_lockbits;
+-	uint32_t lockbits;
+ 
+ 	/* main clock status */
+ 	uint32_t rcc;
+@@ -67,8 +66,14 @@ struct stellaris_flash_bank
+ #define	PLLCFG		0x064
+ #define	RCC2		0x070
+ 
++/* &quot;legacy&quot; flash memory protection registers (64KB max) */
+ #define FMPRE		0x130
+ #define FMPPE		0x134
++
++/* new flash memory protection registers (for more than 64KB) */
++#define FMPRE0		0x200		/* PRE1 = PRE0 + 4, etc */
++#define FMPPE0		0x400		/* PPE1 = PPE0 + 4, etc */
++
+ #define USECRL		0x140
+ 
+ #define FLASH_CONTROL_BASE	0x400FD000
+@@ -94,4 +99,8 @@ struct stellaris_flash_bank
+ 
+ /* STELLARIS constants */
+ 
++/* values to write in FMA to commit write-&quot;once&quot; values */
++#define FLASH_FMA_PRE(x)	(2 * (x))	/* for FMPPREx */
++#define FLASH_FMA_PPE(x)	(2 * (x) + 1)	/* for FMPPPEx */
++
+ #endif /* STELLARIS_H */
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/stellaris.c |  176 ++++++++++++++++++++++++++++-----------------
+ src/flash/nor/stellaris.h |   11 +++-
+ 2 files changed, 119 insertions(+), 68 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001942.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-912-g910dd66
+</A></li>
+	<LI>Next message: <A HREF="001944.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-914-g29a8cdc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1943">[ date ]</a>
+              <a href="thread.html#1943">[ thread ]</a>
+              <a href="subject.html#1943">[ subject ]</a>
+              <a href="author.html#1943">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,177 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2246 - in trunk: doc src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2246%20-%20in%20trunk%3A%20doc%20src/jtag&In-Reply-To=%3C200906160023.n5G0N6Kd028184%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001029.html">
+   <LINK REL="Next"  HREF="001031.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2246 - in trunk: doc src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2246%20-%20in%20trunk%3A%20doc%20src/jtag&In-Reply-To=%3C200906160023.n5G0N6Kd028184%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2246 - in trunk: doc src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun 16 02:23:06 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001029.html">[Openocd-svn] r2245 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="001031.html">[Openocd-svn] r2247 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1030">[ date ]</a>
+              <a href="thread.html#1030">[ thread ]</a>
+              <a href="subject.html#1030">[ subject ]</a>
+              <a href="author.html#1030">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-16 02:23:00 +0200 (Tue, 16 Jun 2009)
+New Revision: 2246
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/jtag/core.c
+   trunk/src/jtag/jtag.h
+   trunk/src/jtag/tcl.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Doc update:  say &quot;jtag newtap ... -disable&quot; records the
+state after exiting the RESET state, matching the only
+implementation we're working with so far (TI ICEpick-C).
+
+Matching code updates.  Now we can be sure that the
+&quot;enabled&quot; flag value is correct after JTAG resets.
+
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-06-16 00:22:52 UTC (rev 2245)
++++ trunk/doc/openocd.texi	2009-06-16 00:23:00 UTC (rev 2246)
+@@ -2314,8 +2314,9 @@
+ 
+ @itemize @bullet
+ @item @code{-disable} (or @code{-enable})
+-@*Use the @code{-disable} paramater to flag a TAP which is not
+-linked in to the scan chain when it is declared.
++@*Use the @code{-disable} parameter to flag a TAP which is not
++linked in to the scan chain after a reset using either TRST
++or the JTAG state machine's @sc{reset} state.
+ You may use @code{-enable} to highlight the default state
+ (the TAP is linked in).
+ @xref{Enabling and Disabling TAPs}.
+@@ -5079,7 +5080,7 @@
+ @end itemize
+ 
+ Note that only six of those states are fully ``stable'' in the
+-face of TMS fixed (usually low)
++face of TMS fixed (low except for @sc{reset})
+ and a free-running JTAG clock.  For all the
+ others, the next TCK transition changes to a new state.
+ 
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-06-16 00:22:52 UTC (rev 2245)
++++ trunk/src/jtag/core.c	2009-06-16 00:23:00 UTC (rev 2246)
+@@ -792,6 +792,8 @@
+ 
+ 	if (event == JTAG_TRST_ASSERTED)
+ 	{
++		tap-&gt;enabled = !tap-&gt;disabled_after_reset;
++
+ 		buf_set_ones(tap-&gt;cur_instr, tap-&gt;ir_length);
+ 		tap-&gt;bypass = 1;
+ 	}
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-06-16 00:22:52 UTC (rev 2245)
++++ trunk/src/jtag/jtag.h	2009-06-16 00:23:00 UTC (rev 2246)
+@@ -151,8 +151,10 @@
+ 	const char* tapname;
+ 	const char* dotted_name;
+ 	int abs_chain_position;
+-	/// Is this TAP enabled?
+-	int enabled;
++	/// Is this TAP disabled after JTAG reset?
++	bool disabled_after_reset;
++	/// Is this TAP currently enabled?
++	bool enabled;
+ 	int ir_length; /**&lt; size of instruction register */
+ 	u32 ir_capture_value;
+ 	u8* expected; /**&lt; Capture-IR expected value */
+
+Modified: trunk/src/jtag/tcl.c
+===================================================================
+--- trunk/src/jtag/tcl.c	2009-06-16 00:22:52 UTC (rev 2245)
++++ trunk/src/jtag/tcl.c	2009-06-16 00:23:00 UTC (rev 2246)
+@@ -359,9 +359,6 @@
+ 	LOG_DEBUG(&quot;Creating New Tap, Chip: %s, Tap: %s, Dotted: %s, %d params&quot;,
+ 			  pTap-&gt;chip, pTap-&gt;tapname, pTap-&gt;dotted_name, goi-&gt;argc);
+ 
+-	/* default is enabled */
+-	pTap-&gt;enabled = 1;
+-
+ 	/* deal with options */
+ #define NTREQ_IRLEN      1
+ #define NTREQ_IRCAPTURE  2
+@@ -379,10 +376,10 @@
+ 		LOG_DEBUG(&quot;Processing option: %s&quot;, n-&gt;name );
+ 		switch( n-&gt;value ){
+ 		case NTAP_OPT_ENABLED:
+-			pTap-&gt;enabled = 1;
++			pTap-&gt;disabled_after_reset = false;
+ 			break;
+ 		case NTAP_OPT_DISABLED:
+-			pTap-&gt;enabled = 0;
++			pTap-&gt;disabled_after_reset = true;
+ 			break;
+ 		case NTAP_OPT_EXPECTED_ID:
+ 		{
+@@ -446,6 +443,9 @@
+ 		} /* switch(n-&gt;value) */
+ 	} /* while( goi-&gt;argc ) */
+ 
++	/* default is enabled-after-reset */
++	pTap-&gt;enabled = !pTap-&gt;disabled_after_reset;
++
+ 	/* Did all the required option bits get cleared? */
+ 	if (0 == reqbits)
+ 	{
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001029.html">[Openocd-svn] r2245 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="001031.html">[Openocd-svn] r2247 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1030">[ date ]</a>
+              <a href="thread.html#1030">[ thread ]</a>
+              <a href="subject.html#1030">[ subject ]</a>
+              <a href="author.html#1030">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,205 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2166 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2166%20-%20trunk/src/jtag&In-Reply-To=%3C200906090841.n598fJIO020799%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000949.html">
+   <LINK REL="Next"  HREF="000951.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2166 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2166%20-%20trunk/src/jtag&In-Reply-To=%3C200906090841.n598fJIO020799%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2166 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun  9 10:41:19 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000949.html">[Openocd-svn] r2165 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000951.html">[Openocd-svn] r2167 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#950">[ date ]</a>
+              <a href="thread.html#950">[ thread ]</a>
+              <a href="subject.html#950">[ subject ]</a>
+              <a href="author.html#950">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-09 10:41:14 +0200 (Tue, 09 Jun 2009)
+New Revision: 2166
+
+Modified:
+   trunk/src/jtag/core.c
+   trunk/src/jtag/jtag.h
+   trunk/src/jtag/tcl.c
+Log:
+Improve encapsulation of JTAG event handling:
+- Move nvp_jtag_tap_event and jtag_tap_handle_event to tcl.c.
+- Change both to be static; remove declaration of function from jtag.h.
+
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-06-09 08:41:08 UTC (rev 2165)
++++ trunk/src/jtag/core.c	2009-06-09 08:41:14 UTC (rev 2166)
+@@ -63,13 +63,6 @@
+ 	&quot;JTAG controller reset (RESET or TRST)&quot;
+ };
+ 
+-const Jim_Nvp nvp_jtag_tap_event[] = {
+-	{ .value = JTAG_TAP_EVENT_ENABLE,       .name = &quot;tap-enable&quot; },
+-	{ .value = JTAG_TAP_EVENT_DISABLE,      .name = &quot;tap-disable&quot; },
+-
+-	{ .name = NULL, .value = -1 }
+-};
+-
+ static int jtag_trst = 0;
+ static int jtag_srst = 0;
+ 
+@@ -1222,37 +1215,6 @@
+ 	return jtag-&gt;srst_asserted(srst_asserted);
+ }
+ 
+-void jtag_tap_handle_event( jtag_tap_t * tap, enum jtag_tap_event e)
+-{
+-	jtag_tap_event_action_t * jteap;
+-	int done;
+-
+-	jteap = tap-&gt;event_action;
+-
+-	done = 0;
+-	while (jteap) {
+-		if (jteap-&gt;event == e) {
+-			done = 1;
+-			LOG_DEBUG( &quot;JTAG tap: %s event: %d (%s) action: %s\n&quot;,
+-					tap-&gt;dotted_name,
+-					e,
+-					Jim_Nvp_value2name_simple(nvp_jtag_tap_event, e)-&gt;name,
+-					Jim_GetString(jteap-&gt;body, NULL) );
+-			if (Jim_EvalObj(interp, jteap-&gt;body) != JIM_OK) {
+-				Jim_PrintErrorMessage(interp);
+-			}
+-		}
+-
+-		jteap = jteap-&gt;next;
+-	}
+-
+-	if (!done) {
+-		LOG_DEBUG( &quot;event %d %s - no action&quot;,
+-				e,
+-				Jim_Nvp_value2name_simple( nvp_jtag_tap_event, e)-&gt;name);
+-	}
+-}
+-
+ int jtag_add_statemove(tap_state_t goal_state)
+ {
+ 	tap_state_t cur_state = cmd_queue_cur_state;
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-06-09 08:41:08 UTC (rev 2165)
++++ trunk/src/jtag/jtag.h	2009-06-09 08:41:14 UTC (rev 2166)
+@@ -611,8 +611,6 @@
+ extern int jtag_call_event_callbacks(enum jtag_event event);
+ extern int jtag_register_event_callback(int (* callback)(enum jtag_event event, void* priv), void* priv);
+ 
+-void jtag_tap_handle_event(jtag_tap_t* tap, enum jtag_tap_event e);
+-
+ /*
+  * The JTAG subsystem defines a number of error codes,
+  * using codes between -100 and -199.
+
+Modified: trunk/src/jtag/tcl.c
+===================================================================
+--- trunk/src/jtag/tcl.c	2009-06-09 08:41:08 UTC (rev 2165)
++++ trunk/src/jtag/tcl.c	2009-06-09 08:41:14 UTC (rev 2166)
+@@ -39,8 +39,13 @@
+ #include &lt;strings.h&gt;
+ #endif
+ 
+-extern const Jim_Nvp nvp_jtag_tap_event[];
++static const Jim_Nvp nvp_jtag_tap_event[] = {
++	{ .value = JTAG_TAP_EVENT_ENABLE,       .name = &quot;tap-enable&quot; },
++	{ .value = JTAG_TAP_EVENT_DISABLE,      .name = &quot;tap-disable&quot; },
+ 
++	{ .name = NULL, .value = -1 }
++};
++
+ /* jtag interfaces (parport, FTDI-USB, TI-USB, ...)
+  */
+ 
+@@ -443,6 +448,38 @@
+ 	return JIM_ERR;
+ }
+ 
++static void jtag_tap_handle_event( jtag_tap_t * tap, enum jtag_tap_event e)
++{
++	jtag_tap_event_action_t * jteap;
++	int done;
++
++	jteap = tap-&gt;event_action;
++
++	done = 0;
++	while (jteap) {
++		if (jteap-&gt;event == e) {
++			done = 1;
++			LOG_DEBUG( &quot;JTAG tap: %s event: %d (%s) action: %s\n&quot;,
++					tap-&gt;dotted_name,
++					e,
++					Jim_Nvp_value2name_simple(nvp_jtag_tap_event, e)-&gt;name,
++					Jim_GetString(jteap-&gt;body, NULL) );
++			if (Jim_EvalObj(interp, jteap-&gt;body) != JIM_OK) {
++				Jim_PrintErrorMessage(interp);
++			}
++		}
++
++		jteap = jteap-&gt;next;
++	}
++
++	if (!done) {
++		LOG_DEBUG( &quot;event %d %s - no action&quot;,
++				e,
++				Jim_Nvp_value2name_simple( nvp_jtag_tap_event, e)-&gt;name);
++	}
++}
++
++
+ static int jim_jtag_command( Jim_Interp *interp, int argc, Jim_Obj *const *argv )
+ {
+ 	Jim_GetOptInfo goi;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000949.html">[Openocd-svn] r2165 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000951.html">[Openocd-svn] r2167 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#950">[ date ]</a>
+              <a href="thread.html#950">[ thread ]</a>
+              <a href="subject.html#950">[ subject ]</a>
+              <a href="author.html#950">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

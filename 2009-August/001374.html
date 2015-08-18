@@ -1,0 +1,1409 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2591 - in trunk: . src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2591%20-%20in%20trunk%3A%20.%20src/jtag&In-Reply-To=%3C200908181442.n7IEg0Bm024305%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001373.html">
+   <LINK REL="Next"  HREF="001375.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2591 - in trunk: . src/jtag</H1>
+    <B>ntfreak at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2591%20-%20in%20trunk%3A%20.%20src/jtag&In-Reply-To=%3C200908181442.n7IEg0Bm024305%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2591 - in trunk: . src/jtag">ntfreak at mail.berlios.de
+       </A><BR>
+    <I>Tue Aug 18 16:42:00 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001373.html">[Openocd-svn] r2590 - in trunk/src: helper jtag
+</A></li>
+        <LI>Next message: <A HREF="001375.html">[Openocd-svn] r2592 - in trunk: doc tcl/interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1374">[ date ]</a>
+              <a href="thread.html#1374">[ thread ]</a>
+              <a href="subject.html#1374">[ subject ]</a>
+              <a href="author.html#1374">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: ntfreak
+Date: 2009-08-18 16:41:58 +0200 (Tue, 18 Aug 2009)
+New Revision: 2591
+
+Modified:
+   trunk/README
+   trunk/configure.in
+   trunk/src/jtag/ft2232.c
+Log:
+Jonas Horberg [<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">jhorberg at sauer-danfoss.com</A>]
+<A HREF="https://lists.berlios.de/pipermail/openocd-development/2009-August/009939.html">https://lists.berlios.de/pipermail/openocd-development/2009-August/009939.html</A>
+
+1. It can only be built with the FTD2XX driver. libftdi supports FT2232H/FT4232H 
+since version 0.16 
+
+2. A speed value of 0 is used as a RTCK request indicator. This clashes with the 
+valid clock division value 0 that provide the highest fixed clock frequency. 
+
+3. The ft2232_speed_div function return the maximum selectable frequency (30MHz) 
+when RTCK is activated. It should return 0. 
+
+4. The ft2232_khz function return ERROR_OK when RTCK is requested even for 
+devices lacking RTCK support. It should return ERROR_FAIL so the upper driver layers 
+can detect this and try to fallback to a fixed frequency. 
+
+5. FT2232H/FT4232H have a backward compatibility function that divide the clock 
+by 5 to get the same frequency range as FT2232D. There is no code that disable 
+this functionality. I can not find anything about if this is enabled or disabled by default. 
+I think it is safest to actively disable it. 
+
+
+Modified: trunk/README
+===================================================================
+--- trunk/README	2009-08-18 12:14:01 UTC (rev 2590)
++++ trunk/README	2009-08-18 14:41:58 UTC (rev 2591)
+@@ -125,7 +125,7 @@
+ The INSTALL file contains generic instructions for running 'configure'
+ and compiling the OpenOCD source code.  That file is provided by default
+ for all GNU automake packages.  If you are not familiar with the GNU
+-autotools, then you should read those instructions first.  
++autotools, then you should read those instructions first.
+ 
+ The remainder of this document tries to provide some instructions for
+ those looking for a quick-install.
+@@ -163,7 +163,7 @@
+ of commands:
+ 
+    ./configure [with some options listed in the next section]
+-   make 
++   make
+    make install
+ 
+ The 'configure' step generates the Makefiles required to build OpenOCD,
+@@ -180,7 +180,7 @@
+ cross-compile on a x86 Linux host to run on Windows (MinGW32), you could
+ use the following configuration options:
+ 
+-  ./configure --build=i686-pc-linux-gnu --host=i586-mingw32msvc ... 
++  ./configure --build=i686-pc-linux-gnu --host=i586-mingw32msvc ...
+ 
+ Likewise, the following options allow OpenOCD to be cross-compiled for
+ an ARM target on the same x86 host:
+@@ -215,9 +215,10 @@
+                           FTD2XX
+   --enable-ft2232_ftd2xx  Enable building support for FT2232 based devices
+                           using the FTD2XX driver from ftdichip.com
+-  --enable-ftd2xx-highspeed
++  --enable-ft2232-highspeed
+                           Enable building support for FT2232H and
+-                          FT4232H-based devices (requires &gt;=libftd2xx-0.4.16)
++                          FT4232H-based devices (requires &gt;=libftd2xx-0.4.16
++                          or &gt;=libftdi-0.16)
+ 
+   --enable-gw16012        Enable building support for the Gateworks GW16012
+                           JTAG Programmer
+@@ -301,12 +302,12 @@
+ option if you want to use giveio instead of ioperm parallel port access
+ method.
+ 
+-FT2232C Based USB Dongles 
++FT2232C Based USB Dongles
+ -------------------------
+ 
+ There are 2 methods of using the FTD2232, either (1) using the
+ FTDICHIP.COM closed source driver, or (2) the open (and free) driver
+-libftdi. 
++libftdi.
+ 
+ Using LIBFTDI
+ -------------
+@@ -320,7 +321,7 @@
+ speed (480 Mbps), you need libftdi version 0.16 or newer.  Many Linux
+ distributions provide suitable packages for these libraries.
+ 
+-For Windows, libftdi is supported with versions 0.14 and later.  
++For Windows, libftdi is supported with versions 0.14 and later.
+ 
+ With these prerequisites met, configure the libftdi solution like this:
+ 
+@@ -340,7 +341,7 @@
+ The FTDICHIP drivers come as either a (win32) ZIP file, or a (Linux)
+ TAR.GZ file. You must unpack them ``some where'' convient. As of this
+ writing FTDICHIP does not supply means to install these files &quot;in an
+-appropriate place.&quot;  
++appropriate place.&quot;
+ 
+ If your distribution does not package these, there are several
+ './configure' options to solve this problem:
+@@ -361,7 +362,7 @@
+ Remember, this library is binary-only, while OpenOCD is licenced
+ according to GNU GPLv2 without any exceptions.  That means that
+ _distributing_ copies of OpenOCD built with the FTDI code would violate
+-the OpenOCD licensing terms.  
++the OpenOCD licensing terms.
+ 
+ Linux Notes
+ ***********
+@@ -404,7 +405,7 @@
+ ************************************************
+ 
+ Building OpenOCD from a repository requires a recent version of the GNU
+-autotools (autoconf &gt;= 2.59 and automake &gt;= 1.9).  
++autotools (autoconf &gt;= 2.59 and automake &gt;= 1.9).
+ 
+ 1) Run './bootstrap' to create the 'configure' script and prepare
+    the build process for your host system.
+
+Modified: trunk/configure.in
+===================================================================
+--- trunk/configure.in	2009-08-18 12:14:01 UTC (rev 2590)
++++ trunk/configure.in	2009-08-18 14:41:58 UTC (rev 2591)
+@@ -128,7 +128,7 @@
+     # Nonstandard --prefix and/or --exec-prefix
+     # We have an override of some sort.
+     # use build specific install library dir
+-    
++
+     LDFLAGS=&quot;$LDFLAGS -L$OCDxprefix/lib&quot;
+     # RPATH becomes an issue on Linux only
+     if test $host_os = linux-gnu || test $host_os = linux ; then
+@@ -146,7 +146,7 @@
+ 
+ The option: --with-ftd2xx=&lt;PATH&gt; has been removed.
+ On Linux, the new option is:
+-  
++
+   --with-ftd2xx-linux-tardir=/path/to/files
+ 
+ Where &lt;path&gt; is the path the the directory where the &quot;tar.gz&quot; file
+@@ -245,7 +245,7 @@
+ 
+ AC_ARG_ENABLE(verbose,
+   AS_HELP_STRING([--enable-verbose],
+-      [Enable verbose JTAG I/O messages (for debugging).]), 
++      [Enable verbose JTAG I/O messages (for debugging).]),
+   [
+   debug_jtag_io=$enableval
+   debug_usb_io=$enableval
+@@ -254,15 +254,15 @@
+ 
+ AC_ARG_ENABLE(verbose_jtag_io,
+   AS_HELP_STRING([--enable-verbose-jtag-io],
+-      [Enable verbose JTAG I/O messages (for debugging).]), 
++      [Enable verbose JTAG I/O messages (for debugging).]),
+   [debug_jtag_io=$enableval], [])
+ AC_ARG_ENABLE(verbose_usb_io,
+   AS_HELP_STRING([--enable-verbose-usb-io],
+-      [Enable verbose USB I/O messages (for debugging)]), 
++      [Enable verbose USB I/O messages (for debugging)]),
+   [debug_usb_io=$enableval], [])
+ AC_ARG_ENABLE(verbose_usb_comms,
+   AS_HELP_STRING([--enable-verbose-usb-comms],
+-      [Enable verbose USB communication messages (for debugging)]), 
++      [Enable verbose USB communication messages (for debugging)]),
+   [debug_usb_comms=$enableval], [])
+ 
+ AC_MSG_CHECKING([whether to enable verbose JTAG I/O messages]);
+@@ -287,7 +287,7 @@
+ debug_malloc=no
+ AC_ARG_ENABLE(malloc_logging,
+   AS_HELP_STRING([--enable-malloc-logging],
+-      [Include free space in logging messages (requires malloc.h).]), 
++      [Include free space in logging messages (requires malloc.h).]),
+   [debug_malloc=$enableval], [])
+ 
+ AC_MSG_CHECKING([whether to enable malloc free space logging]);
+@@ -298,67 +298,67 @@
+ 
+ 
+ AC_ARG_ENABLE(dummy,
+-  AS_HELP_STRING([--enable-dummy], [Enable building the dummy port driver]), 
++  AS_HELP_STRING([--enable-dummy], [Enable building the dummy port driver]),
+   [build_dummy=$enableval], [build_dummy=no])
+ 
+ AC_ARG_ENABLE(parport,
+-  AS_HELP_STRING([--enable-parport], [Enable building the pc parallel port driver]), 
++  AS_HELP_STRING([--enable-parport], [Enable building the pc parallel port driver]),
+   [build_parport=$enableval], [build_parport=no])
+ 
+ AC_ARG_ENABLE(parport_ppdev,
+   AS_HELP_STRING([--disable-parport-ppdev],
+-      [Disable use of ppdev (/dev/parportN) for parport (for x86 only)]), 
++      [Disable use of ppdev (/dev/parportN) for parport (for x86 only)]),
+     [parport_use_ppdev=$enableval], [parport_use_ppdev=yes])
+ 
+ AC_ARG_ENABLE(parport_giveio,
+     AS_HELP_STRING([--enable-parport-giveio],
+-      [Enable use of giveio for parport (for CygWin only)]), 
++      [Enable use of giveio for parport (for CygWin only)]),
+     [parport_use_giveio=$enableval], [parport_use_giveio=])
+-    
++
+ AC_ARG_ENABLE(ft2232_libftdi,
+-  AS_HELP_STRING([--enable-ft2232_libftdi], [Enable building support for FT2232 based devices using the libftdi driver, opensource alternate of FTD2XX]), 
++  AS_HELP_STRING([--enable-ft2232_libftdi], [Enable building support for FT2232 based devices using the libftdi driver, opensource alternate of FTD2XX]),
+   [build_ft2232_libftdi=$enableval], [build_ft2232_libftdi=no])
+ 
+ AC_ARG_ENABLE(ft2232_ftd2xx,
+-  AS_HELP_STRING([--enable-ft2232_ftd2xx], [Enable building support for FT2232 based devices using the FTD2XX driver from ftdichip.com]), 
++  AS_HELP_STRING([--enable-ft2232_ftd2xx], [Enable building support for FT2232 based devices using the FTD2XX driver from ftdichip.com]),
+   [build_ft2232_ftd2xx=$enableval], [build_ft2232_ftd2xx=no])
+ 
+-AC_ARG_ENABLE(ftd2xx_highspeed,
+-  AS_HELP_STRING([--enable-ftd2xx-highspeed], [Enable building support for FT2232H and FT4232H-based devices (requires &gt;=libftd2xx-0.4.16)]), 
+-  [want_ftd2xx_highspeed=$enableval], [want_ftd2xx_highspeed=no])
+- 
++AC_ARG_ENABLE(ft2232_highspeed,
++  AS_HELP_STRING([--enable-ft2232-highspeed], [Enable building support for FT2232H and FT4232H-based devices (requires &gt;=libftd2xx-0.4.16 or &gt;=libftdi-0.16)]),
++  [want_ft2232_highspeed=$enableval], [want_ft2232_highspeed=no])
++
+ AC_ARG_ENABLE(amtjtagaccel,
+-  AS_HELP_STRING([--enable-amtjtagaccel], [Enable building the Amontec JTAG-Accelerator driver]), 
++  AS_HELP_STRING([--enable-amtjtagaccel], [Enable building the Amontec JTAG-Accelerator driver]),
+   [build_amtjtagaccel=$enableval], [build_amtjtagaccel=no])
+ 
+ AC_ARG_ENABLE(ecosboard,
+-  AS_HELP_STRING([--enable-ecosboard], [Enable building support for eCos based JTAG debugger]), 
++  AS_HELP_STRING([--enable-ecosboard], [Enable building support for eCos based JTAG debugger]),
+   [build_ecosboard=$enableval], [build_ecosboard=no])
+ 
+ AC_ARG_ENABLE(zy1000,
+-  AS_HELP_STRING([--enable-zy1000], [Enable ZY1000 interface]), 
++  AS_HELP_STRING([--enable-zy1000], [Enable ZY1000 interface]),
+   [build_zy1000=$enableval], [build_zy1000=no])
+ 
+ AC_ARG_ENABLE(ioutil,
+-  AS_HELP_STRING([--enable-ioutil], [Enable ioutil functions - useful for standalone OpenOCD implementations]), 
++  AS_HELP_STRING([--enable-ioutil], [Enable ioutil functions - useful for standalone OpenOCD implementations]),
+   [build_ioutil=$enableval], [build_ioutil=no])
+ 
+ AC_ARG_ENABLE(httpd,
+-  AS_HELP_STRING([--enable-httpd], [Enable builtin httpd server - useful for standalone OpenOCD implementations]), 
++  AS_HELP_STRING([--enable-httpd], [Enable builtin httpd server - useful for standalone OpenOCD implementations]),
+   [build_httpd=$enableval], [build_httpd=no])
+ 
+-case &quot;${host_cpu}&quot; in 
++case &quot;${host_cpu}&quot; in
+   arm*)
+     AC_ARG_ENABLE(ep93xx,
+-      AS_HELP_STRING([--enable-ep93xx], [Enable building support for EP93xx based SBCs]), 
++      AS_HELP_STRING([--enable-ep93xx], [Enable building support for EP93xx based SBCs]),
+       [build_ep93xx=$enableval], [build_ep93xx=no])
+ 
+     AC_ARG_ENABLE(at91rm9200,
+       AS_HELP_STRING([--enable-at91rm9200], [Enable building support for AT91RM9200 based SBCs]),
+       [build_at91rm9200=$enableval], [build_at91rm9200=no])
+     ;;
+-    
+-  *) 
++
++  *)
+     build_ep93xx=no
+     build_at91rm9200=no
+     ;;
+@@ -439,10 +439,10 @@
+   AC_MSG_RESULT([yes])
+ fi
+ 
+-case &quot;${host_cpu}&quot; in 
++case &quot;${host_cpu}&quot; in
+   i?86|x86*)
+     ;;
+-  *) 
++  *)
+     if test x$parport_use_ppdev = xno; then
+       AC_MSG_WARN([--disable-parport-ppdev is not supported by the host CPU])
+     fi
+@@ -450,8 +450,8 @@
+     ;;
+ esac
+ 
+-case $host in 
+-  *-cygwin*) 
++case $host in
++  *-cygwin*)
+     is_win32=yes
+     parport_use_ppdev=no
+ 
+@@ -472,11 +472,11 @@
+         AC_CHECK_HEADERS(sys/io.h,[],AC_MSG_ERROR([Please install the cygwin ioperm package]))
+       fi
+     fi
+-  
++
+     AC_DEFINE(IS_WIN32, 1, [1 if building for Win32.])
+     AC_DEFINE(IS_DARWIN, 0, [0 if not building for Darwin.])
+-    ;; 
+-  *-mingw*) 
++    ;;
++  *-mingw*)
+     is_mingw=yes
+     is_win32=yes
+     parport_use_ppdev=no
+@@ -489,7 +489,7 @@
+     AC_DEFINE(IS_MINGW, 1, [1 if building for MinGW.])
+     AC_DEFINE(IS_WIN32, 1, [1 if building for Win32.])
+     AC_DEFINE(IS_DARWIN, 0, [0 if not building for Darwin.])
+-    ;; 
++    ;;
+   *darwin*)
+     is_darwin=yes
+ 
+@@ -502,7 +502,7 @@
+     AC_DEFINE(IS_WIN32, 0, [0 if not building for Win32.])
+     AC_DEFINE(IS_DARWIN, 1, [1 if building for Darwin.])
+     ;;
+-  *) 
++  *)
+     if test x$parport_use_giveio = xyes; then
+       AC_MSG_WARN([--enable-parport-giveio cannot be used by ]$host[ hosts])
+     fi
+@@ -835,8 +835,8 @@
+   ])
+ 
+ AC_MSG_CHECKING([whether to build ftd2xx highspeed device support])
+-AC_MSG_RESULT([$want_ftd2xx_highspeed])
+-if test $want_ftd2xx_highspeed != no; then
++AC_MSG_RESULT([$want_ft2232_highspeed])
++if test $want_ft2232_highspeed != no; then
+   AC_MSG_CHECKING([for ftd2xx highspeed device support])
+   AC_COMPILE_IFELSE([
+ #include &quot;confdefs.h&quot;
+@@ -847,15 +847,15 @@
+ #include &lt;ftd2xx.h&gt;
+ DWORD x = FT_DEVICE_4232H;
+     ], [
+-      AC_DEFINE(BUILD_FTD2XX_HIGHSPEED, [1],
+-        [Support FT2232H/FT4232HS with FTD2XX.])
+-      build_ftd2xx_highspeed=yes
++      AC_DEFINE(BUILD_FT2232_HIGHSPEED, [1],
++        [Support FT2232H/FT4232HS with FTD2XX or libftdi.])
++      build_ft2232_highspeed=yes
+     ], [
+-      build_ftd2xx_highspeed=no
++      build_ft2232_highspeed=no
+     ])
+-  AC_MSG_RESULT([$build_ftd2xx_highspeed])
++  AC_MSG_RESULT([$build_ft2232_highspeed])
+ 
+-  if test $want_ftd2xx_highspeed = yes -a $build_ftd2xx_highspeed = no; then
++  if test $want_ft2232_highspeed = yes -a $build_ft2232_highspeed = no; then
+     AC_MSG_ERROR([You need a newer FTD2XX driver (version 0.4.16 or later).])
+   fi
+ fi
+@@ -868,7 +868,7 @@
+   # We assume: the package is preinstalled in the proper place
+   # these present as 2 libraries..
+   LIBS=&quot;$LIBS -lftdi -lusb&quot;
+-  # 
++  #
+   # Try to build a small program.
+   AC_MSG_CHECKING([Build &amp; Link with libftdi...])
+ 
+@@ -903,6 +903,28 @@
+       AC_MSG_RESULT([Skipping as we are cross-compiling])
+     ])
+ 
++  AC_MSG_CHECKING([whether to build libftdi highspeed device support])
++  AC_MSG_RESULT([$want_ft2232_highspeed])
++  if test $want_ft2232_highspeed != no; then
++    AC_MSG_CHECKING([for libftdi highspeed device support])
++    AC_COMPILE_IFELSE([
++#include &lt;stdio.h&gt;
++#include &lt;ftdi.h&gt;
++enum ftdi_chip_type x = TYPE_2232H;
++    ], [
++      AC_DEFINE(BUILD_FT2232_HIGHSPEED, [1],
++        [Support FT2232H/FT4232HS with FTD2XX or libftdi.])
++      build_ft2232_highspeed=yes
++    ], [
++      build_ft2232_highspeed=no
++    ])
++    AC_MSG_RESULT([$build_ft2232_highspeed])
++
++    if test $want_ft2232_highspeed = yes -a $build_ft2232_highspeed = no; then
++      AC_MSG_ERROR([You need a newer libftdi version (0.16 or later).])
++    fi
++  fi
++
+   # Restore the 'unexpanded ldflags'
+   LDFLAGS=$LDFLAGS_SAVE
+   CFLAGS=$CFLAGS_SAVE
+@@ -911,7 +933,7 @@
+ # check for usb.h when a driver will require it
+ if test $build_jlink = yes -o $build_vsllink = yes -o $build_usbprog = yes -o \
+   $build_rlink = yes -o $build_armjtagew = yes
+-then 
++then
+   AC_CHECK_HEADERS([usb.h],[],
+   [AC_MSG_ERROR([usb.h is required to build some OpenOCD driver(s)])])
+ fi
+@@ -976,7 +998,7 @@
+   ])
+ 
+ if test &quot;${has_environ}&quot; != &quot;yes&quot; ; then
+-  AC_MSG_FAILURE([Could not find 'environ' in unistd.h or available libraries.]) 
++  AC_MSG_FAILURE([Could not find 'environ' in unistd.h or available libraries.])
+ fi
+ 
+ AC_DEFINE([_GNU_SOURCE],[1],[Use GNU C library extensions (e.g. stdndup).])
+
+Modified: trunk/src/jtag/ft2232.c
+===================================================================
+--- trunk/src/jtag/ft2232.c	2009-08-18 12:14:01 UTC (rev 2590)
++++ trunk/src/jtag/ft2232.c	2009-08-18 14:41:58 UTC (rev 2591)
+@@ -24,7 +24,6 @@
+ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+ ***************************************************************************/
+ 
+-
+ /* This code uses information contained in the MPSSE specification which was
+  * found here:
+  * <A HREF="http://www.ftdichip.com/Documents/AppNotes/AN2232C-01_MPSSE_Cmnd.pdf">http://www.ftdichip.com/Documents/AppNotes/AN2232C-01_MPSSE_Cmnd.pdf</A>
+@@ -34,7 +33,6 @@
+  * <A HREF="http://www.ftdichip.com/Documents/DataSheets/DS_FT2232D.pdf">http://www.ftdichip.com/Documents/DataSheets/DS_FT2232D.pdf</A>
+  */
+ 
+-
+ #ifdef HAVE_CONFIG_H
+ #include &quot;config.h&quot;
+ #endif
+@@ -65,6 +63,10 @@
+ 
+ /* max TCK for the high speed devices 30000 kHz */
+ #define	FTDI_2232H_4232H_MAX_TCK	30000
++/* max TCK for the full speed devices 6000 kHz */
++#define	FTDI_2232C_MAX_TCK 6000
++/* this speed value tells that RTCK is requested */
++#define RTCK_SPEED -1
+ 
+ static int ft2232_execute_queue(void);
+ 
+@@ -81,7 +83,6 @@
+ static int ft2232_handle_vid_pid_command(struct command_context_s* cmd_ctx, char* cmd, char** args, int argc);
+ static int ft2232_handle_latency_command(struct command_context_s* cmd_ctx, char* cmd, char** args, int argc);
+ 
+-
+ /**
+  * Send out \a num_cycles on the TCK line while the TAP(s) are in a
+  * stable state.  Calling code must ensure that current state is stable,
+@@ -94,17 +95,13 @@
+  */
+ static int ft2232_stableclocks(int num_cycles, jtag_command_t* cmd);
+ 
+-/* max TCK for the high speed devices 30000 kHz */
+-#define	FTDI_2232H_4232H_MAX_TCK	30000
+-
+ static char *       ft2232_device_desc_A = NULL;
+ static char*        ft2232_device_desc = NULL;
+ static char*        ft2232_serial  = NULL;
+ static char*        ft2232_layout  = NULL;
+ static uint8_t		ft2232_latency = 2;
+-static unsigned		ft2232_max_tck = 6000;
++static unsigned		ft2232_max_tck = FTDI_2232C_MAX_TCK;
+ 
+-
+ #define MAX_USB_IDS 8
+ /* vid = pid = 0 marks the end of the list */
+ static uint16_t ft2232_vid[MAX_USB_IDS + 1] = { 0x0403, 0 };
+@@ -182,13 +179,12 @@
+ static FT_DEVICE	ftdi_device = 0;
+ #elif BUILD_FT2232_LIBFTDI == 1
+ static struct ftdi_context ftdic;
++static enum ftdi_chip_type ftdi_device;
+ #endif
+ 
+-
+ static jtag_command_t* first_unsent;        /* next command that has to be sent */
+ static int             require_send;
+ 
+-
+ /*	<A HREF="http://urjtag.wiki.sourceforge.net/Cable">http://urjtag.wiki.sourceforge.net/Cable</A> + FT2232 says:
+ 
+ 	&quot;There is a significant difference between libftdi and libftd2xx. The latter
+@@ -232,7 +228,6 @@
+ 	return ft2232_buffer[ft2232_read_pointer++];
+ }
+ 
+-
+ /**
+  * Clocks out \a bit_count bits on the TMS line, starting with the least
+  * significant bit of tms_bits and progressing to more significant bits.
+@@ -258,7 +253,9 @@
+ 
+ 	assert(tms_count &gt; 0);
+ 
+-//	LOG_DEBUG(&quot;mpsse cmd=%02x, tms_bits = 0x%08x, bit_count=%d&quot;, mpsse_cmd, tms_bits, tms_count);
++#if 0
++	LOG_DEBUG(&quot;mpsse cmd=%02x, tms_bits = 0x%08x, bit_count=%d&quot;, mpsse_cmd, tms_bits, tms_count);
++#endif
+ 
+ 	for (tms_byte = tms_ndx = i = 0;   i &lt; tms_count;   ++i, tms_bits&gt;&gt;=1)
+ 	{
+@@ -288,7 +285,6 @@
+ 	}
+ }
+ 
+-
+ /**
+  * Function get_tms_buffer_requirements
+  * returns what clock_tms() will consume if called with
+@@ -299,7 +295,6 @@
+ 	return ((bit_count + 6)/7) * 3;
+ }
+ 
+-
+ /**
+  * Function move_to_state
+  * moves the TAP controller from the current state to a
+@@ -326,7 +321,6 @@
+ 	clock_tms(0x4b,  tms_bits, tms_count, 0);
+ }
+ 
+-
+ jtag_interface_t ft2232_interface =
+ {
+ 	.name			= &quot;ft2232&quot;,
+@@ -343,7 +337,7 @@
+ {
+ #if BUILD_FT2232_FTD2XX == 1
+ 	FT_STATUS status;
+-	DWORD	dw_bytes_written;
++	DWORD dw_bytes_written;
+ 	if ((status = FT_Write(ftdih, buf, size, &amp;dw_bytes_written)) != FT_OK)
+ 	{
+ 		*bytes_written = dw_bytes_written;
+@@ -371,13 +365,12 @@
+ #endif
+ }
+ 
+-
+ static int ft2232_read(uint8_t* buf, uint32_t size, uint32_t* bytes_read)
+ {
+ #if BUILD_FT2232_FTD2XX == 1
+-	DWORD     dw_bytes_read;
++	DWORD dw_bytes_read;
+ 	FT_STATUS status;
+-	int       timeout = 5;
++	int timeout = 5;
+ 	*bytes_read = 0;
+ 
+ 	while ((*bytes_read &lt; size) &amp;&amp; timeout--)
+@@ -421,59 +414,88 @@
+ 	return ERROR_OK;
+ }
+ 
+-#ifdef BUILD_FTD2XX_HIGHSPEED
+ static bool ft2232_device_is_highspeed(void)
+ {
++#ifdef BUILD_FT2232_HIGHSPEED
++	#if BUILD_FT2232_FTD2XX == 1
+ 	return (ftdi_device == FT_DEVICE_2232H) || (ftdi_device == FT_DEVICE_4232H);
++	#elif BUILD_FT2232_LIBFTDI == 1
++	return (ftdi_device == TYPE_2232H || ftdi_device == TYPE_4232H);
++	#endif
++#else
++	return false;
++#endif
+ }
+ 
+-static int ft2232_adaptive_clocking(int speed)
+-{
+-	bool use_adaptive_clocking = FALSE;
+-	if (0 == speed)
+-	{
+-		if (ft2232_device_is_highspeed())
+-			use_adaptive_clocking = TRUE;
+-		else
+-		{
+-			LOG_ERROR(&quot;ft2232 device %lu does not support RTCK&quot;, ftdi_device);
+-			return ERROR_OK;
+-		}
+-	}
++/*
++ * Commands that only apply to the FT2232H and FT4232H devices.
++ * See chapter 6 in <A HREF="http://www.ftdichip.com/Documents/AppNotes/">http://www.ftdichip.com/Documents/AppNotes/</A>
++ * AN_108_Command_Processor_for_MPSSE_and_MCU_Host_Bus_Emulation_Modes.pdf
++ */
+ 
+-	uint8_t  buf = use_adaptive_clocking ? 0x96 : 0x97;
++static int ft2232h_ft4232h_adaptive_clocking(bool enable)
++{
++	uint8_t buf = enable ? 0x96 : 0x97;
+ 	LOG_DEBUG(&quot;%2.2x&quot;, buf);
+ 
+ 	uint32_t bytes_written;
+ 	int retval = ft2232_write(&amp;buf, 1, &amp;bytes_written);
+-	if (ERROR_OK != retval || bytes_written != 1)
++	if ((ERROR_OK != retval) || (bytes_written != 1))
+ 	{
+-		LOG_ERROR(&quot;unable to set adative clocking: %d&quot;, retval);
++		LOG_ERROR(&quot;couldn't write command to %s adaptive clocking&quot;
++			, enable ? &quot;enable&quot; : &quot;disable&quot;);
+ 		return retval;
+ 	}
+ 
+ 	return ERROR_OK;
+ }
+-#else
+-static int ft2232_adaptive_clocking(int speed)
++
++/**
++ * Enable/disable the clk divide by 5 of the 60MHz master clock.
++ * This result in a JTAG clock speed range of 91.553Hz-6MHz
++ * respective 457.763Hz-30MHz.
++ */
++static int ft2232h_ft4232h_clk_divide_by_5(bool enable)
+ {
+-	// not implemented on low-speed devices
+-	return speed ? ERROR_OK : -1234;
++	uint32_t bytes_written;
++	uint8_t buf = enable ?  0x8b : 0x8a;
++	int retval = ft2232_write(&amp;buf, 1, &amp;bytes_written);
++	if ((ERROR_OK != retval) || (bytes_written != 1))
++	{
++		LOG_ERROR(&quot;couldn't write command to %s clk divide by 5&quot;
++			, enable ? &quot;enable&quot; : &quot;disable&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++	ft2232_max_tck = enable ? FTDI_2232C_MAX_TCK : FTDI_2232H_4232H_MAX_TCK;
++	LOG_INFO(&quot;max TCK change to: %u kHz&quot;, ft2232_max_tck);
++
++	return ERROR_OK;
+ }
+-#endif
+ 
+ static int ft2232_speed(int speed)
+ {
+-	uint8_t  buf[3];
++	uint8_t buf[3];
+ 	int retval;
+ 	uint32_t bytes_written;
+ 
+-	ft2232_adaptive_clocking(speed);
++	retval = ERROR_OK;
++	bool enable_adaptive_clocking = (RTCK_SPEED == speed);
++	if (ft2232_device_is_highspeed())
++		retval = ft2232h_ft4232h_adaptive_clocking(enable_adaptive_clocking);
++	else if (enable_adaptive_clocking)
++	{
++		LOG_ERROR(&quot;ft2232 device %lu does not support RTCK&quot;
++			, (long unsigned int)ftdi_device);
++		return ERROR_FAIL;
++	}
+ 
+-	buf[0] = 0x86;			/* command &quot;set divisor&quot; */
+-	buf[1] = speed &amp; 0xff;          /* valueL (0 = 6MHz, 1 = 3MHz, 2 = 2.0MHz, ...*/
+-	buf[2] = (speed &gt;&gt; 8) &amp; 0xff;   /* valueH */
++	if ((enable_adaptive_clocking) || (ERROR_OK != retval))
++		return retval;
+ 
++	buf[0] = 0x86;					/* command &quot;set divisor&quot; */
++	buf[1] = speed &amp; 0xff;			/* valueL (0 = 6MHz, 1 = 3MHz, 2 = 2.0MHz, ...*/
++	buf[2] = (speed &gt;&gt; 8) &amp; 0xff;	/* valueH */
++
+ 	LOG_DEBUG(&quot;%2.2x %2.2x %2.2x&quot;, buf[0], buf[1], buf[2]);
+ 	if (((retval = ft2232_write(buf, 3, &amp;bytes_written)) != ERROR_OK) || (bytes_written != 3))
+ 	{
+@@ -484,32 +506,35 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int ft2232_speed_div(int speed, int* khz)
+ {
+ 	/* Take a look in the FT2232 manual,
+ 	 * AN2232C-01 Command Processor for
+ 	 * MPSSE and MCU Host Bus. Chapter 3.8 */
+ 
+-	*khz = ft2232_max_tck / (1 + speed);
++	*khz = (RTCK_SPEED == speed) ? 0 : ft2232_max_tck / (1 + speed);
+ 
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int ft2232_khz(int khz, int* jtag_speed)
+ {
+ 	if (khz == 0)
+ 	{
+-#ifdef BUILD_FTD2XX_HIGHSPEED
+-		*jtag_speed = 0;
+-		return ERROR_OK;
+-#else
+-		LOG_DEBUG(&quot;RCLK not supported&quot;);
+-		LOG_DEBUG(&quot;If you have a high-speed FTDI device, then &quot;
+-			&quot;OpenOCD may be built with --enable-ftd2xx-highspeed.&quot;);
+-		return ERROR_FAIL;
++		if (ft2232_device_is_highspeed())
++		{
++			*jtag_speed = RTCK_SPEED;
++			return ERROR_OK;
++		}
++		else
++		{
++			LOG_DEBUG(&quot;RCLK not supported&quot;);
++#ifndef BUILD_FT2232_HIGHSPEED
++			LOG_DEBUG(&quot;If you have a high-speed FTDI device, then &quot;
++				&quot;OpenOCD may be built with --enable-ft2232-highspeed.&quot;);
+ #endif
++			return ERROR_FAIL;
++		}
+ 	}
+ 
+ 	/* Take a look in the FT2232 manual,
+@@ -544,7 +569,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int ft2232_register_commands(struct command_context_s* cmd_ctx)
+ {
+ 	register_command(cmd_ctx, NULL, &quot;ft2232_device_desc&quot;, ft2232_handle_device_desc_command,
+@@ -560,7 +584,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static void ft2232_end_state(tap_state_t state)
+ {
+ 	if (tap_is_state_stable(state))
+@@ -595,11 +618,10 @@
+ 	buffer[cur_byte] = (buffer[cur_byte] | (((buffer_read()) &lt;&lt; 1) &amp; 0x80)) &gt;&gt; (8 - bits_left);
+ }
+ 
+-
+ static void ft2232_debug_dump_buffer(void)
+ {
+-	int   i;
+-	char  line[256];
++	int i;
++	char line[256];
+ 	char* line_p = line;
+ 
+ 	for (i = 0; i &lt; ft2232_buffer_size; i++)
+@@ -616,16 +638,15 @@
+ 		LOG_DEBUG(&quot;%s&quot;, line);
+ }
+ 
+-
+ static int ft2232_send_and_recv(jtag_command_t* first, jtag_command_t* last)
+ {
+ 	jtag_command_t* cmd;
+-	uint8_t*             buffer;
+-	int             scan_size;
++	uint8_t* buffer;
++	int scan_size;
+ 	enum scan_type  type;
+-	int             retval;
+-	uint32_t             bytes_written = 0;
+-	uint32_t             bytes_read = 0;
++	int retval;
++	uint32_t bytes_written = 0;
++	uint32_t bytes_read = 0;
+ 
+ #ifdef _DEBUG_USB_IO_
+ 	struct timeval  start, inter, inter2, end;
+@@ -735,7 +756,6 @@
+ 	return retval;
+ }
+ 
+-
+ /**
+  * Function ft2232_add_pathmove
+  * moves the TAP controller from the current state to a new state through the
+@@ -777,7 +797,6 @@
+ 	tap_set_end_state(tap_get_state());
+ }
+ 
+-
+ static void ft2232_add_scan(bool ir_scan, enum scan_type type, uint8_t* buffer, int scan_size)
+ {
+ 	int num_bytes = (scan_size + 7) / 8;
+@@ -936,7 +955,6 @@
+ 	}
+ }
+ 
+-
+ static int ft2232_large_scan(scan_command_t* cmd, enum scan_type type, uint8_t* buffer, int scan_size)
+ {
+ 	int num_bytes = (scan_size + 7) / 8;
+@@ -1151,7 +1169,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int ft2232_predict_scan_out(int scan_size, enum scan_type type)
+ {
+ 	int predicted_size = 3;
+@@ -1160,7 +1177,7 @@
+ 	if (tap_get_state() != TAP_DRSHIFT)
+ 		predicted_size += get_tms_buffer_requirements(tap_get_tms_path_len(tap_get_state(), TAP_DRSHIFT));
+ 
+-	if (type == SCAN_IN)    /* only from device to host */
++	if (type == SCAN_IN)	/* only from device to host */
+ 	{
+ 		/* complete bytes */
+ 		predicted_size += CEIL(num_bytes, 65536) * 3;
+@@ -1168,7 +1185,7 @@
+ 		/* remaining bits - 1 (up to 7) */
+ 		predicted_size += ((scan_size - 1) % 8) ? 2 : 0;
+ 	}
+-	else                    /* host to device, or bidirectional */
++	else	/* host to device, or bidirectional */
+ 	{
+ 		/* complete bytes */
+ 		predicted_size += num_bytes + CEIL(num_bytes, 65536) * 3;
+@@ -1180,7 +1197,6 @@
+ 	return predicted_size;
+ }
+ 
+-
+ static int ft2232_predict_scan_in(int scan_size, enum scan_type type)
+ {
+ 	int predicted_size = 0;
+@@ -1202,38 +1218,37 @@
+ 	return predicted_size;
+ }
+ 
+-
+ static void usbjtag_reset(int trst, int srst)
+ {
+ 	enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 	if (trst == 1)
+ 	{
+ 		if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
+-			low_direction |= nTRSTnOE;  /* switch to output pin (output is low) */
++			low_direction |= nTRSTnOE;	/* switch to output pin (output is low) */
+ 		else
+-			low_output &amp;= ~nTRST;       /* switch output low */
++			low_output &amp;= ~nTRST;		/* switch output low */
+ 	}
+ 	else if (trst == 0)
+ 	{
+ 		if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
+-			low_direction &amp;= ~nTRSTnOE; /* switch to input pin (high-Z + internal and external pullup) */
++			low_direction &amp;= ~nTRSTnOE;	/* switch to input pin (high-Z + internal and external pullup) */
+ 		else
+-			low_output |= nTRST;        /* switch output high */
++			low_output |= nTRST;		/* switch output high */
+ 	}
+ 
+ 	if (srst == 1)
+ 	{
+ 		if (jtag_reset_config &amp; RESET_SRST_PUSH_PULL)
+-			low_output &amp;= ~nSRST;       /* switch output low */
++			low_output &amp;= ~nSRST;		/* switch output low */
+ 		else
+-			low_direction |= nSRSTnOE;  /* switch to output pin (output is low) */
++			low_direction |= nSRSTnOE;	/* switch to output pin (output is low) */
+ 	}
+ 	else if (srst == 0)
+ 	{
+ 		if (jtag_reset_config &amp; RESET_SRST_PUSH_PULL)
+-			low_output |= nSRST;        /* switch output high */
++			low_output |= nSRST;		/* switch output high */
+ 		else
+-			low_direction &amp;= ~nSRSTnOE; /* switch to input pin (high-Z) */
++			low_direction &amp;= ~nSRSTnOE;	/* switch to input pin (high-Z) */
+ 	}
+ 
+ 	/* command &quot;set data bits low byte&quot; */
+@@ -1242,7 +1257,6 @@
+ 	buffer_write(low_direction);
+ }
+ 
+-
+ static void jtagkey_reset(int trst, int srst)
+ {
+ 	enum reset_types jtag_reset_config = jtag_get_reset_config();
+@@ -1284,7 +1298,6 @@
+ 			high_direction);
+ }
+ 
+-
+ static void olimex_jtag_reset(int trst, int srst)
+ {
+ 	enum reset_types jtag_reset_config = jtag_get_reset_config();
+@@ -1320,7 +1333,6 @@
+ 			high_direction);
+ }
+ 
+-
+ static void axm0432_jtag_reset(int trst, int srst)
+ {
+ 	if (trst == 1)
+@@ -1350,7 +1362,6 @@
+ 			high_direction);
+ }
+ 
+-
+ static void flyswatter_reset(int trst, int srst)
+ {
+ 	if (trst == 1)
+@@ -1378,7 +1389,6 @@
+ 	LOG_DEBUG(&quot;trst: %i, srst: %i, low_output: 0x%2.2x, low_direction: 0x%2.2x&quot;, trst, srst, low_output, low_direction);
+ }
+ 
+-
+ static void turtle_reset(int trst, int srst)
+ {
+ 	trst = trst;
+@@ -1399,7 +1409,6 @@
+ 	LOG_DEBUG(&quot;srst: %i, low_output: 0x%2.2x, low_direction: 0x%2.2x&quot;, srst, low_output, low_direction);
+ }
+ 
+-
+ static void comstick_reset(int trst, int srst)
+ {
+ 	if (trst == 1)
+@@ -1428,7 +1437,6 @@
+ 			high_direction);
+ }
+ 
+-
+ static void stm32stick_reset(int trst, int srst)
+ {
+ 	if (trst == 1)
+@@ -1462,8 +1470,6 @@
+ 			high_direction);
+ }
+ 
+-
+-
+ static void sheevaplug_reset(int trst, int srst)
+ {
+ 	if (trst == 1)
+@@ -1485,8 +1491,8 @@
+ 
+ static int ft2232_execute_runtest(jtag_command_t *cmd)
+ {
+-	int  retval;
+-	int             i;
++	int retval;
++	int i;
+ 	int predicted_size = 0;
+ 	retval = ERROR_OK;
+ 
+@@ -1549,7 +1555,6 @@
+ 	return retval;
+ }
+ 
+-
+ static int ft2232_execute_statemove(jtag_command_t *cmd)
+ {
+ 	int	predicted_size = 0;
+@@ -1588,8 +1593,7 @@
+ 
+ 	DEBUG_JTAG_IO(&quot;pathmove: %i states, current: %s  end: %s&quot;, num_states,
+ 			tap_state_name(tap_get_state()),
+-			tap_state_name(path[num_states-1])
+-);
++			tap_state_name(path[num_states-1]));
+ 
+ 	/* only send the maximum buffer size that FT2232C can handle */
+ 	predicted_size = 3 * CEIL(num_states, 7);
+@@ -1608,13 +1612,12 @@
+ 	return retval;
+ }
+ 
+-
+ static int ft2232_execute_scan(jtag_command_t *cmd)
+ {
+-	uint8_t*             buffer;
+-	int             scan_size;                  /* size of IR or DR scan */
+-	int             predicted_size = 0;
+-	int				retval = ERROR_OK;
++	uint8_t* buffer;
++	int scan_size;				/* size of IR or DR scan */
++	int predicted_size = 0;
++	int retval = ERROR_OK;
+ 
+ 	enum scan_type  type = jtag_scan_type(cmd-&gt;cmd.scan);
+ 
+@@ -1667,8 +1670,8 @@
+ 
+ static int ft2232_execute_reset(jtag_command_t *cmd)
+ {
+-	int             retval;
+-	int             predicted_size = 0;
++	int retval;
++	int predicted_size = 0;
+ 	retval = ERROR_OK;
+ 
+ 	DEBUG_JTAG_IO(&quot;reset trst: %i srst %i&quot;,
+@@ -1695,7 +1698,7 @@
+ 
+ static int ft2232_execute_sleep(jtag_command_t *cmd)
+ {
+-	int             retval;
++	int retval;
+ 	retval = ERROR_OK;
+ 
+ 	DEBUG_JTAG_IO(&quot;sleep %i&quot;, cmd-&gt;cmd.sleep-&gt;us);
+@@ -1713,7 +1716,7 @@
+ 
+ static int ft2232_execute_stableclocks(jtag_command_t *cmd)
+ {
+-	int             retval;
++	int retval;
+ 	retval = ERROR_OK;
+ 
+ 	/* this is only allowed while in a stable state.  A check for a stable
+@@ -1730,7 +1733,7 @@
+ 
+ static int ft2232_execute_command(jtag_command_t *cmd)
+ {
+-	int             retval;
++	int retval;
+ 	retval = ERROR_OK;
+ 
+ 	switch (cmd-&gt;type)
+@@ -1751,10 +1754,10 @@
+ 
+ static int ft2232_execute_queue()
+ {
+-	jtag_command_t* cmd = jtag_command_queue;   /* currently processed command */
+-	int             retval;
++	jtag_command_t* cmd = jtag_command_queue;	/* currently processed command */
++	int retval;
+ 
+-	first_unsent = cmd;         /* next command that has to be sent */
++	first_unsent = cmd;		/* next command that has to be sent */
+ 	require_send = 0;
+ 
+ 	/* return ERROR_OK, unless ft2232_send_and_recv reports a failed check
+@@ -1790,7 +1793,6 @@
+ 	return retval;
+ }
+ 
+-
+ #if BUILD_FT2232_FTD2XX == 1
+ static int ft2232_init_ftd2xx(uint16_t vid, uint16_t pid, int more, int* try_more)
+ {
+@@ -1838,18 +1840,18 @@
+ 
+ 	status = FT_OpenEx(openex_string, openex_flags, &amp;ftdih);
+ 	if (status != FT_OK) {
+-		// under Win32, the FTD2XX driver appends an &quot;A&quot; to the end
+-		// of the description, if we tried by the desc, then
+-		// try by the alternate &quot;A&quot; description.
++		/* under Win32, the FTD2XX driver appends an &quot;A&quot; to the end
++		 * of the description, if we tried by the desc, then
++		 * try by the alternate &quot;A&quot; description. */
+ 		if (openex_string == ft2232_device_desc) {
+-			// Try the alternate method.
++			/* Try the alternate method. */
+ 			openex_string = ft2232_device_desc_A;
+ 			status = FT_OpenEx(openex_string, openex_flags, &amp;ftdih);
+ 			if (status == FT_OK) {
+-				// yea, the &quot;alternate&quot; method worked!
++				/* yea, the &quot;alternate&quot; method worked! */
+ 			} else {
+-				// drat, give the user a meaningfull message.
+-				// telling the use we tried *BOTH* methods.
++				/* drat, give the user a meaningfull message.
++				 * telling the use we tried *BOTH* methods. */
+ 				LOG_WARNING(&quot;Unable to open FTDI Device tried: '%s' and '%s'\n&quot;,
+ 							ft2232_device_desc,
+ 							ft2232_device_desc_A);
+@@ -1935,24 +1937,20 @@
+ 	}
+ 	else
+ 	{
+-		LOG_INFO(&quot;device: %lu&quot;, ftdi_device);
++		static const char* type_str[] =
++			{&quot;BM&quot;, &quot;AM&quot;, &quot;100AX&quot;, &quot;UNKNOWN&quot;, &quot;2232C&quot;, &quot;232R&quot;, &quot;2232H&quot;, &quot;4232H&quot;};
++		unsigned no_of_known_types = sizeof(type_str) / sizeof(type_str[0]) - 1;
++		unsigned type_index = ((unsigned)ftdi_device &lt; no_of_known_types)
++			? ftdi_device : 3;
++		LOG_INFO(&quot;device: %lu \&quot;%s\&quot;&quot;, ftdi_device, type_str[type_index]);
+ 		LOG_INFO(&quot;deviceID: %lu&quot;, deviceID);
+ 		LOG_INFO(&quot;SerialNumber: %s&quot;, SerialNumber);
+ 		LOG_INFO(&quot;Description: %s&quot;, Description);
+-
+-#ifdef BUILD_FTD2XX_HIGHSPEED
+-		if (ft2232_device_is_highspeed())
+-		{
+-			ft2232_max_tck = FTDI_2232H_4232H_MAX_TCK;
+-			LOG_INFO(&quot;max TCK change to: %u kHz&quot;, ft2232_max_tck);
+-		}
+-#endif
+ 	}
+ 
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int ft2232_purge_ftd2xx(void)
+ {
+ 	FT_STATUS status;
+@@ -1966,7 +1964,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ #endif /* BUILD_FT2232_FTD2XX == 1 */
+ 
+ #if BUILD_FT2232_LIBFTDI == 1
+@@ -2024,10 +2021,16 @@
+ 
+ 	ftdi_set_bitmode(&amp;ftdic, 0x0b, 2); /* ctx, JTAG I/O mask */
+ 
++	ftdi_device = ftdic.type;
++	static const char* type_str[] =
++		{&quot;AM&quot;, &quot;BM&quot;, &quot;2232C&quot;, &quot;R&quot;, &quot;2232H&quot;, &quot;4232H&quot;, &quot;Unknown&quot;};
++	unsigned no_of_known_types = sizeof(type_str) / sizeof(type_str[0]) - 1;
++	unsigned type_index = ((unsigned)ftdi_device &lt; no_of_known_types)
++		? ftdi_device : no_of_known_types;
++	LOG_DEBUG(&quot;FTDI chip type: %i \&quot;%s\&quot;&quot;, (int)ftdi_device, type_str[type_index]);
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int ft2232_purge_libftdi(void)
+ {
+ 	if (ftdi_usb_purge_buffers(&amp;ftdic) &lt; 0)
+@@ -2039,7 +2042,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ #endif /* BUILD_FT2232_LIBFTDI == 1 */
+ 
+ static int ft2232_init(void)
+@@ -2114,6 +2116,12 @@
+ 	if (layout-&gt;init() != ERROR_OK)
+ 		return ERROR_JTAG_INIT_FAILED;
+ 
++	if (ft2232_device_is_highspeed())
++	{
++		if (ft2232h_ft4232h_clk_divide_by_5(false) != ERROR_OK)
++			return ERROR_JTAG_INIT_FAILED;
++	}
++
+ 	ft2232_speed(jtag_get_speed());
+ 
+ 	buf[0] = 0x85; /* Disconnect TDI/DO to TDO/DI for Loopback */
+@@ -2132,7 +2140,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int usbjtag_init(void)
+ {
+ 	uint8_t  buf[3];
+@@ -2217,7 +2224,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int axm0432_jtag_init(void)
+ {
+ 	uint8_t  buf[3];
+@@ -2288,7 +2294,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int jtagkey_init(void)
+ {
+ 	uint8_t  buf[3];
+@@ -2371,7 +2376,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int olimex_jtag_init(void)
+ {
+ 	uint8_t  buf[3];
+@@ -2439,7 +2443,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int flyswatter_init(void)
+ {
+ 	uint8_t  buf[3];
+@@ -2486,7 +2489,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int turtle_init(void)
+ {
+ 	uint8_t  buf[3];
+@@ -2527,7 +2529,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int comstick_init(void)
+ {
+ 	uint8_t  buf[3];
+@@ -2571,7 +2572,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int stm32stick_init(void)
+ {
+ 	uint8_t  buf[3];
+@@ -2615,7 +2615,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int sheevaplug_init(void)
+ {
+ 	uint8_t buf[3];
+@@ -2731,7 +2730,6 @@
+ 	buffer_write(high_direction);
+ }
+ 
+-
+ static void flyswatter_jtag_blink(void)
+ {
+ 	/*
+@@ -2744,7 +2742,6 @@
+ 	buffer_write(high_direction);
+ }
+ 
+-
+ static void turtle_jtag_blink(void)
+ {
+ 	/*
+@@ -2764,7 +2761,6 @@
+ 	buffer_write(high_direction);
+ }
+ 
+-
+ static int ft2232_quit(void)
+ {
+ #if BUILD_FT2232_FTD2XX == 1
+@@ -2783,7 +2779,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int ft2232_handle_device_desc_command(struct command_context_s* cmd_ctx, char* cmd, char** args, int argc)
+ {
+ 	char *cp;
+@@ -2792,20 +2787,20 @@
+ 	{
+ 		ft2232_device_desc = strdup(args[0]);
+ 		cp = strchr(ft2232_device_desc, 0);
+-		// under Win32, the FTD2XX driver appends an &quot;A&quot; to the end
+-		// of the description, this examines the given desc
+-		// and creates the 'missing' _A or non_A variable.
++		/* under Win32, the FTD2XX driver appends an &quot;A&quot; to the end
++		 * of the description, this examines the given desc
++		 * and creates the 'missing' _A or non_A variable. */
+ 		if ((cp[-1] == 'A') &amp;&amp; (cp[-2]==' ')) {
+-			// it was, so make this the &quot;A&quot; version.
++			/* it was, so make this the &quot;A&quot; version. */
+ 			ft2232_device_desc_A = ft2232_device_desc;
+-			// and *CREATE* the non-A version.
++			/* and *CREATE* the non-A version. */
+ 			strcpy(buf, ft2232_device_desc);
+ 			cp = strchr(buf, 0);
+ 			cp[-2] = 0;
+ 			ft2232_device_desc =  strdup(buf);
+ 		} else {
+-			// &lt;space &gt; A not defined
+-			// so create it
++			/* &lt;space &gt; A not defined
++			 * so create it */
+ 			sprintf(buf, &quot;%s A&quot;, ft2232_device_desc);
+ 			ft2232_device_desc_A = strdup(buf);
+ 		}
+@@ -2818,7 +2813,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int ft2232_handle_serial_command(struct command_context_s* cmd_ctx, char* cmd, char** args, int argc)
+ {
+ 	if (argc == 1)
+@@ -2833,7 +2827,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int ft2232_handle_layout_command(struct command_context_s* cmd_ctx, char* cmd, char** args, int argc)
+ {
+ 	if (argc == 0)
+@@ -2845,7 +2838,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int ft2232_handle_vid_pid_command(struct command_context_s* cmd_ctx, char* cmd, char** args, int argc)
+ {
+ 	if (argc &gt; MAX_USB_IDS * 2)
+@@ -2859,7 +2851,7 @@
+ 		LOG_WARNING(&quot;incomplete ft2232_vid_pid configuration directive&quot;);
+ 		if (argc &lt; 2)
+ 			return ERROR_COMMAND_SYNTAX_ERROR;
+-		// remove the incomplete trailing id
++		/* remove the incomplete trailing id */
+ 		argc -= 1;
+ 	}
+ 
+@@ -2884,7 +2876,6 @@
+ 	return retval;
+ }
+ 
+-
+ static int ft2232_handle_latency_command(struct command_context_s* cmd_ctx, char* cmd, char** args, int argc)
+ {
+ 	if (argc == 1)
+@@ -2899,7 +2890,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-
+ static int ft2232_stableclocks(int num_cycles, jtag_command_t* cmd)
+ {
+ 	int retval = 0;
+@@ -2942,7 +2932,6 @@
+ 	return retval;
+ }
+ 
+-
+ /* ---------------------------------------------------------------------
+  * Support for IceBear JTAG adapter from Section5:
+  *	<A HREF="http://section5.ch/icebear">http://section5.ch/icebear</A>
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001373.html">[Openocd-svn] r2590 - in trunk/src: helper jtag
+</A></li>
+	<LI>Next message: <A HREF="001375.html">[Openocd-svn] r2592 - in trunk: doc tcl/interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1374">[ date ]</a>
+              <a href="thread.html#1374">[ thread ]</a>
+              <a href="subject.html#1374">[ subject ]</a>
+              <a href="author.html#1374">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

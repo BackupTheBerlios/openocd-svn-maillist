@@ -1,0 +1,146 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-500-g35af12d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-500-g35af12d&In-Reply-To=%3CE1Orchs-0004fX-OK%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002371.html">
+   <LINK REL="Next"  HREF="002373.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-500-g35af12d</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-500-g35af12d&In-Reply-To=%3CE1Orchs-0004fX-OK%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-500-g35af12d">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Sep  3 22:17:50 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002371.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-499-gae80c35
+</A></li>
+        <LI>Next message: <A HREF="002373.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-501-g98a66c4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2372">[ date ]</a>
+              <a href="thread.html#2372">[ thread ]</a>
+              <a href="subject.html#2372">[ subject ]</a>
+              <a href="author.html#2372">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  35af12d3e729e053b2e83cd0322f9347af652ef3 (commit)
+      from  ae80c3564a5693a5326ceac750ec6779efe3f523 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 35af12d3e729e053b2e83cd0322f9347af652ef3
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Wed Sep 1 23:36:31 2010 +0200
+
+    jtag: fix regression with dummy driver and when starting OpenOCD with target powered down
+    
+    Do not fail startup if communication with target is
+    not possible.
+    
+    OpenOCD supports launching without a target connected
+    or the target powered down.
+    
+    The user will typically power up the target and issue
+    a &quot;reset init&quot; + load his application after OpenOCD
+    is started then.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index 1068681..6f9d92a 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -1445,17 +1445,19 @@ int jtag_init_inner(struct command_context *cmd_ctx)
+ 	case ERROR_OK:
+ 		/* complete success */
+ 		break;
+-	case ERROR_JTAG_INIT_SOFT_FAIL:
++	default:
+ 		/* For backward compatibility reasons, try coping with
+ 		 * configuration errors involving only ID mismatches.
+ 		 * We might be able to talk to the devices.
++		 *
++		 * Also the device might be powered down during startup.
++		 *
++		 * After OpenOCD starts, we can try to power on the device
++		 * and run a reset.
+ 		 */
+ 		LOG_ERROR(&quot;Trying to use configured scan chain anyway...&quot;);
+ 		issue_setup = false;
+ 		break;
+-	default:
+-		/* some hard error; already issued diagnostics */
+-		return retval;
+ 	}
+ 
+ 	/* Now look at IR values.  Problems here will prevent real
+@@ -1466,7 +1468,13 @@ int jtag_init_inner(struct command_context *cmd_ctx)
+ 	 */
+ 	retval = jtag_validate_ircapture();
+ 	if (retval != ERROR_OK)
+-		return retval;
++	{
++		/* The target might be powered down. The user
++		 * can power it up and reset it after firing
++		 * up OpenOCD.
++		 */
++		issue_setup = false;
++	}
+ 
+ 	if (issue_setup)
+ 		jtag_notify_event(JTAG_TAP_EVENT_SETUP);
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/core.c |   18 +++++++++++++-----
+ 1 files changed, 13 insertions(+), 5 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002371.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-499-gae80c35
+</A></li>
+	<LI>Next message: <A HREF="002373.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-501-g98a66c4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2372">[ date ]</a>
+              <a href="thread.html#2372">[ thread ]</a>
+              <a href="subject.html#2372">[ subject ]</a>
+              <a href="author.html#2372">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,856 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2097 - trunk/doc
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2097%20-%20trunk/doc&In-Reply-To=%3C200906072315.n57NF8SK005600%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000880.html">
+   <LINK REL="Next"  HREF="000882.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2097 - trunk/doc</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2097%20-%20trunk/doc&In-Reply-To=%3C200906072315.n57NF8SK005600%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2097 - trunk/doc">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Mon Jun  8 01:15:08 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000880.html">[Openocd-svn] r2096 - trunk/doc
+</A></li>
+        <LI>Next message: <A HREF="000882.html">[Openocd-svn] r2098 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#881">[ date ]</a>
+              <a href="thread.html#881">[ thread ]</a>
+              <a href="subject.html#881">[ subject ]</a>
+              <a href="author.html#881">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-08 01:14:58 +0200 (Mon, 08 Jun 2009)
+New Revision: 2097
+
+Modified:
+   trunk/doc/openocd.texi
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Rework chapter 12 (CPU configuration) to use @deffn, match
+the code more closely, and present things more clearly.
+
+Includes the *current* list of targets.
+
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-06-07 23:10:50 UTC (rev 2096)
++++ trunk/doc/openocd.texi	2009-06-07 23:14:58 UTC (rev 2097)
+@@ -1262,7 +1262,7 @@
+ @cindex GDB configuration
+ You can reconfigure some GDB behaviors if needed.
+ The ones listed here are static and global.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at xref</A>{Target Create}, about declaring individual targets.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at xref</A>{Target Configuration}, about configuring individual targets.
+ @xref{Target Events}, about configuring target-specific event handling.
+ 
+ @anchor{gdb_breakpoint_override}
+@@ -2096,191 +2096,469 @@
+ @chapter CPU Configuration
+ @cindex GDB target
+ 
+-This chapter discusses how to create a GDB debug target for a CPU.
++This chapter discusses how to set up GDB debug targets for CPUs.
+ You can also access these targets without GDB
+-(@pxref{Architecture and Core Commands}) and, where relevant,
++(@pxref{Architecture and Core Commands},
++and @ref{Target State handling}) and
+ through various kinds of NAND and NOR flash commands.
+-Also, if you have multiple CPUs you can have multiple such targets.
++If you have multiple CPUs you can have multiple such targets.
+ 
++We'll start by looking at how to examine the targets you have,
++then look at how to add one more target and how to configure it.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at section</A> Target List
++
++All targets that have been set up are part of a list,
++where each member has a name.
++That name should normally be the same as the TAP name.
++You can display the list with the @command{targets}
++(plural!) command.
++This display often has only one CPU; here's what it might
++look like with more than one:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at verbatim</A>
++    CmdName    Type       Endian     AbsChainPos Name          State
++--  ---------- ---------- ---------- ----------- ------------- ----------
++ 0: rm9200.cpu arm920t    little              2     rm9200.cpu running
++ 1: MyTarget   cortex_m3  little              0     mychip.cpu halted
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> verbatim
++
++One member of that list is the @dfn{current target}, which
++is implicitly referenced by many commands.
++In particular, memory addresses often refer to the address
++space seen by that current target.
++Commands like @command{mdw} (memory display words)
++and @command{flash erase_address} (erase NOR flash blocks)
++are examples; and there are many more.
++
++Several commands let you examine the list of targets:
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {target count}
++Returns the number of targets, @math{N}.
++The highest numbered target is @math{N - 1}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++set c [target count]
++for @{ set x 0 @} @{ $x &lt; $c @} @{ incr x @} @{
++    # Assuming you have created this function
++    print_target_details $x
++@}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {target current}
++Returns the name of the current target.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {target names}
++Lists the names of all current targets in the list.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++foreach t [target names] @{
++    puts [format &quot;Target: %s\n&quot; $t]
++@}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {target number} number
++The list of targets is numbered starting at zero.
++This command returns the name of the target at index @var{number}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++set thename [target number $x]
++puts [format &quot;Target %d is: %s\n&quot; $x $thename]
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at c</A> yep, &quot;target list&quot; would have been better.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at c</A> plus maybe &quot;target setdefault&quot;.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command targets [name]
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at emph</A>{Note: the name of this command is plural.  Other target
++command names are singular.}
++
++With no parameter, this command displays a table of all known
++targets in a user friendly form.
++
++With a parameter, this command sets the current target to
++the given target with the given @var{name}; this is
++only relevant on boards which have more than one target.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at section</A> Target CPU Types and Variants
++
++Each target has a @dfn{CPU type}, as shown in the output of
++the @command{targets} command.  You need to specify that type
++when calling @command{target create}.
++The CPU type indicates more than just the instruction set.
++It also indicates how that instruction set is implemented,
++what kind of debug support it integrates,
++whether it has an MMU (and if so, what kind),
++what core-specific commands may be available
++(@pxref{Architecture and Core Commands}),
++and more.
++
++For some CPU types, OpenOCD also defines @dfn{variants} which
++indicate differences that affect their handling.
++For example, a particular implementation bug might need to be
++worked around in some chip versions.
++
++It's easy to see what target types are supported,
++since there's a command to list them.
++However, there is currently no way to list what target variants
++are supported (other than by reading the OpenOCD source code).
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at anchor</A>{target types}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {target types}
++Lists all supported target types.
++At this writing, the supported CPU types and variants are:
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at itemize</A> @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{arm11} -- this is a generation of ARMv6 cores
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{arm720t} -- this is an ARMv4 core
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{arm7tdmi} -- this is an ARMv4 core
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{arm920t} -- this is an ARMv5 core
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{arm926ejs} -- this is an ARMv5 core
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{arm966e} -- this is an ARMv5 core
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{arm9tdmi} -- this is an ARMv4 core
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{avr} -- implements Atmel's 8-bit AVR instruction set.
++(Support for this is preliminary and incomplete.)
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{cortex_a8} -- this is an ARMv7 core
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{cortex_m3} -- this is an ARMv7 core, supporting only the
++compact Thumb2 instruction set.  It supports one variant:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at itemize</A> @minus
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{lm3s} ... Use this when debugging older Stellaris LM3S targets.
++This will cause OpenOCD to use a software reset rather than asserting
++SRST, to avoid a issue with clearing the debug registers.
++This is fixed in Fury Rev B, DustDevil Rev B, Tempest; these revisions will
++be detected and the normal reset behaviour used.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> itemize
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{feroceon} -- resembles arm926
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{mips_m4k} -- a MIPS core.  This supports one variant:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at itemize</A> @minus
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{ejtag_srst} ... Use this when debugging targets that do not
++provide a functional SRST line on the EJTAG connector.  This causes
++OpenOCD to instead use an EJTAG software reset command to reset the
++processor.
++You still need to enable @option{srst} on the @command{reset_config}
++command to enable OpenOCD hardware reset functionality.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> itemize
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{xscale} -- this is actually an architecture,
++not a CPU type.  It is based on the ARMv5 architecture.
++There are several variants defined:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at itemize</A> @minus
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{ixp42x}, @code{ixp45x}, @code{ixp46x},
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at code</A>{pxa27x} ... instruction register length is 7 bits
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{pxa250}, @code{pxa255},
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at code</A>{pxa26x} ... instruction register length is 5 bits
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> itemize
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> itemize
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
++To avoid being confused by the variety of ARM based cores, remember
++this key point: @emph{ARM is a technology licencing company}.
++(See: @url{<A HREF="http://www.arm.com">http://www.arm.com</A>}.)
++The CPU name used by OpenOCD will reflect the CPU design that was
++licenced, not a vendor brand which incorporates that design.
++Name prefixes like arm7, arm9, arm11, and cortex
++reflect design generations;
++while names like ARMv4, ARMv5, ARMv6, and ARMv7
++reflect an architecture version implemented by a CPU design.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at anchor</A>{Target Configuration}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at section</A> Target Configuration
++
+ Before creating a ``target'', you must have added its TAP to the scan chain.
+ When you've added that TAP, you will have a @code{dotted.name}
+ which is used to set up the CPU support.
+ The chip-specific configuration file will normally configure its CPU(s)
+ right after it adds all of the chip's TAPs to the scan chain.
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at section</A> targets [NAME]
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{Note:} This command name is PLURAL - not singular.
++Although you can set up a target in one step, it's often clearer if you
++use shorter commands and do it in two steps:  create it, then configure
++optional parts.
++All operations on the target after it's created will use a new
++command, created as part of target creation.
+ 
+-With NO parameter, this plural @b{targets} command lists all known
+-targets in a human friendly form.
++The two main things to configure after target creation are
++a work area, which usually has target-specific defaults even
++if the board setup code overrides them later;
++and event handlers (@pxref{Target Events}), which tend
++to be much more board-specific.
++The key steps you use might look something like this
+ 
+-With a parameter, this plural @b{targets} command sets the current
+-target to the given name. (i.e.: If there are multiple debug targets)
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++target create MyTarget cortex_m3 -chain-position mychip.cpu
++$MyTarget configure -work-area-phys 0x08000 -work-area-size 8096
++$MyTarget configure -event reset-deassert-pre @{ jtag_rclk 5 @}
++$MyTarget configure -event reset-init @{ myboard_reinit @}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
+ 
+-Example:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at verbatim</A>
+-(gdb) mon targets
+-      CmdName     Type     Endian    ChainPos   State
+---  ---------- ---------- ---------- -------- ----------
+-    0: target0  arm7tdmi   little        0      halted
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> verbatim
++You should specify a working area if you can; typically it uses some
++on-chip SRAM.
++Such a working area can speed up many things, including bulk
++writes to target memory;
++flash operations like checking to see if memory needs to be erased;
++GDB memory checksumming;
++and more.
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at section</A> target COMMANDS
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{Note:} This command name is SINGULAR - not plural. It is used to
+-manipulate specific targets, to create targets and other things.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at quotation</A> Warning
++On more complex chips, the work area can become
++inaccessible when application code
++(such as an operating system)
++enables or disables the MMU.
++For example, the particular MMU context used to acess the virtual
++address will probably matter ... and that context might not have
++easy access to other addresses needed.
++At this writing, OpenOCD doesn't have much MMU intelligence.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> quotation
+ 
+-Once a target is created, a TARGETNAME (object) command is created;
+-see below for details.
++It's often very useful to define a @code{reset-init} event handler.
++For systems that are normally used with a boot loader,
++common tasks include updating clocks and initializing memory
++controllers.
++That may be needed to let you write the boot loader into flash,
++in order to ``de-brick'' your board; or to load programs into
++external DDR memory without having run the boot loader.
+ 
+-The TARGET command accepts these sub-commands:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {target create} target_name type configparams...
++This command creates a GDB debug target that refers to a specific JTAG tap.
++It enters that target into a list, and creates a new
++command (@command{@var{target_name}}) which is used for various
++purposes including additional configuration.
++
+ @itemize @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{create} .. parameters ..
+-@* creates a new target, see below for details.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{types}
+-@* Lists all supported target types (perhaps some are not yet in this document).
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{names}
+-@* Lists all current debug target names, for example: 'str912.cpu' or 'pxa27.cpu' example usage:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at verbatim</A>
+-	foreach t [target names] {
+-	    puts [format &quot;Target: %s\n&quot; $t]
+-	}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> verbatim
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{current}
+-@* Returns the current target. OpenOCD always has, or refers to the ``current target'' in some way.
+-By default, commands like: ``mww'' (used to write memory) operate on the current target.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{number} @b{NUMBER}
+-@* Internally OpenOCD maintains a list of targets - in numerical index
+-(0..N-1) this command returns the name of the target at index N.
+-Example usage:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at verbatim</A>
+-    set thename [target number $x]
+-    puts [format &quot;Target %d is: %s\n&quot; $x $thename]
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> verbatim
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{count}
+-@* Returns the number of targets known to OpenOCD (see number above)
+-Example:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at verbatim</A>
+-    set c [target count]
+-    for { set x 0 } { $x &lt; $c } { incr x } {
+-       	# Assuming you have created this function
+-       	print_target_details $x
+-    }
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> verbatim
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{target_name} ...  is the name of the debug target.
++By convention this should be the same as the @emph{dotted.name}
++of the TAP associated with this target, which must be specified here
++using the @code{-chain-position @var{dotted.name}} configparam.
+ 
++This name is also used to create the target object command,
++referred to here as @command{$target_name},
++and in other places the target needs to be identified.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{type} ... specifies the target type.  @xref{target types}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{configparams} ...  all parameters accepted by
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at command</A>{$target_name configure} are permitted.
++If the target is big-endian, set it here with @code{-endian big}.
++If the variant matters, set it here with @code{-variant}.
++
++You @emph{must} set the @code{-chain-position @var{dotted.name}} here.
+ @end itemize
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at section</A> TARGETNAME (object) commands
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{Use:} Once a target is created, an ``object name'' that represents the
+-target is created. By convention, the target name is identical to the
+-tap name. In a multiple target system, one can precede many common
+-commands with a specific target name and effect only that target.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at example</A>
+-    str912.cpu    mww 0x1234 0x42
+-    omap3530.cpu  mww 0x5555 123
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> example
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {$target_name configure} configparams...
++The options accepted by this command may also be
++specified as parameters to @command{target create}.
++Their values can later be queried one at a time by
++using the @command{$target_name cget} command.
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{Model:} The Tcl/Tk language has the concept of object commands. A
+-good example is a on screen button, once a button is created a button
+-has a name (a path in Tk terms) and that name is useable as a 1st
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at emph</A>{Warning:} changing some of these after setup is dangerous.
++For example, moving a target from one TAP to another;
++and changing its endianness or variant.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at itemize</A> @bullet
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{-chain-position} @var{dotted.name} -- names the TAP
++used to access this target.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{-endian} (@option{big}|@option{little}) -- specifies
++whether the CPU uses big or little endian conventions
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{-event} @var{event_name} @var{event_body} --
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at xref</A>{Target Events}.
++Note that this updates a list of named event handlers.
++Calling this twice with two different event names assigns
++two different handlers, but calling it twice with the
++same event name assigns only one handler.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{-variant} @var{name} -- specifies a variant of the target,
++which OpenOCD needs to know about.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{-work-area-backup} (@option{0}|@option{1}) -- says
++whether the work area gets backed up; by default, it doesn't.
++When possible, use a working_area that doesn't need to be backed up,
++since performing a backup slows down operations.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{-work-area-size} @var{size} -- specify/set the work area
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{-work-area-phys} @var{address} -- set the work area
++base @var{address} to be used when no MMU is active.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{-work-area-virt} @var{address} -- set the work area
++base @var{address} to be used when an MMU is active.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> itemize
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at section</A> Other $target_name Commands
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at cindex</A> object command
++
++The Tcl/Tk language has the concept of object commands,
++and OpenOCD adopts that same model for targets.
++
++A good Tk example is a on screen button.
++Once a button is created a button
++has a name (a path in Tk terms) and that name is useable as a first
+ class command. For example in Tk, one can create a button and later
+ configure it like this:
+ 
+ @example
+-    # Create
+-    button .foobar -background red -command @{ foo @}
+-    # Modify
+-    .foobar configure -foreground blue
+-    # Query
+-    set x [.foobar cget -background]
+-    # Report
+-    puts [format &quot;The button is %s&quot; $x]
++# Create
++button .foobar -background red -command @{ foo @}
++# Modify
++.foobar configure -foreground blue
++# Query
++set x [.foobar cget -background]
++# Report
++puts [format &quot;The button is %s&quot; $x]
+ @end example
+ 
+ In OpenOCD's terms, the ``target'' is an object just like a Tcl/Tk
+-button. Commands available as a ``target object'' are:
++button, and its object commands are invoked the same way.
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at comment</A> START targetobj commands.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at itemize</A> @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{configure} - configure the target; see Target Config/Cget Options below
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{cget} - query the target configuration; see Target Config/Cget Options below
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{curstate} - current target state (running, halt, etc.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{eventlist}
+-@* Intended for a human to see/read the currently configure target events.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{Various Memory Commands} See the ``mww'' command elsewhere.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at comment</A> start memory
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at itemize</A> @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{mww} ...
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{mwh} ...
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{mwb} ...
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{mdw} ...
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{mdh} ...
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{mdb} ...
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at comment</A> end memory
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++str912.cpu    mww 0x1234 0x42
++omap3530.cpu  mww 0x5555 123
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
++
++The commands supported by OpenOCD target objects are:
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {$target_name arp_examine}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffnx</A> Command {$target_name arp_halt}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffnx</A> Command {$target_name arp_poll}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffnx</A> Command {$target_name arp_reset}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffnx</A> Command {$target_name arp_waitstate}
++Internal OpenOCD scripts (most notably @file{startup.tcl})
++use these to deal with specific reset cases.
++They are not otherwise documented here.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {$target_name array2mem} arrayname width address count
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffnx</A> Command {$target_name mem2array} arrayname width address count
++These provide an efficient script-oriented interface to memory.
++The @code{array2mem} primitive writes bytes, halfwords, or words;
++while @code{mem2array} reads them.
++In both cases, the TCL side uses an array, and
++the target side uses raw memory.
++
++The efficiency comes from enabling the use of
++bulk JTAG data transfer operations.
++The script orientation comes from working with data
++values that are packaged for use by TCL scripts;
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at command</A>{mdw} type primitives only print data they retrieve,
++and neither store nor return those values.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at itemize</A>
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{arrayname} ... is the name of an array variable
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{width} ... is 8/16/32 - indicating the memory access size
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{address} ... is the target memory address
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{count} ... is the number of elements to process
+ @end itemize
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{Memory To Array, Array To Memory}
+-@* These are aimed at a machine interface to memory
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {$target_name cget} queryparm
++Each configuration parameter accepted by
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at command</A>{$target_name configure}
++can be individually queried, to return its current value.
++The @var{queryparm} is a parameter name
++accepted by that command, such as @code{-work-area-phys}.
++There are a few special cases:
++
+ @itemize @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{mem2array ARRAYNAME WIDTH ADDRESS COUNT}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{array2mem ARRAYNAME WIDTH ADDRESS COUNT}
+-@* Where:
+-@*   @b{ARRAYNAME} is the name of an array variable
+-@*   @b{WIDTH} is 8/16/32 - indicating the memory access size
+-@*   @b{ADDRESS} is the target memory address
+-@*   @b{COUNT} is the number of elements to process
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{-event} @var{event_name} -- returns the handler for the
++event named @var{event_name}.
++This is a special case because setting a handler requires
++two parameters.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{-type} -- returns the target type.
++This is a special case because this is set using
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at command</A>{target create} and can't be changed
++using @command{$target_name configure}.
+ @end itemize
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{Used during ``reset''}
+-@* These commands are used internally by the OpenOCD scripts to deal
+-with odd reset situations and are not documented here.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at itemize</A> @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{arp_examine}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{arp_poll}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{arp_reset}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{arp_halt}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{arp_waitstate}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> itemize
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{invoke-event} @b{EVENT-NAME}
+-@* Invokes the specific event manually for the target
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> itemize
+ 
++For example, if you wanted to summarize information about
++all the targets you might use something like this:
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++for @{ set x 0 @} @{ $x &lt; [target count] @} @{ incr x @} @{
++    set name [target number $x]
++    set y [$name cget -endian]
++    set z [$name cget -type]
++    puts [format &quot;Chip %d is %s, Endian: %s, type: %s&quot; \
++                 $x $name $y $z]
++@}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {$target_name curstate}
++Displays the current target state:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at code</A>{debug-running},
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at code</A>{halted},
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at code</A>{reset},
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at code</A>{running}, or @code{unknown}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {$target_name eventlist}
++Displays a table listing all event handlers
++currently associated with this target.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at xref</A>{Target Events}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {$target_name invoke-event} event_name
++Invokes the handler for the event named @var{event_name}.
++(This is primarily intended for use by OpenOCD framework
++code, for example by the reset code in @file{startup.tcl}.)
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {$target_name mdw} addr [count]
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffnx</A> Command {$target_name mdh} addr [count]
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffnx</A> Command {$target_name mdb} addr [count]
++Display contents of address @var{addr}, as
++32-bit words (@command{mdw}), 16-bit halfwords (@command{mdh}),
++or 8-bit bytes (@command{mdb}).
++If @var{count} is specified, displays that many units.
++(If you want to manipulate the data instead of displaying it,
++see the @code{mem2array} primitives.)
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {$target_name mww} addr word
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffnx</A> Command {$target_name mwh} addr halfword
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffnx</A> Command {$target_name mwb} addr byte
++Writes the specified @var{word} (32 bits),
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at var</A>{halfword} (16 bits), or @var{byte} (8-bit) pattern,
++at the specified address @var{addr}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+ @anchor{Target Events}
+ @section Target Events
+ @cindex events
+ At various times, certain things can happen, or you want them to happen.
+-
+-Examples:
++For example:
+ @itemize @bullet
+ @item What should happen when GDB connects? Should your target reset?
+ @item When GDB tries to flash the target, do you need to enable the flash via a special command?
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> During reset, do you need to write to certain memory location to reconfigure the SDRAM?
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> During reset, do you need to write to certain memory locations
++to set up system clocks or
++to reconfigure the SDRAM?
+ @end itemize
+ 
+-All of the above items are handled by target events.
++All of the above items can be addressed by target event handlers.
++These are set up by @command{$target_name configure -event} or
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at command</A>{target create ... -event}.
+ 
+-To specify an event action, either during target creation, or later
+-via ``$_TARGETNAME configure'' see this example.
++The programmer's model matches the @code{-command} option used in Tcl/Tk
++buttons and events.  The two examples below act the same, but one creates
++and invokes a small procedure while the other inlines it.
+ 
+-Syntactially, the option is: ``-event NAME BODY'' where NAME is a
+-target event name, and BODY is a Tcl procedure or string of commands
+-to execute. 
+-
+-The programmers model is the ``-command'' option used in Tcl/Tk
+-buttons and events. Below are two identical examples, the first
+-creates and invokes small procedure. The second inlines the procedure.
+-
+ @example
+-   proc my_attach_proc @{ @} @{
+-       puts &quot;RESET....&quot;
+-       reset halt
+-   @}
+-   mychip.cpu configure -event gdb-attach my_attach_proc 
+-   mychip.cpu configure -event gdb-attach @{
+-       puts &quot;Reset...&quot;
+-       reset halt
+-   @}
++proc my_attach_proc @{ @} @{
++    echo &quot;Reset...&quot;
++    reset halt
++@}
++mychip.cpu configure -event gdb-attach my_attach_proc
++mychip.cpu configure -event gdb-attach @{
++    echo &quot;Reset...&quot;
++    reset halt
++@}
+ @end example
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at section</A> Current Events
+-The following events are available:
++The following target events are defined:
++
+ @itemize @bullet
+ @item @b{debug-halted}
+ @* The target has halted for debug reasons (i.e.: breakpoint)
+@@ -2324,6 +2602,10 @@
+ @item @b{reset-deassert-pre}
+ @* Issued as part of @command{reset} processing
+ when reset is about to be released on the tap.
++
++For some chips, this may be a good place to make sure
++the JTAG clock is slow enough to work before the PLL
++has been set up to allow faster JTAG speeds.
+ @item @b{reset-deassert-post}
+ @* Issued as part of @command{reset} processing
+ when reset has been released on the tap.
+@@ -2336,6 +2618,7 @@
+ @item @b{reset-init}
+ @* Used by @b{reset init} command for board-specific initialization.
+ This event fires after @emph{reset-deassert-post}.
++
+ This is where you would configure PLLs and clocking, set up DRAM so
+ you can download programs that don't fit in on-chip SRAM, set up pin
+ multiplexing, and so on.
+@@ -2356,110 +2639,7 @@
+ @* Target has resumed
+ @end itemize
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at anchor</A>{Target Create}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at section</A> Target Create
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at cindex</A> target
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at cindex</A> target creation
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at example</A>
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{target} @b{create} &lt;@var{NAME}&gt; &lt;@var{TYPE}&gt; &lt;@var{PARAMS ...}&gt;
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> example
+-@*This command creates a GDB debug target that refers to a specific JTAG tap.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at comment</A> START params
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at itemize</A> @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{NAME}
+-@* Is the name of the debug target. By convention it should be the tap
+-DOTTED.NAME.  This name is also used to create the target object
+-command, and in other places the target needs to be identified.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{TYPE}
+-@* Specifies the target type, i.e.: ARM7TDMI, or Cortex-M3. Currently supported targets are:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at comment</A> START types
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at itemize</A> @minus
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{arm7tdmi}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{arm720t}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{arm9tdmi}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{arm920t}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{arm922t}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{arm926ejs}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{arm966e} 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{cortex_m3}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{feroceon}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{xscale}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{arm11}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{mips_m4k}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at comment</A> end TYPES
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> itemize
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{PARAMS}
+-@*PARAMs are various target configuration parameters. The following ones are mandatory:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at comment</A> START mandatory
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at itemize</A> @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{-endian big|little}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{-chain-position DOTTED.NAME}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at comment</A> end MANDATORY
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> itemize
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at comment</A> END params
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> itemize
+-
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at section</A> Target Config/Cget Options
+-These options can be specified when the target is created, or later
+-via the configure option or to query the target via cget.
+-
+-You should specify a working area if you can; typically it uses some
+-on-chip SRAM.  Such a working area can speed up many things, including bulk
+-writes to target memory; flash operations like checking to see if memory needs
+-to be erased; GDB memory checksumming; and may help perform otherwise
+-unavailable operations (like some coprocessor operations on ARM7/9 systems).
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at itemize</A> @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{-type} - returns the target type
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{-event NAME BODY} see Target events
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{-work-area-virt [ADDRESS]} specify/set the work area base address
+-which will be used when an MMU is active.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{-work-area-phys [ADDRESS]} specify/set the work area base address
+-which will be used when an MMU is inactive.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{-work-area-size [ADDRESS]} specify/set the work area
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{-work-area-backup [0|1]} does the work area get backed up;
+-by default, it doesn't.  When possible, use a working_area that doesn't
+-need to be backed up, since performing a backup slows down operations.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{-endian  [big|little]} 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{-variant [NAME]} some chips have variants OpenOCD needs to know about
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{-chain-position DOTTED.NAME} the tap name this target refers to.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> itemize
+-Example:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at example</A>
+-  for @{ set x 0 @} @{ $x &lt; [target count] @} @{ incr x @} @{
+-    set name [target number $x]
+-    set y [$name cget -endian]
+-    set z [$name cget -type]
+-    puts [format &quot;Chip %d is %s, Endian: %s, type: %s&quot; $x $y $z]
+-  @}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> example
+-
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{PROBLEM:} On more complex chips, the work area can become
+-inaccessible when application code enables or disables the MMU.
+-For example, the MMU context used to acess the virtual address
+-will probably matter.
+-
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at section</A> Target Variants
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at itemize</A> @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{cortex_m3}
+-@* Use variant @option{lm3s} when debugging older Stellaris LM3S targets.
+-This will cause OpenOCD to use a software reset rather than asserting
+-SRST, to avoid a issue with clearing the debug registers.
+-This is fixed in Fury Rev B, DustDevil Rev B, Tempest; these revisions will
+-be detected and the normal reset behaviour used.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{xscale}
+-@*Supported variants are
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{ixp42x}, @option{ixp45x}, @option{ixp46x},
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{pxa250}, @option{pxa255}, @option{pxa26x}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{mips_m4k}
+-@* Use variant @option{ejtag_srst} when debugging targets that do not
+-provide a functional SRST line on the EJTAG connector.  This causes
+-OpenOCD to instead use an EJTAG software reset command to reset the
+-processor.  You still need to enable @option{srst} on the reset
+-configuration command to enable OpenOCD hardware reset functionality.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at comment</A> END variants
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> itemize
+-
+ @node Flash Commands
+ @chapter Flash Commands
+ 
+@@ -3542,6 +3722,7 @@
+ the initial log output channel is stderr.
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at anchor</A>{Target State handling}
+ @section Target State handling
+ @cindex reset
+ @cindex halt
+@@ -3688,6 +3869,8 @@
+ 32-bit words (@command{mdw}), 16-bit halfwords (@command{mdh}),
+ or 8-bit bytes (@command{mdb}).
+ If @var{count} is specified, displays that many units.
++(If you want to manipulate the data instead of displaying it,
++see the @code{mem2array} primitives.)
+ @end deffn
+ 
+ @deffn Command mww addr word
+@@ -4184,6 +4367,9 @@
+ They are available in addition to the ARMv4/5, ARM7/ARM9,
+ and ARM9TDMI commands.
+ 
++The Feroceon cores also support these commands, although
++they are not built from ARM926ej-s designs.
++
+ @deffn Command {arm926ejs cache_info}
+ Print information about the caches found.
+ @end deffn
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000880.html">[Openocd-svn] r2096 - trunk/doc
+</A></li>
+	<LI>Next message: <A HREF="000882.html">[Openocd-svn] r2098 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#881">[ date ]</a>
+              <a href="thread.html#881">[ thread ]</a>
+              <a href="subject.html#881">[ subject ]</a>
+              <a href="author.html#881">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

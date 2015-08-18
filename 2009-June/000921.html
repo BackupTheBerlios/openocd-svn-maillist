@@ -1,0 +1,133 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2137 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2137%20-%20trunk/src/jtag&In-Reply-To=%3C200906090116.n591GUY5005830%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000920.html">
+   <LINK REL="Next"  HREF="000922.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2137 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2137%20-%20trunk/src/jtag&In-Reply-To=%3C200906090116.n591GUY5005830%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2137 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun  9 03:16:30 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000920.html">[Openocd-svn] r2136 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000922.html">[Openocd-svn] r2138 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#921">[ date ]</a>
+              <a href="thread.html#921">[ thread ]</a>
+              <a href="subject.html#921">[ subject ]</a>
+              <a href="author.html#921">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-09 03:16:19 +0200 (Tue, 09 Jun 2009)
+New Revision: 2137
+
+Modified:
+   trunk/src/jtag/jtag.c
+Log:
+Reduce scope or eliminate temporary variables in jtag_add_statemove:
+- Change types of tms_bits and tms_count to unsigned, eliminates a cast.
+- Use moves[] only if needed; a single move can use goal_state directly.
+- Declare loop induction variable inside its control statement.
+- Remove retval in favor of direct returns.
+
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-09 01:16:13 UTC (rev 2136)
++++ trunk/src/jtag/jtag.c	2009-06-09 01:16:19 UTC (rev 2137)
+@@ -2597,13 +2597,7 @@
+  */
+ int jtag_add_statemove(tap_state_t goal_state)
+ {
+-	int retval = ERROR_OK;
+-
+-	tap_state_t moves[8];
+ 	tap_state_t cur_state = cmd_queue_cur_state;
+-	int i;
+-	int tms_bits;
+-	int	tms_count;
+ 
+ 	LOG_DEBUG( &quot;cur_state=%s goal_state=%s&quot;,
+ 		tap_state_name(cur_state),
+@@ -2618,12 +2612,12 @@
+ 	}
+ 	else if( tap_is_state_stable(cur_state) &amp;&amp; tap_is_state_stable(goal_state) )
+ 	{
+-		tms_bits  = tap_get_tms_path(cur_state, goal_state);
+-		tms_count = tap_get_tms_path_len(cur_state, goal_state);
++		unsigned tms_bits  = tap_get_tms_path(cur_state, goal_state);
++		unsigned tms_count = tap_get_tms_path_len(cur_state, goal_state);
++		tap_state_t moves[8];
++		assert(tms_count &lt; DIM(moves));
+ 
+-		assert( (unsigned) tms_count &lt; DIM(moves) );
+-
+-		for (i=0;   i&lt;tms_count;   i++, tms_bits&gt;&gt;=1)
++		for (unsigned i = 0; i &lt; tms_count; i++, tms_bits &gt;&gt;= 1)
+ 		{
+ 			bool bit = tms_bits &amp; 1;
+ 
+@@ -2636,17 +2630,13 @@
+ 	else if( tap_state_transition(cur_state, true)  == goal_state
+ 		||   tap_state_transition(cur_state, false) == goal_state )
+ 	{
+-		/* move a single state */
+-		moves[0] = goal_state;
+-		jtag_add_pathmove( 1, moves );
++		jtag_add_pathmove(1, &amp;goal_state);
+ 	}
+ 
+ 	else
+-	{
+-		retval = ERROR_FAIL;
+-	}
++		return ERROR_FAIL;
+ 
+-	return retval;
++	return ERROR_OK;
+ }
+ 
+ void jtag_set_nsrst_delay(unsigned delay)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000920.html">[Openocd-svn] r2136 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000922.html">[Openocd-svn] r2138 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#921">[ date ]</a>
+              <a href="thread.html#921">[ thread ]</a>
+              <a href="subject.html#921">[ subject ]</a>
+              <a href="author.html#921">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

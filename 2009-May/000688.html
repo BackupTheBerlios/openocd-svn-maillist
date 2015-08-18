@@ -1,0 +1,347 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1904 - in trunk: doc src/flash src/target/board
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1904%20-%20in%20trunk%3A%20doc%20src/flash%20src/target/board&In-Reply-To=%3C200905240157.n4O1vH8I009333%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000687.html">
+   <LINK REL="Next"  HREF="000689.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1904 - in trunk: doc src/flash src/target/board</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1904%20-%20in%20trunk%3A%20doc%20src/flash%20src/target/board&In-Reply-To=%3C200905240157.n4O1vH8I009333%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1904 - in trunk: doc src/flash src/target/board">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Sun May 24 03:57:17 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000687.html">[Openocd-svn] r1903 - in trunk: doc src/flash src/target/board
+</A></li>
+        <LI>Next message: <A HREF="000689.html">[Openocd-svn] r1905 - trunk/src/target/board
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#688">[ date ]</a>
+              <a href="thread.html#688">[ thread ]</a>
+              <a href="subject.html#688">[ subject ]</a>
+              <a href="author.html#688">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-24 03:57:13 +0200 (Sun, 24 May 2009)
+New Revision: 1904
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/flash/nand.c
+   trunk/src/target/board/sheevaplug.cfg
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Update two oddball NAND commands to work with {offset, length}
+instead of block numbers, matching the other commands as well
+as usage in U-Boot and the Linux-MTD utilities.
+
+Document them accordingly.  Update the single in-tree use of
+those commands (sheevaplug).
+
+ALSO:
+
+ (a) Document the current 2 GByte/chip ceiling for NAND chipsize.
+     (32 bit offset/length values can't represent 4 GBytes.)  Maybe
+     after the upcoming release, the code can switch to 64-bits.
+
+ (b) The &quot;nand check_bad_blocks&quot; should report &quot;bad&quot; blocks.  They
+     are not &quot;invalid&quot; blocks; they're &quot;bad&quot; ones.
+
+ (c) Tweak the &quot;nand info&quot; command to handle the &quot;no arguments&quot;
+     case sanely (show everything, instead of showing garbage) and
+     not listing the blocksize in hex kbytes (duh).
+
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-05-24 01:38:19 UTC (rev 1903)
++++ trunk/doc/openocd.texi	2009-05-24 01:57:13 UTC (rev 1904)
+@@ -2616,6 +2616,15 @@
+ de-brick a board.
+ @end enumerate
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{NOTE:} At the time this text was written, the largest NAND
++flash fully supported by OpenOCD is 2 GiBytes (16 GiBits).
++This is because the variables used to hold offsets and lengths
++are only 32 bits wide.
++(Larger chips may work in some cases, unless an offset or length
++is larger than 0xffffffff, the largest 32-bit unsigned integer.)
++Some larger devices will work, since they are actually multi-chip
++modules with two smaller chips and individual chipselect lines.
++
+ @section NAND Configuration Commands
+ @cindex NAND configuration
+ 
+@@ -2702,9 +2711,19 @@
+ @end itemize
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffn</A> Command {nand erase} num ...
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {nand erase} num offset length
+ @cindex NAND erasing
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{NOTE:} Syntax is in flux.
++Erases blocks on the specified NAND device, starting at the
++specified @var{offset} and continuing for @var{length} bytes.
++Both of those values must be exact multiples of the device's
++block size, and the region they specify must fit entirely in the chip.
++The @var{num} parameter is the value shown by @command{nand list}.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{NOTE:} This command will try to erase bad blocks, when told
++to do so, which will probably invalidate the manufacturer's bad
++block marker.
++For the remainder of the current server session, @command{nand info}
++will still report that the block ``is'' bad.
+ @end deffn
+ 
+ @deffn Command {nand write} num filename offset [option...]
+@@ -2768,8 +2787,18 @@
+ @section Other NAND commands
+ @cindex NAND other commands
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffn</A> Command {nand check_bad} num ...
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{NOTE:} Syntax is in flux.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {nand check_bad_blocks} [offset length]
++Checks for manufacturer bad block markers on the specified NAND
++device.  If no parameters are provided, checks the whole
++device; otherwise, starts at the specified @var{offset} and
++continues for @var{length} bytes.
++Both of those values must be exact multiples of the device's
++block size, and the region they specify must fit entirely in the chip.
++The @var{num} parameter is the value shown by @command{nand list}.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{NOTE:} Before using this command you should force raw access
++with @command{nand raw_access enable} to ensure that the underlying
++driver will not try to apply hardware ECC.
+ @end deffn
+ 
+ @deffn Command {nand info} num
+
+Modified: trunk/src/flash/nand.c
+===================================================================
+--- trunk/src/flash/nand.c	2009-05-24 01:38:19 UTC (rev 1903)
++++ trunk/src/flash/nand.c	2009-05-24 01:57:13 UTC (rev 1904)
+@@ -309,12 +309,12 @@
+ 		register_command(cmd_ctx, nand_cmd, &quot;probe&quot;, handle_nand_probe_command, COMMAND_EXEC,
+ 						 &quot;identify NAND flash device &lt;num&gt;&quot;);
+ 		register_command(cmd_ctx, nand_cmd, &quot;check_bad_blocks&quot;, handle_nand_check_bad_blocks_command, COMMAND_EXEC,
+-						 &quot;check NAND flash device &lt;num&gt; for bad blocks [&lt;first&gt; &lt;last&gt;]&quot;);
++						 &quot;check NAND flash device &lt;num&gt; for bad blocks [&lt;offset&gt; &lt;length&gt;]&quot;);
+ 		register_command(cmd_ctx, nand_cmd, &quot;erase&quot;, handle_nand_erase_command, COMMAND_EXEC,
+-						 &quot;erase blocks on NAND flash device &lt;num&gt; &lt;first&gt; &lt;last&gt;&quot;);
++						 &quot;erase blocks on NAND flash device &lt;num&gt; &lt;offset&gt; &lt;length&gt;&quot;);
+ 		register_command(cmd_ctx, nand_cmd, &quot;dump&quot;, handle_nand_dump_command, COMMAND_EXEC,
+ 						 &quot;dump from NAND flash device &lt;num&gt; &lt;filename&gt; &quot;
+-						 &quot;&lt;offset&gt; &lt;size&gt; [oob_raw|oob_only]&quot;);
++						 &quot;&lt;offset&gt; &lt;length&gt; [oob_raw|oob_only]&quot;);
+ 		register_command(cmd_ctx, nand_cmd, &quot;write&quot;, handle_nand_write_command, COMMAND_EXEC,
+ 						 &quot;write to NAND flash device &lt;num&gt; &lt;filename&gt; &lt;offset&gt; [oob_raw|oob_only|oob_softecc|oob_softecc_kw]&quot;);
+ 		register_command(cmd_ctx, nand_cmd, &quot;raw_access&quot;, handle_nand_raw_access_command, COMMAND_EXEC,
+@@ -360,7 +360,7 @@
+ 			|| (((device-&gt;page_size == 512) &amp;&amp; (oob[5] != 0xff)) ||
+ 				((device-&gt;page_size == 2048) &amp;&amp; (oob[0] != 0xff))))
+ 		{
+-			LOG_WARNING(&quot;invalid block: %i&quot;, i);
++			LOG_WARNING(&quot;bad block: %i&quot;, i);
+ 			device-&gt;blocks[i].is_bad = 1;
+ 		}
+ 		else
+@@ -1093,20 +1093,20 @@
+ 	int first = -1;
+ 	int last = -1;
+ 
+-	if ((argc &lt; 1) || (argc &gt; 3))
+-	{
++	switch (argc) {
++	default:
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+-
+-	}
+-
+-	if (argc == 2)
+-	{
++	case 1:
++		first = 0;
++		last = INT32_MAX;
++		break;
++	case 2:
+ 		first = last = strtoul(args[1], NULL, 0);
+-	}
+-	else if (argc == 3)
+-	{
++		break;
++	case 3:
+ 		first = strtoul(args[1], NULL, 0);
+ 		last = strtoul(args[2], NULL, 0);
++		break;
+ 	}
+ 
+ 	p = get_nand_device_by_num(strtoul(args[0], NULL, 0));
+@@ -1141,7 +1141,7 @@
+ 				else
+ 					bad_state = &quot; (block condition unknown)&quot;;
+ 
+-				command_print(cmd_ctx, &quot;\t#%i: 0x%8.8x (0x%xkB) %s%s&quot;,
++				command_print(cmd_ctx, &quot;\t#%i: 0x%8.8x (%dkB) %s%s&quot;,
+ 							j, p-&gt;blocks[j].offset, p-&gt;blocks[j].size / 1024,
+ 							erase_state, bad_state);
+ 			}
+@@ -1203,13 +1203,32 @@
+ 	p = get_nand_device_by_num(strtoul(args[0], NULL, 0));
+ 	if (p)
+ 	{
+-		int first = strtoul(args[1], NULL, 0);
+-		int last = strtoul(args[2], NULL, 0);
++		char *cp;
++		unsigned long offset;
++		unsigned long length;
+ 
+-		if ((retval = nand_erase(p, first, last)) == ERROR_OK)
++		offset = strtoul(args[1], &amp;cp, 0);
++		if (*cp || offset == ULONG_MAX || offset % p-&gt;erase_size)
+ 		{
+-			command_print(cmd_ctx, &quot;successfully erased blocks %i to %i on NAND flash device '%s'&quot;, first, last, p-&gt;device-&gt;name);
++			return ERROR_INVALID_ARGUMENTS;
+ 		}
++		offset /= p-&gt;erase_size;
++
++		length = strtoul(args[2], &amp;cp, 0);
++		if (*cp || length == ULONG_MAX || length % p-&gt;erase_size)
++		{
++			return ERROR_INVALID_ARGUMENTS;
++		}
++		length -= 1;
++		length /= p-&gt;erase_size;
++
++		retval = nand_erase(p, offset, offset + length);
++		if (retval == ERROR_OK)
++		{
++			command_print(cmd_ctx, &quot;successfully erased blocks &quot;
++					&quot;%lu to %lu on NAND flash device '%s'&quot;,
++					offset, offset + length, p-&gt;device-&gt;name);
++		}
+ 		else if (retval == ERROR_NAND_OPERATION_FAILED)
+ 		{
+ 			command_print(cmd_ctx, &quot;erase failed&quot;);
+@@ -1240,31 +1259,53 @@
+ 
+ 	}
+ 
++	p = get_nand_device_by_num(strtoul(args[0], NULL, 0));
++	if (!p) {
++		command_print(cmd_ctx, &quot;NAND flash device '#%s' is out of bounds&quot;,
++				args[0]);
++		return ERROR_INVALID_ARGUMENTS;
++	}
++
+ 	if (argc == 3)
+ 	{
+-		first = strtoul(args[1], NULL, 0);
+-		last = strtoul(args[2], NULL, 0);
+-	}
++		char *cp;
++		unsigned long offset;
++		unsigned long length;
+ 
+-	p = get_nand_device_by_num(strtoul(args[0], NULL, 0));
+-	if (p)
+-	{
+-		if ((retval = nand_build_bbt(p, first, last)) == ERROR_OK)
++		offset = strtoul(args[1], &amp;cp, 0);
++		if (*cp || offset == ULONG_MAX || offset % p-&gt;erase_size)
+ 		{
+-			command_print(cmd_ctx, &quot;checked NAND flash device for bad blocks, use \&quot;nand info\&quot; command to list blocks&quot;);
++			return ERROR_INVALID_ARGUMENTS;
+ 		}
+-		else if (retval == ERROR_NAND_OPERATION_FAILED)
++		offset /= p-&gt;erase_size;
++
++		length = strtoul(args[2], &amp;cp, 0);
++		if (*cp || length == ULONG_MAX || length % p-&gt;erase_size)
+ 		{
+-			command_print(cmd_ctx, &quot;error when checking for bad blocks on NAND flash device&quot;);
++			return ERROR_INVALID_ARGUMENTS;
+ 		}
+-		else
+-		{
+-			command_print(cmd_ctx, &quot;unknown error when checking for bad blocks on NAND flash device&quot;);
+-		}
++		length -= 1;
++		length /= p-&gt;erase_size;
++
++		first = offset;
++		last = offset + length;
+ 	}
++
++	retval = nand_build_bbt(p, first, last);
++	if (retval == ERROR_OK)
++	{
++		command_print(cmd_ctx, &quot;checked NAND flash device for bad blocks, &quot;
++				&quot;use \&quot;nand info\&quot; command to list blocks&quot;);
++	}
++	else if (retval == ERROR_NAND_OPERATION_FAILED)
++	{
++		command_print(cmd_ctx, &quot;error when checking for bad blocks on &quot;
++				&quot;NAND flash device&quot;);
++	}
+ 	else
+ 	{
+-		command_print(cmd_ctx, &quot;NAND flash device '#%s' is out of bounds&quot;, args[0]);
++		command_print(cmd_ctx, &quot;unknown error when checking for bad &quot;
++				&quot;blocks on NAND flash device&quot;);
+ 	}
+ 
+ 	return ERROR_OK;
+
+Modified: trunk/src/target/board/sheevaplug.cfg
+===================================================================
+--- trunk/src/target/board/sheevaplug.cfg	2009-05-24 01:38:19 UTC (rev 1903)
++++ trunk/src/target/board/sheevaplug.cfg	2009-05-24 01:57:13 UTC (rev 1904)
+@@ -98,7 +98,7 @@
+ 	# reflash the u-Boot binary and reboot into it
+ 	sheevaplug_init
+ 	nand probe 0
+-	nand erase 0 0 4
++	nand erase 0 0x0 0xa0000
+ 	nand write 0 uboot.bin 0 oob_softecc_kw
+ 	resume
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000687.html">[Openocd-svn] r1903 - in trunk: doc src/flash src/target/board
+</A></li>
+	<LI>Next message: <A HREF="000689.html">[Openocd-svn] r1905 - trunk/src/target/board
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#688">[ date ]</a>
+              <a href="thread.html#688">[ thread ]</a>
+              <a href="subject.html#688">[ subject ]</a>
+              <a href="author.html#688">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

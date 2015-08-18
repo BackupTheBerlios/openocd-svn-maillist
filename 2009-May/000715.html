@@ -1,0 +1,241 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1931 - trunk/src/flash
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1931%20-%20trunk/src/flash&In-Reply-To=%3C200905271234.n4RCY6ni004699%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000714.html">
+   <LINK REL="Next"  HREF="000716.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1931 - trunk/src/flash</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1931%20-%20trunk/src/flash&In-Reply-To=%3C200905271234.n4RCY6ni004699%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1931 - trunk/src/flash">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Wed May 27 14:34:06 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000714.html">[Openocd-svn] r1930 - in trunk: doc src/flash
+</A></li>
+        <LI>Next message: <A HREF="000716.html">[Openocd-svn] r1932 - in trunk/doc/manual: . primer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#715">[ date ]</a>
+              <a href="thread.html#715">[ thread ]</a>
+              <a href="subject.html#715">[ subject ]</a>
+              <a href="author.html#715">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-27 14:34:02 +0200 (Wed, 27 May 2009)
+New Revision: 1931
+
+Modified:
+   trunk/src/flash/mflash.c
+   trunk/src/flash/mflash.h
+Log:
+unsik Kim &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">donari75 at gmail.com</A>&gt;:
+Add large bank write/dump support in mflash driver.
+
+
+Modified: trunk/src/flash/mflash.c
+===================================================================
+--- trunk/src/flash/mflash.c	2009-05-27 12:30:42 UTC (rev 1930)
++++ trunk/src/flash/mflash.c	2009-05-27 12:34:02 UTC (rev 1931)
+@@ -670,13 +670,11 @@
+ 
+ static int mg_write_cmd(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
+-	u32 address, buf_cnt;
++	u32 address, buf_cnt, cnt, res, i;
+ 	u8 *buffer;
+-	/* TODO : multi-bank support, large file support */
+ 	fileio_t fileio;
+ 	duration_t duration;
+ 	char *duration_text;
+-	int ret;
+ 
+ 	if (argc != 3) {
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+@@ -688,18 +686,32 @@
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	buffer = malloc(fileio.size);
+-
+-	if (fileio_read(&amp;fileio, fileio.size, buffer, &amp;buf_cnt) != ERROR_OK)
+-	{
+-		free(buffer);
++	buffer = malloc(MG_FILEIO_CHUNK);
++	if (!buffer) {
+ 		fileio_close(&amp;fileio);
+ 		return ERROR_FAIL;
+ 	}
+ 
++	cnt = fileio.size / MG_FILEIO_CHUNK;
++	res = fileio.size % MG_FILEIO_CHUNK;
++
+ 	duration_start_measure(&amp;duration);
+ 
+-	ret = mg_mflash_write(address, buffer, (u32)fileio.size);
++	for (i = 0; i &lt; cnt; i++) {
++		if (fileio_read(&amp;fileio, MG_FILEIO_CHUNK, buffer, &amp;buf_cnt) !=
++				ERROR_OK)
++			goto mg_write_cmd_err;
++		if (mg_mflash_write(address, buffer, MG_FILEIO_CHUNK) != ERROR_OK)
++			goto mg_write_cmd_err;
++		address += MG_FILEIO_CHUNK;
++	}
++ 
++	if (res) {
++		if (fileio_read(&amp;fileio, res, buffer, &amp;buf_cnt) != ERROR_OK)
++			goto mg_write_cmd_err;			
++		if (mg_mflash_write(address, buffer, res) != ERROR_OK)
++			goto mg_write_cmd_err;
++	}
+ 
+ 	duration_stop_measure(&amp;duration, &amp;duration_text);
+ 
+@@ -708,19 +720,24 @@
+ 		(float)fileio.size / 1024.0 / ((float)duration.duration.tv_sec + ((float)duration.duration.tv_usec / 1000000.0)));
+ 
+ 	free(duration_text);
++	free(buffer);
++	fileio_close(&amp;fileio);
+ 
++	return ERROR_OK;
++
++mg_write_cmd_err:
++	duration_stop_measure(&amp;duration, &amp;duration_text);
++	free(duration_text);
++ 	free(buffer);
+ 	fileio_close(&amp;fileio);
+ 
+-	free(buffer);
+-
+-	return ERROR_OK;
++	return ERROR_FAIL;
+ }
+ 
+ static int mg_dump_cmd(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
+-	u32 address, size_written, size;
++	u32 address, size_written, size, cnt, res, i;
+ 	u8 *buffer;
+-	/* TODO : multi-bank support */
+ 	fileio_t fileio;
+ 	duration_t duration;
+ 	char *duration_text;
+@@ -735,31 +752,55 @@
+ 	if (fileio_open(&amp;fileio, args[1], FILEIO_WRITE, FILEIO_BINARY) != ERROR_OK) {
+ 		return ERROR_FAIL;
+ 	}
++ 
++	buffer = malloc(MG_FILEIO_CHUNK);
++	if (!buffer) {
++		fileio_close(&amp;fileio);
++		return ERROR_FAIL;
++	}
+ 
+-	buffer = malloc(size);
+-
++	cnt = size / MG_FILEIO_CHUNK;
++	res = size % MG_FILEIO_CHUNK;
++ 
+ 	duration_start_measure(&amp;duration);
+ 
+-	mg_mflash_read(address, buffer, size);
++	for (i = 0; i &lt; cnt; i++) {
++		if (mg_mflash_read(address, buffer, MG_FILEIO_CHUNK) != ERROR_OK)
++			goto mg_dump_cmd_err;
++		if (fileio_write(&amp;fileio, MG_FILEIO_CHUNK, buffer, &amp;size_written)
++				!= ERROR_OK)
++			goto mg_dump_cmd_err;
++		address += MG_FILEIO_CHUNK;
++	}
++ 
++	if (res) {
++		if (mg_mflash_read(address, buffer, res) != ERROR_OK)
++			goto mg_dump_cmd_err;
++		if (fileio_write(&amp;fileio, res, buffer, &amp;size_written) != ERROR_OK)
++			goto mg_dump_cmd_err;
++	}
+ 
+ 	duration_stop_measure(&amp;duration, &amp;duration_text);
+ 
+-	fileio_write(&amp;fileio, size, buffer, &amp;size_written);
+-
+ 	command_print(cmd_ctx, &quot;dump image (address 0x%8.8x size %u) to file %s in %s (%f kB/s)&quot;,
+ 				address, size, args[1], duration_text,
+ 				(float)size / 1024.0 / ((float)duration.duration.tv_sec + ((float)duration.duration.tv_usec / 1000000.0)));
+ 
+ 	free(duration_text);
+-
++	free(buffer);
+ 	fileio_close(&amp;fileio);
+ 
+-	free(buffer);
++	return ERROR_OK;
+ 
+-	return ERROR_OK;
++mg_dump_cmd_err:
++	duration_stop_measure(&amp;duration, &amp;duration_text);
++	free(duration_text);
++ 	free(buffer);
++	fileio_close(&amp;fileio);
++ 
++	return ERROR_FAIL;	
+ }
+ 
+-
+ static int mg_set_feature(mg_feature_id feature, mg_feature_val config)
+ {
+ 	target_t *target = mflash_bank-&gt;target;
+
+Modified: trunk/src/flash/mflash.h
+===================================================================
+--- trunk/src/flash/mflash.h	2009-05-27 12:30:42 UTC (rev 1930)
++++ trunk/src/flash/mflash.h	2009-05-27 12:34:02 UTC (rev 1931)
+@@ -176,6 +176,8 @@
+ 
+ #define MG_UNLOCK_OTP_AREA 0xFF
+ 
++#define MG_FILEIO_CHUNK 1048576
++
+ typedef enum _mg_io_type_wait{
+ 
+ 	mg_io_wait_bsy       = 1,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000714.html">[Openocd-svn] r1930 - in trunk: doc src/flash
+</A></li>
+	<LI>Next message: <A HREF="000716.html">[Openocd-svn] r1932 - in trunk/doc/manual: . primer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#715">[ date ]</a>
+              <a href="thread.html#715">[ thread ]</a>
+              <a href="subject.html#715">[ subject ]</a>
+              <a href="author.html#715">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

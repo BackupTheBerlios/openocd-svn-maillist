@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2691 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2691%20-%20trunk/src/target&In-Reply-To=%3C200909110743.n8B7heX9017382%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001473.html">
+   <LINK REL="Next"  HREF="001475.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2691 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2691%20-%20trunk/src/target&In-Reply-To=%3C200909110743.n8B7heX9017382%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2691 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Fri Sep 11 09:43:40 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001473.html">[Openocd-svn] r2690 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001475.html">[Openocd-svn] r2692 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1474">[ date ]</a>
+              <a href="thread.html#1474">[ thread ]</a>
+              <a href="subject.html#1474">[ subject ]</a>
+              <a href="author.html#1474">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-09-11 09:43:36 +0200 (Fri, 11 Sep 2009)
+New Revision: 2691
+
+Modified:
+   trunk/src/target/arm11_dbgtap.c
+Log:
+do not use dynamically sized stack arrays, not compatible with embedded OS's
+
+Modified: trunk/src/target/arm11_dbgtap.c
+===================================================================
+--- trunk/src/target/arm11_dbgtap.c	2009-09-11 06:58:49 UTC (rev 2690)
++++ trunk/src/target/arm11_dbgtap.c	2009-09-11 07:43:36 UTC (rev 2691)
+@@ -576,7 +576,15 @@
+ 	arm11_setup_field(arm11,  1,    NULL,			NULL /*&amp;Ready*/,	chain5_fields + 1);
+ 	arm11_setup_field(arm11,  1,    NULL,			NULL,				chain5_fields + 2);
+ 
+-	uint8_t			Readies[count + 1];
++	uint8_t			*Readies;
++	int bytes = sizeof(*Readies)*(count + 1);
++	Readies = (uint8_t *) malloc(bytes);
++	if (Readies == NULL)
++	{
++		LOG_ERROR(&quot;Out of memory allocating %d bytes&quot;, bytes);
++		return ERROR_FAIL;
++	}
++
+ 	uint8_t	*		ReadyPos			= Readies;
+ 
+ 	while (count--)
+@@ -603,22 +611,28 @@
+ 
+ 	arm11_add_dr_scan_vc(asizeof(chain5_fields), chain5_fields, TAP_DRPAUSE);
+ 
+-	CHECK_RETVAL(jtag_execute_queue());
++	int retval = jtag_execute_queue();
++	if (retval == ERROR_OK)
++	{
+ 
+-	size_t error_count = 0;
++		size_t error_count = 0;
+ 
+-	for (size_t i = 0; i &lt; asizeof(Readies); i++)
+-	{
+-		if (Readies[i] != 1)
++		for (size_t i = 0; i &lt; asizeof(Readies); i++)
+ 		{
+-			error_count++;
++			if (Readies[i] != 1)
++			{
++				error_count++;
++			}
+ 		}
++
++		if (error_count)
++			LOG_ERROR(&quot;Transfer errors &quot; ZU, error_count);
++
+ 	}
+ 
+-	if (error_count)
+-		LOG_ERROR(&quot;Transfer errors &quot; ZU, error_count);
++	free(Readies);
+ 
+-	return ERROR_OK;
++	return retval;
+ }
+ 
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001473.html">[Openocd-svn] r2690 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001475.html">[Openocd-svn] r2692 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1474">[ date ]</a>
+              <a href="thread.html#1474">[ thread ]</a>
+              <a href="subject.html#1474">[ subject ]</a>
+              <a href="author.html#1474">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

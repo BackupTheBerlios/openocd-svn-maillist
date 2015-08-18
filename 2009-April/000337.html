@@ -1,0 +1,216 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1553 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1553%20-%20trunk/src/jtag&In-Reply-To=%3C200904280734.n3S7Yh1b015442%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000336.html">
+   <LINK REL="Next"  HREF="000338.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1553 - trunk/src/jtag</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1553%20-%20trunk/src/jtag&In-Reply-To=%3C200904280734.n3S7Yh1b015442%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1553 - trunk/src/jtag">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Tue Apr 28 09:34:43 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000336.html">[Openocd-svn] r1552 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="000338.html">[Openocd-svn] r1554 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#337">[ date ]</a>
+              <a href="thread.html#337">[ thread ]</a>
+              <a href="subject.html#337">[ subject ]</a>
+              <a href="author.html#337">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-04-28 09:34:43 +0200 (Tue, 28 Apr 2009)
+New Revision: 1553
+
+Modified:
+   trunk/src/jtag/gw16012.c
+Log:
+Zach Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt; fix gw16012 with --enable-parport_ppdev
+
+Modified: trunk/src/jtag/gw16012.c
+===================================================================
+--- trunk/src/jtag/gw16012.c	2009-04-28 07:33:50 UTC (rev 1552)
++++ trunk/src/jtag/gw16012.c	2009-04-28 07:34:43 UTC (rev 1553)
+@@ -461,32 +461,65 @@
+ }
+ #endif
+ 
+-static int gw16012_init(void)
++#if PARPORT_USE_PPDEV == 1
++
++#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
++
++#define GW16012_PPDEV_NAME	&quot;ppi&quot;
++
++static int gw16012_init_ioctls(void)
+ {
+-#if PARPORT_USE_PPDEV == 1
++	int temp = 0;
++	temp = ioctl(device_handle, PPCLAIM);
++	if (temp &lt; 0)
++	{
++		LOG_ERROR(&quot;cannot claim device&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	temp = PARPORT_MODE_COMPAT;
++	temp = ioctl(device_handle, PPSETMODE, &amp;temp);
++	if (temp &lt; 0)
++	{
++		LOG_ERROR(&quot; cannot set compatible mode to device&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	temp = IEEE1284_MODE_COMPAT;
++	temp = ioctl(device_handle, PPNEGOT, &amp;temp);
++	if (temp &lt; 0)
++	{
++		LOG_ERROR(&quot;cannot set compatible 1284 mode to device&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++	return ERROR_OK;
++}
++#else
++
++#define GW16012_PPDEV_NAME	&quot;parport&quot;
++
++static int gw16012_init_ioctls(void)
++{
++	return ERROR_OK;
++}
++
++#endif // defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
++
++static int gw16012_init_device(void)
++{
++	const char *device_name = GW16012_PPDEV_NAME;
+ 	char buffer[256];
+-	int i = 0;
+-#endif
+-	u8 status_port;
+ 
+-#if PARPORT_USE_PPDEV == 1
+-	if (device_handle&gt;0)
++	if (device_handle &gt; 0)
+ 	{
+ 		LOG_ERROR(&quot;device is already opened&quot;);
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
+-#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
+-	LOG_DEBUG(&quot;opening /dev/ppi%d...&quot;, gw16012_port);
++	snprintf(buffer, 256, &quot;/dev/%s%d&quot;, device_name, gw16012_port);
++	LOG_DEBUG(&quot;opening %s...&quot;, buffer);
+ 
+-	snprintf(buffer, 256, &quot;/dev/ppi%d&quot;, gw16012_port);
+ 	device_handle = open(buffer, O_WRONLY);
+-#else
+-	LOG_DEBUG(&quot;opening /dev/parport%d...&quot;, gw16012_port);
+-
+-	snprintf(buffer, 256, &quot;/dev/parport%d&quot;, gw16012_port);
+-	device_handle = open(buffer, O_WRONLY);
+-#endif
+ 	if (device_handle&lt;0)
+ 	{
+ 		LOG_ERROR(&quot;cannot open device. check it exists and that user read and write rights are set&quot;);
+@@ -495,31 +528,16 @@
+ 
+ 	LOG_DEBUG(&quot;...open&quot;);
+ 
+-#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
+-	i=ioctl(device_handle, PPCLAIM);
+-	if (i&lt;0)
+-	{
+-		LOG_ERROR(&quot;cannot claim device&quot;);
++	if (gw16012_init_ioctls() != ERROR_OK)
+ 		return ERROR_JTAG_INIT_FAILED;
+-	}
+ 
+-	i = PARPORT_MODE_COMPAT;
+-	i= ioctl(device_handle, PPSETMODE, &amp; i);
+-	if (i&lt;0)
+-	{
+-		LOG_ERROR(&quot; cannot set compatible mode to device&quot;);
+-		return ERROR_JTAG_INIT_FAILED;
+-	}
++	return ERROR_OK;
++}
+ 
+-	i = IEEE1284_MODE_COMPAT;
+-	i = ioctl(device_handle, PPNEGOT, &amp; i);
+-	if (i&lt;0)
+-	{
+-		LOG_ERROR(&quot;cannot set compatible 1284 mode to device&quot;);
+-		return ERROR_JTAG_INIT_FAILED;
+-	}
+-#endif
+-#else
++#else // PARPORT_USE_PPDEV
++
++static int gw16012_init_device(void)
++{
+ 	if (gw16012_port == 0)
+ 	{
+ 		gw16012_port = 0x378;
+@@ -544,8 +562,18 @@
+ #else
+ 	outb(0x0, gw16012_port + 2);
+ #endif
+-#endif /* PARPORT_USE_PPDEV */
++	return ERROR_OK;
++}
+ 
++#endif // PARPORT_USE_PPDEV
++
++static int gw16012_init(void)
++{
++	u8 status_port;
++
++	if (gw16012_init_device() != ERROR_OK)
++		return ERROR_JTAG_INIT_FAILED;
++
+ 	gw16012_input(&amp;status_port);
+ 	gw16012_msb = (status_port &amp; 0x80) ^ 0x80;
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000336.html">[Openocd-svn] r1552 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="000338.html">[Openocd-svn] r1554 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#337">[ date ]</a>
+              <a href="thread.html#337">[ thread ]</a>
+              <a href="subject.html#337">[ subject ]</a>
+              <a href="author.html#337">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,164 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2447 - in trunk/tcl: board target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2447%20-%20in%20trunk/tcl%3A%20board%20target&In-Reply-To=%3C200907020455.n624tfae025160%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001230.html">
+   <LINK REL="Next"  HREF="001232.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2447 - in trunk/tcl: board target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2447%20-%20in%20trunk/tcl%3A%20board%20target&In-Reply-To=%3C200907020455.n624tfae025160%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2447 - in trunk/tcl: board target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul  2 06:55:41 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001230.html">[Openocd-svn] r2446 - trunk/src/flash
+</A></li>
+        <LI>Next message: <A HREF="001232.html">[Openocd-svn] r2448 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1231">[ date ]</a>
+              <a href="thread.html#1231">[ thread ]</a>
+              <a href="subject.html#1231">[ subject ]</a>
+              <a href="author.html#1231">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-07-02 06:55:35 +0200 (Thu, 02 Jul 2009)
+New Revision: 2447
+
+Modified:
+   trunk/tcl/board/dm355evm.cfg
+   trunk/tcl/target/davinci.cfg
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Prepare the DaVinci PLL code to support the version 0x0E module
+used in newer chips (e.g. dm365):  rename the original code so
+it's specific to version 0x02 PLL modules, and update the dm355evm
+code to use that new name.
+
+Fix two minor bugs in that version 2 code:  sysclk3 setup used
+the sysclk2 divider address (affecting video processing on dm355,
+no worry for now) and sysclk2 setup had a syntax error.
+
+Also minor fixups to dm355evm, mostly to permit use of RTCK.
+
+
+Modified: trunk/tcl/board/dm355evm.cfg
+===================================================================
+--- trunk/tcl/board/dm355evm.cfg	2009-07-02 04:55:10 UTC (rev 2446)
++++ trunk/tcl/board/dm355evm.cfg	2009-07-02 04:55:35 UTC (rev 2447)
+@@ -1,4 +1,3 @@
+-#
+ # DM355 EVM board
+ #   <A HREF="http://focus.ti.com/docs/toolsw/folders/print/tmdsevm355.html">http://focus.ti.com/docs/toolsw/folders/print/tmdsevm355.html</A>
+ #   <A HREF="http://c6000.spectrumdigital.com/evmdm355/">http://c6000.spectrumdigital.com/evmdm355/</A>
+@@ -22,7 +21,7 @@
+ 	puts &quot;Initialize DM355 EVM board&quot;
+ 
+ 	# CLKIN	= 24 MHz ... can't talk quickly to ARM yet
+-	jtag_khz 1500
++	jtag_rclk 1500
+ 
+ 	########################
+ 	# PLL1		= 432 MHz (/8, x144)
+@@ -37,10 +36,10 @@
+ 	set pll_divs [dict create]
+ 	dict set pll_divs div3 16
+ 	dict set pll_divs div4 8
+-	pll_setup $addr 144 $pll_divs
++	pll_v02_setup $addr 144 $pll_divs
+ 
+ 	# ARM is now running at 216 MHz, so JTAG can go faster
+-	jtag_khz 20000
++	jtag_rclk 20000
+ 
+ 	########################
+ 	# PLL2		= 342 MHz (/8, x114)
+@@ -50,7 +49,7 @@
+ 	set addr [dict get $dm355 pllc2]
+ 	set pll_divs [dict create]
+ 	dict set pll_divs prediv 8
+-	pll_setup $addr 114 $pll_divs
++	pll_v02_setup $addr 114 $pll_divs
+ 
+ 	########################
+ 	# PINMUX
+
+Modified: trunk/tcl/target/davinci.cfg
+===================================================================
+--- trunk/tcl/target/davinci.cfg	2009-07-02 04:55:10 UTC (rev 2446)
++++ trunk/tcl/target/davinci.cfg	2009-07-02 04:55:35 UTC (rev 2447)
+@@ -31,12 +31,10 @@
+ # For PLLs that don't have a given register (e.g. plldiv8), or where a
+ # given divider is non-programmable, caller provides *NO* config mapping.
+ #
+-# REVISIT there are minor differences between the PLL controllers.
+-# Handle those; maybe check the ID register.  This version behaves
+-# for at least the dm355.  On dm6446 and dm357 the PLLRST polarity
+-# is different.  On dm365 there are more changes.
+-#
+-proc pll_setup {pll_addr mult config} {
++
++# PLL version 0x02: tested on dm355
++# REVISIT:  On dm6446 and dm357 the PLLRST polarity is different.
++proc pll_v02_setup {pll_addr mult config} {
+ 	set pll_ctrl_addr [expr $pll_addr + 0x100]
+ 	set pll_ctrl [mrw $pll_ctrl_addr]
+ 
+@@ -98,7 +96,7 @@
+ 		set go 1
+ 	}
+ 	if { [dict exists $config div2] } {
+-		1et div [dict get $config div2]
++		set div [dict get $config div2]
+ 		set div [expr 0x8000 | ($div - 1)]
+ 		mww [expr $pll_addr + 0x011c] $div
+ 		set go 1
+@@ -106,7 +104,7 @@
+ 	if { [dict exists $config div3] } {
+ 		set div [dict get $config div3]
+ 		set div [expr 0x8000 | ($div - 1)]
+-		mww [expr $pll_addr + 0x011c] $div
++		mww [expr $pll_addr + 0x0120] $div
+ 		set go 1
+ 	}
+ 	if { [dict exists $config div4] } {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001230.html">[Openocd-svn] r2446 - trunk/src/flash
+</A></li>
+	<LI>Next message: <A HREF="001232.html">[Openocd-svn] r2448 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1231">[ date ]</a>
+              <a href="thread.html#1231">[ thread ]</a>
+              <a href="subject.html#1231">[ subject ]</a>
+              <a href="author.html#1231">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

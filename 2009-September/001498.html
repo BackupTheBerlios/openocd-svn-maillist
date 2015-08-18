@@ -1,0 +1,2465 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2715 - in trunk: doc src/flash tcl/board tcl/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2715%20-%20in%20trunk%3A%20doc%20src/flash%20tcl/board%20tcl/target&In-Reply-To=%3C200909161238.n8GCcYfp011051%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001497.html">
+   <LINK REL="Next"  HREF="001499.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2715 - in trunk: doc src/flash tcl/board tcl/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2715%20-%20in%20trunk%3A%20doc%20src/flash%20tcl/board%20tcl/target&In-Reply-To=%3C200909161238.n8GCcYfp011051%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2715 - in trunk: doc src/flash tcl/board tcl/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep 16 14:38:34 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001497.html">[Openocd-svn] r2714 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001499.html">[Openocd-svn] r2716 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1498">[ date ]</a>
+              <a href="thread.html#1498">[ thread ]</a>
+              <a href="subject.html#1498">[ subject ]</a>
+              <a href="author.html#1498">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-09-16 14:38:26 +0200 (Wed, 16 Sep 2009)
+New Revision: 2715
+
+Added:
+   trunk/src/flash/lpc2900.c
+   trunk/src/flash/lpc2900.h
+   trunk/tcl/board/hitex_lpc2929.cfg
+   trunk/tcl/target/lpc2900.cfg
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/flash/Makefile.am
+   trunk/src/flash/flash.c
+Log:
+Rolf Meeser &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">rolfm_9dq at yahoo.de</A>&gt; adds flash support for NXP's LPC2900 family (ARM968E).
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-09-15 16:20:39 UTC (rev 2714)
++++ trunk/doc/openocd.texi	2009-09-16 12:38:26 UTC (rev 2715)
+@@ -3309,7 +3309,15 @@
+ 
+ @deffn {Flash Driver} lpc2000
+ Most members of the LPC1700 and LPC2000 microcontroller families from NXP
+-include internal flash and use Cortex-M3 (LPC1700) or ARM7TDMI (LPC2000)  cores.
++include internal flash and use Cortex-M3 (LPC1700) or ARM7TDMI (LPC2000) cores.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at quotation</A> Note
++There are LPC2000 devices which are not supported by the @var{lpc2000}
++driver:
++The LPC2888 is supported by the @var{lpc288x} driver.
++The LPC29xx family is supported by the @var{lpc2900} driver.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> quotation
++
+ The @var{lpc2000} driver defines two mandatory and one optional parameters,
+ which must appear in the following order:
+ 
+@@ -3349,6 +3357,129 @@
+ @end example
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> {Flash Driver} lpc2900
++This driver supports the LPC29xx ARM968E based microcontroller family
++from NXP.
++
++The predefined parameters @var{base}, @var{size}, @var{chip_width} and
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at var</A>{bus_width} of the @code{flash bank} command are ignored. Flash size and
++sector layout are auto-configured by the driver.
++The driver has one additional mandatory parameter: The CPU clock rate
++(in kHz) at the time the flash operations will take place. Most of the time this
++will not be the crystal frequency, but a higher PLL frequency. The
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at code</A>{reset-init} event handler in the board script is usually the place where
++you start the PLL.
++
++The driver rejects flashless devices (currently the LPC2930).
++
++The EEPROM in LPC2900 devices is not mapped directly into the address space.
++It must be handled much more like NAND flash memory, and will therefore be
++handled by a separate @code{lpc2900_eeprom} driver (not yet available).
++
++Sector protection in terms of the LPC2900 is handled transparently. Every time a
++sector needs to be erased or programmed, it is automatically unprotected.
++What is shown as protection status in the @code{flash info} command, is
++actually the LPC2900 @emph{sector security}. This is a mechanism to prevent a
++sector from ever being erased or programmed again. As this is an irreversible
++mechanism, it is handled by a special command (@code{lpc2900 secure_sector}),
++and not by the standard @code{flash protect} command.
++
++Example for a 125 MHz clock frequency:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++flash bank lpc2900 0 0 0 0 $_TARGETNAME 125000
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
++
++Some @code{lpc2900}-specific commands are defined. In the following command list,
++the @var{bank} parameter is the bank number as obtained by the
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at code</A>{flash banks} command.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {lpc2900 signature} bank
++Calculates a 128-bit hash value, the @emph{signature}, from the whole flash
++content. This is a hardware feature of the flash block, hence the calculation is
++very fast. You may use this to verify the content of a programmed device against
++a known signature.
++Example:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++lpc2900 signature 0
++  signature: 0x5f40cdc8:0xc64e592e:0x10490f89:0x32a0f317
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {lpc2900 read_custom} bank filename
++Reads the 912 bytes of customer information from the flash index sector, and
++saves it to a file in binary format.
++Example:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++lpc2900 read_custom 0 /path_to/customer_info.bin
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
++The index sector of the flash is a @emph{write-only} sector. It cannot be
++erased! In order to guard against unintentional write access, all following
++commands need to be preceeded by a successful call to the @code{password}
++command:
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {lpc2900 password} bank password
++You need to use this command right before each of the following commands:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at code</A>{lpc2900 write_custom}, @code{lpc2900 secure_sector},
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at code</A>{lpc2900 secure_jtag}.
++
++The password string is fixed to &quot;I_know_what_I_am_doing&quot;.
++Example:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++lpc2900 password 0 I_know_what_I_am_doing
++  Potentially dangerous operation allowed in next command!
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {lpc2900 write_custom} bank filename type
++Writes the content of the file into the customer info space of the flash index
++sector. The filetype can be specified with the @var{type} field. Possible values
++for @var{type} are: @var{bin} (binary), @var{ihex} (Intel hex format),
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at var</A>{elf} (ELF binary) or @var{s19} (Motorola S-records). The file must
++contain a single section, and the contained data length must be exactly
++912 bytes.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at quotation</A> Attention
++This cannot be reverted! Be careful!
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> quotation
++Example:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++lpc2900 write_custom 0 /path_to/customer_info.bin bin
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {lpc2900 secure_sector} bank first last
++Secures the sector range from @var{first} to @var{last} (including) against
++further program and erase operations. The sector security will be effective
++after the next power cycle.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at quotation</A> Attention
++This cannot be reverted! Be careful!
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> quotation
++Secured sectors appear as @emph{protected} in the @code{flash info} command.
++Example:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++lpc2900 secure_sector 0 1 1
++flash info 0
++  #0 : lpc2900 at 0x20000000, size 0x000c0000, (...)
++          #  0: 0x00000000 (0x2000 8kB) not protected
++          #  1: 0x00002000 (0x2000 8kB) protected
++          #  2: 0x00004000 (0x2000 8kB) not protected
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {lpc2900 secure_jtag} bank
++Irreversibly disable the JTAG port. The new JTAG security setting will be
++effective after the next power cycle.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at quotation</A> Attention
++This cannot be reverted! Be careful!
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> quotation
++Examples:
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++lpc2900 secure_jtag 0
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+ @deffn {Flash Driver} ocl
+ @emph{No idea what this is, other than using some arm7/arm9 core.}
+ 
+
+Modified: trunk/src/flash/Makefile.am
+===================================================================
+--- trunk/src/flash/Makefile.am	2009-09-15 16:20:39 UTC (rev 2714)
++++ trunk/src/flash/Makefile.am	2009-09-16 12:38:26 UTC (rev 2715)
+@@ -9,6 +9,8 @@
+ 	arm_nandio.c \
+ 	flash.c \
+ 	lpc2000.c \
++	lpc288x.c \
++	lpc2900.c \
+ 	cfi.c \
+ 	non_cfi.c \
+ 	at91sam7.c \
+@@ -32,7 +34,6 @@
+ 	s3c2412_nand.c \
+ 	s3c2440_nand.c \
+ 	s3c2443_nand.c \
+-	lpc288x.c \
+ 	ocl.c \
+ 	mflash.c \
+ 	pic32mx.c \
+@@ -43,6 +44,8 @@
+ 	arm_nandio.h \
+ 	flash.h \
+ 	lpc2000.h \
++	lpc288x.h \
++	lpc2900.h \
+ 	cfi.h \
+ 	non_cfi.h \
+ 	at91sam7.h \
+@@ -57,7 +60,6 @@
+ 	tms470.h \
+ 	s3c24xx_nand.h \
+ 	s3c24xx_regs_nand.h \
+-	lpc288x.h \
+ 	mflash.h \
+ 	ocl.h \
+ 	pic32mx.h \
+
+Modified: trunk/src/flash/flash.c
+===================================================================
+--- trunk/src/flash/flash.c	2009-09-15 16:20:39 UTC (rev 2714)
++++ trunk/src/flash/flash.c	2009-09-16 12:38:26 UTC (rev 2715)
+@@ -47,6 +47,8 @@
+ /* flash drivers
+  */
+ extern flash_driver_t lpc2000_flash;
++extern flash_driver_t lpc288x_flash;
++extern flash_driver_t lpc2900_flash;
+ extern flash_driver_t cfi_flash;
+ extern flash_driver_t at91sam3_flash;
+ extern flash_driver_t at91sam7_flash;
+@@ -58,13 +60,14 @@
+ extern flash_driver_t stm32x_flash;
+ extern flash_driver_t tms470_flash;
+ extern flash_driver_t ecosflash_flash;
+-extern flash_driver_t lpc288x_flash;
+ extern flash_driver_t ocl_flash;
+ extern flash_driver_t pic32mx_flash;
+ extern flash_driver_t avr_flash;
+ 
+ flash_driver_t *flash_drivers[] = {
+ 	&amp;lpc2000_flash,
++	&amp;lpc288x_flash,
++	&amp;lpc2900_flash,
+ 	&amp;cfi_flash,
+ 	&amp;at91sam7_flash,
+ 	&amp;at91sam3_flash,
+@@ -76,7 +79,6 @@
+ 	&amp;stm32x_flash,
+ 	&amp;tms470_flash,
+ 	&amp;ecosflash_flash,
+-	&amp;lpc288x_flash,
+ 	&amp;ocl_flash,
+ 	&amp;pic32mx_flash,
+ 	&amp;avr_flash,
+
+Added: trunk/src/flash/lpc2900.c
+===================================================================
+--- trunk/src/flash/lpc2900.c	2009-09-15 16:20:39 UTC (rev 2714)
++++ trunk/src/flash/lpc2900.c	2009-09-16 12:38:26 UTC (rev 2715)
+@@ -0,0 +1,1926 @@
++/***************************************************************************
++ *   Copyright (C) 2009 by                                                 *
++ *   Rolf Meeser &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">rolfm_9dq at yahoo.de</A>&gt;                                      *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++
++#include &quot;image.h&quot;
++
++#include &quot;lpc2900.h&quot;
++#include &quot;binarybuffer.h&quot;
++#include &quot;armv4_5.h&quot;
++
++
++/* 1024 bytes */
++#define KiB                 1024
++
++/* Some flash constants */
++#define FLASH_PAGE_SIZE     512     /* bytes */
++#define FLASH_ERASE_TIME    100000  /* microseconds */
++#define FLASH_PROGRAM_TIME  1000    /* microseconds */
++
++/* Chip ID / Feature Registers */
++#define CHIPID          0xE0000000  /* Chip ID */
++#define FEAT0           0xE0000100  /* Chip feature 0 */
++#define FEAT1           0xE0000104  /* Chip feature 1 */
++#define FEAT2           0xE0000108  /* Chip feature 2 (contains flash size indicator) */
++#define FEAT3           0xE000010C  /* Chip feature 3 */
++
++#define EXPECTED_CHIPID 0x209CE02B  /* Chip ID of all LPC2900 devices */
++
++/* Flash/EEPROM Control Registers */
++#define FCTR            0x20200000  /* Flash control */
++#define FPTR            0x20200008  /* Flash program-time */
++#define FTCTR           0x2020000C  /* Flash test control */
++#define FBWST           0x20200010  /* Flash bridge wait-state */
++#define FCRA            0x2020001C  /* Flash clock divider */
++#define FMSSTART        0x20200020  /* Flash Built-In Selft Test start address */
++#define FMSSTOP         0x20200024  /* Flash Built-In Selft Test stop address */
++#define FMS16           0x20200028  /* Flash 16-bit signature */
++#define FMSW0           0x2020002C  /* Flash 128-bit signature Word 0 */
++#define FMSW1           0x20200030  /* Flash 128-bit signature Word 1 */
++#define FMSW2           0x20200034  /* Flash 128-bit signature Word 2 */
++#define FMSW3           0x20200038  /* Flash 128-bit signature Word 3 */
++
++#define EECMD           0x20200080  /* EEPROM command */
++#define EEADDR          0x20200084  /* EEPROM address */
++#define EEWDATA         0x20200088  /* EEPROM write data */
++#define EERDATA         0x2020008C  /* EEPROM read data */
++#define EEWSTATE        0x20200090  /* EEPROM wait state */
++#define EECLKDIV        0x20200094  /* EEPROM clock divider */
++#define EEPWRDWN        0x20200098  /* EEPROM power-down/start */
++#define EEMSSTART       0x2020009C  /* EEPROM BIST start address */
++#define EEMSSTOP        0x202000A0  /* EEPROM BIST stop address */
++#define EEMSSIG         0x202000A4  /* EEPROM 24-bit BIST signature */
++
++#define INT_CLR_ENABLE  0x20200FD8  /* Flash/EEPROM interrupt clear enable */
++#define INT_SET_ENABLE  0x20200FDC  /* Flash/EEPROM interrupt set enable */
++#define INT_STATUS      0x20200FE0  /* Flash/EEPROM interrupt status */
++#define INT_ENABLE      0x20200FE4  /* Flash/EEPROM interrupt enable */
++#define INT_CLR_STATUS  0x20200FE8  /* Flash/EEPROM interrupt clear status */
++#define INT_SET_STATUS  0x20200FEC  /* Flash/EEPROM interrupt set status */
++
++/* Interrupt sources */
++#define INTSRC_END_OF_PROG    (1 &lt;&lt; 28)
++#define INTSRC_END_OF_BIST    (1 &lt;&lt; 27)
++#define INTSRC_END_OF_RDWR    (1 &lt;&lt; 26)
++#define INTSRC_END_OF_MISR    (1 &lt;&lt; 2)
++#define INTSRC_END_OF_BURN    (1 &lt;&lt; 1)
++#define INTSRC_END_OF_ERASE   (1 &lt;&lt; 0)
++
++
++/* FCTR bits */
++#define FCTR_FS_LOADREQ       (1 &lt;&lt; 15)
++#define FCTR_FS_CACHECLR      (1 &lt;&lt; 14)
++#define FCTR_FS_CACHEBYP      (1 &lt;&lt; 13)
++#define FCTR_FS_PROGREQ       (1 &lt;&lt; 12)
++#define FCTR_FS_RLS           (1 &lt;&lt; 11)
++#define FCTR_FS_PDL           (1 &lt;&lt; 10)
++#define FCTR_FS_PD            (1 &lt;&lt; 9)
++#define FCTR_FS_WPB           (1 &lt;&lt; 7)
++#define FCTR_FS_ISS           (1 &lt;&lt; 6)
++#define FCTR_FS_RLD           (1 &lt;&lt; 5)
++#define FCTR_FS_DCR           (1 &lt;&lt; 4)
++#define FCTR_FS_WEB           (1 &lt;&lt; 2)
++#define FCTR_FS_WRE           (1 &lt;&lt; 1)
++#define FCTR_FS_CS            (1 &lt;&lt; 0)
++/* FPTR bits */
++#define FPTR_EN_T             (1 &lt;&lt; 15)
++/* FTCTR bits */
++#define FTCTR_FS_BYPASS_R     (1 &lt;&lt; 29)
++#define FTCTR_FS_BYPASS_W     (1 &lt;&lt; 28)
++/* FMSSTOP bits */
++#define FMSSTOP_MISR_START    (1 &lt;&lt; 17)
++/* EEMSSTOP bits */
++#define EEMSSTOP_STRTBIST     (1 &lt;&lt; 31)
++
++/* Index sector */
++#define ISS_CUSTOMER_START1   (0x830)
++#define ISS_CUSTOMER_END1     (0xA00)
++#define ISS_CUSTOMER_SIZE1    (ISS_CUSTOMER_END1 - ISS_CUSTOMER_START1)
++#define ISS_CUSTOMER_NWORDS1  (ISS_CUSTOMER_SIZE1 / 4)
++#define ISS_CUSTOMER_START2   (0xA40)
++#define ISS_CUSTOMER_END2     (0xC00)
++#define ISS_CUSTOMER_SIZE2    (ISS_CUSTOMER_END2 - ISS_CUSTOMER_START2)
++#define ISS_CUSTOMER_NWORDS2  (ISS_CUSTOMER_SIZE2 / 4)
++#define ISS_CUSTOMER_SIZE     (ISS_CUSTOMER_SIZE1 + ISS_CUSTOMER_SIZE2)
++
++
++
++/**
++ * Private data for \c lpc2900 flash driver.
++ */
++typedef struct lpc2900_flash_bank_s
++{
++	/**
++	 * Holds the value read from CHIPID register.
++	 * The driver will not load if the chipid doesn't match the expected
++	 * value of 0x209CE02B of the LPC2900 family. A probe will only be done
++	 * if the chipid does not yet contain the expected value.
++	 */
++	uint32_t chipid;
++
++	/**
++	 * String holding device name.
++	 * This string is set by the probe function to the type number of the
++	 * device. It takes the form &quot;LPC29xx&quot;.
++	 */
++	char * target_name;
++
++	/**
++	 * System clock frequency.
++	 * Holds the clock frequency in Hz, as passed by the configuration file
++	 * to the &lt;tt&gt;flash bank&lt;/tt&gt; command.
++	 */
++	uint32_t clk_sys_fmc;
++
++	/**
++	 * Flag to indicate that dangerous operations are possible.
++	 * This flag can be set by passing the correct password to the
++	 * &lt;tt&gt;lpc2900 password&lt;/tt&gt; command. If set, other dangerous commands,
++	 * which operate on the index sector, can be executed.
++	 */
++	uint32_t risky;
++
++	/**
++	 * Maximum contiguous block of internal SRAM (bytes).
++	 * Autodetected by the driver. Not the total amount of SRAM, only the
++	 * the largest \em contiguous block!
++	 */
++	uint32_t max_ram_block;
++
++} lpc2900_flash_bank_t;
++
++
++
++
++static int lpc2900_register_commands(struct command_context_s *cmd_ctx);
++static int lpc2900_flash_bank_command(struct command_context_s *cmd_ctx,
++                                      char *cmd, char **args, int argc,
++                                      struct flash_bank_s *bank);
++static int lpc2900_erase(struct flash_bank_s *bank, int first, int last);
++static int lpc2900_protect(struct flash_bank_s *bank, int set, int first, int last);
++static int lpc2900_write(struct flash_bank_s *bank,
++                         uint8_t *buffer, uint32_t offset, uint32_t count);
++static int lpc2900_probe(struct flash_bank_s *bank);
++static int lpc2900_erase_check(struct flash_bank_s *bank);
++static int lpc2900_protect_check(struct flash_bank_s *bank);
++static int lpc2900_info(struct flash_bank_s *bank, char *buf, int buf_size);
++
++static uint32_t lpc2900_wait_status(flash_bank_t *bank, uint32_t mask, int timeout);
++static void lpc2900_setup(struct flash_bank_s *bank);
++static uint32_t lpc2900_is_ready(struct flash_bank_s *bank);
++static uint32_t lpc2900_read_security_status(struct flash_bank_s *bank);
++static uint32_t lpc2900_run_bist128(struct flash_bank_s *bank,
++                                    uint32_t addr_from, uint32_t addr_to,
++                                    uint32_t (*signature)[4] );
++static uint32_t lpc2900_address2sector(struct flash_bank_s *bank, uint32_t offset);
++static uint32_t lpc2900_calc_tr( uint32_t clock, uint32_t time );
++
++
++/***********************  Helper functions  **************************/
++
++
++/**
++ * Wait for an event in mask to occur in INT_STATUS.
++ *
++ * Return when an event occurs, or after a timeout.
++ *
++ * @param[in] bank Pointer to the flash bank descriptor
++ * @param[in] mask Mask to be used for INT_STATUS
++ * @param[in] timeout Timeout in ms
++ */
++static uint32_t lpc2900_wait_status( flash_bank_t *bank,
++                                     uint32_t mask,
++                                     int timeout )
++{
++	uint32_t int_status;
++	target_t *target = bank-&gt;target;
++
++
++	do
++	{
++		alive_sleep(1);
++		timeout--;
++		target_read_u32(target, INT_STATUS, &amp;int_status);
++	}
++	while( ((int_status &amp; mask) == 0) &amp;&amp; (timeout != 0) );
++
++	if (timeout == 0)
++	{
++		LOG_DEBUG(&quot;Timeout!&quot;);
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	return ERROR_OK;
++}
++
++
++
++/**
++ * Set up the flash for erase/program operations.
++ *
++ * Enable the flash, and set the correct CRA clock of 66 kHz.
++ *
++ * @param bank Pointer to the flash bank descriptor
++ */
++static void lpc2900_setup( struct flash_bank_s *bank )
++{
++	uint32_t fcra;
++	lpc2900_flash_bank_t *lpc2900_info = bank-&gt;driver_priv;
++
++
++	/* Power up the flash block */
++	target_write_u32( bank-&gt;target, FCTR, FCTR_FS_WEB | FCTR_FS_CS );
++
++
++	fcra = (lpc2900_info-&gt;clk_sys_fmc / (3 * 66000)) - 1;
++	target_write_u32( bank-&gt;target, FCRA, fcra );
++}
++
++
++
++/**
++ * Check if device is ready.
++ *
++ * Check if device is ready for flash operation:
++ * Must have been successfully probed.
++ * Must be halted.
++ */
++static uint32_t lpc2900_is_ready( struct flash_bank_s *bank )
++{
++	lpc2900_flash_bank_t *lpc2900_info = bank-&gt;driver_priv;
++
++	if( lpc2900_info-&gt;chipid != EXPECTED_CHIPID )
++	{
++		return ERROR_FLASH_BANK_NOT_PROBED;
++	}
++
++	if( bank-&gt;target-&gt;state != TARGET_HALTED )
++	{
++		LOG_ERROR( &quot;Target not halted&quot; );
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	return ERROR_OK;
++}
++
++
++/**
++ * Read the status of sector security from the index sector.
++ *
++ * @param bank Pointer to the flash bank descriptor
++ */
++static uint32_t lpc2900_read_security_status( struct flash_bank_s *bank )
++{
++	uint32_t status;
++	if( (status = lpc2900_is_ready( bank )) != ERROR_OK )
++	{
++		return status;
++	}
++
++	target_t *target = bank-&gt;target;
++
++	/* Enable ISS access */
++	target_write_u32(target, FCTR, FCTR_FS_CS | FCTR_FS_WEB | FCTR_FS_ISS);
++
++	/* Read the relevant block of memory from the ISS sector */
++	uint32_t iss_secured_field[ 0x230/16 ][ 4 ];
++	target_read_memory(target, bank-&gt;base + 0xC00, 4, 0x230/4,
++	                           (uint8_t *)iss_secured_field);
++
++	/* Disable ISS access */
++	target_write_u32(target, FCTR, FCTR_FS_CS | FCTR_FS_WEB);
++
++	/* Check status of each sector. Note that the sector numbering in the LPC2900
++	 * is different from the logical sector numbers used in OpenOCD!
++	 * Refer to the user manual for details.
++	 *
++	 * All zeros (16x 0x00) are treated as a secured sector (is_protected = 1)
++	 * All ones (16x 0xFF) are treated as a non-secured sector (is_protected = 0)
++	 * Anything else is undefined (is_protected = -1). This is treated as
++	 * a protected sector!
++	 */
++	int sector;
++	int index;
++	for( sector = 0; sector &lt; bank-&gt;num_sectors; sector++ )
++	{
++		/* Convert logical sector number to physical sector number */
++		if( sector &lt;= 4 )
++		{
++			index = sector + 11;
++		}
++		else if( sector &lt;= 7 )
++		{
++			index = sector + 27;
++		}
++		else
++		{
++			index = sector - 8;
++		}
++
++		bank-&gt;sectors[sector].is_protected = -1;
++
++		if (
++		    (iss_secured_field[index][0] == 0x00000000) &amp;&amp;
++		    (iss_secured_field[index][1] == 0x00000000) &amp;&amp;
++		    (iss_secured_field[index][2] == 0x00000000) &amp;&amp;
++		    (iss_secured_field[index][3] == 0x00000000) )
++		{
++			bank-&gt;sectors[sector].is_protected = 1;
++		}
++
++		if (
++		    (iss_secured_field[index][0] == 0xFFFFFFFF) &amp;&amp;
++		    (iss_secured_field[index][1] == 0xFFFFFFFF) &amp;&amp;
++		    (iss_secured_field[index][2] == 0xFFFFFFFF) &amp;&amp;
++		    (iss_secured_field[index][3] == 0xFFFFFFFF) )
++		{
++			bank-&gt;sectors[sector].is_protected = 0;
++		}
++	}
++
++	return ERROR_OK;
++}
++
++
++/**
++ * Use BIST to calculate a 128-bit hash value over a range of flash.
++ *
++ * @param bank Pointer to the flash bank descriptor
++ * @param addr_from
++ * @param addr_to
++ * @param signature
++ */
++static uint32_t lpc2900_run_bist128(struct flash_bank_s *bank,
++                                    uint32_t addr_from,
++                                    uint32_t addr_to,
++                                    uint32_t (*signature)[4] )
++{
++	target_t *target = bank-&gt;target;
++
++	/* Clear END_OF_MISR interrupt status */
++	target_write_u32( target, INT_CLR_STATUS, INTSRC_END_OF_MISR );
++
++	/* Start address */
++	target_write_u32( target, FMSSTART, addr_from &gt;&gt; 4);
++	/* End address, and issue start command */
++	target_write_u32( target, FMSSTOP, (addr_to &gt;&gt; 4) | FMSSTOP_MISR_START );
++
++	/* Poll for end of operation. Calculate a reasonable timeout. */
++	if( lpc2900_wait_status( bank, INTSRC_END_OF_MISR, 1000 ) != ERROR_OK )
++	{
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	/* Return the signature */
++	target_read_memory( target, FMSW0, 4, 4, (uint8_t *)signature );
++
++	return ERROR_OK;
++}
++
++
++/**
++ * Return sector number for given address.
++ *
++ * Return the (logical) sector number for a given relative address.
++ * No sanity check is done. It assumed that the address is valid.
++ *
++ * @param bank Pointer to the flash bank descriptor
++ * @param offset Offset address relative to bank start
++ */
++static uint32_t lpc2900_address2sector( struct flash_bank_s *bank,
++                                        uint32_t offset )
++{
++	uint32_t address = bank-&gt;base + offset;
++
++
++	/* Run through all sectors of this bank */
++	int sector;
++	for( sector = 0; sector &lt; bank-&gt;num_sectors; sector++ )
++	{
++		/* Return immediately if address is within the current sector */
++		if( address &lt; (bank-&gt;sectors[sector].offset + bank-&gt;sectors[sector].size) )
++		{
++			return sector;
++		}
++	}
++
++	/* We should never come here. If we do, return an arbitrary sector number. */
++	return 0;
++}
++
++
++
++
++/**
++ * Write one page to the index sector.
++ *
++ * @param bank Pointer to the flash bank descriptor
++ * @param pagenum Page number (0...7)
++ * @param page Page array (FLASH_PAGE_SIZE bytes)
++ */
++static int lpc2900_write_index_page( struct flash_bank_s *bank,
++                                     int pagenum,
++                                     uint8_t (*page)[FLASH_PAGE_SIZE] )
++{
++	/* Only pages 4...7 are user writable */
++	if( (pagenum &lt; 4) || (pagenum &gt; 7) )
++	{
++		LOG_ERROR( &quot;Refuse to burn index sector page %&quot; PRIu32, pagenum );
++		return ERROR_COMMAND_ARGUMENT_INVALID;
++	}
++
++	/* Get target, and check if it's halted */
++	target_t *target = bank-&gt;target;
++	if( target-&gt;state != TARGET_HALTED )
++	{
++		LOG_ERROR( &quot;Target not halted&quot; );
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	/* Private info */
++	lpc2900_flash_bank_t *lpc2900_info = bank-&gt;driver_priv;
++
++	/* Enable flash block and set the correct CRA clock of 66 kHz */
++	lpc2900_setup( bank );
++
++	/* Un-protect the index sector */
++	target_write_u32( target, bank-&gt;base, 0 );
++	target_write_u32( target, FCTR,
++	                  FCTR_FS_LOADREQ | FCTR_FS_WPB | FCTR_FS_ISS |
++	                  FCTR_FS_WEB | FCTR_FS_WRE | FCTR_FS_CS );
++
++	/* Set latch load mode */
++	target_write_u32( target, FCTR,
++	                  FCTR_FS_ISS | FCTR_FS_WEB | FCTR_FS_WRE | FCTR_FS_CS );
++
++	/* Write whole page to flash data latches */
++	if( target_write_memory( target,
++	                         bank-&gt;base + pagenum * FLASH_PAGE_SIZE,
++	                         4, FLASH_PAGE_SIZE / 4, (uint8_t *)page) != ERROR_OK )
++	{
++		LOG_ERROR( &quot;Index sector write failed @ page %&quot; PRIu32, pagenum );
++		target_write_u32( target, FCTR, FCTR_FS_CS | FCTR_FS_WEB );
++
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	/* Clear END_OF_BURN interrupt status */
++	target_write_u32( target, INT_CLR_STATUS, INTSRC_END_OF_BURN );
++
++	/* Set the program/erase time to FLASH_PROGRAM_TIME */
++	target_write_u32(target, FPTR,
++	                 FPTR_EN_T | lpc2900_calc_tr( lpc2900_info-&gt;clk_sys_fmc,
++	                                              FLASH_PROGRAM_TIME ));
++
++	/* Trigger flash write */
++	target_write_u32( target, FCTR,
++	                  FCTR_FS_PROGREQ | FCTR_FS_ISS |
++	                  FCTR_FS_WPB | FCTR_FS_WRE | FCTR_FS_CS );
++
++	/* Wait for the end of the write operation. If it's not over after one
++	 * second, something went dreadfully wrong... :-(
++	 */
++	if( lpc2900_wait_status( bank, INTSRC_END_OF_BURN, 1000 ) != ERROR_OK )
++	{
++		LOG_ERROR( &quot;Index sector write failed @ page %&quot; PRIu32, pagenum );
++		target_write_u32( target, FCTR, FCTR_FS_CS | FCTR_FS_WEB );
++
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	target_write_u32( target, FCTR, FCTR_FS_CS | FCTR_FS_WEB );
++
++	return ERROR_OK;
++}
++
++
++
++/**
++ * Calculate FPTR.TR register value for desired program/erase time.
++ *
++ * @param clock System clock in Hz
++ * @param time Program/erase time in &#181;s
++ */
++static uint32_t lpc2900_calc_tr( uint32_t clock, uint32_t time )
++{
++	/*           ((time[&#181;s]/1e6) * f[Hz]) + 511
++	 * FPTR.TR = -------------------------------
++	 *                         512
++	 *
++	 * The result is the 
++	 */
++
++	uint32_t tr_val = (uint32_t)((((time / 1e6) * clock) + 511.0) / 512.0);
++
++	return tr_val;
++}
++
++
++/***********************  Private flash commands  **************************/
++
++
++/**
++ * Command to determine the signature of the whole flash.
++ *
++ * Uses the Built-In-Self-Test (BIST) to generate a 128-bit hash value
++ * of the flash content.
++ *
++ * @param cmd_ctx
++ * @param cmd
++ * @param args
++ * @param argc
++ */
++static int lpc2900_handle_signature_command( struct command_context_s *cmd_ctx,
++                                             char *cmd, char **args, int argc )
++{
++	flash_bank_t *bank;
++	uint32_t status;
++	uint32_t signature[4];
++
++
++	if( argc &lt; 1 )
++	{
++		LOG_WARNING( &quot;Too few arguments. Call: lpc2900 signature &lt;bank#&gt;&quot; );
++		return ERROR_FLASH_BANK_INVALID;
++	}
++
++	/* Get the bank descriptor */
++	bank = get_flash_bank_by_num( strtoul(args[0], NULL, 0) );
++	if( !bank )
++	{
++		command_print( cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0] );
++		return ERROR_OK;
++	}
++
++	if( bank-&gt;target-&gt;state != TARGET_HALTED )
++	{
++		LOG_ERROR( &quot;Target not halted&quot; );
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	/* Run BIST over whole flash range */
++	if( (status = lpc2900_run_bist128( bank,
++	                                   bank-&gt;base,
++	                                   bank-&gt;base + (bank-&gt;size - 1),
++	                                   &amp;signature)
++	                                 ) != ERROR_OK )
++	{
++		return status;
++	}
++
++	command_print( cmd_ctx, &quot;signature: 0x%8.8&quot; PRIx32
++	                                  &quot;:0x%8.8&quot; PRIx32
++	                                  &quot;:0x%8.8&quot; PRIx32
++	                                  &quot;:0x%8.8&quot; PRIx32,
++	              signature[3], signature[2], signature[1], signature[0] );
++
++	return ERROR_OK;
++}
++
++
++
++/**
++ * Store customer info in file.
++ *
++ * Read customer info from index sector, and store that block of data into
++ * a disk file. The format is binary.
++ *
++ * @param cmd_ctx
++ * @param cmd
++ * @param args
++ * @param argc
++ */
++static int lpc2900_handle_read_custom_command( struct command_context_s *cmd_ctx,
++                                               char *cmd, char **args, int argc )
++{
++	flash_bank_t *bank;
++
++
++	if( argc &lt; 2 )
++	{
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	/* Get the bank descriptor */
++	bank = get_flash_bank_by_num( strtoul(args[0], NULL, 0) );
++	if( !bank )
++	{
++		command_print( cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0] );
++		return ERROR_OK;
++	}
++	lpc2900_flash_bank_t *lpc2900_info = bank-&gt;driver_priv;
++	lpc2900_info-&gt;risky = 0;
++
++	/* Get target, and check if it's halted */
++	target_t *target = bank-&gt;target;
++	if( target-&gt;state != TARGET_HALTED )
++	{
++		LOG_ERROR( &quot;Target not halted&quot; );
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	/* Storage for customer info. Read in two parts */
++	uint32_t customer[ ISS_CUSTOMER_NWORDS1 + ISS_CUSTOMER_NWORDS2 ];
++
++	/* Enable access to index sector */
++	target_write_u32( target, FCTR, FCTR_FS_CS | FCTR_FS_WEB | FCTR_FS_ISS );
++
++	/* Read two parts */
++	target_read_memory( target, bank-&gt;base+ISS_CUSTOMER_START1, 4,
++	                            ISS_CUSTOMER_NWORDS1,
++	                            (uint8_t *)&amp;customer[0] );
++	target_read_memory( target, bank-&gt;base+ISS_CUSTOMER_START2, 4,
++	                            ISS_CUSTOMER_NWORDS2,
++	                            (uint8_t *)&amp;customer[ISS_CUSTOMER_NWORDS1] );
++
++	/* Deactivate access to index sector */
++	target_write_u32( target, FCTR, FCTR_FS_CS | FCTR_FS_WEB );
++
++	/* Try and open the file */
++	fileio_t fileio;
++	char *filename = args[1];
++	int ret = fileio_open( &amp;fileio, filename, FILEIO_WRITE, FILEIO_BINARY );
++	if( ret != ERROR_OK )
++	{
++		LOG_WARNING( &quot;Could not open file %s&quot;, filename );
++		return ret;
++	}
++
++	uint32_t nwritten;
++	ret = fileio_write( &amp;fileio, sizeof(customer),
++                        (const uint8_t *)customer, &amp;nwritten );
++	if( ret != ERROR_OK )
++	{
++		LOG_ERROR( &quot;Write operation to file %s failed&quot;, filename );
++		fileio_close( &amp;fileio );
++		return ret;
++	}
++
++	fileio_close( &amp;fileio );
++
++	return ERROR_OK;
++}
++
++
++
++
++/**
++ * Enter password to enable potentially dangerous options.
++ *
++ * @param cmd_ctx
++ * @param cmd
++ * @param args
++ * @param argc
++ */
++static int lpc2900_handle_password_command(struct command_context_s *cmd_ctx,
++                                           char *cmd, char **args, int argc)
++{
++	flash_bank_t *bank;
++
++
++	if (argc &lt; 2)
++	{
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	/* Get the bank descriptor */
++	bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
++	if (!bank)
++	{
++		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
++		return ERROR_OK;
++	}
++	lpc2900_flash_bank_t *lpc2900_info = bank-&gt;driver_priv;
++
++#define ISS_PASSWORD &quot;I_know_what_I_am_doing&quot;
++
++	lpc2900_info-&gt;risky = !strcmp( args[1], ISS_PASSWORD );
++
++	if( !lpc2900_info-&gt;risky )
++	{
++		command_print(cmd_ctx, &quot;Wrong password (use '%s')&quot;, ISS_PASSWORD);
++		return ERROR_COMMAND_ARGUMENT_INVALID;
++	}
++
++	command_print(cmd_ctx,
++                  &quot;Potentially dangerous operation allowed in next command!&quot;);
++
++	return ERROR_OK;
++}
++
++
++
++/**
++ * Write customer info from file to the index sector.
++ *
++ * @param cmd_ctx
++ * @param cmd
++ * @param args
++ * @param argc
++ */
++static int lpc2900_handle_write_custom_command( struct command_context_s *cmd_ctx,
++                                                char *cmd, char **args, int argc )
++{
++	if (argc &lt; 2)
++	{
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	/* Get the bank descriptor */
++	flash_bank_t *bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
++	if (!bank)
++	{
++		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
++		return ERROR_OK;
++	}
++	lpc2900_flash_bank_t *lpc2900_info = bank-&gt;driver_priv;
++
++	/* Check if command execution is allowed. */
++	if( !lpc2900_info-&gt;risky )
++	{
++		command_print( cmd_ctx, &quot;Command execution not allowed!&quot; );
++		return ERROR_COMMAND_ARGUMENT_INVALID;
++	}
++	lpc2900_info-&gt;risky = 0;
++
++	/* Get target, and check if it's halted */
++	target_t *target = bank-&gt;target;
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	/* The image will always start at offset 0 */
++	image_t image;
++	image.base_address_set = 1;
++	image.base_address = 0;
++	image.start_address_set = 0;
++
++	char *filename = args[1];
++	char *type = (argc &gt;= 3) ? args[2] : NULL;
++	int retval = image_open(&amp;image, filename, type);
++	if (retval != ERROR_OK)
++	{
++		return retval;
++	}
++
++	/* Do a sanity check: The image must be exactly the size of the customer
++	   programmable area. Any other size is rejected. */
++	if( image.num_sections != 1 )
++	{
++		LOG_ERROR(&quot;Only one section allowed in image file.&quot;);
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++	if( (image.sections[0].base_address != 0) ||
++        (image.sections[0].size != ISS_CUSTOMER_SIZE) )
++	{
++		LOG_ERROR(&quot;Incorrect image file size. Expected %&quot; PRIu32 &quot;, got %&quot; PRIu32,
++                   ISS_CUSTOMER_SIZE, image.sections[0].size);
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	/* Well boys, I reckon this is it... */
++
++	/* Customer info is split into two blocks in pages 4 and 5. */
++	uint8_t page[FLASH_PAGE_SIZE];
++
++	/* Page 4 */
++	uint32_t offset = ISS_CUSTOMER_START1 % FLASH_PAGE_SIZE;
++	memset( page, 0xff, FLASH_PAGE_SIZE );
++	uint32_t size_read;
++	retval = image_read_section( &amp;image, 0, 0,
++	                             ISS_CUSTOMER_SIZE1, &amp;page[offset], &amp;size_read);
++	if( retval != ERROR_OK )
++	{
++		LOG_ERROR(&quot;couldn't read from file '%s'&quot;, filename);
++		image_close(&amp;image);
++		return retval;
++	}
++	if( (retval = lpc2900_write_index_page( bank, 4, &amp;page )) != ERROR_OK )
++	{
++		image_close(&amp;image);
++		return retval;
++	}
++
++	/* Page 5 */
++	offset = ISS_CUSTOMER_START2 % FLASH_PAGE_SIZE;
++	memset( page, 0xff, FLASH_PAGE_SIZE );
++	retval = image_read_section( &amp;image, 0, ISS_CUSTOMER_SIZE1,
++	                             ISS_CUSTOMER_SIZE2, &amp;page[offset], &amp;size_read);
++	if( retval != ERROR_OK )
++	{
++		LOG_ERROR(&quot;couldn't read from file '%s'&quot;, filename);
++		image_close(&amp;image);
++		return retval;
++	}
++	if( (retval = lpc2900_write_index_page( bank, 5, &amp;page )) != ERROR_OK )
++	{
++		image_close(&amp;image);
++		return retval;
++	}
++
++	image_close(&amp;image);
++
++	return ERROR_OK;
++}
++
++
++
++/**
++ * Activate 'sector security' for a range of sectors.
++ *
++ * @param cmd_ctx
++ * @param cmd
++ * @param args
++ * @param argc
++ */
++static int lpc2900_handle_secure_sector_command(struct command_context_s *cmd_ctx,
++                                                char *cmd, char **args, int argc)
++{
++	if (argc &lt; 3)
++	{
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	/* Get the bank descriptor */
++	flash_bank_t *bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
++	if (!bank)
++	{
++		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
++		return ERROR_OK;
++	}
++	lpc2900_flash_bank_t *lpc2900_info = bank-&gt;driver_priv;
++
++	/* Check if command execution is allowed. */
++	if( !lpc2900_info-&gt;risky )
++	{
++		command_print( cmd_ctx, &quot;Command execution not allowed! &quot;
++		&quot;(use 'password' command first)&quot;);
++		return ERROR_COMMAND_ARGUMENT_INVALID;
++	}
++	lpc2900_info-&gt;risky = 0;
++
++	/* Read sector range, and do a sanity check. */
++	int first = strtoul(args[1], NULL, 0);
++	int last = strtoul(args[2], NULL, 0);
++	if( (first &gt;= bank-&gt;num_sectors) ||
++	    (last &gt;= bank-&gt;num_sectors) ||
++	    (first &gt; last) )
++	{
++		command_print( cmd_ctx, &quot;Illegal sector range&quot; );
++		return ERROR_COMMAND_ARGUMENT_INVALID;
++	}
++
++	uint8_t page[FLASH_PAGE_SIZE];
++	int sector;
++	int retval;
++
++	/* Sectors in page 6 */
++	if( (first &lt;= 4) || (last &gt;= 8) )
++	{
++		memset( &amp;page, 0xff, FLASH_PAGE_SIZE );
++		for( sector = first; sector &lt;= last; sector++ )
++		{
++			if( sector &lt;= 4 )
++			{
++				memset( &amp;page[0xB0 + 16*sector], 0, 16 );
++			}
++			else if( sector &gt;= 8 )
++			{
++				memset( &amp;page[0x00 + 16*(sector - 8)], 0, 16 );
++			}
++		}
++
++		if( (retval = lpc2900_write_index_page( bank, 6, &amp;page )) != ERROR_OK )
++		{
++			LOG_ERROR(&quot;failed to update index sector page 6&quot;);
++			return retval;
++		}
++	}
++
++	/* Sectors in page 7 */
++	if( (first &lt;= 7) &amp;&amp; (last &gt;= 5) )
++	{
++		memset( &amp;page, 0xff, FLASH_PAGE_SIZE );
++		for( sector = first; sector &lt;= last; sector++ )
++		{
++			if( (sector &gt;= 5) &amp;&amp; (sector &lt;= 7) )
++			{
++				memset( &amp;page[0x00 + 16*(sector - 5)], 0, 16 );
++			}
++		}
++
++		if( (retval = lpc2900_write_index_page( bank, 7, &amp;page )) != ERROR_OK )
++		{
++			LOG_ERROR(&quot;failed to update index sector page 7&quot;);
++			return retval;
++		}
++	}
++
++	command_print( cmd_ctx,
++	        &quot;Sectors security will become effective after next power cycle&quot;);
++
++	/* Update the sector security status */
++	if ( lpc2900_read_security_status(bank) != ERROR_OK )
++	{
++		LOG_ERROR( &quot;Cannot determine sector security status&quot; );
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	return ERROR_OK;
++}
++
++
++
++/**
++ * Activate JTAG protection.
++ *
++ * @param cmd_ctx
++ * @param cmd
++ * @param args
++ * @param argc
++ */
++static int lpc2900_handle_secure_jtag_command(struct command_context_s *cmd_ctx,
++                                              char *cmd, char **args, int argc)
++{
++	if (argc &lt; 1)
++	{
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	/* Get the bank descriptor */
++	flash_bank_t *bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
++	if (!bank)
++	{
++		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
++		return ERROR_OK;
++	}
++	lpc2900_flash_bank_t *lpc2900_info = bank-&gt;driver_priv;
++
++	/* Check if command execution is allowed. */
++	if( !lpc2900_info-&gt;risky )
++	{
++		command_print( cmd_ctx, &quot;Command execution not allowed! &quot;
++		                        &quot;(use 'password' command first)&quot;);
++		return ERROR_COMMAND_ARGUMENT_INVALID;
++	}
++	lpc2900_info-&gt;risky = 0;
++
++	/* Prepare page */
++	uint8_t page[FLASH_PAGE_SIZE];
++	memset( &amp;page, 0xff, FLASH_PAGE_SIZE );
++
++
++	/* Insert &quot;soft&quot; protection word */
++	page[0x30 + 15] = 0x7F;
++	page[0x30 + 11] = 0x7F;
++	page[0x30 +  7] = 0x7F;
++	page[0x30 +  3] = 0x7F;
++
++	/* Write to page 5 */
++	int retval;
++	if( (retval = lpc2900_write_index_page( bank, 5, &amp;page ))
++			!= ERROR_OK )
++	{
++		LOG_ERROR(&quot;failed to update index sector page 5&quot;);
++		return retval;
++	}
++
++	LOG_INFO(&quot;JTAG security set. Good bye!&quot;);
++
++	return ERROR_OK;
++}
++
++
++
++/***********************  Flash interface functions  **************************/
++
++
++/**
++ * Register private command handlers.
++ *
++ * @param cmd_ctx
++ */
++static int lpc2900_register_commands(struct command_context_s *cmd_ctx)
++{
++	command_t *lpc2900_cmd = register_command(cmd_ctx, NULL, &quot;lpc2900&quot;,
++	                                          NULL, COMMAND_ANY, NULL);
++
++	register_command(
++	    cmd_ctx,
++	    lpc2900_cmd,
++	    &quot;signature&quot;,
++	    lpc2900_handle_signature_command,
++	    COMMAND_EXEC,
++	    &quot;&lt;bank&gt; | &quot;
++            &quot;print device signature of flash bank&quot;);
++
++	register_command(
++	    cmd_ctx,
++	    lpc2900_cmd,
++	    &quot;read_custom&quot;,
++	    lpc2900_handle_read_custom_command,
++	    COMMAND_EXEC,
++	    &quot;&lt;bank&gt; &lt;filename&gt; | &quot;
++            &quot;read customer information from index sector to file&quot;);
++
++	register_command(
++	    cmd_ctx,
++	    lpc2900_cmd,
++	    &quot;password&quot;,
++	    lpc2900_handle_password_command,
++	    COMMAND_EXEC,
++	    &quot;&lt;bank&gt; &lt;password&gt; | &quot;
++            &quot;enter password to enable 'dangerous' options&quot;);
++
++	register_command(
++	    cmd_ctx,
++	    lpc2900_cmd,
++	    &quot;write_custom&quot;,
++	    lpc2900_handle_write_custom_command,
++	    COMMAND_EXEC,
++	    &quot;&lt;bank&gt; &lt;filename&gt; [&lt;type&gt;] | &quot;
++            &quot;write customer info from file to index sector&quot;);
++
++	register_command(
++	    cmd_ctx,
++	    lpc2900_cmd,
++	    &quot;secure_sector&quot;,
++	    lpc2900_handle_secure_sector_command,
++	    COMMAND_EXEC,
++	    &quot;&lt;bank&gt; &lt;first&gt; &lt;last&gt; | &quot;
++            &quot;activate sector security for a range of sectors&quot;);
++
++	register_command(
++	    cmd_ctx,
++	    lpc2900_cmd,
++	    &quot;secure_jtag&quot;,
++	    lpc2900_handle_secure_jtag_command,
++	    COMMAND_EXEC,
++	    &quot;&lt;bank&gt; &lt;level&gt; | &quot;
++            &quot;activate JTAG security&quot;);
++
++	return ERROR_OK;
++}
++
++
++/**
++ * Evaluate flash bank command.
++ *
++ * Syntax: flash bank lpc2900 0 0 0 0 target# system_base_clock
++ *
++ * @param cmd_ctx
++ * @param cmd
++ * @param args
++ * @param argc
++ * @param bank Pointer to the flash bank descriptor
++ */
++static int lpc2900_flash_bank_command(struct command_context_s *cmd_ctx,
++                                      char *cmd, char **args, int argc,
++                                      struct flash_bank_s *bank)
++{
++	lpc2900_flash_bank_t *lpc2900_info;
++
++	if (argc &lt; 6)
++	{
++		LOG_WARNING(&quot;incomplete flash_bank LPC2900 configuration&quot;);
++		return ERROR_FLASH_BANK_INVALID;
++	}
++
++	lpc2900_info = malloc(sizeof(lpc2900_flash_bank_t));
++	bank-&gt;driver_priv = lpc2900_info;
++
++	/* Get flash clock.
++	 * Reject it if we can't meet the requirements for program time
++	 * (if clock too slow), or for erase time (clock too fast).
++	 */
++	lpc2900_info-&gt;clk_sys_fmc = strtoul(args[6], NULL, 0) * 1000;
++
++	uint32_t clock_limit;
++	/* Check program time limit */
++	clock_limit = 512000000l / FLASH_PROGRAM_TIME;
++	if (lpc2900_info-&gt;clk_sys_fmc &lt; clock_limit)
++	{
++		LOG_WARNING(&quot;flash clock must be at least %&quot; PRIu32 &quot; kHz&quot;,
++                    (clock_limit / 1000));
++		return ERROR_FLASH_BANK_INVALID;
++	}
++
++	/* Check erase time limit */
++	clock_limit = (uint32_t)((32767.0 * 512.0 * 1e6) / FLASH_ERASE_TIME);
++	if (lpc2900_info-&gt;clk_sys_fmc &gt; clock_limit)
++	{
++		LOG_WARNING(&quot;flash clock must be a maximum of %&quot; PRIu32&quot; kHz&quot;,
++                    (clock_limit / 1000));
++		return ERROR_FLASH_BANK_INVALID;
++	}
++
++	/* Chip ID will be obtained by probing the device later */
++	lpc2900_info-&gt;chipid = 0;
++
++	return ERROR_OK;
++}
++
++
++/**
++ * Erase sector(s).
++ *
++ * @param bank Pointer to the flash bank descriptor
++ * @param first First sector to be erased
++ * @param last Last sector (including) to be erased
++ */
++static int lpc2900_erase(struct flash_bank_s *bank, int first, int last)
++{
++	uint32_t status;
++	int sector;
++	int last_unsecured_sector;
++	target_t *target = bank-&gt;target;
++	lpc2900_flash_bank_t *lpc2900_info = bank-&gt;driver_priv;
++
++
++	status = lpc2900_is_ready(bank);
++	if (status != ERROR_OK)
++	{
++		return status;
++	}
++
++	/* Sanity check on sector range */
++	if ((first &lt; 0) || (last &lt; first) || (last &gt;= bank-&gt;num_sectors))
++	{
++		LOG_INFO(&quot;Bad sector range&quot;);
++		return ERROR_FLASH_SECTOR_INVALID;
++	}
++
++	/* Update the info about secured sectors */
++	lpc2900_read_security_status( bank );
++
++	/* The selected sector range might include secured sectors. An attempt
++	 * to erase such a sector will cause the erase to fail also for unsecured
++	 * sectors. It is necessary to determine the last unsecured sector now,
++	 * because we have to treat the last relevant sector in the list in
++	 * a special way.
++	 */
++	last_unsecured_sector = -1;
++	for (sector = first; sector &lt;= last; sector++)
++	{
++		if ( !bank-&gt;sectors[sector].is_protected )
++		{
++			last_unsecured_sector = sector;
++		}
++	}
++
++	/* Exit now, in case of the rare constellation where all sectors in range
++	 * are secured. This is regarded a success, since erasing/programming of
++	 * secured sectors shall be handled transparently.
++	 */
++	if ( last_unsecured_sector == -1 )
++	{
++		return ERROR_OK;
++	}
++
++	/* Enable flash block and set the correct CRA clock of 66 kHz */
++	lpc2900_setup(bank);
++
++	/* Clear END_OF_ERASE interrupt status */
++	target_write_u32(target, INT_CLR_STATUS, INTSRC_END_OF_ERASE);
++
++	/* Set the program/erase timer to FLASH_ERASE_TIME */
++	target_write_u32(target, FPTR,
++	                 FPTR_EN_T | lpc2900_calc_tr( lpc2900_info-&gt;clk_sys_fmc,
++	                                              FLASH_ERASE_TIME ));
++
++	/* Sectors are marked for erasure, then erased all together */
++	for (sector = first; sector &lt;= last_unsecured_sector; sector++)
++	{
++		/* Only mark sectors that aren't secured. Any attempt to erase a group
++		 * of sectors will fail if any single one of them is secured!
++		 */
++		if ( !bank-&gt;sectors[sector].is_protected )
++		{
++			/* Unprotect the sector */
++			target_write_u32(target, bank-&gt;sectors[sector].offset, 0);
++			target_write_u32(target, FCTR,
++			                 FCTR_FS_LOADREQ | FCTR_FS_WPB |
++			                 FCTR_FS_WEB | FCTR_FS_WRE | FCTR_FS_CS);
++
++			/* Mark the sector for erasure. The last sector in the list
++			   triggers the erasure. */
++			target_write_u32(target, bank-&gt;sectors[sector].offset, 0);
++			if ( sector == last_unsecured_sector )
++			{
++				target_write_u32(target, FCTR,
++				                 FCTR_FS_PROGREQ | FCTR_FS_WPB | FCTR_FS_CS);
++			}
++			else
++			{
++				target_write_u32(target, FCTR,
++				                 FCTR_FS_LOADREQ | FCTR_FS_WPB |
++				                 FCTR_FS_WEB | FCTR_FS_CS);
++			}
++		}
++	}
++
++	/* Wait for the end of the erase operation. If it's not over after two seconds,
++	 * something went dreadfully wrong... :-(
++	 */
++	if( lpc2900_wait_status(bank, INTSRC_END_OF_ERASE, 2000) != ERROR_OK )
++	{
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	/* Normal flash operating mode */
++	target_write_u32(target, FCTR, FCTR_FS_CS | FCTR_FS_WEB);
++
++	return ERROR_OK;
++}
++
++
++
++static int lpc2900_protect(struct flash_bank_s *bank, int set, int first, int last)
++{
++	/* This command is not supported.
++     * &quot;Protection&quot; in LPC2900 terms is handled transparently. Sectors will
++     * automatically be unprotected as needed.
++     * Instead we use the concept of sector security. A secured sector is shown
++     * as &quot;protected&quot; in OpenOCD. Sector security is a permanent feature, and
++     * cannot be disabled once activated.
++     */
++
++	return ERROR_OK;
++}
++
++
++/**
++ * Write data to flash.
++ *
++ * @param bank Pointer to the flash bank descriptor
++ * @param buffer Buffer with data
++ * @param offset Start address (relative to bank start)
++ * @param count Number of bytes to be programmed
++ */
++static int lpc2900_write(struct flash_bank_s *bank, uint8_t *buffer,
++                         uint32_t offset, uint32_t count)
++{
++	uint8_t page[FLASH_PAGE_SIZE];
++	uint32_t status;
++	uint32_t num_bytes;
++	target_t *target = bank-&gt;target;
++	lpc2900_flash_bank_t *lpc2900_info = bank-&gt;driver_priv;
++	int sector;
++	int retval;
++
++	static const uint32_t write_target_code[] = {
++		/* Set auto latch mode: FCTR=CS|WRE|WEB */
++		0xe3a0a007,   /* loop       mov r10, #0x007 */
++		0xe583a000,   /*            str r10,[r3,#0] */
++
++		/* Load complete page into latches */
++		0xe3a06020,   /*            mov r6,#(512/16) */
++		0xe8b00f00,   /* next       ldmia r0!,{r8-r11} */
++		0xe8a10f00,   /*            stmia r1!,{r8-r11} */
++		0xe2566001,   /*            subs r6,#1 */
++		0x1afffffb,   /*            bne next */
++
++		/* Clear END_OF_BURN interrupt status */
++		0xe3a0a002,   /*            mov r10,#(1 &lt;&lt; 1) */
++		0xe583afe8,   /*            str r10,[r3,#0xfe8] */
++
++		/* Set the erase time to FLASH_PROGRAM_TIME */
++		0xe5834008,   /*            str r4,[r3,#8] */
++
++		/* Trigger flash write
++			FCTR = CS | WRE | WPB | PROGREQ */
++		0xe3a0a083,   /*            mov r10,#0x83 */
++		0xe38aaa01,   /*            orr r10,#0x1000 */
++		0xe583a000,   /*            str r10,[r3,#0] */
++
++		/* Wait for end of burn */
++		0xe593afe0,   /* wait       ldr r10,[r3,#0xfe0] */
++		0xe21aa002,   /*            ands r10,#(1 &lt;&lt; 1) */
++		0x0afffffc,   /*            beq wait */
++
++		/* End? */
++		0xe2522001,   /*            subs r2,#1 */
++		0x1affffed,   /*            bne loop */
++
++		0xeafffffe    /* done       b done */
++	};
++
++
++	status = lpc2900_is_ready(bank);
++	if (status != ERROR_OK)
++	{
++		return status;
++	}
++
++	/* Enable flash block and set the correct CRA clock of 66 kHz */
++	lpc2900_setup(bank);
++
++	/* Update the info about secured sectors */
++	lpc2900_read_security_status( bank );
++
++	/* Unprotect all involved sectors */
++	for (sector = 0; sector &lt; bank-&gt;num_sectors; sector++)
++	{
++		/* Start address in or before this sector? */
++		/* End address in or behind this sector? */
++		if ( ((bank-&gt;base + offset) &lt;
++		          (bank-&gt;sectors[sector].offset + bank-&gt;sectors[sector].size)) &amp;&amp;
++		     ((bank-&gt;base + (offset + count - 1)) &gt;= bank-&gt;sectors[sector].offset) )
++		{
++			/* This sector is involved and needs to be unprotected.
++				* Don't do it for secured sectors.
++				*/
++			if ( !bank-&gt;sectors[sector].is_protected )
++			{
++				target_write_u32(target, bank-&gt;sectors[sector].offset, 0);
++				target_write_u32(target, FCTR,
++				                 FCTR_FS_LOADREQ | FCTR_FS_WPB |
++				                 FCTR_FS_WEB | FCTR_FS_WRE | FCTR_FS_CS);
++			}
++		}
++	}
++
++	/* Set the program/erase time to FLASH_PROGRAM_TIME */
++	uint32_t prog_time = FPTR_EN_T | lpc2900_calc_tr( lpc2900_info-&gt;clk_sys_fmc,
++	                                                  FLASH_PROGRAM_TIME );
++
++	/* If there is a working area of reasonable size, use it to program via
++	   a target algorithm. If not, fall back to host programming. */
++
++	/* We need some room for target code. */
++	uint32_t target_code_size = sizeof(write_target_code);
++
++	/* Try working area allocation. Start with a large buffer, and try with
++	   reduced size if that fails. */
++	working_area_t *warea;
++	uint32_t buffer_size = lpc2900_info-&gt;max_ram_block - 1 * KiB;
++	while( (retval = target_alloc_working_area(target,
++	                                           buffer_size + target_code_size,
++	                                           &amp;warea)) != ERROR_OK )
++	{
++		/* Try a smaller buffer now, and stop if it's too small. */
++		buffer_size -= 1 * KiB;
++		if (buffer_size &lt; 2 * KiB)
++		{
++			LOG_INFO( &quot;no (large enough) working area&quot;
++			          &quot;, falling back to host mode&quot; );
++			warea = NULL;
++			break;
++		}
++	};
++
++	if( warea )
++	{
++		reg_param_t reg_params[5];
++		armv4_5_algorithm_t armv4_5_info;
++
++		/* We can use target mode. Download the algorithm. */
++		retval = target_write_buffer( target,
++		                              (warea-&gt;address)+buffer_size,
++		                              target_code_size,
++		                              (uint8_t *)write_target_code);
++		if (retval != ERROR_OK)
++		{
++			LOG_ERROR(&quot;Unable to write block write code to target&quot;);
++			target_free_all_working_areas(target);
++			return ERROR_FLASH_OPERATION_FAILED;
++		}
++
++		init_reg_param(&amp;reg_params[0], &quot;r0&quot;, 32, PARAM_OUT);
++		init_reg_param(&amp;reg_params[1], &quot;r1&quot;, 32, PARAM_OUT);
++		init_reg_param(&amp;reg_params[2], &quot;r2&quot;, 32, PARAM_OUT);
++		init_reg_param(&amp;reg_params[3], &quot;r3&quot;, 32, PARAM_OUT);
++		init_reg_param(&amp;reg_params[4], &quot;r4&quot;, 32, PARAM_OUT);
++
++		/* Write to flash in large blocks */
++		while ( count != 0 )
++		{
++			uint32_t this_npages;
++			uint8_t *this_buffer;
++			int start_sector = lpc2900_address2sector( bank, offset );
++
++			/* First page / last page / rest */
++			if( offset % FLASH_PAGE_SIZE )
++			{
++				/* Block doesn't start on page boundary.
++				   Burn first partial page separately. */
++				memset( &amp;page, 0xff, sizeof(page) );
++				memcpy( &amp;page[offset % FLASH_PAGE_SIZE],
++				        buffer,
++				        FLASH_PAGE_SIZE - (offset % FLASH_PAGE_SIZE) );
++				this_npages = 1;
++				this_buffer = &amp;page[0];
++				count = count + (offset % FLASH_PAGE_SIZE);
++				offset = offset - (offset % FLASH_PAGE_SIZE);
++			}
++			else if( count &lt; FLASH_PAGE_SIZE )
++			{
++				/* Download last incomplete page separately. */
++				memset( &amp;page, 0xff, sizeof(page) );
++				memcpy( &amp;page, buffer, count );
++				this_npages = 1;
++				this_buffer = &amp;page[0];
++				count = FLASH_PAGE_SIZE;
++			}
++			else
++			{
++				/* Download as many full pages as possible */
++				this_npages = (count &lt; buffer_size) ?
++				               count / FLASH_PAGE_SIZE :
++				               buffer_size / FLASH_PAGE_SIZE;
++				this_buffer = buffer;
++
++				/* Make sure we stop at the next secured sector */
++				int sector = start_sector + 1;
++				while( sector &lt; bank-&gt;num_sectors )
++				{
++					/* Secured? */
++					if( bank-&gt;sectors[sector].is_protected )
++					{
++						/* Is that next sector within the current block? */
++						if( (bank-&gt;sectors[sector].offset - bank-&gt;base) &lt;
++							(offset + (this_npages * FLASH_PAGE_SIZE)) )
++						{
++							/* Yes! Split the block */
++							this_npages =
++							  (bank-&gt;sectors[sector].offset - bank-&gt;base - offset)
++							      / FLASH_PAGE_SIZE;
++							break;
++						}
++					}
++
++					sector++;
++				}
++			}
++
++			/* Skip the current sector if it is secured */
++			if( bank-&gt;sectors[start_sector].is_protected )
++			{
++				LOG_DEBUG( &quot;Skip secured sector %&quot; PRIu32, start_sector );
++
++				/* Stop if this is the last sector */
++				if( start_sector == bank-&gt;num_sectors - 1 )
++				{
++					break;
++				}
++
++				/* Skip */
++				uint32_t nskip = bank-&gt;sectors[start_sector].size -
++				                 (offset % bank-&gt;sectors[start_sector].size);
++				offset += nskip;
++				buffer += nskip;
++				count = (count &gt;= nskip) ? (count - nskip) : 0;
++				continue;
++			}
++
++			/* Execute buffer download */
++			if ((retval = target_write_buffer(target,
++			                                  warea-&gt;address,
++			                                  this_npages * FLASH_PAGE_SIZE,
++			                                  this_buffer)) != ERROR_OK)
++			{
++				LOG_ERROR(&quot;Unable to write data to target&quot;);
++				target_free_all_working_areas(target);
++				return ERROR_FLASH_OPERATION_FAILED;
++			}
++
++			/* Prepare registers */
++			buf_set_u32(reg_params[0].value, 0, 32, warea-&gt;address);
++			buf_set_u32(reg_params[1].value, 0, 32, offset);
++			buf_set_u32(reg_params[2].value, 0, 32, this_npages);
++			buf_set_u32(reg_params[3].value, 0, 32, FCTR);
++			buf_set_u32(reg_params[4].value, 0, 32, FPTR_EN_T | prog_time);
++
++			/* Execute algorithm, assume breakpoint for last instruction */
++			armv4_5_info.common_magic = ARMV4_5_COMMON_MAGIC;
++			armv4_5_info.core_mode = ARMV4_5_MODE_SVC;
++			armv4_5_info.core_state = ARMV4_5_STATE_ARM;
++
++			retval = target_run_algorithm(target, 0, NULL, 5, reg_params,
++				(warea-&gt;address) + buffer_size,
++				(warea-&gt;address) + buffer_size + target_code_size - 4,
++				10000, /* 10s should be enough for max. 16 KiB of data */
++				&amp;armv4_5_info);
++
++			if (retval != ERROR_OK)
++			{
++				LOG_ERROR(&quot;Execution of flash algorithm failed.&quot;);
++				target_free_all_working_areas(target);
++				retval = ERROR_FLASH_OPERATION_FAILED;
++				break;
++			}
++
++			count -= this_npages * FLASH_PAGE_SIZE;
++			buffer += this_npages * FLASH_PAGE_SIZE;
++			offset += this_npages * FLASH_PAGE_SIZE;
++		}
++
++		/* Free all resources */
++		destroy_reg_param(&amp;reg_params[0]);
++		destroy_reg_param(&amp;reg_params[1]);
++		destroy_reg_param(&amp;reg_params[2]);
++		destroy_reg_param(&amp;reg_params[3]);
++		destroy_reg_param(&amp;reg_params[4]);
++		target_free_all_working_areas(target);
++	}
++	else
++	{
++		/* Write to flash memory page-wise */
++		while ( count != 0 )
++		{
++			/* How many bytes do we copy this time? */
++			num_bytes = (count &gt;= FLASH_PAGE_SIZE) ?
++			            FLASH_PAGE_SIZE - (offset % FLASH_PAGE_SIZE) :
++			            count;
++
++			/* Don't do anything with it if the page is in a secured sector. */
++			if ( !bank-&gt;sectors[lpc2900_address2sector(bank, offset)].is_protected )
++			{
++				/* Set latch load mode */
++				target_write_u32(target, FCTR,
++				                 FCTR_FS_CS | FCTR_FS_WRE | FCTR_FS_WEB);
++
++				/* Always clear the buffer (a little overhead, but who cares) */
++				memset(page, 0xFF, FLASH_PAGE_SIZE);
++
++				/* Copy them to the buffer */
++				memcpy( &amp;page[offset % FLASH_PAGE_SIZE],
++				        &amp;buffer[offset % FLASH_PAGE_SIZE],
++				        num_bytes );
++
++				/* Write whole page to flash data latches */
++				if (target_write_memory(
++				                 target,
++				                 bank-&gt;base + (offset - (offset % FLASH_PAGE_SIZE)),
++				                 4, FLASH_PAGE_SIZE / 4, page) != ERROR_OK)
++				{
++					LOG_ERROR(&quot;Write failed @ 0x%8.8&quot; PRIx32, offset);
++					target_write_u32(target, FCTR, FCTR_FS_CS | FCTR_FS_WEB);
++
++					return ERROR_FLASH_OPERATION_FAILED;
++				}
++
++				/* Clear END_OF_BURN interrupt status */
++				target_write_u32(target, INT_CLR_STATUS, INTSRC_END_OF_BURN);
++
++				/* Set the programming time */
++				target_write_u32(target, FPTR, FPTR_EN_T | prog_time);
++
++				/* Trigger flash write */
++				target_write_u32(target, FCTR,
++				    FCTR_FS_CS | FCTR_FS_WRE | FCTR_FS_WPB | FCTR_FS_PROGREQ);
++
++				/* Wait for the end of the write operation. If it's not over
++				 * after one second, something went dreadfully wrong... :-(
++				 */
++				if (lpc2900_wait_status(bank, INTSRC_END_OF_BURN, 1000) != ERROR_OK)
++				{
++					LOG_ERROR(&quot;Write failed @ 0x%8.8&quot; PRIx32, offset);
++					target_write_u32(target, FCTR, FCTR_FS_CS | FCTR_FS_WEB);
++
++					return ERROR_FLASH_OPERATION_FAILED;
++				}
++			}
++
++			/* Update pointers and counters */
++			offset += num_bytes;
++			buffer += num_bytes;
++			count -= num_bytes;
++		}
++
++		retval = ERROR_OK;
++	}
++
++	/* Normal flash operating mode */
++	target_write_u32(target, FCTR, FCTR_FS_CS | FCTR_FS_WEB);
++
++	return retval;
++}
++
++
++/**
++ * Try and identify the device.
++ *
++ * Determine type number and its memory layout.
++ *
++ * @param bank Pointer to the flash bank descriptor
++ */
++static int lpc2900_probe(struct flash_bank_s *bank)
++{
++	lpc2900_flash_bank_t *lpc2900_info = bank-&gt;driver_priv;
++	target_t *target = bank-&gt;target;
++	int i = 0;
++	uint32_t offset;
++
++
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	/* We want to do this only once. Check if we already have a valid CHIPID,
++	 * because then we will have already successfully probed the device.
++	 */
++	if (lpc2900_info-&gt;chipid == EXPECTED_CHIPID)
++	{
++		return ERROR_OK;
++	}
++
++	/* Probing starts with reading the CHIPID register. We will continue only
++	 * if this identifies as an LPC2900 device.
++	 */
++	target_read_u32(target, CHIPID, &amp;lpc2900_info-&gt;chipid);
++
++	if (lpc2900_info-&gt;chipid != EXPECTED_CHIPID)
++	{
++		LOG_WARNING(&quot;Device is not an LPC29xx&quot;);
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	/* It's an LPC29xx device. Now read the feature register FEAT0...FEAT3. */
++	uint32_t feat0, feat1, feat2, feat3;
++	target_read_u32(target, FEAT0, &amp;feat0);
++	target_read_u32(target, FEAT1, &amp;feat1);
++	target_read_u32(target, FEAT2, &amp;feat2);
++	target_read_u32(target, FEAT3, &amp;feat3);
++
++	/* Base address */
++	bank-&gt;base = 0x20000000;
++
++	/* Determine flash layout from FEAT2 register */
++	uint32_t num_64k_sectors = (feat2 &gt;&gt; 16) &amp; 0xFF;
++	uint32_t num_8k_sectors = (feat2 &gt;&gt; 0) &amp; 0xFF;
++	bank-&gt;num_sectors = num_64k_sectors + num_8k_sectors;
++	bank-&gt;size = KiB * (64 * num_64k_sectors + 8 * num_8k_sectors);
++
++	/* Determine maximum contiguous RAM block */
++	lpc2900_info-&gt;max_ram_block = 16 * KiB;
++	if( (feat1 &amp; 0x30) == 0x30 )
++	{
++		lpc2900_info-&gt;max_ram_block = 32 * KiB;
++		if( (feat1 &amp; 0x0C) == 0x0C )
++		{
++			lpc2900_info-&gt;max_ram_block = 48 * KiB;
++		}
++	}
++
++	/* Determine package code and ITCM size */
++	uint32_t package_code = feat0 &amp; 0x0F;
++	uint32_t itcm_code = (feat1 &gt;&gt; 16) &amp; 0x1F;
++
++	/* Determine the exact type number. */
++	uint32_t found = 1;
++	if ( (package_code == 4) &amp;&amp; (itcm_code == 5) )
++	{
++		/* Old LPC2917 or LPC2919 (non-/01 devices) */
++		lpc2900_info-&gt;target_name = (bank-&gt;size == 768*KiB) ? &quot;LPC2919&quot; : &quot;LPC2917&quot;;
++	}
++	else
++	{
++		if ( package_code == 2 )
++		{
++			/* 100-pin package */
++			if ( bank-&gt;size == 128*KiB )
++			{
++				lpc2900_info-&gt;target_name = &quot;LPC2921&quot;;
++			}
++			else if ( bank-&gt;size == 256*KiB )
++			{
++				lpc2900_info-&gt;target_name = &quot;LPC2923&quot;;
++			}
++			else if ( bank-&gt;size == 512*KiB )
++			{
++				lpc2900_info-&gt;target_name = &quot;LPC2925&quot;;
++			}
++			else
++			{
++				found = 0;
++			}
++		}
++		else if ( package_code == 4 )
++		{
++			/* 144-pin package */
++			if ( (bank-&gt;size == 512*KiB) &amp;&amp; (feat3 == 0xFFFFFCF0) )
++			{
++				lpc2900_info-&gt;target_name = &quot;LPC2917/01&quot;;
++			}
++			else if ( (bank-&gt;size == 512*KiB) &amp;&amp; (feat3 == 0xFFFFFFF1) )
++			{
++				lpc2900_info-&gt;target_name = &quot;LPC2927&quot;;
++			}
++			else if ( (bank-&gt;size == 768*KiB) &amp;&amp; (feat3 == 0xFFFFFCF8) )
++			{
++				lpc2900_info-&gt;target_name = &quot;LPC2919/01&quot;;
++			}
++			else if ( (bank-&gt;size == 768*KiB) &amp;&amp; (feat3 == 0xFFFFFFF9) )
++			{
++				lpc2900_info-&gt;target_name = &quot;LPC2929&quot;;
++			}
++			else
++			{
++				found = 0;
++			}
++		}
++		else if ( package_code == 5 )
++		{
++			/* 208-pin package */
++			lpc2900_info-&gt;target_name = (bank-&gt;size == 0) ? &quot;LPC2930&quot; : &quot;LPC2939&quot;;
++		}
++		else
++		{
++			found = 0;
++		}
++	}
++
++	if ( !found )
++	{
++		LOG_WARNING(&quot;Unknown LPC29xx derivative&quot;);
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	/* Show detected device */
++	LOG_INFO(&quot;Flash bank %&quot; PRIu32
++	         &quot;: Device %s, %&quot; PRIu32
++	         &quot; KiB in %&quot; PRIu32 &quot; sectors&quot;,
++	         bank-&gt;bank_number,
++	         lpc2900_info-&gt;target_name, bank-&gt;size / KiB,
++	         bank-&gt;num_sectors);
++
++	/* Flashless devices cannot be handled */
++	if ( bank-&gt;num_sectors == 0 )
++	{
++		LOG_WARNING(&quot;Flashless device cannot be handled&quot;);
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	/* Sector layout.
++	 * These are logical sector numbers. When doing real flash operations,
++	 * the logical flash number are translated into the physical flash numbers
++	 * of the device.
++	 */
++	bank-&gt;sectors = malloc(sizeof(flash_sector_t) * bank-&gt;num_sectors);
++
++	offset = 0;
++	for (i = 0; i &lt; bank-&gt;num_sectors; i++)
++	{
++		bank-&gt;sectors[i].offset = offset;
++		bank-&gt;sectors[i].is_erased = -1;
++		bank-&gt;sectors[i].is_protected = -1;
++
++		if ( i &lt;= 7 )
++		{
++			bank-&gt;sectors[i].size = 8 * KiB;
++		}
++		else if ( i &lt;= 18 )
++		{
++			bank-&gt;sectors[i].size = 64 * KiB;
++		}
++		else
++		{
++			/* We shouldn't come here. But there might be a new part out there
++			 * that has more than 19 sectors. Politely ask for a fix then.
++			 */
++			bank-&gt;sectors[i].size = 0;
++			LOG_ERROR(&quot;Never heard about sector %&quot; PRIu32 &quot; (FIXME please)&quot;, i);
++		}
++
++		offset += bank-&gt;sectors[i].size;
++	}
++
++	/* Read sector security status */
++	if ( lpc2900_read_security_status(bank) != ERROR_OK )
++	{
++		LOG_ERROR(&quot;Cannot determine sector security status&quot;);
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	return ERROR_OK;
++}
++
++
++/**
++ * Run a blank check for each sector.
++ *
++ * For speed reasons, the device isn't read word by word.
++ * A hash value is calculated by the hardware (&quot;BIST&quot;) for each sector.
++ * This value is then compared against the known hash of an empty sector.
++ *
++ * @param bank Pointer to the flash bank descriptor
++ */
++static int lpc2900_erase_check(struct flash_bank_s *bank)
++{
++	uint32_t status = lpc2900_is_ready(bank);
++	if (status != ERROR_OK)
++	{
++		LOG_INFO(&quot;Processor not halted/not probed&quot;);
++		return status;
++	}
++
++	/* Use the BIST (Built-In Selft Test) to generate a signature of each flash
++	 * sector. Compare against the expected signature of an empty sector.
++	 */
++	int sector;
++	for ( sector = 0; sector &lt; bank-&gt;num_sectors; sector++ )
++	{
++		uint32_t signature[4];
++		if ( (status = lpc2900_run_bist128( bank,
++		                                    bank-&gt;sectors[sector].offset,
++		                                    bank-&gt;sectors[sector].offset +
++		                                       (bank-&gt;sectors[sector].size - 1),
++		                                    &amp;signature)) != ERROR_OK )
++		{
++			return status;
++		}
++
++		/* The expected signatures for an empty sector are different
++		 * for 8 KiB and 64 KiB sectors.
++		 */
++		if ( bank-&gt;sectors[sector].size == 8*KiB )
++		{
++			bank-&gt;sectors[sector].is_erased =
++			    (signature[3] == 0x01ABAAAA) &amp;&amp;
++			    (signature[2] == 0xAAAAAAAA) &amp;&amp;
++			    (signature[1] == 0xAAAAAAAA) &amp;&amp;
++			    (signature[0] == 0xAAA00AAA);
++		}
++		if ( bank-&gt;sectors[sector].size == 64*KiB )
++		{
++			bank-&gt;sectors[sector].is_erased =
++			    (signature[3] == 0x11801222) &amp;&amp;
++			    (signature[2] == 0xB88844FF) &amp;&amp;
++			    (signature[1] == 0x11A22008) &amp;&amp;
++			    (signature[0] == 0x2B1BFE44);
++		}
++	}
++
++	return ERROR_OK;
++}
++
++
++/**
++ * Get protection (sector security) status.
++ *
++ * Determine the status of &quot;sector security&quot; for each sector.
++ * A secured sector is one that can never be erased/programmed again.
++ *
++ * @param bank Pointer to the flash bank descriptor
++ */
++static int lpc2900_protect_check(struct flash_bank_s *bank)
++{
++	return lpc2900_read_security_status(bank);
++}
++
++
++/**
++ * Print info about the driver (not the device).
++ *
++ * @param bank Pointer to the flash bank descriptor
++ * @param buf Buffer to take the string
++ * @param buf_size Maximum number of characters that the buffer can take
++ */
++static int lpc2900_info(struct flash_bank_s *bank, char *buf, int buf_size)
++{
++	snprintf(buf, buf_size, &quot;lpc2900 flash driver&quot;);
++
++	return ERROR_OK;
++}
++
++
++flash_driver_t lpc2900_flash =
++{
++	.name               = &quot;lpc2900&quot;,
++	.register_commands  = lpc2900_register_commands,
++	.flash_bank_command = lpc2900_flash_bank_command,
++	.erase              = lpc2900_erase,
++	.protect            = lpc2900_protect,
++	.write              = lpc2900_write,
++	.probe              = lpc2900_probe,
++	.auto_probe         = lpc2900_probe,
++	.erase_check        = lpc2900_erase_check,
++	.protect_check      = lpc2900_protect_check,
++	.info               = lpc2900_info
++};
+
+Added: trunk/src/flash/lpc2900.h
+===================================================================
+--- trunk/src/flash/lpc2900.h	2009-09-15 16:20:39 UTC (rev 2714)
++++ trunk/src/flash/lpc2900.h	2009-09-16 12:38:26 UTC (rev 2715)
+@@ -0,0 +1,27 @@
++/***************************************************************************
++ *   Copyright (C) 2009 by                                                 *
++ *   Rolf Meeser &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">rolfm_9dq at yahoo.de</A>&gt;                                      *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifndef lpc2900_H
++#define lpc2900_H
++
++#include &quot;flash.h&quot;
++
++
++#endif /* lpc2900_H */
+
+Added: trunk/tcl/board/hitex_lpc2929.cfg
+===================================================================
+--- trunk/tcl/board/hitex_lpc2929.cfg	2009-09-15 16:20:39 UTC (rev 2714)
++++ trunk/tcl/board/hitex_lpc2929.cfg	2009-09-16 12:38:26 UTC (rev 2715)
+@@ -0,0 +1,105 @@
++# Hitex eval board for LPC2929/LPC2939
++# <A HREF="http://www.hitex.com/">http://www.hitex.com/</A>
++
++# Delays on reset lines
++jtag_nsrst_delay 50
++jtag_ntrst_delay 1
++
++# Maximum of 1/8 of clock frequency (XTAL = 16 MHz).
++# Adaptive clocking through RTCK is not supported.
++jtag_khz 2000
++
++# Target device: LPC29xx with ETB
++# The following variables are used by the LPC2900 script:
++#   HAS_ETB             Must be set to 1. The CPU on this board has ETB.
++#   FLASH_CLOCK         CPU frequency at the time of flash programming (in kHz)
++set HAS_ETB             1
++set FLASH_CLOCK         112000
++source [find target/lpc2900.cfg]
++
++# A working area will help speeding the flash programming
++#$_TARGETNAME configure -work-area-phys 0x80000000 -work-area-size 0x2000 -work-area-backup 0
++$_TARGETNAME configure -work-area-phys 0x58000000 -work-area-size 0x10000 -work-area-backup 0
++
++# Event handlers
++$_TARGETNAME configure -event reset-start {
++  # Back to the slow JTAG clock
++  jtag_khz 2000
++}
++
++# External 16-bit flash at chip select CS7 (SST39VF3201-70, 4 MiB)
++flash bank cfi 0x5C000000 0x400000 2 2 $_TARGETNAME jedec_probe
++
++
++$_TARGETNAME configure -event reset-init {
++  # Flash
++  mww 0x20200010 0x00000007     # FBWST: 7 wait states, not chached
++
++  # Use PLL
++  mww 0xFFFF8020 0x00000001     # XTAL_OSC_CONTROL: enable, 1-20 MHz
++  mww 0xFFFF8070 0x01000000     # SYS_CLK_CONF: Crystal
++  mww 0xFFFF8028 0x00000005     # PLL: (power down)
++  mww 0xFFFF8028 0x01060004     # PLL: M=7, 2P=2 (power up)
++                                # --&gt; f=112 MHz, fcco=224 MHz
++  sleep 100
++  mww 0xFFFF8070 0x02000000     # SYS_CLK_CONF: PLL
++
++  # Increase JTAG speed
++  jtag_khz 6000
++
++  # Enable external memory bus (16-bit SRAM at CS6, 16-bit flash at CS7)
++  mww 0xE0001138 0x0000001F     # P1.14 = D0
++  mww 0xE000113C 0x0000001F     # P1.15 = D1
++  mww 0xE0001140 0x0000001F     # P1.16 = D2
++  mww 0xE0001144 0x0000001F     # P1.17 = D3
++  mww 0xE0001148 0x0000001F     # P1.18 = D4
++  mww 0xE000114C 0x0000001F     # P1.19 = D5
++  mww 0xE0001150 0x0000001F     # P1.20 = D6
++  mww 0xE0001154 0x0000001F     # P1.21 = D7
++  mww 0xE0001200 0x0000001F     # P2.0  = D8
++  mww 0xE0001204 0x0000001F     # P2.1  = D9
++  mww 0xE0001208 0x0000001F     # P2.2  = D10
++  mww 0xE000120C 0x0000001F     # P2.3  = D11
++  mww 0xE0001210 0x0000001F     # P2.4  = D12
++  mww 0xE0001214 0x0000001F     # P2.5  = D13
++  mww 0xE0001218 0x0000001F     # P2.6  = D14
++  mww 0xE000121C 0x0000001F     # P2.7  = D15
++  mww 0xE0001104 0x00000007     # P1.1  = A1
++  mww 0xE0001108 0x00000007     # P1.2  = A2
++  mww 0xE000110C 0x00000007     # P1.3  = A3
++  mww 0xE0001110 0x00000007     # P1.4  = A4
++  mww 0xE0001114 0x00000007     # P1.5  = A5
++  mww 0xE0001118 0x00000007     # P1.6  = A6
++  mww 0xE000111C 0x00000007     # P1.7  = A7
++  mww 0xE0001028 0x00000007     # P0.10 = A8
++  mww 0xE000102C 0x00000007     # P0.11 = A9
++  mww 0xE0001030 0x00000007     # P0.12 = A10
++  mww 0xE0001034 0x00000007     # P0.13 = A11
++  mww 0xE0001038 0x00000007     # P0.14 = A12
++  mww 0xE000103C 0x00000007     # P0.15 = A13
++  mww 0xE0001048 0x00000007     # P0.18 = A14
++  mww 0xE000104C 0x00000007     # P0.19 = A15
++  mww 0xE0001050 0x00000007     # P0.20 = A16
++  mww 0xE0001054 0x00000007     # P0.21 = A17
++  mww 0xE0001058 0x00000007     # P0.22 = A18
++  mww 0xE000105C 0x00000007     # P0.23 = A19
++  mww 0xE0001238 0x00000007     # P2.14 = BLS0
++  mww 0xE000123C 0x00000007     # P2.15 = BLS1
++  mww 0xE0001300 0x00000007     # P3.0  = CS6
++  mww 0xE0001304 0x00000007     # P3.1  = CS7
++  mww 0xE0001130 0x00000007     # P1.12 = OE_N
++  mww 0xE0001134 0x00000007     # P1.13 = WE_N
++  mww 0x600000BC 0x00000041     # Bank6 16-bit mode, RBLE=1
++  mww 0x600000B4 0x00000000     # Bank6 WSTOEN=0
++  mww 0x600000AC 0x00000005     # Bank6 WST1=5
++  mww 0x600000B8 0x00000001     # Bank6 WSTWEN=1
++  mww 0x600000B0 0x00000006     # Bank6 WST2=6
++  mww 0x600000A8 0x00000002     # Bank6 IDCY=2
++  mww 0x600000D8 0x00000041     # Bank7 16-bit mode, RBLE=1
++  mww 0x600000D0 0x00000000     # Bank7 WSTOEN=0
++  mww 0x600000C8 0x0000000A     # Bank7 WST1=10
++  mww 0x600000D4 0x00000001     # Bank7 WSTWEN=1
++  mww 0x600000CC 0x0000000C     # Bank7 WST2=8
++  mww 0x600000C4 0x00000002     # Bank7 IDCY=2
++}
++
+
+
+Property changes on: trunk/tcl/board/hitex_lpc2929.cfg
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/tcl/target/lpc2900.cfg
+===================================================================
+--- trunk/tcl/target/lpc2900.cfg	2009-09-15 16:20:39 UTC (rev 2714)
++++ trunk/tcl/target/lpc2900.cfg	2009-09-16 12:38:26 UTC (rev 2715)
+@@ -0,0 +1,65 @@
++
++if { [info exists CHIPNAME] } {
++    set  _CHIPNAME $CHIPNAME
++} else {
++    set  _CHIPNAME lpc2900
++}
++
++if { [info exists CPUTAPID ] } {
++    set _CPUTAPID $CPUTAPID
++} else {
++    set _CPUTAPID 0x0596802B
++}
++
++if { [info exists HAS_ETB ] } {
++} else {
++    # Set default (no ETB).
++    # Show a warning, because this should have been configured explicitely.
++    set HAS_ETB 0
++    # TODO   warning?
++}
++
++if { [info exists ETBTAPID ] } {
++    set _ETBTAPID $ETBTAPID
++} else {
++    set _ETBTAPID 0x1B900F0F
++}
++
++# TRST and SRST both exist, and can be controlled independently
++reset_config trst_and_srst separate
++
++# Define the _TARGETNAME
++set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
++
++# Include the ETB tap controller if asked for.
++# Has to be done manually for newer devices (not an &quot;old&quot; LPC2917/2919).
++if { $HAS_ETB == 1 } {
++    # Clear the HAS_ETB flag. Must be set again for a new tap in the chain.
++    set HAS_ETB 0
++
++    # Add the ETB tap controller and the ARM9 core debug tap
++    jtag newtap $_CHIPNAME etb -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_ETBTAPID
++    jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_CPUTAPID
++
++    # Create the &quot;.cpu&quot; target
++    target create $_TARGETNAME arm966e -endian little -chain-position $_TARGETNAME -variant arm966e
++
++    # Configure ETM and ETB
++    etm config $_TARGETNAME 8 normal full etb
++    etb config $_TARGETNAME $_CHIPNAME.etb
++
++} else {
++    # Add the ARM9 core debug tap
++    jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_CPUTAPID
++
++    # Create the &quot;.cpu&quot; target
++    target create $_TARGETNAME arm966e -endian little -chain-position $_TARGETNAME -variant arm966e
++}
++
++arm7_9 dbgrq enable
++arm7_9 dcc_downloads enable
++
++# Flash bank configuration:
++# Flash:   flash bank lpc2900 0 0 0 0 &lt;target#&gt; &lt;flash clock (CLK_SYS_FMC) in kHz&gt;
++# Flash base address, total flash size, and number of sectors are all configured automatically.
++flash bank lpc2900         0 0 0 0 $_TARGETNAME $FLASH_CLOCK
+
+
+Property changes on: trunk/tcl/target/lpc2900.cfg
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001497.html">[Openocd-svn] r2714 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001499.html">[Openocd-svn] r2716 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1498">[ date ]</a>
+              <a href="thread.html#1498">[ thread ]</a>
+              <a href="subject.html#1498">[ subject ]</a>
+              <a href="author.html#1498">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

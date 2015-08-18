@@ -1,0 +1,2037 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-736-g75cdbff
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-736-g75cdbff&In-Reply-To=%3CE1PkxN1-0001t0-3W%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002509.html">
+   <LINK REL="Next"  HREF="002511.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-736-g75cdbff</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-736-g75cdbff&In-Reply-To=%3CE1PkxN1-0001t0-3W%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-736-g75cdbff">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Thu Feb  3 12:29:01 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002509.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-735-gb0bdc4e
+</A></li>
+        <LI>Next message: <A HREF="002511.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-737-g5ca7cbe
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2510">[ date ]</a>
+              <a href="thread.html#2510">[ thread ]</a>
+              <a href="subject.html#2510">[ subject ]</a>
+              <a href="author.html#2510">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  75cdbff5aa93d93e414cb22d413f41fb38a076bb (commit)
+      from  b0bdc4e2f2b4fd31ae3b0ebf47765e88c4c37556 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 75cdbff5aa93d93e414cb22d413f41fb38a076bb
+Author: Mathias K &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">kesmtp at freenet.de</A>&gt;
+Date:   Tue Feb 1 13:00:59 2011 +0100
+
+    more changes to dsp563xx code
+    
+    Hello,
+    
+    this patch adds the missing cpu registers and the correct read/write register functions and fixed
+    most of the halt/step/resume issues. The complete missing error propagation was added.
+    
+    + fix tab/spaces
+    
+    Regards,
+    
+    Mathias
+
+diff --git a/src/target/dsp563xx.c b/src/target/dsp563xx.c
+index 10fd014..85d559a 100644
+--- a/src/target/dsp563xx.c
++++ b/src/target/dsp563xx.c
+@@ -1,5 +1,5 @@
+ /***************************************************************************
+- *   Copyright (C) 2009 by Mathias Kuester                                 *
++ *   Copyright (C) 2009-2011 by Mathias Kuester                            *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mkdorg at users.sourceforge.net</A>                                          *
+  *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+@@ -29,37 +29,7 @@
+ #include &quot;dsp563xx.h&quot;
+ #include &quot;dsp563xx_once.h&quot;
+ 
+-#define DSP563XX_JTAG_INS_LEN		4
+-
+-#define JTAG_STATUS_NORMAL		0x01
+-#define JTAG_STATUS_STOPWAIT		0x05
+-#define JTAG_STATUS_BUSY		0x09
+-#define JTAG_STATUS_DEBUG		0x0d
+-
+-#define JTAG_INSTR_EXTEST		0x00
+-#define JTAG_INSTR_SAMPLE_PRELOAD	0x01
+-#define JTAG_INSTR_IDCODE		0x02
+-#define JTAG_INSTR_CLAMP		0x03
+-#define JTAG_INSTR_HIZ			0x04
+-#define JTAG_INSTR_ENABLE_ONCE		0x06
+-#define JTAG_INSTR_DEBUG_REQUEST	0x07
+-#define JTAG_INSTR_BYPASS		0x0F
+-
+-/* forward declarations */
+-static int dsp563xx_write_ir_u8(struct jtag_tap *tap, uint8_t * ir_in, uint8_t ir_out,
+-		int ir_len, int rti);
+-
+-/* IR and DR functions */
+-static int dsp563xx_jtag_sendinstr(struct jtag_tap *tap, uint8_t * ir_in, uint8_t ir_out);
+-
+-#define ASM_REG_R_R0	0x607000
+-#define ASM_REG_R_R1	0x617000
+-#define ASM_REG_R_R2	0x627000
+-#define ASM_REG_R_R3	0x637000
+-#define ASM_REG_R_R4	0x647000
+-#define ASM_REG_R_R5	0x657000
+-#define ASM_REG_R_R6	0x667000
+-#define ASM_REG_R_R7	0x677000
++//#define DSP563XX_JTAG_INS_LEN         4
+ 
+ #define ASM_REG_W_R0	0x60F400
+ #define ASM_REG_W_R1	0x61F400
+@@ -70,15 +40,6 @@ static int dsp563xx_jtag_sendinstr(struct jtag_tap *tap, uint8_t * ir_in, uint8_
+ #define ASM_REG_W_R6	0x66F400
+ #define ASM_REG_W_R7	0x67F400
+ 
+-#define ASM_REG_R_N0	0x707000
+-#define ASM_REG_R_N1	0x717000
+-#define ASM_REG_R_N2	0x727000
+-#define ASM_REG_R_N3	0x737000
+-#define ASM_REG_R_N4	0x747000
+-#define ASM_REG_R_N5	0x757000
+-#define ASM_REG_R_N6	0x767000
+-#define ASM_REG_R_N7	0x777000
+-
+ #define ASM_REG_W_N0	0x70F400
+ #define ASM_REG_W_N1	0x71F400
+ #define ASM_REG_W_N2	0x72F400
+@@ -88,15 +49,6 @@ static int dsp563xx_jtag_sendinstr(struct jtag_tap *tap, uint8_t * ir_in, uint8_
+ #define ASM_REG_W_N6	0x76F400
+ #define ASM_REG_W_N7	0x77F400
+ 
+-#define ASM_REG_R_M0	0x057020	/* control register m[0..7] */
+-#define ASM_REG_R_M1	0x057021
+-#define ASM_REG_R_M2	0x057022
+-#define ASM_REG_R_M3	0x057023
+-#define ASM_REG_R_M4	0x057024
+-#define ASM_REG_R_M5	0x057025
+-#define ASM_REG_R_M6	0x057026
+-#define ASM_REG_R_M7	0x057027
+-
+ #define ASM_REG_W_M0	0x05F420
+ #define ASM_REG_W_M1	0x05F421
+ #define ASM_REG_W_M2	0x05F422
+@@ -106,132 +58,185 @@ static int dsp563xx_jtag_sendinstr(struct jtag_tap *tap, uint8_t * ir_in, uint8_
+ #define ASM_REG_W_M6	0x05F426
+ #define ASM_REG_W_M7	0x05F427
+ 
+-#define ASM_REG_R_X0	0x447000
+-#define ASM_REG_R_X1	0x457000
+-
+ #define ASM_REG_W_X0	0x44F400
+ #define ASM_REG_W_X1	0x45F400
+ 
+-#define ASM_REG_R_Y0	0x467000
+-#define ASM_REG_R_Y1	0x477000
+-
+ #define ASM_REG_W_Y0	0x46F400
+ #define ASM_REG_W_Y1	0x47F400
+ 
+-#define ASM_REG_R_A0	0x507000
+-#define ASM_REG_R_A1	0x547000
+-#define ASM_REG_R_A2	0x527000
+-
+ #define ASM_REG_W_A0	0x50F400
+ #define ASM_REG_W_A1	0x54F400
+ #define ASM_REG_W_A2	0x52F400
+ 
+-#define ASM_REG_R_B0	0x517000
+-#define ASM_REG_R_B1	0x557000
+-#define ASM_REG_R_B2	0x537000
+-
+ #define ASM_REG_W_B0	0x51F400
+ #define ASM_REG_W_B1	0x55F400
+ #define ASM_REG_W_B2	0x53F400
+ 
+-#define ASM_REG_R_VBA	0x057030	/* control register */
+ #define ASM_REG_W_VBA	0x05F430
+-
+-#define ASM_REG_R_OMR	0x05703A	/* control register */
+ #define ASM_REG_W_OMR	0x05F43A
+-
+-#define ASM_REG_R_EP	0x05702A
+ #define ASM_REG_W_EP	0x05F42A
+-
+-#define ASM_REG_R_SC	0x057031	/* stack counter */
+ #define ASM_REG_W_SC	0x05F431
+-
+-#define ASM_REG_R_SZ	0x057038	/* stack size */
+ #define ASM_REG_W_SZ	0x05F438
+-
+-#define ASM_REG_R_SR	0x057039	/* control register, status register */
+ #define ASM_REG_W_SR	0x05F439
+-
+-#define ASM_REG_R_SP	0x05703B	/* control register, stack pointer */
+ #define ASM_REG_W_SP	0x05F43B
+-
+-#define ASM_REG_R_SSH	0x05703C	/* control register, system stack high */
+-#define ASM_REG_W_SSH	0x05743C
+-
+-#define ASM_REG_R_SSL	0x05703D	/* control register, system stack low */
++#define ASM_REG_W_SSH	0x05F43C
+ #define ASM_REG_W_SSL	0x05F43D
+-
+-#define ASM_REG_R_LA	0x05703E	/* control register, loop address */
+ #define ASM_REG_W_LA	0x05F43E
+-
+-#define ASM_REG_R_LC	0x05703F	/* control register, loop count */
+ #define ASM_REG_W_LC	0x05F43F
+-
+-#define ASM_REG_R_PC	0x000000
+ #define ASM_REG_W_PC	0x000000
++#define ASM_REG_W_IPRC	0xFFFFFF
++#define ASM_REG_W_IPRP	0xFFFFFE
++
++#define ASM_REG_W_BCR	0xFFFFFB
++#define ASM_REG_W_DCR	0xFFFFFA
++#define ASM_REG_W_AAR0	0xFFFFF9
++#define ASM_REG_W_AAR1	0xFFFFF8
++#define ASM_REG_W_AAR2	0xFFFFF7
++#define ASM_REG_W_AAR3	0xFFFFF6
++
++static struct once_reg once_regs[] = {
++	{0, 0x00, 24, &quot;OSCR&quot;, 0},
++	{1, 0x01, 24, &quot;OMBC&quot;, 0},
++	{2, 0x02, 24, &quot;OBCR&quot;, 0},
++	{3, 0x05, 24, &quot;OMLR0&quot;, 0},
++	{4, 0x06, 24, &quot;OMLR1&quot;, 0},
++	{5, 0x09, 24, &quot;OGDBR&quot;, 0},
++	{6, 0x0a, 24, &quot;OPDBR&quot;, 0},
++	{7, 0x0b, 24, &quot;OPILR&quot;, 0},
++	{8, 0x0c, 24, &quot;PDB&quot;, 0},
++	{9, 0x0d, 24, &quot;OTC&quot;, 0},
++	{10, 0x0f, 24, &quot;OPABFR&quot;, 0},
++	{11, 0x10, 24, &quot;OPABDR&quot;, 0},
++	{12, 0x11, 24, &quot;OPABEX&quot;, 0},
++	{13, 0x12, 25, &quot;OPABF0&quot;, 0},
++	{14, 0x12, 25, &quot;OPABF1&quot;, 0},
++	{15, 0x12, 25, &quot;OPABF2&quot;, 0},
++	{16, 0x12, 25, &quot;OPABF3&quot;, 0},
++	{17, 0x12, 25, &quot;OPABF4&quot;, 0},
++	{18, 0x12, 25, &quot;OPABF5&quot;, 0},
++	{19, 0x12, 25, &quot;OPABF6&quot;, 0},
++	{20, 0x12, 25, &quot;OPABF7&quot;, 0},
++	{21, 0x12, 25, &quot;OPABF8&quot;, 0},
++	{22, 0x12, 25, &quot;OPABF9&quot;, 0},
++	{23, 0x12, 25, &quot;OPABF10&quot;, 0},
++	{24, 0x12, 25, &quot;OPABF11&quot;, 0},
++//      {25,0x1f,24,&quot;NRSEL&quot;,0},
++};
+ 
+ static const struct
+ {
+ 	unsigned id;
+ 	const char *name;
+ 	unsigned bits;
+-	uint32_t r_cmd;
+-	uint32_t w_cmd;
++	/* effective addressing mode encoding */
++	uint8_t eame;
++	uint32_t instr_mask;
+ } dsp563xx_regs[] =
+ {
+ 	/* *INDENT-OFF* */
+-	{0, &quot;r0&quot;, 24, ASM_REG_R_R0, ASM_REG_W_R0},
+-	{1, &quot;r1&quot;, 24, ASM_REG_R_R1, ASM_REG_W_R1},
+-	{2, &quot;r2&quot;, 24, ASM_REG_R_R2, ASM_REG_W_R2},
+-	{3, &quot;r3&quot;, 24, ASM_REG_R_R3, ASM_REG_W_R3},
+-	{4, &quot;r4&quot;, 24, ASM_REG_R_R4, ASM_REG_W_R4},
+-	{5, &quot;r5&quot;, 24, ASM_REG_R_R5, ASM_REG_W_R5},
+-	{6, &quot;r6&quot;, 24, ASM_REG_R_R6, ASM_REG_W_R6},
+-	{7, &quot;r7&quot;, 24, ASM_REG_R_R7, ASM_REG_W_R7},
+-	{8, &quot;n0&quot;, 24, ASM_REG_R_N0, ASM_REG_W_N0},
+-	{9, &quot;n1&quot;, 24, ASM_REG_R_N1, ASM_REG_W_N1},
+-	{10, &quot;n2&quot;, 24, ASM_REG_R_N2, ASM_REG_W_N2},
+-	{11, &quot;n3&quot;, 24, ASM_REG_R_N3, ASM_REG_W_N3},
+-	{12, &quot;n4&quot;, 24, ASM_REG_R_N4, ASM_REG_W_N4},
+-	{13, &quot;n5&quot;, 24, ASM_REG_R_N5, ASM_REG_W_N5},
+-	{14, &quot;n6&quot;, 24, ASM_REG_R_N6, ASM_REG_W_N6},
+-	{15, &quot;n7&quot;, 24, ASM_REG_R_N7, ASM_REG_W_N7},
+-	{16, &quot;m0&quot;, 24, ASM_REG_R_M0, ASM_REG_W_M0},
+-	{17, &quot;m1&quot;, 24, ASM_REG_R_M1, ASM_REG_W_M1},
+-	{18, &quot;m2&quot;, 24, ASM_REG_R_M2, ASM_REG_W_M2},
+-	{19, &quot;m3&quot;, 24, ASM_REG_R_M3, ASM_REG_W_M3},
+-	{20, &quot;m4&quot;, 24, ASM_REG_R_M4, ASM_REG_W_M4},
+-	{21, &quot;m5&quot;, 24, ASM_REG_R_M5, ASM_REG_W_M5},
+-	{22, &quot;m6&quot;, 24, ASM_REG_R_M6, ASM_REG_W_M6},
+-	{23, &quot;m7&quot;, 24, ASM_REG_R_M7, ASM_REG_W_M7},
+-	{24, &quot;x0&quot;, 24, ASM_REG_R_X0, ASM_REG_W_X0},
+-	{25, &quot;x1&quot;, 24, ASM_REG_R_X1, ASM_REG_W_X1},
+-	{26, &quot;y0&quot;, 24, ASM_REG_R_Y0, ASM_REG_W_Y0},
+-	{27, &quot;y1&quot;, 24, ASM_REG_R_Y1, ASM_REG_W_Y1},
+-	{28, &quot;a0&quot;, 24, ASM_REG_R_A0, ASM_REG_W_A0},
+-	{29, &quot;a1&quot;, 24, ASM_REG_R_A1, ASM_REG_W_A1},
+-	{30, &quot;a2&quot;, 8, ASM_REG_R_A2, ASM_REG_W_A2},
+-	{31, &quot;b0&quot;, 24, ASM_REG_R_B0, ASM_REG_W_B0},
+-	{32, &quot;b1&quot;, 24, ASM_REG_R_B1, ASM_REG_W_B1},
+-	{33, &quot;b2&quot;, 8, ASM_REG_R_B2, ASM_REG_W_B2},
+-	{34, &quot;omr&quot;, 24, ASM_REG_R_OMR, ASM_REG_W_OMR},
+-	{35, &quot;vba&quot;, 24, ASM_REG_R_VBA, ASM_REG_W_VBA},
+-	{36, &quot;ep&quot;, 24, ASM_REG_R_EP, ASM_REG_W_EP},
+-	{37, &quot;sc&quot;, 24, ASM_REG_R_SC, ASM_REG_W_SC},
+-	{38, &quot;sz&quot;, 24, ASM_REG_R_SZ, ASM_REG_W_SZ},
+-	{39, &quot;sr&quot;, 24, ASM_REG_R_SR, ASM_REG_W_SR},
+-	{40, &quot;sp&quot;, 24, ASM_REG_R_SP, ASM_REG_W_SP},
+-	{41, &quot;la&quot;, 24, ASM_REG_R_LA, ASM_REG_W_LA},
+-	{42, &quot;lc&quot;, 24, ASM_REG_R_LC, ASM_REG_W_LC},
+-	{43, &quot;pc&quot;, 24, ASM_REG_R_PC, ASM_REG_W_PC}
++	/* address registers */
++	{ 0, &quot;r0&quot;, 24, 0x10, ASM_REG_W_R0},
++	{ 1, &quot;r1&quot;, 24, 0x11, ASM_REG_W_R1},
++	{ 2, &quot;r2&quot;, 24, 0x12, ASM_REG_W_R2},
++	{ 3, &quot;r3&quot;, 24, 0x13, ASM_REG_W_R3},
++	{ 4, &quot;r4&quot;, 24, 0x14, ASM_REG_W_R4},
++	{ 5, &quot;r5&quot;, 24, 0x15, ASM_REG_W_R5},
++	{ 6, &quot;r6&quot;, 24, 0x16, ASM_REG_W_R6},
++	{ 7, &quot;r7&quot;, 24, 0x17, ASM_REG_W_R7},
++	/* offset registers */
++	{ 8, &quot;n0&quot;, 24, 0x18, ASM_REG_W_N0},
++	{ 9, &quot;n1&quot;, 24, 0x19, ASM_REG_W_N1},
++	{10, &quot;n2&quot;, 24, 0x1a, ASM_REG_W_N2},
++	{11, &quot;n3&quot;, 24, 0x1b, ASM_REG_W_N3},
++	{12, &quot;n4&quot;, 24, 0x1c, ASM_REG_W_N4},
++	{13, &quot;n5&quot;, 24, 0x1d, ASM_REG_W_N5},
++	{14, &quot;n6&quot;, 24, 0x1e, ASM_REG_W_N6},
++	{15, &quot;n7&quot;, 24, 0x1f, ASM_REG_W_N7},
++	/* modifier registers */
++	{16, &quot;m0&quot;, 24, 0x20, ASM_REG_W_M0},
++	{17, &quot;m1&quot;, 24, 0x21, ASM_REG_W_M1},
++	{18, &quot;m2&quot;, 24, 0x22, ASM_REG_W_M2},
++	{19, &quot;m3&quot;, 24, 0x23, ASM_REG_W_M3},
++	{20, &quot;m4&quot;, 24, 0x24, ASM_REG_W_M4},
++	{21, &quot;m5&quot;, 24, 0x25, ASM_REG_W_M5},
++	{22, &quot;m6&quot;, 24, 0x26, ASM_REG_W_M6},
++	{23, &quot;m7&quot;, 24, 0x27, ASM_REG_W_M7},
++	/* data alu input register */
++	{24, &quot;x0&quot;, 24, 0x04, ASM_REG_W_X0},
++	{25, &quot;x1&quot;, 24, 0x05, ASM_REG_W_X1},
++	{26, &quot;y0&quot;, 24, 0x06, ASM_REG_W_Y0},
++	{27, &quot;y1&quot;, 24, 0x07, ASM_REG_W_Y1},
++	/* data alu accumulator register */
++	{28, &quot;a0&quot;, 24, 0x08, ASM_REG_W_A0},
++	{29, &quot;a1&quot;, 24, 0x0c, ASM_REG_W_A1},
++	{30, &quot;a2&quot;,  8, 0x0a, ASM_REG_W_A2},
++	{31, &quot;b0&quot;, 24, 0x09, ASM_REG_W_B0},
++	{32, &quot;b1&quot;, 24, 0x0d, ASM_REG_W_B1},
++	{33, &quot;b2&quot;,  8, 0x0b, ASM_REG_W_B2},
++	/* stack */
++	{34, &quot;ssh&quot;,24, 0x3c, ASM_REG_W_SSH},
++	{35, &quot;ssl&quot;,24, 0x3d, ASM_REG_W_SSL},
++	{36, &quot;sp&quot;, 24, 0x3b, ASM_REG_W_SP},
++	{37, &quot;ep&quot;, 24, 0x2a, ASM_REG_W_EP},
++	{38, &quot;sz&quot;, 24, 0x38, ASM_REG_W_SZ},
++	{39, &quot;sc&quot;, 24, 0x31, ASM_REG_W_SC},
++	/* system */
++	{40, &quot;pc&quot;, 24, 0x00, ASM_REG_W_PC},
++	{41, &quot;sr&quot;, 24, 0x39, ASM_REG_W_SR},
++	{42, &quot;omr&quot;,24, 0x3a, ASM_REG_W_OMR},
++	{43, &quot;la&quot;, 24, 0x3e, ASM_REG_W_LA},
++	{44, &quot;lc&quot;, 24, 0x3f, ASM_REG_W_LC},
++	/* interrupt */
++	{45, &quot;vba&quot;, 24, 0x30, ASM_REG_W_VBA},
++	{46, &quot;iprc&quot;,24, 0x00, ASM_REG_W_IPRC},
++	{47, &quot;iprp&quot;,24, 0x00, ASM_REG_W_IPRP},
++	/* port a */
++	{48, &quot;bcr&quot;, 24, 0x00, ASM_REG_W_BCR},
++	{49, &quot;dcr&quot;, 24, 0x00, ASM_REG_W_DCR},
++	{50, &quot;aar0&quot;,24, 0x00, ASM_REG_W_AAR0},
++	{51, &quot;aar1&quot;,24, 0x00, ASM_REG_W_AAR1},
++	{52, &quot;aar2&quot;,24, 0x00, ASM_REG_W_AAR2},
++	{53, &quot;aar3&quot;,24, 0x00, ASM_REG_W_AAR3},
+ 	/* *INDENT-ON* */
+ };
+ 
+-static int dsp563xx_get_gdb_reg_list(struct target *target, struct reg **reg_list[],
+-			      int *reg_list_size)
++#define REG_NUM_R0	0
++#define REG_NUM_N0	8
++#define REG_NUM_N1	9
++#define REG_NUM_M0	16
++#define REG_NUM_M1	17
++#define REG_NUM_SSH	34
++#define REG_NUM_SSL	35
++#define REG_NUM_SP	36
++#define REG_NUM_EP	37
++#define REG_NUM_SC	39
++#define REG_NUM_PC	40
++#define REG_NUM_SR	41
++#define REG_NUM_IPRC	46
++#define REG_NUM_IPRP	47
++#define REG_NUM_BCR	48
++#define REG_NUM_DCR	49
++#define REG_NUM_AAR0	50
++#define REG_NUM_AAR1	51
++#define REG_NUM_AAR2	52
++#define REG_NUM_AAR3	53
++
++#define INSTR_JUMP	0x0AF080
++/* Effective Addressing Mode Encoding */
++#define EAME_R0		0x10
++/* instrcution encoder */
++/* movep
++ * s - peripheral space X/Y (X=0,Y=1)
++ * w - write/read
++ * d - source/destination register
++ * p - IO short address
++ */
++#define INSTR_MOVEP_REG_HIO(s,w,d,p)   (0x084000 | ((s &amp; 1)&lt;&lt;16) | ((w&amp;1)&lt;&lt;15) | ((d &amp; 0x3f)&lt;&lt;8) | (p &amp; 0x3f))
++
++static int dsp563xx_get_gdb_reg_list(struct target *target, struct reg **reg_list[], int *reg_list_size)
+ {
+-	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
+ 	int i;
++	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -241,6 +246,9 @@ static int dsp563xx_get_gdb_reg_list(struct target *target, struct reg **reg_lis
+ 	*reg_list_size = DSP563XX_NUMCOREREGS;
+ 	*reg_list = malloc(sizeof(struct reg *) * (*reg_list_size));
+ 
++	if (!*reg_list)
++		return ERROR_INVALID_ARGUMENTS;
++
+ 	for (i = 0; i &lt; DSP563XX_NUMCOREREGS; i++)
+ 	{
+ 		(*reg_list)[i] = &amp;dsp563xx-&gt;core_cache-&gt;reg_list[i];
+@@ -290,6 +298,9 @@ static int dsp563xx_target_create(struct target *target, Jim_Interp * interp)
+ {
+ 	struct dsp563xx_common *dsp563xx = calloc(1, sizeof(struct dsp563xx_common));
+ 
++	if (!dsp563xx)
++		return ERROR_INVALID_ARGUMENTS;
++
+ 	dsp563xx-&gt;jtag_info.tap = target-&gt;tap;
+ 	target-&gt;arch_info = dsp563xx;
+ 	dsp563xx-&gt;read_core_reg = dsp563xx_read_core_reg;
+@@ -300,22 +311,18 @@ static int dsp563xx_target_create(struct target *target, Jim_Interp * interp)
+ 
+ static int dsp563xx_get_core_reg(struct reg *reg)
+ {
+-	int retval = 0;
+-
+-	LOG_DEBUG(&quot;%s&quot;, __FUNCTION__);
+-
+ 	struct dsp563xx_core_reg *dsp563xx_reg = reg-&gt;arch_info;
+ 	struct target *target = dsp563xx_reg-&gt;target;
+ 	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
+ 
++	LOG_DEBUG(&quot;%s&quot;, __FUNCTION__);
++
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
+-	retval = dsp563xx-&gt;read_core_reg(target, dsp563xx_reg-&gt;num);
+-
+-	return retval;
++	return dsp563xx-&gt;read_core_reg(target, dsp563xx_reg-&gt;num);
+ }
+ 
+ static int dsp563xx_set_core_reg(struct reg *reg, uint8_t * buf)
+@@ -338,58 +345,366 @@ static int dsp563xx_set_core_reg(struct reg *reg, uint8_t * buf)
+ 	return ERROR_OK;
+ }
+ 
+-static int dsp563xx_save_context(struct target *target)
++static int dsp563xx_read_register(struct target *target, int num, int force);
++static int dsp563xx_write_register(struct target *target, int num, int force);
++
++static int dsp563xx_reg_read_high_io(struct target *target, uint32_t instr_mask, uint32_t * data)
+ {
+-	int i;
+-	uint32_t data = 0;
++	int err;
++	uint32_t instr;
++	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
++
++	/* we use r0 to store temporary data */
++	if (!dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_R0].valid)
++		dsp563xx-&gt;read_core_reg(target, REG_NUM_R0);
++
++	/* move source memory to r0 */
++	instr = INSTR_MOVEP_REG_HIO(0, 0, EAME_R0, instr_mask);
++	if ((err = dsp563xx_once_execute_sw_ir_nq(target-&gt;tap, instr)) != ERROR_OK)
++		return err;
++	/* move r0 to debug register */
++	instr = INSTR_MOVEP_REG_HIO(0, 1, EAME_R0, 0xfffffc);
++	if ((err = dsp563xx_once_execute_sw_ir(target-&gt;tap, instr)) != ERROR_OK)
++		return err;
++	/* read debug register */
++	if ((err = dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OGDBR, data)) != ERROR_OK)
++		return err;
++	/* r0 is no longer valid on target */
++	dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_R0].dirty = 1;
++
++	return ERROR_OK;
++}
++
++static int dsp563xx_reg_write_high_io(struct target *target, uint32_t instr_mask, uint32_t data)
++{
++	int err;
++	uint32_t instr;
++	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
++
++	/* we use r0 to store temporary data */
++	if (!dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_R0].valid)
++		dsp563xx-&gt;read_core_reg(target, REG_NUM_R0);
++
++	/* move data to r0 */
++	if ((err = dsp563xx_once_execute_dw_ir_nq(target-&gt;tap, 0x60F400, data)) != ERROR_OK)
++		return err;
++	/* move r0 to destination memory */
++	instr = INSTR_MOVEP_REG_HIO(0, 1, EAME_R0, instr_mask);
++	if ((err = dsp563xx_once_execute_sw_ir(target-&gt;tap, instr)) != ERROR_OK)
++		return err;
++
++	/* r0 is no longer valid on target */
++	dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_R0].dirty = 1;
++
++	return ERROR_OK;
++}
++
++static int dsp563xx_reg_read(struct target *target, uint32_t eame, uint32_t * data)
++{
++	int err;
++	uint32_t instr;
++
++	instr = INSTR_MOVEP_REG_HIO(0, 1, eame, 0xfffffc);
++	if ((err = dsp563xx_once_execute_sw_ir_nq(target-&gt;tap, instr)) != ERROR_OK)
++		return err;
++	/* nop */
++	if ((err = dsp563xx_once_execute_sw_ir(target-&gt;tap, 0x000000)) != ERROR_OK)
++		return err;
++	/* read debug register */
++	return dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OGDBR, data);
++}
++
++static int dsp563xx_reg_write(struct target *target, uint32_t instr_mask, uint32_t data)
++{
++	int err;
++
++	if ((err = dsp563xx_once_execute_dw_ir_nq(target-&gt;tap, instr_mask, data)) != ERROR_OK)
++		return err;
++	/* nop */
++	return dsp563xx_once_execute_sw_ir(target-&gt;tap, 0x000000);
++}
++
++static int dsp563xx_reg_pc_read(struct target *target)
++{
++	int err;
++	uint32_t opabdr, opabex;
++	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
++
++	/* pc was changed, nothing todo */
++	if (dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_PC].dirty)
++		return ERROR_OK;
++
++	if ((err = dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPABDR, &amp;opabdr)) != ERROR_OK)
++		return err;
++	if ((err = dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPABEX, &amp;opabex)) != ERROR_OK)
++		return err;
++
++	/* conditional branch check */
++	if (opabdr == opabex)
++	{
++		/* TODO: check the trace buffer and if a
++		 * conditional branch is detected then decode
++		 * the branch command and add the relative
++		 * address to the current pc
++		 */
++		LOG_DEBUG(&quot;%s conditional branch not supported yet&quot;, __FUNCTION__);
++	}
++	else
++	{
++		dsp563xx-&gt;core_regs[REG_NUM_PC] = opabex;
++		dsp563xx-&gt;read_core_reg(target, REG_NUM_PC);
++	}
++
++	return ERROR_OK;
++}
++
++static int dsp563xx_reg_ssh_read(struct target *target)
++{
++	int err;
++	uint32_t sp, sc, ep;
++	struct dsp563xx_core_reg *arch_info;
+ 	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
++
++	arch_info = dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_SSH].arch_info;
++
++	/* get a valid stack pointer */
++	if ((err = dsp563xx_read_register(target, REG_NUM_SP, 0)) != ERROR_OK)
++		return err;
++	sp = dsp563xx-&gt;core_regs[REG_NUM_SP];
++	if ((err = dsp563xx_write_register(target, REG_NUM_SP, 0)) != ERROR_OK)
++		return err;
++
++	/* get a valid stack count */
++	if ((err = dsp563xx_read_register(target, REG_NUM_SC, 0)) != ERROR_OK)
++		return err;
++	sc = dsp563xx-&gt;core_regs[REG_NUM_SC];
++	if ((err = dsp563xx_write_register(target, REG_NUM_SC, 0)) != ERROR_OK)
++		return err;
++
++	/* get a valid extended pointer */
++	if ((err = dsp563xx_read_register(target, REG_NUM_EP, 0)) != ERROR_OK)
++		return err;
++	ep = dsp563xx-&gt;core_regs[REG_NUM_EP];
++	if ((err = dsp563xx_write_register(target, REG_NUM_EP, 0)) != ERROR_OK)
++		return err;
++
++	if (!sp)
++	{
++		sp = 0x00FFFFFF;
++	}
++	else
++	{
++		if ((err = dsp563xx_reg_read(target, arch_info-&gt;eame, &amp;sp)) != ERROR_OK)
++			return err;
++
++		if ((err = dsp563xx_write_register(target, REG_NUM_SC, 1)) != ERROR_OK)
++			return err;
++		if ((err = dsp563xx_write_register(target, REG_NUM_SP, 1)) != ERROR_OK)
++			return err;
++		if ((err = dsp563xx_write_register(target, REG_NUM_EP, 1)) != ERROR_OK)
++			return err;
++	}
++
++	dsp563xx-&gt;core_regs[REG_NUM_SSH] = sp;
++	dsp563xx-&gt;read_core_reg(target, REG_NUM_SSH);
++
++	return ERROR_OK;
++}
++
++static int dsp563xx_reg_ssh_write(struct target *target)
++{
++	int err;
++	uint32_t sp;
+ 	struct dsp563xx_core_reg *arch_info;
++	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
+ 
+-	for (i = 0; i &lt; DSP563XX_NUMCOREREGS - 1; i++)
++	arch_info = dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_SSH].arch_info;
++
++	/* get a valid stack pointer */
++	if ((err = dsp563xx_read_register(target, REG_NUM_SP, 0)) != ERROR_OK)
++		return err;
++	sp = dsp563xx-&gt;core_regs[REG_NUM_SP];
++
++	if (sp)
+ 	{
++		sp--;
++		/* write new stackpointer */
++		dsp563xx-&gt;core_regs[REG_NUM_SP] = sp;
++		if ((err = dsp563xx-&gt;read_core_reg(target, REG_NUM_SP)) != ERROR_OK)
++			return err;
++		if ((err = dsp563xx_write_register(target, REG_NUM_SP, 1)) != ERROR_OK)
++			return err;
++
++		if ((err = dsp563xx_reg_write(target, arch_info-&gt;instr_mask, dsp563xx-&gt;core_regs[REG_NUM_SSH])) != ERROR_OK)
++			return err;
++
++		if ((err = dsp563xx_read_register(target, REG_NUM_SP, 1)) != ERROR_OK)
++			return err;
++		if ((err = dsp563xx_read_register(target, REG_NUM_SSH, 1)) != ERROR_OK)
++			return err;
++	}
+ 
+-//              if (!dsp563xx-&gt;core_cache-&gt;reg_list[i].valid)
+-		{
+-			arch_info = dsp563xx-&gt;core_cache-&gt;reg_list[i].arch_info;
+-			dsp563xx_once_execute_dw_ir(target-&gt;tap, arch_info-&gt;r_cmd,
+-						    0xfffffc);
+-			dsp563xx_once_execute_sw_ir(target-&gt;tap, 0x000000);
+-			dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OGDBR,
+-					       &amp;data);
+-			dsp563xx-&gt;core_regs[i] = data;
+-			dsp563xx-&gt;read_core_reg(target, i);
+-		}
++	return ERROR_OK;
++}
++
++static int dsp563xx_reg_ssl_read(struct target *target)
++{
++	int err;
++	uint32_t sp;
++	struct dsp563xx_core_reg *arch_info;
++	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
++
++	arch_info = dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_SSL].arch_info;
++
++	/* get a valid stack pointer */
++	if ((err = dsp563xx_read_register(target, REG_NUM_SP, 0)) != ERROR_OK)
++		return err;
++	sp = dsp563xx-&gt;core_regs[REG_NUM_SP];
++
++	if (!sp)
++	{
++		sp = 0x00FFFFFF;
++	}
++	else
++	{
++		if ((err = dsp563xx_reg_read(target, arch_info-&gt;eame, &amp;sp)) != ERROR_OK)
++			return err;
+ 	}
+ 
+-	/* read pc */
+-	dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPABEX, &amp;data);
+-	dsp563xx-&gt;core_regs[i] = data;
+-	dsp563xx-&gt;read_core_reg(target, i);
++	dsp563xx-&gt;core_regs[REG_NUM_SSL] = sp;
++	dsp563xx-&gt;read_core_reg(target, REG_NUM_SSL);
+ 
+ 	return ERROR_OK;
+ }
+ 
+-static int dsp563xx_restore_context(struct target *target)
++static int dsp563xx_read_register(struct target *target, int num, int force)
+ {
+-	int i;
++	int err = ERROR_OK;
++	uint32_t data = 0;
+ 	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
+ 	struct dsp563xx_core_reg *arch_info;
+ 
+-	for (i = 0; i &lt; DSP563XX_NUMCOREREGS - 1; i++)
++	if (force)
++		dsp563xx-&gt;core_cache-&gt;reg_list[num].valid = 0;
++
++	if (!dsp563xx-&gt;core_cache-&gt;reg_list[num].valid)
+ 	{
+-		if (dsp563xx-&gt;core_cache-&gt;reg_list[i].dirty)
++		arch_info = dsp563xx-&gt;core_cache-&gt;reg_list[num].arch_info;
++
++		switch (arch_info-&gt;num)
+ 		{
+-			arch_info = dsp563xx-&gt;core_cache-&gt;reg_list[i].arch_info;
++			case REG_NUM_SSH:
++				err = dsp563xx_reg_ssh_read(target);
++				break;
++			case REG_NUM_SSL:
++				err = dsp563xx_reg_ssl_read(target);
++				break;
++			case REG_NUM_PC:
++				err = dsp563xx_reg_pc_read(target);
++				break;
++			case REG_NUM_IPRC:
++			case REG_NUM_IPRP:
++			case REG_NUM_BCR:
++			case REG_NUM_DCR:
++			case REG_NUM_AAR0:
++			case REG_NUM_AAR1:
++			case REG_NUM_AAR2:
++			case REG_NUM_AAR3:
++				err = dsp563xx_reg_read_high_io(target, arch_info-&gt;instr_mask, &amp;data);
++				if (err == ERROR_OK)
++				{
++					dsp563xx-&gt;core_regs[num] = data;
++					dsp563xx-&gt;read_core_reg(target, num);
++				}
++				break;
++			default:
++				err = dsp563xx_reg_read(target, arch_info-&gt;eame, &amp;data);
++				if (err == ERROR_OK)
++				{
++					dsp563xx-&gt;core_regs[num] = data;
++					dsp563xx-&gt;read_core_reg(target, num);
++				}
++				break;
++		}
++
++	}
+ 
+-			dsp563xx-&gt;write_core_reg(target, i);
++	return err;
++}
+ 
+-			dsp563xx_once_execute_dw_ir(target-&gt;tap, arch_info-&gt;w_cmd,
+-						    dsp563xx-&gt;core_regs[i]);
+-			dsp563xx_once_execute_sw_ir(target-&gt;tap, 0x000000);
++static int dsp563xx_write_register(struct target *target, int num, int force)
++{
++	int err = ERROR_OK;
++	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
++	struct dsp563xx_core_reg *arch_info;
++
++	if (force)
++		dsp563xx-&gt;core_cache-&gt;reg_list[num].dirty = 1;
++
++	if (dsp563xx-&gt;core_cache-&gt;reg_list[num].dirty)
++	{
++		arch_info = dsp563xx-&gt;core_cache-&gt;reg_list[num].arch_info;
++
++		dsp563xx-&gt;write_core_reg(target, num);
++
++		switch (arch_info-&gt;num)
++		{
++			case REG_NUM_SSH:
++				err = dsp563xx_reg_ssh_write(target);
++				break;
++			case REG_NUM_PC:
++				/* pc is updated on resume, no need to write it here */
++				break;
++			case REG_NUM_IPRC:
++			case REG_NUM_IPRP:
++			case REG_NUM_BCR:
++			case REG_NUM_DCR:
++			case REG_NUM_AAR0:
++			case REG_NUM_AAR1:
++			case REG_NUM_AAR2:
++			case REG_NUM_AAR3:
++				err = dsp563xx_reg_write_high_io(target, arch_info-&gt;instr_mask, dsp563xx-&gt;core_regs[num]);
++				break;
++			default:
++				err = dsp563xx_reg_write(target, arch_info-&gt;instr_mask, dsp563xx-&gt;core_regs[num]);
++
++				if ((err == ERROR_OK) &amp;&amp; (arch_info-&gt;num == REG_NUM_SP))
++				{
++					dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_SSH].valid = 0;
++					dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_SSL].valid = 0;
++				}
++
++				break;
+ 		}
+ 	}
+ 
+-	return ERROR_OK;
++	return err;
++}
++
++static int dsp563xx_save_context(struct target *target)
++{
++	int i, err = ERROR_OK;
++
++	for (i = 0; i &lt; DSP563XX_NUMCOREREGS; i++)
++	{
++		if ((err = dsp563xx_read_register(target, i, 0)) != ERROR_OK)
++			break;
++	}
++
++	return err;
++}
++
++static int dsp563xx_restore_context(struct target *target)
++{
++	int i, err = ERROR_OK;
++
++	for (i = 0; i &lt; DSP563XX_NUMCOREREGS; i++)
++	{
++		if ((err = dsp563xx_write_register(target, i, 0)) != ERROR_OK)
++			break;
++	}
++
++	return err;
+ }
+ 
+ static const struct reg_arch_type dsp563xx_reg_type = {
+@@ -405,8 +720,7 @@ static int dsp563xx_init_target(struct command_context *cmd_ctx, struct target *
+ 	struct reg_cache **cache_p = register_get_last_cache_p(&amp;target-&gt;reg_cache);
+ 	struct reg_cache *cache = malloc(sizeof(struct reg_cache));
+ 	struct reg *reg_list = malloc(sizeof(struct reg) * DSP563XX_NUMCOREREGS);
+-	struct dsp563xx_core_reg *arch_info =
+-		malloc(sizeof(struct dsp563xx_core_reg) * DSP563XX_NUMCOREREGS);
++	struct dsp563xx_core_reg *arch_info = malloc(sizeof(struct dsp563xx_core_reg) * DSP563XX_NUMCOREREGS);
+ 	int i;
+ 
+ 	LOG_DEBUG(&quot;%s&quot;, __FUNCTION__);
+@@ -424,8 +738,8 @@ static int dsp563xx_init_target(struct command_context *cmd_ctx, struct target *
+ 		arch_info[i].num = dsp563xx_regs[i].id;
+ 		arch_info[i].name = dsp563xx_regs[i].name;
+ 		arch_info[i].size = dsp563xx_regs[i].bits;
+-		arch_info[i].r_cmd = dsp563xx_regs[i].r_cmd;
+-		arch_info[i].w_cmd = dsp563xx_regs[i].w_cmd;
++		arch_info[i].eame = dsp563xx_regs[i].eame;
++		arch_info[i].instr_mask = dsp563xx_regs[i].instr_mask;
+ 		arch_info[i].target = target;
+ 		arch_info[i].dsp563xx_common = dsp563xx;
+ 		reg_list[i].name = dsp563xx_regs[i].name;
+@@ -446,73 +760,121 @@ static int dsp563xx_arch_state(struct target *target)
+ 	return ERROR_OK;
+ }
+ 
+-static int dsp563xx_jtag_status(struct target *target, uint8_t * status)
++#define DSP563XX_SR_SA	(1&lt;&lt;17)
++#define DSP563XX_SR_SC	(1&lt;&lt;13)
++
++static int dsp563xx_debug_once_init(struct target *target)
+ {
+-	uint8_t ir_in;
++	return dsp563xx_once_read_register(target-&gt;tap, once_regs, DSP563XX_NUMONCEREGS);
++}
+ 
+-	ir_in = 0;
++static int dsp563xx_debug_init(struct target *target)
++{
++	int err;
++	uint32_t sr;
++	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
++	struct dsp563xx_core_reg *arch_info;
+ 
+-	dsp563xx_jtag_sendinstr(target-&gt;tap, &amp;ir_in, JTAG_INSTR_ENABLE_ONCE);
+-	dsp563xx_execute_queue();
++	if ((err = dsp563xx_debug_once_init(target)) != ERROR_OK)
++		return err;
+ 
+-	*status = ir_in;
++	arch_info = dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_SR].arch_info;
+ 
+-	return ERROR_OK;
+-}
++	/* check 24bit mode */
++	if ((err = dsp563xx_read_register(target, REG_NUM_SR, 0)) != ERROR_OK)
++		return err;
+ 
+-static int dsp563xx_jtag_debug_request(struct target *target)
+-{
+-	uint8_t ir_in = 0;
+-	uint32_t retry = 0;
++	sr = dsp563xx-&gt;core_regs[REG_NUM_SR];
+ 
+-	while (ir_in != JTAG_STATUS_DEBUG)
++	if (sr &amp; (DSP563XX_SR_SA | DSP563XX_SR_SC))
+ 	{
+-		dsp563xx_jtag_sendinstr(target-&gt;tap, &amp;ir_in,
+-					JTAG_INSTR_DEBUG_REQUEST);
+-		dsp563xx_execute_queue();
+-		LOG_DEBUG(&quot;JTAG CMD 7 res: %02X&quot;, ir_in);
+-		dsp563xx_jtag_sendinstr(target-&gt;tap, &amp;ir_in, JTAG_INSTR_ENABLE_ONCE);
+-		dsp563xx_execute_queue();
+-		LOG_DEBUG(&quot;JTAG CMD 6 res: %02X&quot;, ir_in);
++		sr &amp;= ~(DSP563XX_SR_SA | DSP563XX_SR_SC);
+ 
+-		if (retry++ == 100)
+-			return ERROR_TARGET_FAILURE;
++		if ((err = dsp563xx_once_execute_dw_ir(target-&gt;tap, arch_info-&gt;instr_mask, sr)) != ERROR_OK)
++			return err;
++		dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_SR].dirty = 1;
+ 	}
+ 
+-	if (ir_in != JTAG_STATUS_DEBUG)
++	if ((err = dsp563xx_read_register(target, REG_NUM_N0, 0)) != ERROR_OK)
++		return err;
++	if ((err = dsp563xx_read_register(target, REG_NUM_N1, 0)) != ERROR_OK)
++		return err;
++	if ((err = dsp563xx_read_register(target, REG_NUM_M0, 0)) != ERROR_OK)
++		return err;
++	if ((err = dsp563xx_read_register(target, REG_NUM_M1, 0)) != ERROR_OK)
++		return err;
++
++	if (dsp563xx-&gt;core_regs[REG_NUM_N0] != 0x000000)
+ 	{
+-		return ERROR_TARGET_FAILURE;
++		arch_info = dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_N0].arch_info;
++		if ((err = dsp563xx_reg_write(target, arch_info-&gt;instr_mask, 0x000000)) != ERROR_OK)
++			return err;
++	}
++	dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_N0].dirty = 1;
++
++	if (dsp563xx-&gt;core_regs[REG_NUM_N1] != 0x000000)
++	{
++		arch_info = dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_N1].arch_info;
++		if ((err = dsp563xx_reg_write(target, arch_info-&gt;instr_mask, 0x000000)) != ERROR_OK)
++			return err;
++	}
++	dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_N1].dirty = 1;
++
++	if (dsp563xx-&gt;core_regs[REG_NUM_M0] != 0xffffff)
++	{
++		arch_info = dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_M0].arch_info;
++		if ((err = dsp563xx_reg_write(target, arch_info-&gt;instr_mask, 0xffffff)) != ERROR_OK)
++			return err;
+ 	}
++	dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_M0].dirty = 1;
++
++	if (dsp563xx-&gt;core_regs[REG_NUM_M1] != 0xffffff)
++	{
++		arch_info = dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_M1].arch_info;
++		if ((err = dsp563xx_reg_write(target, arch_info-&gt;instr_mask, 0xffffff)) != ERROR_OK)
++			return err;
++	}
++	dsp563xx-&gt;core_cache-&gt;reg_list[REG_NUM_M1].dirty = 1;
++
++	if ((err = dsp563xx_save_context(target)) != ERROR_OK)
++		return err;
+ 
+ 	return ERROR_OK;
+ }
+ 
++static int dsp563xx_jtag_debug_request(struct target *target)
++{
++	return dsp563xx_once_request_debug(target-&gt;tap, target-&gt;state == TARGET_RESET);
++}
++
+ static int dsp563xx_poll(struct target *target)
+ {
+-	uint8_t jtag_status;
++	int err;
+ 	uint32_t once_status;
++	int state;
+ 
+-	dsp563xx_jtag_status(target, &amp;jtag_status);
++	state = dsp563xx_once_target_status(target-&gt;tap);
+ 
+-	if ((jtag_status &amp; 1) != 1)
++	if (state == TARGET_UNKNOWN)
+ 	{
+-		target-&gt;state = TARGET_UNKNOWN;
+-		LOG_ERROR
+-			(&quot;jtag status contains invalid mode value - communication failure&quot;);
++		target-&gt;state = state;
++		LOG_ERROR(&quot;jtag status contains invalid mode value - communication failure&quot;);
+ 		return ERROR_TARGET_FAILURE;
+ 	}
+ 
+-	if (jtag_status != JTAG_STATUS_DEBUG)
+-	{
+-		target-&gt;state = TARGET_RUNNING;
+-	}
+-
+-	dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OSCR, &amp;once_status);
++	if ((err = dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OSCR, &amp;once_status)) != ERROR_OK)
++		return err;
+ 
+ 	if ((once_status &amp; DSP563XX_ONCE_OSCR_DEBUG_M) == DSP563XX_ONCE_OSCR_DEBUG_M)
+ 	{
+-		target-&gt;state = TARGET_HALTED;
++		if (target-&gt;state != TARGET_HALTED)
++		{
++			target-&gt;state = TARGET_HALTED;
++			if ((err = dsp563xx_debug_init(target)) != ERROR_OK)
++				return err;
+ 
++			LOG_DEBUG(&quot;target-&gt;state: %s&quot;, target_state_name(target));
++		}
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -520,8 +882,7 @@ static int dsp563xx_poll(struct target *target)
+ 
+ static int dsp563xx_halt(struct target *target)
+ {
+-	uint8_t jtag_status;
+-	uint32_t once_status;
++	int err;
+ 	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
+ 
+ 	if (target-&gt;state == TARGET_HALTED)
+@@ -535,61 +896,48 @@ static int dsp563xx_halt(struct target *target)
+ 		LOG_WARNING(&quot;target was in unknown state when halt was requested&quot;);
+ 	}
+ 
+-//      if ( jtag_status != 0x0d )
+-	{
+-		dsp563xx_jtag_debug_request(target);
+-
+-		/* store pipeline register */
+-		dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPILR,
+-				       &amp;dsp563xx-&gt;pipeline_context.once_opilr);
+-		dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPDBR,
+-				       &amp;dsp563xx-&gt;pipeline_context.once_opdbr);
+-
+-		dsp563xx_save_context(target);
++	if ((err = dsp563xx_jtag_debug_request(target)) != ERROR_OK)
++		return err;
+ 
+-		dsp563xx_jtag_status(target, &amp;jtag_status);
+-		LOG_DEBUG(&quot;%02X&quot;, jtag_status);
+-		dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OSCR,
+-				       &amp;once_status);
+-		LOG_DEBUG(&quot;%02X&quot;, (unsigned) once_status);
+-	}
+-
+-	LOG_DEBUG(&quot;target-&gt;state: %s&quot;, target_state_name(target));
++	/* store pipeline register */
++	if ((err = dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPILR, &amp;dsp563xx-&gt;pipeline_context.once_opilr)) != ERROR_OK)
++		return err;
++	if ((err = dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPDBR, &amp;dsp563xx-&gt;pipeline_context.once_opdbr)) != ERROR_OK)
++		return err;
+ 
+ 	LOG_DEBUG(&quot;%s&quot;, __FUNCTION__);
+ 
+ 	return ERROR_OK;
+ }
+ 
+-#define DSP563XX_ASM_CMD_JUMP	0x0AF080
+-
+-static int dsp563xx_resume(struct target *target, int current, uint32_t address,
+-		    int handle_breakpoints, int debug_execution)
++static int dsp563xx_resume(struct target *target, int current, uint32_t address, int handle_breakpoints, int debug_execution)
+ {
++	int err;
+ 	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
+ 
+ 	LOG_DEBUG(&quot;%s&quot;, __FUNCTION__);
+ 
+-	dsp563xx_restore_context(target);
++	if ((err = dsp563xx_restore_context(target)) != ERROR_OK)
++		return err;
++	register_cache_invalidate(dsp563xx-&gt;core_cache);
+ 
+ 	if (current)
+ 	{
+ 		/* restore pipeline registers and go */
+-		dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OPILR,
+-					dsp563xx-&gt;pipeline_context.once_opilr);
+-		dsp563xx_once_reg_write(target-&gt;tap,
+-					DSP563XX_ONCE_OPDBR | DSP563XX_ONCE_OCR_EX |
+-					DSP563XX_ONCE_OCR_GO,
+-					dsp563xx-&gt;pipeline_context.once_opdbr);
++		if ((err = dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OPILR, dsp563xx-&gt;pipeline_context.once_opilr)) != ERROR_OK)
++			return err;
++		if ((err =
++		     dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OPDBR | DSP563XX_ONCE_OCR_EX | DSP563XX_ONCE_OCR_GO,
++					     dsp563xx-&gt;pipeline_context.once_opdbr)) != ERROR_OK)
++			return err;
+ 	}
+ 	else
+ 	{
+ 		/* set to go register and jump */
+-		dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OPDBR,
+-					DSP563XX_ASM_CMD_JUMP);
+-		dsp563xx_once_reg_write(target-&gt;tap,
+-					DSP563XX_ONCE_PDBGOTO | DSP563XX_ONCE_OCR_EX
+-					| DSP563XX_ONCE_OCR_GO, address);
++		if ((err = dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OPDBR, INSTR_JUMP)) != ERROR_OK)
++			return err;
++		if ((err = dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_PDBGOTO | DSP563XX_ONCE_OCR_EX | DSP563XX_ONCE_OCR_GO, address)) != ERROR_OK)
++			return err;
+ 	}
+ 
+ 	target-&gt;state = TARGET_RUNNING;
+@@ -597,9 +945,9 @@ static int dsp563xx_resume(struct target *target, int current, uint32_t address,
+ 	return ERROR_OK;
+ }
+ 
+-static int dsp563xx_step(struct target *target, int current, uint32_t address,
+-		  int handle_breakpoints)
++static int dsp563xx_step_ex(struct target *target, int current, uint32_t address, int handle_breakpoints, int steps)
+ {
++	int err;
+ 	uint32_t once_status;
+ 	uint32_t dr_in, cnt;
+ 	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
+@@ -612,75 +960,77 @@ static int dsp563xx_step(struct target *target, int current, uint32_t address,
+ 
+ 	LOG_DEBUG(&quot;%s %08X %08X&quot;, __FUNCTION__, current, (unsigned) address);
+ 
+-	dsp563xx_jtag_debug_request(target);
+-
+-	dsp563xx_restore_context(target);
++	if ((err = dsp563xx_jtag_debug_request(target)) != ERROR_OK)
++		return err;
++	if ((err = dsp563xx_restore_context(target)) != ERROR_OK)
++		return err;
+ 
+ 	/* reset trace mode */
+-	dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OSCR, 0x000000);
++	if ((err = dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OSCR, 0x000000)) != ERROR_OK)
++		return err;
+ 	/* enable trace mode */
+-	dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OSCR,
+-				DSP563XX_ONCE_OSCR_TME);
++	if ((err = dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OSCR, DSP563XX_ONCE_OSCR_TME)) != ERROR_OK)
++		return err;
+ 
+-	cnt = 0;
++	cnt = steps;
+ 
+ 	/* on JUMP we need one extra cycle */
+ 	if (!current)
+ 		cnt++;
+ 
+ 	/* load step counter with N-1 */
+-	dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OTC, cnt);
++	if ((err = dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OTC, cnt)) != ERROR_OK)
++		return err;
+ 
+ 	if (current)
+ 	{
+ 		/* restore pipeline registers and go */
+-		dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OPILR,
+-					dsp563xx-&gt;pipeline_context.once_opilr);
+-		dsp563xx_once_reg_write(target-&gt;tap,
+-					DSP563XX_ONCE_OPDBR | DSP563XX_ONCE_OCR_EX |
+-					DSP563XX_ONCE_OCR_GO,
+-					dsp563xx-&gt;pipeline_context.once_opdbr);
++		if ((err = dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OPILR, dsp563xx-&gt;pipeline_context.once_opilr)) != ERROR_OK)
++			return err;
++		if ((err =
++		     dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OPDBR | DSP563XX_ONCE_OCR_EX | DSP563XX_ONCE_OCR_GO,
++					     dsp563xx-&gt;pipeline_context.once_opdbr)) != ERROR_OK)
++			return err;
+ 	}
+ 	else
+ 	{
+ 		/* set to go register and jump */
+-		dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OPDBR,
+-					DSP563XX_ASM_CMD_JUMP);
+-		dsp563xx_once_reg_write(target-&gt;tap,
+-					DSP563XX_ONCE_PDBGOTO | DSP563XX_ONCE_OCR_EX
+-					| DSP563XX_ONCE_OCR_GO, address);
++		if ((err = dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OPDBR, INSTR_JUMP)) != ERROR_OK)
++			return err;
++		if ((err = dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_PDBGOTO | DSP563XX_ONCE_OCR_EX | DSP563XX_ONCE_OCR_GO, address)) != ERROR_OK)
++			return err;
+ 	}
+ 
+ 	while (1)
+ 	{
+-		dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OSCR,
+-				       &amp;once_status);
++		if ((err = dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OSCR, &amp;once_status)) != ERROR_OK)
++			return err;
+ 
+ 		if (once_status &amp; DSP563XX_ONCE_OSCR_TO)
+ 		{
+ 			/* store pipeline register */
+-			dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPILR,
+-					       &amp;dsp563xx-&gt;pipeline_context.
+-					       once_opilr);
+-			dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPDBR,
+-					       &amp;dsp563xx-&gt;pipeline_context.
+-					       once_opdbr);
+-
+-			dsp563xx_save_context(target);
+-
+-			dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPABFR,
+-					       &amp;dr_in);
+-			LOG_DEBUG(&quot;%08X&quot;, (unsigned) dr_in);
+-			dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPABDR,
+-					       &amp;dr_in);
+-			LOG_DEBUG(&quot;%08X&quot;, (unsigned) dr_in);
+-			dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPABEX,
+-					       &amp;dr_in);
+-			LOG_DEBUG(&quot;%08X&quot;, (unsigned) dr_in);
++			if ((err = dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPILR, &amp;dsp563xx-&gt;pipeline_context.once_opilr)) != ERROR_OK)
++				return err;
++			if ((err = dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPDBR, &amp;dsp563xx-&gt;pipeline_context.once_opdbr)) != ERROR_OK)
++				return err;
++
++			if ((err = dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPABFR, &amp;dr_in)) != ERROR_OK)
++				return err;
++			LOG_DEBUG(&quot;fetch: %08X&quot;, (unsigned) dr_in);
++			if ((err = dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPABDR, &amp;dr_in)) != ERROR_OK)
++				return err;
++			LOG_DEBUG(&quot;decode: %08X&quot;, (unsigned) dr_in);
++			if ((err = dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OPABEX, &amp;dr_in)) != ERROR_OK)
++				return err;
++			LOG_DEBUG(&quot;execute: %08X&quot;, (unsigned) dr_in);
+ 
+ 			/* reset trace mode */
+-			dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OSCR,
+-						0x000000);
++			if ((err = dsp563xx_once_reg_write(target-&gt;tap, DSP563XX_ONCE_OSCR, 0x000000)) != ERROR_OK)
++				return err;
++
++			register_cache_invalidate(dsp563xx-&gt;core_cache);
++			if ((err = dsp563xx_debug_init(target)) != ERROR_OK)
++				return err;
+ 
+ 			break;
+ 		}
+@@ -689,9 +1039,41 @@ static int dsp563xx_step(struct target *target, int current, uint32_t address,
+ 	return ERROR_OK;
+ }
+ 
++static int dsp563xx_step(struct target *target, int current, uint32_t address, int handle_breakpoints)
++{
++	return dsp563xx_step_ex(target, current, address, handle_breakpoints, 0);
++}
++
+ static int dsp563xx_assert_reset(struct target *target)
+ {
++	int retval = 0;
++	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
++
++	if (jtag_reset_config &amp; RESET_HAS_SRST)
++	{
++		/* default to asserting srst */
++		if (jtag_reset_config &amp; RESET_SRST_PULLS_TRST)
++		{
++			jtag_add_reset(1, 1);
++		}
++		else
++		{
++			jtag_add_reset(0, 1);
++		}
++	}
++
+ 	target-&gt;state = TARGET_RESET;
++	jtag_add_sleep(5000);
++
++	/* registers are now invalid */
++	register_cache_invalidate(dsp563xx-&gt;core_cache);
++
++	if (target-&gt;reset_halt)
++	{
++		if ((retval = target_halt(target)) != ERROR_OK)
++			return retval;
++	}
+ 
+ 	LOG_DEBUG(&quot;%s&quot;, __FUNCTION__);
+ 	return ERROR_OK;
+@@ -699,7 +1081,28 @@ static int dsp563xx_assert_reset(struct target *target)
+ 
+ static int dsp563xx_deassert_reset(struct target *target)
+ {
+-	target-&gt;state = TARGET_RUNNING;
++	int err;
++
++	/* deassert reset lines */
++	jtag_add_reset(0, 0);
++
++	if ((err = dsp563xx_poll(target)) != ERROR_OK)
++		return err;
++
++	if (target-&gt;reset_halt)
++	{
++		if (target-&gt;state == TARGET_HALTED)
++		{
++			/* after a reset the cpu jmp to the
++			 * reset vector and need 2 cycles to fill
++			 * the cache (fetch,decode,excecute)
++			 */
++			if ((err = dsp563xx_step_ex(target, 1, 0, 1, 1)) != ERROR_OK)
++				return err;
++		}
++	}
++
++//      target-&gt;state = TARGET_RUNNING;
+ 
+ 	LOG_DEBUG(&quot;%s&quot;, __FUNCTION__);
+ 	return ERROR_OK;
+@@ -728,20 +1131,19 @@ static int dsp563xx_soft_reset_halt(struct target *target)
+ * 0446BD		move              ssl,y0
+ * 0446BE		move              la,y0
+ * 0446BF		move              lc,y0
+-* 
++*
+ * 61F000 AABBCC		move              x:AABBCC,r1
+ * 076190		movem             r0,p:(r1)
+ *
+ */
+-static int dsp563xx_read_memory_p(struct target *target, uint32_t address,
+-			   uint32_t size, uint32_t count, uint8_t * buffer)
++static int dsp563xx_read_memory_p(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t * buffer)
+ {
++	int err;
+ 	uint32_t i, x;
+ 	uint32_t data;
+ 	uint8_t *b;
+ 
+-	LOG_DEBUG(&quot;address: 0x%8.8&quot; PRIx32 &quot;, size: 0x%8.8&quot; PRIx32 &quot;, count: 0x%8.8&quot;
+-		  PRIx32, address, size, count);
++	LOG_DEBUG(&quot;address: 0x%8.8&quot; PRIx32 &quot;, size: 0x%8.8&quot; PRIx32 &quot;, count: 0x%8.8&quot; PRIx32, address, size, count);
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -753,12 +1155,17 @@ static int dsp563xx_read_memory_p(struct target *target, uint32_t address,
+ 
+ 	for (i = 0; i &lt; x; i++)
+ 	{
+-		dsp563xx_once_execute_dw_ir_nq(target-&gt;tap, 0x60F400, address + i);
+-		dsp563xx_once_execute_sw_ir_nq(target-&gt;tap, 0x07E086);
+-		dsp563xx_once_execute_dw_ir_nq(target-&gt;tap, 0x467000, 0xfffffc);
+-		dsp563xx_execute_queue();
+-
+-		dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OGDBR, &amp;data);
++		if ((err = dsp563xx_once_execute_dw_ir_nq(target-&gt;tap, 0x60F400, address + i)) != ERROR_OK)
++			return err;
++		if ((err = dsp563xx_once_execute_sw_ir_nq(target-&gt;tap, 0x07E086)) != ERROR_OK)
++			return err;
++		if ((err = dsp563xx_once_execute_dw_ir_nq(target-&gt;tap, 0x467000, 0xfffffc)) != ERROR_OK)
++			return err;
++		if ((err = jtag_execute_queue()) != ERROR_OK)
++			return err;
++
++		if ((err = dsp563xx_once_reg_read(target-&gt;tap, DSP563XX_ONCE_OGDBR, &amp;data)) != ERROR_OK)
++			return err;
+ 
+ 		b = buffer + 4 * i;
+ 		if (size &gt; 0)
+@@ -774,15 +1181,14 @@ static int dsp563xx_read_memory_p(struct target *target, uint32_t address,
+ 	return ERROR_OK;
+ }
+ 
+-static int dsp563xx_write_memory_p(struct target *target, uint32_t address, uint32_t size,
+-			    uint32_t count, uint8_t * buffer)
++static int dsp563xx_write_memory_p(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t * buffer)
+ {
++	int err;
+ 	uint32_t i, x;
+ 	uint32_t data;
+ 	uint8_t *b;
+ 
+-	LOG_DEBUG(&quot;address: 0x%8.8&quot; PRIx32 &quot;, size: 0x%8.8&quot; PRIx32 &quot;, count: 0x%8.8&quot;
+-		  PRIx32 &quot;&quot;, address, size, count);
++	LOG_DEBUG(&quot;address: 0x%8.8&quot; PRIx32 &quot;, size: 0x%8.8&quot; PRIx32 &quot;, count: 0x%8.8&quot; PRIx32 &quot;&quot;, address, size, count);
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -808,105 +1214,19 @@ static int dsp563xx_write_memory_p(struct target *target, uint32_t address, uint
+ 
+ //              LOG_DEBUG(&quot;%08X&quot;, data);
+ 
+-		dsp563xx_once_execute_dw_ir_nq(target-&gt;tap, 0x61F400, address + i);
+-		dsp563xx_once_execute_dw_ir_nq(target-&gt;tap, 0x60F400, data);
+-		dsp563xx_once_execute_sw_ir_nq(target-&gt;tap, 0x076190);
+-		dsp563xx_execute_queue();
++		if ((err = dsp563xx_once_execute_dw_ir_nq(target-&gt;tap, 0x61F400, address + i)) != ERROR_OK)
++			return err;
++		if ((err = dsp563xx_once_execute_dw_ir_nq(target-&gt;tap, 0x60F400, data)) != ERROR_OK)
++			return err;
++		if ((err = dsp563xx_once_execute_sw_ir_nq(target-&gt;tap, 0x076190)) != ERROR_OK)
++			return err;
++		if ((err = jtag_execute_queue()) != ERROR_OK)
++			return err;
+ 	}
+ 
+ 	return ERROR_OK;
+ }
+ 
+-static int dsp563xx_jtag_sendinstr(struct jtag_tap *tap, uint8_t * ir_in, uint8_t ir_out)
+-{
+-	return dsp563xx_write_ir_u8(tap, ir_in, ir_out, DSP563XX_JTAG_INS_LEN, 1);
+-}
+-
+-/* IR and DR functions */
+-static int dsp563xx_write_ir(struct jtag_tap *tap, uint8_t * ir_in, uint8_t * ir_out,
+-		      int ir_len, int rti)
+-{
+-	if (NULL == tap)
+-	{
+-		LOG_ERROR(&quot;invalid tap&quot;);
+-		return ERROR_FAIL;
+-	}
+-	if (ir_len != tap-&gt;ir_length)
+-	{
+-		LOG_ERROR(&quot;invalid ir_len&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	{
+-		jtag_add_plain_ir_scan(tap-&gt;ir_length, ir_out, ir_in, TAP_IDLE);
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+-static int dsp563xx_write_dr(struct jtag_tap *tap, uint8_t * dr_in, uint8_t * dr_out,
+-		      int dr_len, int rti)
+-{
+-	if (NULL == tap)
+-	{
+-		LOG_ERROR(&quot;invalid tap&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	{
+-		jtag_add_plain_dr_scan(dr_len, dr_out, dr_in, TAP_IDLE);
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+-static int dsp563xx_write_ir_u8(struct jtag_tap *tap, uint8_t * ir_in, uint8_t ir_out,
+-			 int ir_len, int rti)
+-{
+-	if (ir_len &gt; 8)
+-	{
+-		LOG_ERROR(&quot;ir_len overflow, maxium is 8&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	dsp563xx_write_ir(tap, ir_in, &amp;ir_out, ir_len, rti);
+-
+-	return ERROR_OK;
+-}
+-
+-int dsp563xx_write_dr_u8(struct jtag_tap *tap, uint8_t * dr_in, uint8_t dr_out,
+-			 int dr_len, int rti)
+-{
+-	if (dr_len &gt; 8)
+-	{
+-		LOG_ERROR(&quot;dr_len overflow, maxium is 8&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	dsp563xx_write_dr(tap, dr_in, &amp;dr_out, dr_len, rti);
+-
+-	return ERROR_OK;
+-}
+-
+-int dsp563xx_write_dr_u32(struct jtag_tap *tap, uint32_t * dr_in, uint32_t dr_out,
+-			  int dr_len, int rti)
+-{
+-	if (dr_len &gt; 32)
+-	{
+-		LOG_ERROR(&quot;dr_len overflow, maxium is 32&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	dsp563xx_write_dr(tap, (uint8_t *) dr_in, (uint8_t *) &amp; dr_out, dr_len, rti);
+-
+-	return ERROR_OK;
+-}
+-
+-int dsp563xx_execute_queue(void)
+-{
+-	return jtag_execute_queue();
+-}
+-
+ /** Holds methods for DSP563XX targets. */
+ struct target_type dsp563xx_target = {
+ 	.name = &quot;dsp563xx&quot;,
+diff --git a/src/target/dsp563xx.h b/src/target/dsp563xx.h
+index 475e516..c553471 100644
+--- a/src/target/dsp563xx.h
++++ b/src/target/dsp563xx.h
+@@ -1,5 +1,5 @@
+ /***************************************************************************
+- *   Copyright (C) 2009 by Mathias Kuester                                 *
++ *   Copyright (C) 2009-2011 by Mathias Kuester                            *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mkdorg at users.sourceforge.net</A>                                          *
+  *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+@@ -21,8 +21,10 @@
+ #define DSP563XX_H
+ 
+ #include &lt;jtag/jtag.h&gt;
++#include &lt;target/dsp563xx_once.h&gt;
+ 
+-#define DSP563XX_NUMCOREREGS	44
++#define DSP563XX_NUMCOREREGS	54
++#define DSP563XX_NUMONCEREGS	25
+ 
+ struct mcu_jtag
+ {
+@@ -42,6 +44,7 @@ struct dsp563xx_common
+ 	struct mcu_jtag jtag_info;
+ 	struct reg_cache *core_cache;
+ 	uint32_t core_regs[DSP563XX_NUMCOREREGS];
++	struct once_reg once_regs[DSP563XX_NUMONCEREGS];
+ 
+ 	struct dsp563xx_pipeline_context pipeline_context;
+ 
+@@ -55,8 +58,8 @@ struct dsp563xx_core_reg
+ 	uint32_t num;
+ 	const char *name;
+ 	uint32_t size;
+-	uint32_t r_cmd;
+-	uint32_t w_cmd;
++	uint8_t eame;
++	uint32_t instr_mask;
+ 	struct target *target;
+ 	struct dsp563xx_common *dsp563xx_common;
+ };
+@@ -66,11 +69,4 @@ static inline struct dsp563xx_common *target_to_dsp563xx(struct target *target)
+ 	return target-&gt;arch_info;
+ }
+ 
+-int dsp563xx_write_dr_u8(struct jtag_tap *tap, uint8_t * ir_in, uint8_t ir_out,
+-			 int dr_len, int rti);
+-int dsp563xx_write_dr_u32(struct jtag_tap *tap, uint32_t * ir_in, uint32_t ir_out,
+-			  int dr_len, int rti);
+-
+-int dsp563xx_execute_queue(void);
+-
+ #endif /* DSP563XX_H */
+diff --git a/src/target/dsp563xx_once.c b/src/target/dsp563xx_once.c
+index edca7f4..b7443fa 100644
+--- a/src/target/dsp563xx_once.c
++++ b/src/target/dsp563xx_once.c
+@@ -29,74 +29,295 @@
+ #include &quot;dsp563xx.h&quot;
+ #include &quot;dsp563xx_once.h&quot;
+ 
+-/** single word instruction */
+-static int dsp563xx_once_ir_exec(struct jtag_tap *tap, uint8_t instr, uint8_t rw,
+-			  uint8_t go, uint8_t ex)
++#define JTAG_STATUS_NORMAL		0x01
++#define JTAG_STATUS_STOPWAIT		0x05
++#define JTAG_STATUS_BUSY		0x09
++#define JTAG_STATUS_DEBUG		0x0d
++
++#define JTAG_INSTR_EXTEST		0x00
++#define JTAG_INSTR_SAMPLE_PRELOAD	0x01
++#define JTAG_INSTR_IDCODE		0x02
++#define JTAG_INSTR_CLAMP		0x03
++#define JTAG_INSTR_HIZ			0x04
++#define JTAG_INSTR_ENABLE_ONCE		0x06
++#define JTAG_INSTR_DEBUG_REQUEST	0x07
++#define JTAG_INSTR_BYPASS		0x0F
++
++static int dsp563xx_write_dr(struct jtag_tap *tap, uint8_t * dr_in, uint8_t * dr_out, int dr_len, int rti)
+ {
+-	dsp563xx_write_dr_u8(tap, 0,
+-			     instr | (ex &lt;&lt; 5) | (go &lt;&lt; 6) | (rw &lt;&lt; 7), 8, 0);
+-	dsp563xx_execute_queue();
++	if (NULL == tap)
++	{
++		LOG_ERROR(&quot;invalid tap&quot;);
++		return ERROR_FAIL;
++	}
++
++	jtag_add_plain_dr_scan(dr_len, dr_out, dr_in, TAP_IDLE);
+ 
+ 	return ERROR_OK;
+ }
+ 
++static int dsp563xx_write_dr_u8(struct jtag_tap *tap, uint8_t * dr_in, uint8_t dr_out, int dr_len, int rti)
++{
++	if (dr_len &gt; 8)
++	{
++		LOG_ERROR(&quot;dr_len overflow, maxium is 8&quot;);
++		return ERROR_FAIL;
++	}
++
++	return dsp563xx_write_dr(tap, dr_in, &amp;dr_out, dr_len, rti);
++}
++
++static int dsp563xx_write_dr_u32(struct jtag_tap *tap, uint32_t * dr_in, uint32_t dr_out, int dr_len, int rti)
++{
++	if (dr_len &gt; 32)
++	{
++		LOG_ERROR(&quot;dr_len overflow, maxium is 32&quot;);
++		return ERROR_FAIL;
++	}
++
++	return dsp563xx_write_dr(tap, (uint8_t *) dr_in, (uint8_t *) &amp; dr_out, dr_len, rti);
++}
++
+ /** single word instruction */
+-static int dsp563xx_once_ir_exec_nq(struct jtag_tap *tap, uint8_t instr, uint8_t rw,
+-			     uint8_t go, uint8_t ex)
++static int dsp563xx_once_ir_exec(struct jtag_tap *tap, uint8_t instr, uint8_t rw, uint8_t go, uint8_t ex)
+ {
+-	dsp563xx_write_dr_u8(tap, 0,
+-			     instr | (ex &lt;&lt; 5) | (go &lt;&lt; 6) | (rw &lt;&lt; 7), 8, 0);
++	int err;
++
++	if ((err = dsp563xx_write_dr_u8(tap, 0, instr | (ex &lt;&lt; 5) | (go &lt;&lt; 6) | (rw &lt;&lt; 7), 8, 0)) != ERROR_OK)
++		return err;
++
++	return jtag_execute_queue();
++}
++
++/** single word instruction */
++static int dsp563xx_once_ir_exec_nq(struct jtag_tap *tap, uint8_t instr, uint8_t rw, uint8_t go, uint8_t ex)
++{
++	return dsp563xx_write_dr_u8(tap, 0, instr | (ex &lt;&lt; 5) | (go &lt;&lt; 6) | (rw &lt;&lt; 7), 8, 0);
++}
++
++/* IR and DR functions */
++static int dsp563xx_write_ir(struct jtag_tap *tap, uint8_t * ir_in, uint8_t * ir_out, int ir_len, int rti)
++{
++	if (NULL == tap)
++	{
++		LOG_ERROR(&quot;invalid tap&quot;);
++		return ERROR_FAIL;
++	}
++	if (ir_len != tap-&gt;ir_length)
++	{
++		LOG_ERROR(&quot;invalid ir_len&quot;);
++		return ERROR_FAIL;
++	}
++
++	jtag_add_plain_ir_scan(tap-&gt;ir_length, ir_out, ir_in, TAP_IDLE);
+ 
+ 	return ERROR_OK;
+ }
+ 
+-/** once read register */
+-int dsp563xx_once_reg_read(struct jtag_tap *tap, uint8_t reg, uint32_t * data)
++static int dsp563xx_write_ir_u8(struct jtag_tap *tap, uint8_t * ir_in, uint8_t ir_out, int ir_len, int rti)
+ {
+-	uint32_t dr_in;
++	if (ir_len &gt; 8)
++	{
++		LOG_ERROR(&quot;ir_len overflow, maxium is 8&quot;);
++		return ERROR_FAIL;
++	}
+ 
+-	dr_in = 0;
++	return dsp563xx_write_ir(tap, ir_in, &amp;ir_out, ir_len, rti);
++}
+ 
+-	dsp563xx_once_ir_exec(tap, reg, 1, 0, 0);
+-	dsp563xx_write_dr_u32(tap, &amp;dr_in, 0x00, 24, 0);
+-	dsp563xx_execute_queue();
++static int dsp563xx_jtag_sendinstr(struct jtag_tap *tap, uint8_t * ir_in, uint8_t ir_out)
++{
++	return dsp563xx_write_ir_u8(tap, ir_in, ir_out, tap-&gt;ir_length, 1);
++}
+ 
+-	*data = dr_in;
++/** */
++int dsp563xx_once_target_status(struct jtag_tap *tap)
++{
++	int err;
++	uint8_t jtag_status;
++
++	if ((err = dsp563xx_jtag_sendinstr(tap, &amp;jtag_status, JTAG_INSTR_ENABLE_ONCE)) != ERROR_OK)
++		return err;
++	if ((err = jtag_execute_queue()) != ERROR_OK)
++		return err;
++
++	if ((jtag_status &amp; 1) != 1)
++	{
++		return TARGET_UNKNOWN;
++	}
++
++	if (jtag_status != JTAG_STATUS_DEBUG)
++	{
++		return TARGET_RUNNING;
++	}
++
++	return TARGET_HALTED;
++}
++
++/** */
++int dsp563xx_once_request_debug(struct jtag_tap *tap, int reset_state)
++{
++	int err;
++	uint8_t ir_in = 0, pattern = 0;
++	uint32_t retry = 0;
++
++	/* in reset state we only get a ACK
++	 * from the interface */
++	if (reset_state)
++	{
++		pattern = 1;
++	}
++	else
++	{
++		pattern = JTAG_STATUS_DEBUG;
++	}
++
++	/* wait until we get the ack */
++	while (ir_in != pattern)
++	{
++		if ((err = dsp563xx_jtag_sendinstr(tap, &amp;ir_in, JTAG_INSTR_DEBUG_REQUEST)) != ERROR_OK)
++			return err;
++		if ((err = jtag_execute_queue()) != ERROR_OK)
++			return err;
++
++		LOG_DEBUG(&quot;debug request: %02X&quot;, ir_in);
++
++		if (retry++ == 100)
++		{
++			return ERROR_TARGET_FAILURE;
++		}
++	}
++
++	/* we cant enable the once in reset state */
++	if (pattern == 1)
++	{
++		return ERROR_OK;
++	}
++
++	/* try to enable once */
++	retry = 0;
++	ir_in = 0;
++	while (ir_in != pattern)
++	{
++		if ((err = dsp563xx_jtag_sendinstr(tap, &amp;ir_in, JTAG_INSTR_ENABLE_ONCE)) != ERROR_OK)
++			return err;
++		if ((err = jtag_execute_queue()) != ERROR_OK)
++			return err;
++
++		LOG_DEBUG(&quot;enable once: %02X&quot;, ir_in);
++
++		if (retry++ == 100)
++		{
++			LOG_DEBUG(&quot;error&quot;);
++			return ERROR_TARGET_FAILURE;
++		}
++	}
++
++	if (ir_in != JTAG_STATUS_DEBUG)
++	{
++		return ERROR_TARGET_FAILURE;
++	}
+ 
+ 	return ERROR_OK;
+ }
+ 
++/** once read registers */
++int dsp563xx_once_read_register(struct jtag_tap *tap, struct once_reg *regs, int len)
++{
++	int i;
++	int err;
++
++	for (i = 0; i &lt; len; i++)
++	{
++		if ((err = dsp563xx_once_reg_read_ex_nq(tap, regs[i].addr, regs[i].len, &amp;regs[i].reg)) != ERROR_OK)
++			return err;
++	}
++
++	return jtag_execute_queue();
++/*
++	for(i=0;i&lt;len;i++)
++	{
++		printf(&quot;%08X\n&quot;,regs[i].reg);
++	}
++*/
++}
++
++/** once read register */
++int dsp563xx_once_reg_read_ex_nq(struct jtag_tap *tap, uint8_t reg, uint8_t len, uint32_t * data)
++{
++	int err;
++
++	if ((err = dsp563xx_once_ir_exec(tap, reg, 1, 0, 0)) != ERROR_OK)
++		return err;
++	return dsp563xx_write_dr_u32(tap, data, 0x00, len, 0);
++}
++
++/** once read register */
++int dsp563xx_once_reg_read_ex(struct jtag_tap *tap, uint8_t reg, uint8_t len, uint32_t * data)
++{
++	int err;
++
++	if ((err = dsp563xx_once_ir_exec(tap, reg, 1, 0, 0)) != ERROR_OK)
++		return err;
++	if ((err = dsp563xx_write_dr_u32(tap, data, 0x00, len, 0)) != ERROR_OK)
++		return err;
++	return jtag_execute_queue();
++}
++
++/** once read register */
++int dsp563xx_once_reg_read(struct jtag_tap *tap, uint8_t reg, uint32_t * data)
++{
++	int err;
++
++	if ((err = dsp563xx_once_ir_exec(tap, reg, 1, 0, 0)) != ERROR_OK)
++		return err;
++	if ((err = dsp563xx_write_dr_u32(tap, data, 0x00, 24, 0)) != ERROR_OK)
++		return err;
++	return jtag_execute_queue();
++}
++
+ /** once write register */
+ int dsp563xx_once_reg_write(struct jtag_tap *tap, uint8_t reg, uint32_t data)
+ {
+-	dsp563xx_once_ir_exec(tap, reg, 0, 0, 0);
+-	dsp563xx_write_dr_u32(tap, 0x00, data, 24, 0);
+-	dsp563xx_execute_queue();
++	int err;
+ 
+-	return ERROR_OK;
++	if ((err = dsp563xx_once_ir_exec(tap, reg, 0, 0, 0)) != ERROR_OK)
++		return err;
++	if ((err = dsp563xx_write_dr_u32(tap, 0x00, data, 24, 0)) != ERROR_OK)
++		return err;
++	return jtag_execute_queue();
+ }
+ 
+ /** single word instruction */
+ int dsp563xx_once_execute_sw_ir(struct jtag_tap *tap, uint32_t opcode)
+ {
+-	dsp563xx_once_ir_exec(tap, DSP563XX_ONCE_OPDBR, 0, 1, 0);
+-	dsp563xx_write_dr_u32(tap, 0, opcode, 24, 0);
+-	dsp563xx_execute_queue();
++	int err;
+ 
+-	return ERROR_OK;
++	if ((err = dsp563xx_once_ir_exec(tap, DSP563XX_ONCE_OPDBR, 0, 1, 0)) != ERROR_OK)
++		return err;
++	if ((err = dsp563xx_write_dr_u32(tap, 0, opcode, 24, 0)) != ERROR_OK)
++		return err;
++	return jtag_execute_queue();
+ }
+ 
+ /** double word instruction */
+-int dsp563xx_once_execute_dw_ir(struct jtag_tap *tap, uint32_t opcode,
+-				uint32_t operand)
++int dsp563xx_once_execute_dw_ir(struct jtag_tap *tap, uint32_t opcode, uint32_t operand)
+ {
+-	dsp563xx_once_ir_exec(tap, DSP563XX_ONCE_OPDBR, 0, 0, 0);
+-	dsp563xx_write_dr_u32(tap, 0, opcode, 24, 0);
+-	dsp563xx_execute_queue();
++	int err;
+ 
+-	dsp563xx_once_ir_exec(tap, DSP563XX_ONCE_OPDBR, 0, 1, 0);
+-	dsp563xx_write_dr_u32(tap, 0, operand, 24, 0);
+-	dsp563xx_execute_queue();
++	if ((err = dsp563xx_once_ir_exec(tap, DSP563XX_ONCE_OPDBR, 0, 0, 0)) != ERROR_OK)
++		return err;
++	if ((err = dsp563xx_write_dr_u32(tap, 0, opcode, 24, 0)) != ERROR_OK)
++		return err;
++	if ((err = jtag_execute_queue()) != ERROR_OK)
++		return err;
++
++	if ((err = dsp563xx_once_ir_exec(tap, DSP563XX_ONCE_OPDBR, 0, 1, 0)) != ERROR_OK)
++		return err;
++	if ((err = dsp563xx_write_dr_u32(tap, 0, operand, 24, 0)) != ERROR_OK)
++		return err;
++	if ((err = jtag_execute_queue()) != ERROR_OK)
++		return err;
+ 
+ 	return ERROR_OK;
+ }
+@@ -104,21 +325,29 @@ int dsp563xx_once_execute_dw_ir(struct jtag_tap *tap, uint32_t opcode,
+ /** single word instruction */
+ int dsp563xx_once_execute_sw_ir_nq(struct jtag_tap *tap, uint32_t opcode)
+ {
+-	dsp563xx_once_ir_exec_nq(tap, DSP563XX_ONCE_OPDBR, 0, 1, 0);
+-	dsp563xx_write_dr_u32(tap, 0, opcode, 24, 0);
++	int err;
++
++	if ((err = dsp563xx_once_ir_exec_nq(tap, DSP563XX_ONCE_OPDBR, 0, 1, 0)) != ERROR_OK)
++		return err;
++	if ((err = dsp563xx_write_dr_u32(tap, 0, opcode, 24, 0)) != ERROR_OK)
++		return err;
+ 
+ 	return ERROR_OK;
+ }
+ 
+ /** double word instruction */
+-int dsp563xx_once_execute_dw_ir_nq(struct jtag_tap *tap, uint32_t opcode,
+-				   uint32_t operand)
++int dsp563xx_once_execute_dw_ir_nq(struct jtag_tap *tap, uint32_t opcode, uint32_t operand)
+ {
+-	dsp563xx_once_ir_exec_nq(tap, DSP563XX_ONCE_OPDBR, 0, 0, 0);
+-	dsp563xx_write_dr_u32(tap, 0, opcode, 24, 0);
++	int err;
+ 
+-	dsp563xx_once_ir_exec_nq(tap, DSP563XX_ONCE_OPDBR, 0, 1, 0);
+-	dsp563xx_write_dr_u32(tap, 0, operand, 24, 0);
++	if ((err = dsp563xx_once_ir_exec_nq(tap, DSP563XX_ONCE_OPDBR, 0, 0, 0)) != ERROR_OK)
++		return err;
++	if ((err = dsp563xx_write_dr_u32(tap, 0, opcode, 24, 0)) != ERROR_OK)
++		return err;
++	if ((err = dsp563xx_once_ir_exec_nq(tap, DSP563XX_ONCE_OPDBR, 0, 1, 0)) != ERROR_OK)
++		return err;
++	if ((err = dsp563xx_write_dr_u32(tap, 0, operand, 24, 0)) != ERROR_OK)
++		return err;
+ 
+ 	return ERROR_OK;
+ }
+diff --git a/src/target/dsp563xx_once.h b/src/target/dsp563xx_once.h
+index 942cd65..6b27694 100644
+--- a/src/target/dsp563xx_once.h
++++ b/src/target/dsp563xx_once.h
+@@ -54,9 +54,29 @@
+ #define DSP563XX_ONCE_OPABFR	0x00F	/* pab fetch reg */
+ #define DSP563XX_ONCE_OPABDR	0x010	/* pab decode reg */
+ #define DSP563XX_ONCE_OPABEX	0x011	/* pab exec reg */
+-#define DSP563XX_ONCE_OPABEX	0x011	/* trace buffer/inc ptr */
++#define DSP563XX_ONCE_OPABF11	0x012	/* trace buffer/inc ptr */
+ #define DSP563XX_ONCE_NOREG	0x01F	/* no register selected */
+ 
++struct once_reg
++{
++	uint8_t num;
++	uint8_t addr;
++	uint8_t len;
++	const char *name;
++	uint32_t reg;
++};
++
++/** */
++int dsp563xx_once_request_debug(struct jtag_tap *tap, int reset_state);
++/** */
++int dsp563xx_once_target_status(struct jtag_tap *tap);
++
++/** once read registers */
++int dsp563xx_once_read_register(struct jtag_tap *tap, struct once_reg *regs, int len);
++/** once read register */
++int dsp563xx_once_reg_read_ex_nq(struct jtag_tap *tap, uint8_t reg, uint8_t len, uint32_t * data);
++/** once read register */
++int dsp563xx_once_reg_read_ex(struct jtag_tap *tap, uint8_t reg, uint8_t len, uint32_t * data);
+ /** once read register */
+ int dsp563xx_once_reg_read(struct jtag_tap *tap, uint8_t reg, uint32_t * data);
+ /** once write register */
+@@ -64,12 +84,10 @@ int dsp563xx_once_reg_write(struct jtag_tap *tap, uint8_t reg, uint32_t data);
+ /** single word instruction */
+ int dsp563xx_once_execute_sw_ir(struct jtag_tap *tap, uint32_t opcode);
+ /** double word instruction */
+-int dsp563xx_once_execute_dw_ir(struct jtag_tap *tap, uint32_t opcode,
+-				uint32_t operand);
++int dsp563xx_once_execute_dw_ir(struct jtag_tap *tap, uint32_t opcode, uint32_t operand);
+ /** single word instruction */
+ int dsp563xx_once_execute_sw_ir_nq(struct jtag_tap *tap, uint32_t opcode);
+ /** double word instruction */
+-int dsp563xx_once_execute_dw_ir_nq(struct jtag_tap *tap, uint32_t opcode,
+-				   uint32_t operand);
++int dsp563xx_once_execute_dw_ir_nq(struct jtag_tap *tap, uint32_t opcode, uint32_t operand);
+ 
+ #endif /* DSP563XX_ONCE_H */
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/dsp563xx.c      | 1128 ++++++++++++++++++++++++++++----------------
+ src/target/dsp563xx.h      |   18 +-
+ src/target/dsp563xx_once.c |  313 +++++++++++--
+ src/target/dsp563xx_once.h |   28 +-
+ 4 files changed, 1025 insertions(+), 462 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002509.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-735-gb0bdc4e
+</A></li>
+	<LI>Next message: <A HREF="002511.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-737-g5ca7cbe
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2510">[ date ]</a>
+              <a href="thread.html#2510">[ thread ]</a>
+              <a href="subject.html#2510">[ subject ]</a>
+              <a href="author.html#2510">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

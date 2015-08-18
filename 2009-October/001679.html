@@ -1,0 +1,261 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-421-ge98817c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.2.0-421-ge98817c&In-Reply-To=%3CE1N29P8-0003TU-HN%409j8yhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001678.html">
+   <LINK REL="Next"  HREF="001680.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-421-ge98817c</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.2.0-421-ge98817c&In-Reply-To=%3CE1N29P8-0003TU-HN%409j8yhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-421-ge98817c">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Sun Oct 25 21:09:29 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001678.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-419-g0b43649
+</A></li>
+        <LI>Next message: <A HREF="001680.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-422-g19b84da
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1679">[ date ]</a>
+              <a href="thread.html#1679">[ thread ]</a>
+              <a href="subject.html#1679">[ subject ]</a>
+              <a href="author.html#1679">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  e98817c4636f45b45db4332d2a5fbf36676f2f39 (commit)
+       via  2a8aa3b7efb590cabd7ee930dbb68fd64e028099 (commit)
+      from  0b436497e047a13ff3dbae46af0eb67376ea5acf (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit e98817c4636f45b45db4332d2a5fbf36676f2f39
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sun Oct 25 13:07:57 2009 -0700
+
+    JTAG: jtag_tap_init() bugfixes
+    
+    Stop allocating three bytes per IR bit, and cope somewhat better
+    with IR lengths over 32 bits.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index 7c85839..08cfe43 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -1204,20 +1204,29 @@ done:
+ 
+ void jtag_tap_init(jtag_tap_t *tap)
+ {
++	unsigned ir_len_bits;
++	unsigned ir_len_bytes;
++
+ 	assert(0 != tap-&gt;ir_length);
+ 
+-	/// @todo fix, this allocates one byte per bit for all three fields!
+-	tap-&gt;expected = malloc(tap-&gt;ir_length);
+-	tap-&gt;expected_mask = malloc(tap-&gt;ir_length);
+-	tap-&gt;cur_instr = malloc(tap-&gt;ir_length);
++	ir_len_bits = tap-&gt;ir_length;
++	ir_len_bytes = CEIL(ir_len_bits, 8);
+ 
+-	/// @todo cope sanely with ir_length bigger than 32 bits
+-	buf_set_u32(tap-&gt;expected, 0, tap-&gt;ir_length, tap-&gt;ir_capture_value);
+-	buf_set_u32(tap-&gt;expected_mask, 0, tap-&gt;ir_length, tap-&gt;ir_capture_mask);
+-	buf_set_ones(tap-&gt;cur_instr, tap-&gt;ir_length);
++	tap-&gt;expected = calloc(1, ir_len_bytes);
++	tap-&gt;expected_mask = calloc(1, ir_len_bytes);
++	tap-&gt;cur_instr = malloc(ir_len_bytes);
++
++	/// @todo cope better with ir_length bigger than 32 bits
++	if (ir_len_bits &gt; 32)
++		ir_len_bits = 32;
+ 
+-	// place TAP in bypass mode
++	buf_set_u32(tap-&gt;expected, 0, ir_len_bits, tap-&gt;ir_capture_value);
++	buf_set_u32(tap-&gt;expected_mask, 0, ir_len_bits, tap-&gt;ir_capture_mask);
++
++	// TAP will be in bypass mode after jtag_validate_ircapture()
+ 	tap-&gt;bypass = 1;
++	buf_set_ones(tap-&gt;cur_instr, tap-&gt;ir_length);
++
+ 	// register the reset callback for the TAP
+ 	jtag_register_event_callback(&amp;jtag_reset_callback, tap);
+ 
+
+commit 2a8aa3b7efb590cabd7ee930dbb68fd64e028099
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sun Oct 25 13:06:47 2009 -0700
+
+    xscale: always reload handler after reset
+    
+    Remove needless debug handler state.
+    
+     - &quot;handler_installed&quot; became wrong as soon as the second TRST+SRST
+       reset was issued ... so the handler was never reloaded after the
+       reset removed it from the mini-icache.
+    
+       This fixes the bug where subsequent resets fail on PXA255 (if the
+       first one even worked, which is uncommon).  Other XScale chips
+       would have problems too; PXA270 seems to have, IXP425 maybe not.
+    
+     - &quot;handler_running&quot; was never tested; it's pointless.
+    
+    Plus a related bugfix: invalidate OpenOCD's ARM register cache on reset.
+    It was no more valid than the XScale's mini-icache.  (Though ... such
+    invalidations might be better done in &quot;SRST asserted&quot; callbacks.)
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 640eb01..ee9d88d 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -890,8 +890,6 @@ static int xscale_arch_state(struct target_s *target)
+ static int xscale_poll(target_t *target)
+ {
+ 	int retval = ERROR_OK;
+-	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+-	xscale_common_t *xscale = armv4_5-&gt;arch_info;
+ 
+ 	if ((target-&gt;state == TARGET_RUNNING) || (target-&gt;state == TARGET_DEBUG_RUNNING))
+ 	{
+@@ -900,8 +898,6 @@ static int xscale_poll(target_t *target)
+ 		{
+ 
+ 			/* there's data to read from the tx register, we entered debug state */
+-			xscale-&gt;handler_running = 1;
+-
+ 			target-&gt;state = TARGET_HALTED;
+ 
+ 			/* process debug entry, fetching current mode regs */
+@@ -1365,8 +1361,6 @@ static int xscale_resume(struct target_s *target, int current,
+ 
+ 	LOG_DEBUG(&quot;target resumed&quot;);
+ 
+-	xscale-&gt;handler_running = 1;
+-
+ 	return ERROR_OK;
+ }
+ 
+@@ -1574,7 +1568,17 @@ static int xscale_deassert_reset(target_t *target)
+ 		breakpoint = breakpoint-&gt;next;
+ 	}
+ 
+-	if (!xscale-&gt;handler_installed)
++	armv4_5_invalidate_core_regs(target);
++
++	/* FIXME mark hardware watchpoints got unset too.  Also,
++	 * at least some of the XScale registers are invalid...
++	 */
++
++	/*
++	 * REVISIT:  *assumes* we had a SRST+TRST reset so the mini-icache
++	 * contents got invalidated.  Safer to force that, so writing new
++	 * contents can't ever fail..
++	 */
+ 	{
+ 		uint32_t address;
+ 		unsigned buf_cnt;
+@@ -1599,10 +1603,6 @@ static int xscale_deassert_reset(target_t *target)
+ 		 * it's using halt mode (not monitor mode), it runs in
+ 		 * &quot;Special Debug State&quot; for access to registers, memory,
+ 		 * coprocessors, trace data, etc.
+-		 *
+-		 * REVISIT:  *assumes* we've had a SRST+TRST reset so the
+-		 * mini-icache contents have been invalidated.  Safest to
+-		 * force that, so writing new contents is reliable...
+ 		 */
+ 		address = xscale-&gt;handler_address;
+ 		for (unsigned binary_size = sizeof xscale_debug_handler - 1;
+@@ -1673,10 +1673,6 @@ static int xscale_deassert_reset(target_t *target)
+ 			xscale_resume(target, 1, 0x0, 1, 0);
+ 		}
+ 	}
+-	else
+-	{
+-		jtag_add_reset(0, 0);
+-	}
+ 
+ 	return ERROR_OK;
+ }
+@@ -2967,8 +2963,6 @@ static int xscale_init_arch_info(target_t *target,
+ 	}
+ 
+ 	/* the debug handler isn't installed (and thus not running) at this time */
+-	xscale-&gt;handler_installed = 0;
+-	xscale-&gt;handler_running = 0;
+ 	xscale-&gt;handler_address = 0xfe000800;
+ 
+ 	/* clear the vectors we keep locally for reference */
+diff --git a/src/target/xscale.h b/src/target/xscale.h
+index a5d83ee..4b34cf8 100644
+--- a/src/target/xscale.h
++++ b/src/target/xscale.h
+@@ -86,8 +86,6 @@ typedef struct xscale_common_s
+ 	reg_cache_t *reg_cache;
+ 
+ 	/* current state of the debug handler */
+-	int handler_installed;
+-	int handler_running;
+ 	uint32_t handler_address;
+ 
+ 	/* target-endian buffers with exception vectors */
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/core.c     |   27 ++++++++++++++++++---------
+ src/target/xscale.c |   28 +++++++++++-----------------
+ src/target/xscale.h |    2 --
+ 3 files changed, 29 insertions(+), 28 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001678.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-419-g0b43649
+</A></li>
+	<LI>Next message: <A HREF="001680.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-422-g19b84da
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1679">[ date ]</a>
+              <a href="thread.html#1679">[ thread ]</a>
+              <a href="subject.html#1679">[ subject ]</a>
+              <a href="author.html#1679">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

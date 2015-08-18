@@ -1,0 +1,147 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-826-g977df18
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-826-g977df18&In-Reply-To=%3Cmailman.46.1331736153.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002560.html">
+   <LINK REL="Next"  HREF="002562.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-826-g977df18</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-826-g977df18&In-Reply-To=%3Cmailman.46.1331736153.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-826-g977df18">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Apr  1 10:36:18 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002560.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-825-g364cfaa
+</A></li>
+        <LI>Next message: <A HREF="002562.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-828-g3b7c958
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2561">[ date ]</a>
+              <a href="thread.html#2561">[ thread ]</a>
+              <a href="subject.html#2561">[ subject ]</a>
+              <a href="author.html#2561">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  977df18f50f0f4d2310787787c03d83c2498da1a (commit)
+      from  364cfaac1dd9440380ac6974010b7ed5d697676f (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 977df18f50f0f4d2310787787c03d83c2498da1a
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Fri Apr 1 09:59:30 2011 +0200
+
+    cortex_a: remove broken dbgbase patchup code
+    
+    the patchup code would get false positives when checking
+    whether a dbgbase had to be corrected.
+    
+    The solution is to have autodetect default, with manual override
+    in scripts.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index b3c491b..cd6e5de 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -1083,23 +1083,11 @@ is_dap_cid_ok(uint32_t cid3, uint32_t cid2, uint32_t cid1, uint32_t cid0)
+ 			&amp;&amp; ((cid1 &amp; 0x0f) == 0) &amp;&amp; cid0 == 0x0d;
+ }
+ 
+-struct broken_cpu {
+-	uint32_t	dbgbase;
+-	uint32_t	apid;
+-	uint32_t	idcode;
+-	uint32_t	correct_dbgbase;
+-	char		*model;
+-} broken_cpus[] = {
+-	{ 0x80000000, 0x04770002, 0x1ba00477, 0x60000000, &quot;imx51&quot; },
+-	{ 0x80040000, 0x04770002, 0x3b95c02f, 0x80000000, &quot;omap4430&quot; },
+-};
+-
+ int dap_get_debugbase(struct adiv5_dap *dap, int ap,
+ 			uint32_t *out_dbgbase, uint32_t *out_apid)
+ {
+ 	uint32_t ap_old;
+ 	int retval;
+-	unsigned int i;
+ 	uint32_t dbgbase, apid, idcode;
+ 
+ 	/* AP address is in bits 31:24 of DP_SELECT */
+@@ -1131,19 +1119,6 @@ int dap_get_debugbase(struct adiv5_dap *dap, int ap,
+ 	if (tap == NULL || !tap-&gt;hasidcode)
+ 		return ERROR_OK;
+ 
+-	/* Some CPUs are messed up, so fixup if needed. */
+-	for (i = 0; i &lt; sizeof(broken_cpus)/sizeof(struct broken_cpu); i++)
+-		if (broken_cpus[i].dbgbase == dbgbase &amp;&amp;
+-			broken_cpus[i].apid == apid &amp;&amp;
+-			broken_cpus[i].idcode == idcode) {
+-			LOG_WARNING(&quot;Found broken CPU (%s), trying to fixup &quot;
+-				&quot;ROM Table location from 0x%08x to 0x%08x&quot;,
+-				broken_cpus[i].model, dbgbase,
+-				broken_cpus[i].correct_dbgbase);
+-			dbgbase = broken_cpus[i].correct_dbgbase;
+-			break;
+-		}
+-
+ 	dap_ap_select(dap, ap_old);
+ 
+ 	/* The asignment happens only here to prevent modification of these
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm_adi_v5.c |   25 -------------------------
+ 1 files changed, 0 insertions(+), 25 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002560.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-825-g364cfaa
+</A></li>
+	<LI>Next message: <A HREF="002562.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-828-g3b7c958
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2561">[ date ]</a>
+              <a href="thread.html#2561">[ thread ]</a>
+              <a href="subject.html#2561">[ subject ]</a>
+              <a href="author.html#2561">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

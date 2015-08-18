@@ -1,0 +1,185 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2244 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2244%20-%20trunk/src/jtag&In-Reply-To=%3C200906160022.n5G0Minh028042%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001027.html">
+   <LINK REL="Next"  HREF="001029.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2244 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2244%20-%20trunk/src/jtag&In-Reply-To=%3C200906160022.n5G0Minh028042%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2244 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun 16 02:22:44 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001027.html">[Openocd-svn] r2243 - trunk/doc
+</A></li>
+        <LI>Next message: <A HREF="001029.html">[Openocd-svn] r2245 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1028">[ date ]</a>
+              <a href="thread.html#1028">[ thread ]</a>
+              <a href="subject.html#1028">[ subject ]</a>
+              <a href="author.html#1028">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-16 02:22:40 +0200 (Tue, 16 Jun 2009)
+New Revision: 2244
+
+Modified:
+   trunk/src/jtag/core.c
+   trunk/src/jtag/jtag.h
+   trunk/src/jtag/tcl.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Minor jtag cleanup:
+
+ - remove hidden assumption about JTAG event numbering
+ - move function declarations to a header
+ - some end'o'line whitespace
+ - use &quot;calloc&quot; not &quot;malloc + memset&quot;
+
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-06-16 00:22:12 UTC (rev 2243)
++++ trunk/src/jtag/core.c	2009-06-16 00:22:40 UTC (rev 2244)
+@@ -58,9 +58,9 @@
+  */
+ static int jtag_error = ERROR_OK;
+ 
+-static char* jtag_event_strings[] =
++static const char *jtag_event_strings[] =
+ {
+-	&quot;JTAG controller reset (RESET or TRST)&quot;
++	[JTAG_TRST_ASSERTED] = &quot;JTAG controller reset (RESET or TRST)&quot;,
+ };
+ 
+ static int jtag_trst = 0;
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-06-16 00:22:12 UTC (rev 2243)
++++ trunk/src/jtag/jtag.h	2009-06-16 00:22:40 UTC (rev 2244)
+@@ -175,6 +175,10 @@
+ 
+ 	jtag_tap_t* next_tap;
+ };
++
++void jtag_tap_init(jtag_tap_t *tap);
++void jtag_tap_free(jtag_tap_t *tap);
++
+ extern jtag_tap_t* jtag_all_taps(void);
+ extern const char *jtag_tap_name(const jtag_tap_t *tap);
+ extern jtag_tap_t* jtag_tap_by_string(const char* dotted_name);
+@@ -185,16 +189,16 @@
+ extern unsigned jtag_tap_count(void);
+ 
+ 
+-/* 
++/*
+  * There are three cases when JTAG_TRST_ASSERTED callback is invoked. The
+- * event is invoked *after* TRST is asserted(or queued rather). It is illegal 
+- * to communicate with the JTAG interface during the callback(as there is 
++ * event is invoked *after* TRST is asserted(or queued rather). It is illegal
++ * to communicate with the JTAG interface during the callback(as there is
+  * currently a queue being built).
+- * 
++ *
+  * - TMS reset
+  * - SRST pulls TRST
+  * - TRST asserted
+- * 
++ *
+  **/
+ enum jtag_event {
+ 	JTAG_TRST_ASSERTED
+@@ -235,7 +239,7 @@
+ int jtag_get_speed(void);
+ /**
+  * Given a @a speed setting, use the interface @c speed_div callback to
+- * adjust the setting.  
++ * adjust the setting.
+  * @param speed The speed setting to convert back to readable KHz.
+  * @returns ERROR_OK if the interface has not been initialized or on success;
+  * 	otherwise, the error code produced by the @c speed_div callback.
+@@ -507,7 +511,7 @@
+  * @param goal_state The final TAP state.
+  * @return ERROR_OK on success, or an error code on failure.
+  *
+- * Moves from the current state to the goal \a state. 
++ * Moves from the current state to the goal \a state.
+  *
+  * This needs to be handled according to the xsvf spec, see the XSTATE
+  * command description.  From the XSVF spec, pertaining to XSTATE:
+
+Modified: trunk/src/jtag/tcl.c
+===================================================================
+--- trunk/src/jtag/tcl.c	2009-06-16 00:22:12 UTC (rev 2243)
++++ trunk/src/jtag/tcl.c	2009-06-16 00:22:40 UTC (rev 2244)
+@@ -306,9 +306,6 @@
+ 	return (w &amp; v) != 0;
+ }
+ 
+-extern void jtag_tap_init(jtag_tap_t *tap);
+-extern void jtag_tap_free(jtag_tap_t *tap);
+-
+ static int jim_newtap_cmd( Jim_GetOptInfo *goi )
+ {
+ 	jtag_tap_t *pTap;
+@@ -334,12 +331,12 @@
+ 		{ .name = NULL				,	.value = -1 },
+ 	};
+ 
+-	pTap = malloc( sizeof(jtag_tap_t) );
+-	memset( pTap, 0, sizeof(*pTap) );
+-	if( !pTap ){
+-		Jim_SetResult_sprintf( goi-&gt;interp, &quot;no memory&quot;);
++	pTap = calloc(1, sizeof(jtag_tap_t));
++	if (!pTap) {
++		Jim_SetResult_sprintf(goi-&gt;interp, &quot;no memory&quot;);
+ 		return JIM_ERR;
+ 	}
++
+ 	/*
+ 	 * we expect CHIP + TAP + OPTIONS
+ 	 * */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001027.html">[Openocd-svn] r2243 - trunk/doc
+</A></li>
+	<LI>Next message: <A HREF="001029.html">[Openocd-svn] r2245 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1028">[ date ]</a>
+              <a href="thread.html#1028">[ thread ]</a>
+              <a href="subject.html#1028">[ subject ]</a>
+              <a href="author.html#1028">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

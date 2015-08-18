@@ -1,0 +1,372 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2626 - trunk/src/flash
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2626%20-%20trunk/src/flash&In-Reply-To=%3C200908260626.n7Q6QUX2013118%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001408.html">
+   <LINK REL="Next"  HREF="001410.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2626 - trunk/src/flash</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2626%20-%20trunk/src/flash&In-Reply-To=%3C200908260626.n7Q6QUX2013118%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2626 - trunk/src/flash">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Wed Aug 26 08:26:30 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001408.html">[Openocd-svn] r2625 - trunk
+</A></li>
+        <LI>Next message: <A HREF="001410.html">[Openocd-svn] r2627 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1409">[ date ]</a>
+              <a href="thread.html#1409">[ thread ]</a>
+              <a href="subject.html#1409">[ subject ]</a>
+              <a href="author.html#1409">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-08-26 08:26:29 +0200 (Wed, 26 Aug 2009)
+New Revision: 2626
+
+Modified:
+   trunk/src/flash/stellaris.c
+   trunk/src/flash/stellaris.h
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt; Clock updates/fixes for the Stellaris flash driver:
+
+ - Bugfixes:
+   * internal osc: it's *12* MHz (not 15 MHz) on _current_ chips
+      + except new Tempest parts where it's 16 MHz (and calibrated!)
+      + or some old Sandstorm ones, where 15 MHz was valid
+   * crystal config:
+      + read and use the crystal config, don't assume 6 MHz
+      + know when that field is 4 bits vs 5
+   * an RCC2 register may be overriding the original RCC
+      + more clock source options
+      + bigger dividers
+      + fractional dividers on Tempest (NYET handled)
+   * there's a 30 KHz osc on newer chips (for deep sleep)
+   * there's a 32768 Hz osc on newer chips (for hibernation)
+
+ - Cosmetic
+   * say &quot;rev A0&quot; not &quot;vA.0&quot;, to match vendor docs
+   * don't always report master clock as an &quot;estimate&quot;:
+      + give the error bound if it's approximate, like &quot;?\194?\17730%&quot;
+      + else don't say anything
+   * fix whitespace and caps in some messages
+   * these are not AT91SAM chips!!
+
+Those clock issues might explain problems sometimes reported when
+writing to Stellaris flash banks; they affect write timings.
+
+That 12-vs-15 MHz issue is problematic; there's no consolidated doc
+showing which chips (and revs!) have which internal oscillator speed.
+It's clear that only older silicon had the faster-and-less-accurate
+flavor.  What's less clear is which chips are &quot;old&quot; like that.
+
+Lightly tested, on a DustDevil part.
+
+Modified: trunk/src/flash/stellaris.c
+===================================================================
+--- trunk/src/flash/stellaris.c	2009-08-25 20:03:35 UTC (rev 2625)
++++ trunk/src/flash/stellaris.c	2009-08-26 06:26:29 UTC (rev 2626)
+@@ -257,7 +257,10 @@
+ 	/* part wasn't probed for info yet */
+ 	stellaris_info-&gt;did1 = 0;
+ 
+-	/* TODO Use an optional main oscillator clock rate in kHz from arg[6] */
++	/* TODO Specify the main crystal speed in kHz using an optional
++	 * argument; ditto, the speed of an external oscillator used
++	 * instead of a crystal.  Avoid programming flash using IOSC.
++	 */
+ 	return ERROR_OK;
+ }
+ 
+@@ -294,7 +297,8 @@
+ 	}
+ 	printed = snprintf(buf,
+ 			   buf_size,
+-			   &quot;\nLMI Stellaris information: Chip is class %i(%s) %s v%c.%i\n&quot;,
++			   &quot;\nTI/LMI Stellaris information: Chip is &quot;
++			   &quot;class %i (%s) %s rev %c%i\n&quot;,
+ 			   device_class,
+ 			   StellarisClassname[device_class],
+ 			   stellaris_info-&gt;target_name,
+@@ -305,10 +309,11 @@
+ 
+ 	printed = snprintf(buf,
+ 			   buf_size,
+-			   &quot;did1: 0x%8.8&quot; PRIx32 &quot;, arch: 0x%4.4&quot; PRIx32 &quot;, eproc: %s, ramsize:%ik, flashsize: %ik\n&quot;,
++			   &quot;did1: 0x%8.8&quot; PRIx32 &quot;, arch: 0x%4.4&quot; PRIx32
++			   &quot;, eproc: %s, ramsize: %ik, flashsize: %ik\n&quot;,
+ 			   stellaris_info-&gt;did1,
+ 			   stellaris_info-&gt;did1,
+-			   &quot;ARMV7M&quot;,
++			   &quot;ARMv7M&quot;,
+ 			   (int)((1 + ((stellaris_info-&gt;dc0 &gt;&gt; 16) &amp; 0xFFFF))/4),
+ 			   (int)((1 + (stellaris_info-&gt;dc0 &amp; 0xFFFF))*2));
+ 	buf += printed;
+@@ -316,9 +321,12 @@
+ 
+ 	printed = snprintf(buf,
+ 			   buf_size,
+-			   &quot;master clock(estimated): %ikHz, rcc is 0x%&quot; PRIx32 &quot; \n&quot;,
++			   &quot;master clock: %ikHz%s, &quot;
++			   &quot;rcc is 0x%&quot; PRIx32 &quot;, rcc2 is 0x%&quot; PRIx32 &quot;\n&quot;,
+ 			   (int)(stellaris_info-&gt;mck_freq / 1000),
+-			   stellaris_info-&gt;rcc);
++			   stellaris_info-&gt;mck_desc,
++			   stellaris_info-&gt;rcc,
++			   stellaris_info-&gt;rcc2);
+ 	buf += printed;
+ 	buf_size -= printed;
+ 
+@@ -353,47 +361,115 @@
+ 
+ /** Read clock configuration and set stellaris_info-&gt;usec_clocks*/
+ 
++static const unsigned rcc_xtal[32] = {
++	[0x00] = 1000000,		/* no pll */
++	[0x01] = 1843200,		/* no pll */
++	[0x02] = 2000000,		/* no pll */
++	[0x03] = 2457600,		/* no pll */
++
++	[0x04] = 3579545,
++	[0x05] = 3686400,
++	[0x06] = 4000000,		/* usb */
++	[0x07] = 4096000,
++
++	[0x08] = 4915200,
++	[0x09] = 5000000,		/* usb */
++	[0x0a] = 5120000,
++	[0x0b] = 6000000,		/* (reset) usb */
++
++	[0x0c] = 6144000,
++	[0x0d] = 7372800,
++	[0x0e] = 8000000,		/* usb */
++	[0x0f] = 8192000,
++
++	/* parts before DustDevil use just 4 bits for xtal spec */
++
++	[0x10] = 10000000,		/* usb */
++	[0x11] = 12000000,		/* usb */
++	[0x12] = 12288000,
++	[0x13] = 13560000,
++
++	[0x14] = 14318180,
++	[0x15] = 16000000,		/* usb */
++	[0x16] = 16384000,
++};
++
+ static void stellaris_read_clock_info(flash_bank_t *bank)
+ {
+ 	stellaris_flash_bank_t *stellaris_info = bank-&gt;driver_priv;
+ 	target_t *target = bank-&gt;target;
+-	uint32_t rcc, pllcfg, sysdiv, usesysdiv, bypass, oscsrc;
++	uint32_t rcc, rcc2, pllcfg, sysdiv, usesysdiv, bypass, oscsrc;
++	unsigned xtal;
+ 	unsigned long mainfreq;
+ 
+ 	target_read_u32(target, SCB_BASE | RCC, &amp;rcc);
+ 	LOG_DEBUG(&quot;Stellaris RCC %&quot; PRIx32 &quot;&quot;, rcc);
++
++	target_read_u32(target, SCB_BASE | RCC2, &amp;rcc2);
++	LOG_DEBUG(&quot;Stellaris RCC2 %&quot; PRIx32 &quot;&quot;, rcc);
++
+ 	target_read_u32(target, SCB_BASE | PLLCFG, &amp;pllcfg);
+ 	LOG_DEBUG(&quot;Stellaris PLLCFG %&quot; PRIx32 &quot;&quot;, pllcfg);
++
+ 	stellaris_info-&gt;rcc = rcc;
++	stellaris_info-&gt;rcc = rcc2;
+ 
+ 	sysdiv = (rcc &gt;&gt; 23) &amp; 0xF;
+ 	usesysdiv = (rcc &gt;&gt; 22) &amp; 0x1;
+ 	bypass = (rcc &gt;&gt; 11) &amp; 0x1;
+ 	oscsrc = (rcc &gt;&gt; 4) &amp; 0x3;
+-	/* xtal = (rcc &gt;&gt; 6)&amp;0xF; */
++	xtal = (rcc &gt;&gt; 6) &amp; stellaris_info-&gt;xtal_mask;
++
++	/* NOTE: post-Sandstorm parts have RCC2 which may override
++	 * parts of RCC ... with more sysdiv options, option for
++	 * 32768 Hz mainfreq, PLL controls.  On Sandstorm it reads
++	 * as zero, so the &quot;use RCC2&quot; flag is always clear.
++	 */
++	if (rcc2 &amp; (1 &lt;&lt; 31)) {
++		sysdiv = (rcc2 &gt;&gt; 23) &amp; 0x3F;
++		bypass = (rcc2 &gt;&gt; 11) &amp; 0x1;
++		oscsrc = (rcc2 &gt;&gt; 4) &amp; 0x7;
++
++		/* FIXME Tempest parts have an additional lsb for
++		 * fractional sysdiv (200 MHz / 2.5 == 80 MHz)
++		 */
++	}
++
++	stellaris_info-&gt;mck_desc = &quot;&quot;;
++
+ 	switch (oscsrc)
+ 	{
+-		case 0:
+-			mainfreq = 6000000;  /* Default xtal */
++		case 0:				/* MOSC */
++			mainfreq = rcc_xtal[xtal];
+ 			break;
+-		case 1:
+-			mainfreq = 22500000; /* Internal osc. 15 MHz +- 50% */
++		case 1:				/* IOSC */
++			mainfreq = stellaris_info-&gt;iosc_freq;
++			stellaris_info-&gt;mck_desc = stellaris_info-&gt;iosc_desc;
+ 			break;
+-		case 2:
+-			mainfreq = 5625000;  /* Internal osc. / 4 */
++		case 2:				/* IOSC/4 */
++			mainfreq = stellaris_info-&gt;iosc_freq / 4;
++			stellaris_info-&gt;mck_desc = stellaris_info-&gt;iosc_desc;
+ 			break;
+-		case 3:
+-			LOG_WARNING(&quot;Invalid oscsrc (3) in rcc register&quot;);
+-			mainfreq = 6000000;
++		case 3:				/* lowspeed */
++			/* Sandstorm doesn't have this 30K +/- 30% osc */
++			mainfreq = 30000;
++			stellaris_info-&gt;mck_desc = &quot; (&#177;30%)&quot;;
+ 			break;
++		case 8:				/* hibernation osc */
++			/* not all parts support hibernation */
++			mainfreq = 32768;
++			break;
+ 
+ 		default: /* NOTREACHED */
+ 			mainfreq = 0;
+ 			break;
+ 	}
+ 
++	/* PLL is used if it's not bypassed; its output is 200 MHz
++	 * even when it runs at 400 MHz (adds divide-by-two stage).
++	 */
+ 	if (!bypass)
+-		mainfreq = 200000000; /* PLL out frec */
++		mainfreq = 200000000;
+ 
+ 	if (usesysdiv)
+ 		stellaris_info-&gt;mck_freq = mainfreq/(1 + sysdiv);
+@@ -487,6 +563,48 @@
+ 		LOG_WARNING(&quot;Unknown did1 version/family, cannot positively identify target as a Stellaris&quot;);
+ 	}
+ 
++	/* For Sandstorm, Fury, DustDevil:  current data sheets say IOSC
++	 * is 12 MHz, but some older parts have 15 MHz.  A few data sheets
++	 * even give _both_ numbers!  We'll use current numbers; IOSC is
++	 * always approximate.
++	 *
++	 * For Tempest:  IOSC is calibrated, 16 MHz
++	 */
++	stellaris_info-&gt;iosc_freq = 12000000;
++	stellaris_info-&gt;iosc_desc = &quot; (&#177;30%)&quot;;
++	stellaris_info-&gt;xtal_mask = 0x0f;
++
++	switch ((did0 &gt;&gt; 28) &amp; 0x7) {
++	case 0:				/* Sandstorm */
++		/*
++		 * Current (2009-August) parts seem to be rev C2 and use 12 MHz.
++		 * Parts before rev C0 used 15 MHz; some C0 parts use 15 MHz
++		 * (LM3S618), but some other C0 parts are 12 MHz (LM3S811).
++		 */
++		if (((did0 &gt;&gt; 16) &amp; 0xff) &lt;= 2) {
++			stellaris_info-&gt;iosc_freq = 15000000;
++			stellaris_info-&gt;iosc_desc = &quot; (&#177;50%)&quot;;
++		}
++		break;
++	case 1:
++		switch ((did0 &gt;&gt; 16) &amp; 0xff) {
++		case 1:			/* Fury */
++			break;
++		case 4:			/* Tempest */
++			stellaris_info-&gt;iosc_freq = 16000000;	/* +/- 1% */
++			stellaris_info-&gt;iosc_desc = &quot; (&#177;1%)&quot;;
++			/* FALL THROUGH */
++		case 3:			/* DustDevil */
++			stellaris_info-&gt;xtal_mask = 0x1f;
++			break;
++		default:
++			LOG_WARNING(&quot;Unknown did0 class&quot;);
++		}
++	default:
++		break;
++		LOG_WARNING(&quot;Unknown did0 version&quot;);
++	}
++
+ 	for (i = 0; StellarisParts[i].partno; i++)
+ 	{
+ 		if (StellarisParts[i].partno == ((did1 &gt;&gt; 16) &amp; 0xFF))
+@@ -547,7 +665,7 @@
+ 
+ 	if (stellaris_info-&gt;did1 == 0)
+ 	{
+-		LOG_WARNING(&quot;Cannot identify target as an AT91SAM&quot;);
++		LOG_WARNING(&quot;Cannot identify target as Stellaris&quot;);
+ 		return ERROR_FLASH_OPERATION_FAILED;
+ 	}
+ 
+
+Modified: trunk/src/flash/stellaris.h
+===================================================================
+--- trunk/src/flash/stellaris.h	2009-08-25 20:03:35 UTC (rev 2625)
++++ trunk/src/flash/stellaris.h	2009-08-26 06:26:29 UTC (rev 2626)
+@@ -45,8 +45,13 @@
+ 
+ 	/* main clock status */
+ 	uint32_t rcc;
++	uint32_t rcc2;
+ 	uint8_t  mck_valid;
++	uint8_t  xtal_mask;
++	uint32_t iosc_freq;
+ 	uint32_t mck_freq;
++	const char *iosc_desc;
++	const char *mck_desc;
+ } stellaris_flash_bank_t;
+ 
+ /* STELLARIS control registers */
+@@ -62,6 +67,7 @@
+ #define	RIS			0x050
+ #define	RCC			0x060
+ #define	PLLCFG		0x064
++#define	RCC2		0x070
+ 
+ #define FMPRE		0x130
+ #define FMPPE		0x134
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001408.html">[Openocd-svn] r2625 - trunk
+</A></li>
+	<LI>Next message: <A HREF="001410.html">[Openocd-svn] r2627 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1409">[ date ]</a>
+              <a href="thread.html#1409">[ thread ]</a>
+              <a href="subject.html#1409">[ subject ]</a>
+              <a href="author.html#1409">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

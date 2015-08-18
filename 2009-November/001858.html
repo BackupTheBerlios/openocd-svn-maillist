@@ -1,0 +1,3003 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-575-g62e5649
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-575-g62e5649&In-Reply-To=%3CE1NDN21-00064d-GY%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001857.html">
+   <LINK REL="Next"  HREF="001859.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-575-g62e5649</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-575-g62e5649&In-Reply-To=%3CE1NDN21-00064d-GY%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-575-g62e5649">zwelch at users.sourceforge.net
+       </A><BR>
+    <I>Wed Nov 25 19:56:00 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001857.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-563-gb621090
+</A></li>
+        <LI>Next message: <A HREF="001859.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-584-ge2f23c5
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1858">[ date ]</a>
+              <a href="thread.html#1858">[ thread ]</a>
+              <a href="subject.html#1858">[ subject ]</a>
+              <a href="author.html#1858">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  62e56496009796497665c1d06819c163589a3877 (commit)
+       via  769fbfa058946e1581d5f9ad75d17947d1ee9ff1 (commit)
+       via  4c54c27da774f8035a04f3b091fcfc5661253a0e (commit)
+       via  60ba4641d61ba65943ac7a8c800e82d6665ee11f (commit)
+       via  607634f967cf25630860794847dea770eb17a8f4 (commit)
+       via  25a7ac2c756c78603c9c99d06f55717440409a23 (commit)
+       via  d107f71c5079dbe2a023276367b805397d1245c4 (commit)
+       via  2461855494cd045567c15c502ba215caffb37ce3 (commit)
+       via  69076057dde9f4336b54fb4da677da8fe5da66bd (commit)
+       via  833e7f5248778bcb31b4db1a1b91160995415203 (commit)
+       via  f7e1f2df74b599903a6fb2d2ace94c3f1ef06097 (commit)
+       via  47cb10217a7bc4b97fa169a821db05f40bc2e51d (commit)
+      from  b6210907ea584095cdede663f695eb8afeecef14 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 62e56496009796497665c1d06819c163589a3877
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sat Nov 21 19:55:50 2009 -0800
+
+    rewrite 'unknown' command dispatching in C
+    
+    Rewrite the magical 'unknown' command in C as a Jim handler, allowing
+    it to dispatch commands to any level in the tree.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 54bfb96..dd10965 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -853,6 +853,70 @@ COMMAND_HANDLER(handle_usage_command)
+ 	return CALL_COMMAND_HANDLER(command_help_show, c, 0, false);
+ }
+ 
++static int command_unknown_find(unsigned argc, Jim_Obj *const *argv,
++		struct command *head, struct command **out)
++{
++	if (0 == argc)
++		return argc;
++	struct command *c = command_find(head, Jim_GetString(argv[0], NULL));
++	if (NULL == c)
++		return argc;
++	*out = c;
++	return command_unknown_find(--argc, ++argv, (*out)-&gt;children, out);
++}
++
++static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	const char *cmd_name = Jim_GetString(argv[0], NULL);
++	script_debug(interp, cmd_name, argc - 1, argv + 1);
++
++	struct command_context *cmd_ctx = current_command_context();
++	struct command *c = cmd_ctx-&gt;commands;
++	int remaining = command_unknown_find(argc - 1, argv + 1, c, &amp;c);
++	// if nothing could be consumed, then it's really an unknown command
++	if (remaining == argc - 1)
++	{
++		const char *cmd = Jim_GetString(argv[1], NULL);
++		LOG_ERROR(&quot;Unknown command:\n  %s&quot;, cmd);
++		return JIM_OK;
++	}
++
++	bool found = true;
++	Jim_Obj *const *start;
++	unsigned count;
++	if (c-&gt;handler)
++	{
++		// include the command name in the list
++		count = remaining + 1;
++		start = argv + (argc - remaining - 1);
++	}
++	else
++	{
++		c = command_find(cmd_ctx-&gt;commands, &quot;help&quot;);
++		if (NULL == c)
++		{
++			LOG_ERROR(&quot;unknown command, but help is missing too&quot;);
++			return JIM_ERR;
++		}
++		count = argc - remaining;
++		start = argv;
++		found = false;
++	}
++
++	unsigned nwords;
++	const char **words = script_command_args_alloc(count, start, &amp;nwords);
++	if (NULL == words)
++		return JIM_ERR;
++
++	int retval = run_command(cmd_ctx, c, words, nwords);
++
++	script_command_args_free(words, nwords);
++
++	if (!found &amp;&amp; ERROR_OK == retval)
++		retval = ERROR_FAIL;
++
++	return retval;
++}
+ 
+ int help_add_command(struct command_context *cmd_ctx, struct command *parent,
+ 		const char *cmd_name, const char *help_text, const char *usage)
+@@ -1032,6 +1096,7 @@ struct command_context* command_init(const char *startup_tcl)
+ 	Jim_SetGlobalVariableStr(interp, &quot;ocd_HOSTOS&quot;,
+ 			Jim_NewStringObj(interp, HostOs , strlen(HostOs)));
+ 
++	Jim_CreateCommand(interp, &quot;unknown&quot;, &amp;command_unknown, NULL, NULL);
+ 	Jim_CreateCommand(interp, &quot;ocd_find&quot;, jim_find, NULL, NULL);
+ 	Jim_CreateCommand(interp, &quot;echo&quot;, jim_echo, NULL, NULL);
+ 	Jim_CreateCommand(interp, &quot;capture&quot;, jim_capture, NULL, NULL);
+diff --git a/src/helper/startup.tcl b/src/helper/startup.tcl
+index 845198a..ede8cdb 100644
+--- a/src/helper/startup.tcl
++++ b/src/helper/startup.tcl
+@@ -44,23 +44,6 @@ proc cmd_help {cmdname h indent} {
+ 	}
+ }
+ 
+-# If a fn is unknown to Tcl, we try to execute it as an OpenOCD command
+-#
+-# We also support two level commands. &quot;flash banks&quot; is translated to
+-# flash_banks
+-proc unknown {args} {
+-	# do the name mangling from &quot;flash banks&quot; to &quot;flash_banks&quot;
+-	if {[llength $args]&gt;=2} {
+-		set cmd_name &quot;[lindex $args 0]_[lindex $args 1]&quot;
+-		if {[catch {info body $cmd_name}]==0} {
+-		    # the command exists, try it...
+-			return [eval &quot;$cmd_name [lrange $args 2 end]&quot;]
+-		}
+-	}
+-	# This really is an unknown command.
+-	return -code error &quot;Unknown command: $args&quot;
+-}
+-
+ # Try flipping / and \ to find file if the filename does not
+ # match the precise spelling
+ proc find {filename} {
+
+commit 769fbfa058946e1581d5f9ad75d17947d1ee9ff1
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sun Nov 22 01:48:55 2009 -0800
+
+    add public API for locating commands
+    
+    Allow other modules to find a command, primarily for the purpose of
+    registering and unregistering subcommands.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index af481cd..54bfb96 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -193,6 +193,16 @@ static struct command *command_find(struct command *head, const char *name)
+ 	}
+ 	return NULL;
+ }
++struct command *command_find_in_context(struct command_context *cmd_ctx,
++		const char *name)
++{
++	return command_find(cmd_ctx-&gt;commands, name);
++}
++struct command *command_find_in_parent(struct command *parent,
++		const char *name)
++{
++	return command_find(parent-&gt;children, name);
++}
+ 
+ /**
+  * Add the command into the linked list, sorted by name.
+diff --git a/src/helper/command.h b/src/helper/command.h
+index 6e3e93a..2edeca9 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -281,6 +281,11 @@ int unregister_command(struct command_context *cmd_ctx,
+ int unregister_all_commands(struct command_context *cmd_ctx,
+ 		struct command *parent);
+ 
++struct command *command_find_in_context(struct command_context *cmd_ctx,
++		const char *name);
++struct command *command_find_in_parent(struct command *parent,
++		const char *name);
++
+ void command_set_output_handler(struct command_context* context,
+ 		command_output_handler_t output_handler, void *priv);
+ 
+
+commit 4c54c27da774f8035a04f3b091fcfc5661253a0e
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sat Nov 21 20:00:37 2009 -0800
+
+    refactor script_command context grabbing
+    
+    Move command context acquisition to current_command_context() for re-use.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index b81d2d1..af481cd 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -108,11 +108,24 @@ static const char **script_command_args_alloc(
+ 	return words;
+ }
+ 
++static struct command_context *current_command_context(void)
++{
++	/* grab the command context from the associated data */
++	struct command_context *cmd_ctx = Jim_GetAssocData(interp, &quot;context&quot;);
++	if (NULL == cmd_ctx)
++	{
++		/* Tcl can invoke commands directly instead of via command_run_line(). This would
++		 * happen when the Jim Tcl interpreter is provided by eCos.
++		 */
++		cmd_ctx = global_cmd_ctx;
++	}
++	return cmd_ctx;
++}
++
+ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+ 	/* the private data is stashed in the interp structure */
+ 	struct command *c;
+-	struct command_context *context;
+ 	int retval;
+ 
+ 	/* DANGER!!!! be careful what we invoke here, since interp-&gt;cmdPrivData might
+@@ -136,16 +149,6 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	if (NULL == words)
+ 		return JIM_ERR;
+ 
+-	/* grab the command context from the associated data */
+-	context = Jim_GetAssocData(interp, &quot;context&quot;);
+-	if (context == NULL)
+-	{
+-		/* Tcl can invoke commands directly instead of via command_run_line(). This would
+-		 * happen when the Jim Tcl interpreter is provided by eCos.
+-		 */
+-		context = global_cmd_ctx;
+-	}
+-
+ 	/* capture log output and return it */
+ 	Jim_Obj *tclOutput = Jim_NewStringObj(interp, &quot;&quot;, 0);
+ 	/* a garbage collect can happen, so we need a reference count to this object */
+@@ -153,7 +156,8 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 
+ 	log_add_callback(tcl_output, tclOutput);
+ 
+-	retval = run_command(context, c, (const char **)words, nwords);
++	struct command_context *cmd_ctx = current_command_context();
++	retval = run_command(cmd_ctx, c, (const char **)words, nwords);
+ 
+ 	log_remove_callback(tcl_output, tclOutput);
+ 
+
+commit 60ba4641d61ba65943ac7a8c800e82d6665ee11f
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sat Nov 21 13:59:51 2009 -0800
+
+    add command registration chaining
+    
+    Adds the ability to chain registration structures.  Modules can define a
+    command with the 'chain' and 'num_chain' fields defined in their
+    registration table, and the register_commands() function will initialize
+    these commands.  If the registration record creates a new command, then
+    the chained commands are created under it; otherwise, they are created
+    in the same context as the other commands (i.e. the parent argument).
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 9cc996c..b81d2d1 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -331,18 +331,36 @@ struct command* register_command(struct command_context *context,
+ int register_commands(struct command_context *cmd_ctx, struct command *parent,
+ 		const struct command_registration *cmds)
+ {
++	int retval = ERROR_OK;
+ 	unsigned i;
+-	for (i = 0; cmds[i].name; i++)
++	for (i = 0; cmds[i].name || cmds[i].chain; i++)
+ 	{
+-		struct command *c = register_command(cmd_ctx, parent, cmds + i);
+-		if (NULL != c)
+-			continue;
++		const struct command_registration *cr = cmds + i;
+ 
++		struct command *c = NULL;
++		if (NULL != cr-&gt;name)
++		{
++			c = register_command(cmd_ctx, parent, cr);
++			if (NULL == c)
++			{
++				retval = ERROR_FAIL;
++				break;
++			}
++		}
++		if (NULL != cr-&gt;chain)
++		{
++			struct command *p = c ? : parent;
++			retval = register_commands(cmd_ctx, p, cr-&gt;chain);
++			if (ERROR_OK != retval)
++				break;
++		}
++	}
++	if (ERROR_OK != retval)
++	{
+ 		for (unsigned j = 0; j &lt; i; j++)
+ 			unregister_command(cmd_ctx, parent, cmds[j].name);
+-		return ERROR_FAIL;
+ 	}
+-	return ERROR_OK;
++	return retval;
+ }
+ 
+ int unregister_all_commands(struct command_context *context,
+diff --git a/src/helper/command.h b/src/helper/command.h
+index 7baa92d..6e3e93a 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -202,10 +202,18 @@ struct command_registration {
+ 	const char *help;
+ 	/// a string listing the options and arguments, required or optional
+ 	const char *usage;
++
++	/**
++	 * If non-NULL, the commands in @c chain will be registered in
++	 * the same context and scope of this registration record.
++	 * This allows modules to inherit lists commands from other
++	 * modules.
++	 */
++	const struct command_registration *chain;
+ };
+ 
+ /// Use this as the last entry in an array of command_registration records.
+-#define COMMAND_REGISTRATION_DONE { .name = NULL }
++#define COMMAND_REGISTRATION_DONE { .name = NULL, .chain = NULL }
+ 
+ /**
+  * Register a command @c handler that can be called from scripts during
+@@ -238,7 +246,10 @@ struct command* register_command(struct command_context *cmd_ctx,
+ 
+ /**
+  * Register one or more commands in the specified context, as children
+- * of @c parent (or top-level commends, if NULL).
++ * of @c parent (or top-level commends, if NULL).  In a registration's
++ * record contains a non-NULL @c chain member and name is NULL, the
++ * commands on the chain will be registered in the same context.
++ * Otherwise, the chained commands are added as children of the command.
+  *
+  * @param cmd_ctx The command_context in which to register the command.
+  * @param parent Register this command as a child of this, or NULL to
+
+commit 607634f967cf25630860794847dea770eb17a8f4
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sat Nov 21 13:33:32 2009 -0800
+
+    more command registration refactoring
+    
+    Split out the handler registration into its own function, and add a
+    few obviously missing NULL pointer error checking.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 28952fd..9cc996c 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -266,6 +266,38 @@ static void command_free(struct command *c)
+ 	free(c);
+ }
+ 
++static int register_command_handler(struct command *c)
++{
++	int retval = -ENOMEM;
++	const char *full_name = command_name(c, '_');
++	if (NULL == full_name)
++		return retval;
++
++	const char *ocd_name = alloc_printf(&quot;ocd_%s&quot;, full_name);
++	if (NULL == full_name)
++		goto free_full_name;
++
++	Jim_CreateCommand(interp, ocd_name, script_command, c, NULL);
++	free((void *)ocd_name);
++
++	/* we now need to add an overrideable proc */
++	const char *override_name = alloc_printf(&quot;proc %s {args} {&quot;
++			&quot;if {[catch {eval ocd_%s $args}] == 0} &quot;
++			&quot;{return \&quot;\&quot;} else {return -code error}}&quot;,
++			full_name, full_name);
++	if (NULL == full_name)
++		goto free_full_name;
++
++	Jim_Eval_Named(interp, override_name, __THIS__FILE__, __LINE__);
++	free((void *)override_name);
++
++	retval = ERROR_OK;
++
++free_full_name:
++	free((void *)full_name);
++	return retval;
++}
++
+ struct command* register_command(struct command_context *context,
+ 		struct command *parent, const struct command_registration *cr)
+ {
+@@ -287,22 +319,12 @@ struct command* register_command(struct command_context *context,
+ 	if (NULL == c || NULL == c-&gt;handler)
+ 		return c;
+ 
+-	const char *full_name = command_name(c, '_');
+-
+-	const char *ocd_name = alloc_printf(&quot;ocd_%s&quot;, full_name);
+-	Jim_CreateCommand(interp, ocd_name, script_command, c, NULL);
+-	free((void *)ocd_name);
+-
+-	/* we now need to add an overrideable proc */
+-	const char *override_name = alloc_printf(&quot;proc %s {args} {&quot;
+-			&quot;if {[catch {eval ocd_%s $args}] == 0} &quot;
+-			&quot;{return \&quot;\&quot;} else {return -code error}}&quot;,
+-			full_name, full_name);
+-	Jim_Eval_Named(interp, override_name, __THIS__FILE__, __LINE__);
+-	free((void *)override_name);
+-
+-	free((void *)full_name);
+-
++	int retval = register_command_handler(c);
++	if (ERROR_OK != retval)
++	{
++		unregister_command(context, parent, name);
++		c = NULL;
++	}
+ 	return c;
+ }
+ 
+
+commit 25a7ac2c756c78603c9c99d06f55717440409a23
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Fri Nov 20 13:36:07 2009 -0800
+
+    command: use register_commands for handlers
+    
+    Use register_commands() to register low-level command handlers,
+    adding a builtin_command_handlers declaration that is easy to understand.
+    Splits help and usage information into their appropriate fields.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index df4667b..28952fd 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -900,6 +900,39 @@ COMMAND_HANDLER(handle_sleep_command)
+ 	return ERROR_OK;
+ }
+ 
++static const struct command_registration command_builtin_handlers[] = {
++	{
++		.name = &quot;add_help_text&quot;,
++		.handler = &amp;handle_help_add_command,
++		.mode = COMMAND_ANY,
++		.help = &quot;add new command help text&quot;,
++		.usage = &quot;&lt;command&gt; [...] &lt;help_text&gt;]&quot;,
++	},
++	{
++		.name = &quot;sleep&quot;,
++		.handler = &amp;handle_sleep_command,
++		.mode = COMMAND_ANY,
++		.help = &quot;sleep for n milliseconds.  &quot;
++			&quot;\&quot;busy\&quot; will busy wait&quot;,
++		.usage = &quot;&lt;n&gt; [busy]&quot;,
++	},
++	{
++		.name = &quot;help&quot;,
++		.handler = &amp;handle_help_command,
++		.mode = COMMAND_ANY,
++		.help = &quot;show built-in command help&quot;,
++		.usage = &quot;[&lt;command_name&gt; ...]&quot;,
++	},
++	{
++		.name = &quot;usage&quot;,
++		.handler = &amp;handle_usage_command,
++		.mode = COMMAND_ANY,
++		.help = &quot;show command usage&quot;,
++		.usage = &quot;[&lt;command_name&gt; ...]&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
+ struct command_context* command_init(const char *startup_tcl)
+ {
+ 	struct command_context* context = malloc(sizeof(struct command_context));
+@@ -959,10 +992,7 @@ struct command_context* command_init(const char *startup_tcl)
+ 	interp-&gt;cb_fflush = openocd_jim_fflush;
+ 	interp-&gt;cb_fgets = openocd_jim_fgets;
+ 
+-	COMMAND_REGISTER(context, NULL, &quot;add_help_text&quot;,
+-			handle_help_add_command, COMMAND_ANY,
+-			&quot;&lt;command&gt; [...] &lt;help_text&gt;] - &quot;
+-			&quot;add new command help text&quot;);
++	register_commands(context, NULL, command_builtin_handlers);
+ 
+ #if !BUILD_ECOSBOARD
+ 	Jim_EventLoopOnLoad(interp);
+@@ -976,19 +1006,6 @@ struct command_context* command_init(const char *startup_tcl)
+ 	}
+ 	Jim_DeleteAssocData(interp, &quot;context&quot;);
+ 
+-	COMMAND_REGISTER(context, NULL, &quot;sleep&quot;,
+-			handle_sleep_command, COMMAND_ANY,
+-			&quot;&lt;n&gt; [busy] - sleep for n milliseconds. &quot;
+-			&quot;\&quot;busy\&quot; means busy wait&quot;);
+-
+-	COMMAND_REGISTER(context, NULL, &quot;help&quot;,
+-			&amp;handle_help_command, COMMAND_ANY,
+-			&quot;[&lt;command_name&gt; ...] - show built-in command help&quot;);
+-	COMMAND_REGISTER(context, NULL, &quot;usage&quot;,
+-			&amp;handle_usage_command, COMMAND_ANY,
+-			&quot;[&lt;command_name&gt; ...] | &quot;
+-			&quot;show command usage&quot;);
+-
+ 	return context;
+ }
+ 
+
+commit d107f71c5079dbe2a023276367b805397d1245c4
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Fri Nov 20 14:07:28 2009 -0800
+
+    add command usage, separate from help
+    
+    Adds the usage command, to display usage information for commands.
+    The output for this command will remain erronenously empty until
+    commands are updated to use these new coventions.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 51b3f9f..df4667b 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -226,7 +226,7 @@ static struct command **command_list_for_parent(
+ static struct command *command_new(struct command_context *cmd_ctx,
+ 		struct command *parent, const char *name,
+ 		command_handler_t handler, enum command_mode mode,
+-		const char *help)
++		const char *help, const char *usage)
+ {
+ 	assert(name);
+ 
+@@ -236,6 +236,8 @@ static struct command *command_new(struct command_context *cmd_ctx,
+ 	c-&gt;name = strdup(name);
+ 	if (help)
+ 		c-&gt;help = strdup(help);
++	if (usage)
++		c-&gt;usage = strdup(usage);
+ 	c-&gt;parent = parent;
+ 	c-&gt;handler = handler;
+ 	c-&gt;mode = mode;
+@@ -259,6 +261,8 @@ static void command_free(struct command *c)
+ 		free(c-&gt;name);
+ 	if (c-&gt;help)
+ 		free((void*)c-&gt;help);
++	if (c-&gt;usage)
++		free((void*)c-&gt;usage);
+ 	free(c);
+ }
+ 
+@@ -278,7 +282,7 @@ struct command* register_command(struct command_context *context,
+ 		return c;
+ 	}
+ 
+-	c = command_new(context, parent, name, cr-&gt;handler, cr-&gt;mode, cr-&gt;help);
++	c = command_new(context, parent, name, cr-&gt;handler, cr-&gt;mode, cr-&gt;help, cr-&gt;usage);
+ 	/* if allocation failed or it is a placeholder (no handler), we're done */
+ 	if (NULL == c || NULL == c-&gt;handler)
+ 		return c;
+@@ -737,41 +741,67 @@ static COMMAND_HELPER(command_help_find, struct command *head,
+ 	return CALL_COMMAND_HANDLER(command_help_find, (*out)-&gt;children, out);
+ }
+ 
+-static COMMAND_HELPER(command_help_show, struct command *c, unsigned n);
++static COMMAND_HELPER(command_help_show, struct command *c, unsigned n,
++		bool show_help);
+ 
+-static COMMAND_HELPER(command_help_show_list, struct command *head, unsigned n)
++static COMMAND_HELPER(command_help_show_list, struct command *head, unsigned n,
++		bool show_help)
+ {
+ 	for (struct command *c = head; NULL != c; c = c-&gt;next)
+-		CALL_COMMAND_HANDLER(command_help_show, c, n);
++		CALL_COMMAND_HANDLER(command_help_show, c, n, show_help);
+ 	return ERROR_OK;
+ }
+-static COMMAND_HELPER(command_help_show, struct command *c, unsigned n)
++static COMMAND_HELPER(command_help_show, struct command *c, unsigned n,
++		bool show_help)
+ {
+-	command_run_linef(CMD_CTX, &quot;cmd_help {%s} {%s} %d&quot;, command_name(c, ' '),
+-			c-&gt;help ? : &quot;no help available&quot;, n);
++	const char *usage = c-&gt;usage ? : &quot;&quot;;
++	const char *help = &quot;&quot;;
++	const char *sep = &quot;&quot;;
++	if (show_help &amp;&amp; c-&gt;help)
++	{
++		help = c-&gt;help ? : &quot;&quot;;
++		sep = c-&gt;usage ? &quot; | &quot; : &quot;&quot;;
++	}
++	command_run_linef(CMD_CTX, &quot;cmd_help {%s} {%s%s%s} %d&quot;,
++			command_name(c, ' '), usage, sep, help, n);
+ 
+ 	if (++n &gt;= 2)
+ 		return ERROR_OK;
+ 
+-	return CALL_COMMAND_HANDLER(command_help_show_list, c-&gt;children, n);
++	return CALL_COMMAND_HANDLER(command_help_show_list,
++			c-&gt;children, n, show_help);
+ }
+ COMMAND_HANDLER(handle_help_command)
+ {
+ 	struct command *c = CMD_CTX-&gt;commands;
+ 
+ 	if (0 == CMD_ARGC)
+-		return CALL_COMMAND_HANDLER(command_help_show_list, c, 0);
++		return CALL_COMMAND_HANDLER(command_help_show_list, c, 0, true);
++
++	int retval = CALL_COMMAND_HANDLER(command_help_find, c, &amp;c);
++	if (ERROR_OK != retval)
++		return retval;
++
++	return CALL_COMMAND_HANDLER(command_help_show, c, 0, true);
++}
++
++COMMAND_HANDLER(handle_usage_command)
++{
++	struct command *c = CMD_CTX-&gt;commands;
++
++	if (0 == CMD_ARGC)
++		return CALL_COMMAND_HANDLER(command_help_show_list, c, 0, false);
+ 
+ 	int retval = CALL_COMMAND_HANDLER(command_help_find, c, &amp;c);
+ 	if (ERROR_OK != retval)
+ 		return retval;
+ 
+-	return CALL_COMMAND_HANDLER(command_help_show, c, 0);
++	return CALL_COMMAND_HANDLER(command_help_show, c, 0, false);
+ }
+ 
+ 
+ int help_add_command(struct command_context *cmd_ctx, struct command *parent,
+-		const char *cmd_name, const char *help_text)
++		const char *cmd_name, const char *help_text, const char *usage)
+ {
+ 	struct command **head = command_list_for_parent(cmd_ctx, parent);
+ 	struct command *nc = command_find(*head, cmd_name);
+@@ -782,6 +812,7 @@ int help_add_command(struct command_context *cmd_ctx, struct command *parent,
+ 				.name = cmd_name,
+ 				.mode = COMMAND_ANY,
+ 				.help = help_text,
++				.usage = usage,
+ 			};
+ 		nc = register_command(cmd_ctx, parent, &amp;cr);
+ 		if (NULL == nc)
+@@ -830,7 +861,7 @@ COMMAND_HANDLER(handle_help_add_command)
+ 		if (ERROR_OK != retval)
+ 			return retval;
+ 	}
+-	return help_add_command(CMD_CTX, c, cmd_name, help_text);
++	return help_add_command(CMD_CTX, c, cmd_name, help_text, NULL);
+ }
+ 
+ /* sleep command sleeps for &lt;n&gt; miliseconds
+@@ -953,6 +984,10 @@ struct command_context* command_init(const char *startup_tcl)
+ 	COMMAND_REGISTER(context, NULL, &quot;help&quot;,
+ 			&amp;handle_help_command, COMMAND_ANY,
+ 			&quot;[&lt;command_name&gt; ...] - show built-in command help&quot;);
++	COMMAND_REGISTER(context, NULL, &quot;usage&quot;,
++			&amp;handle_usage_command, COMMAND_ANY,
++			&quot;[&lt;command_name&gt; ...] | &quot;
++			&quot;show command usage&quot;);
+ 
+ 	return context;
+ }
+@@ -989,7 +1024,7 @@ void register_jim(struct command_context *cmd_ctx, const char *name,
+ 	Jim_ListAppendElement(interp, cmd_list,
+ 			Jim_NewStringObj(interp, name, -1));
+ 
+-	help_add_command(cmd_ctx, NULL, name, help);
++	help_add_command(cmd_ctx, NULL, name, help, NULL);
+ }
+ 
+ #define DEFINE_PARSE_NUM_TYPE(name, type, func, min, max) \
+diff --git a/src/helper/command.h b/src/helper/command.h
+index 1afaeea..7baa92d 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -160,6 +160,7 @@ struct command
+ {
+ 	char *name;
+ 	const char *help;
++	const char *usage;
+ 	struct command *parent;
+ 	struct command *children;
+ 	command_handler_t handler;
+@@ -199,6 +200,8 @@ struct command_registration {
+ 	command_handler_t handler;
+ 	enum command_mode mode;
+ 	const char *help;
++	/// a string listing the options and arguments, required or optional
++	const char *usage;
+ };
+ 
+ /// Use this as the last entry in an array of command_registration records.
+
+commit 2461855494cd045567c15c502ba215caffb37ce3
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Fri Nov 20 12:46:06 2009 -0800
+
+    add register_commands for batch registration
+    
+    The register_commands API takes multiple commands in one call, allowing
+    modules to declare and pass a much simpler (and more explicit) array of
+    command_registration records.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 3df60b6..51b3f9f 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -302,6 +302,23 @@ struct command* register_command(struct command_context *context,
+ 	return c;
+ }
+ 
++int register_commands(struct command_context *cmd_ctx, struct command *parent,
++		const struct command_registration *cmds)
++{
++	unsigned i;
++	for (i = 0; cmds[i].name; i++)
++	{
++		struct command *c = register_command(cmd_ctx, parent, cmds + i);
++		if (NULL != c)
++			continue;
++
++		for (unsigned j = 0; j &lt; i; j++)
++			unregister_command(cmd_ctx, parent, cmds[j].name);
++		return ERROR_FAIL;
++	}
++	return ERROR_OK;
++}
++
+ int unregister_all_commands(struct command_context *context,
+ 		struct command *parent)
+ {
+diff --git a/src/helper/command.h b/src/helper/command.h
+index b57ca75..1afaeea 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -201,6 +201,9 @@ struct command_registration {
+ 	const char *help;
+ };
+ 
++/// Use this as the last entry in an array of command_registration records.
++#define COMMAND_REGISTRATION_DONE { .name = NULL }
++
+ /**
+  * Register a command @c handler that can be called from scripts during
+  * the execution @c mode specified.
+@@ -231,6 +234,22 @@ struct command* register_command(struct command_context *cmd_ctx,
+ 	})
+ 
+ /**
++ * Register one or more commands in the specified context, as children
++ * of @c parent (or top-level commends, if NULL).
++ *
++ * @param cmd_ctx The command_context in which to register the command.
++ * @param parent Register this command as a child of this, or NULL to
++ * register a top-level command.
++ * @param cmds Pointer to an array of command_registration records that
++ * contains the desired command parameters.  The last record must have
++ * NULL for all fields.
++ * @returns ERROR_OK on success; ERROR_FAIL if any registration fails.
++ */
++int register_commands(struct command_context *cmd_ctx, struct command *parent,
++		const struct command_registration *cmds);
++
++
++/**
+  * Unregisters command @c name from the given context, @c cmd_ctx.
+  * @param cmd_ctx The context of the registered command.
+  * @param parent The parent of the given command, or NULL.
+
+commit 69076057dde9f4336b54fb4da677da8fe5da66bd
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Fri Nov 20 11:23:34 2009 -0800
+
+    add struct command_registration
+    
+    Add a structure to encapsulate command registration information, rather
+    than passing them all as parameters.  Enables further API changes that
+    require additional required or optional parameters.
+    
+    Updates the register_command API and COMMAND_REGISTER macro to use it,
+    along with their documentation.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 0561c6c..3df60b6 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -263,13 +263,12 @@ static void command_free(struct command *c)
+ }
+ 
+ struct command* register_command(struct command_context *context,
+-		struct command *parent, const char *name,
+-		command_handler_t handler, enum command_mode mode,
+-		const char *help)
++		struct command *parent, const struct command_registration *cr)
+ {
+-	if (!context || !name)
++	if (!context || !cr-&gt;name)
+ 		return NULL;
+ 
++	const char *name = cr-&gt;name;
+ 	struct command **head = command_list_for_parent(context, parent);
+ 	struct command *c = command_find(*head, name);
+ 	if (NULL != c)
+@@ -279,7 +278,7 @@ struct command* register_command(struct command_context *context,
+ 		return c;
+ 	}
+ 
+-	c = command_new(context, parent, name, handler, mode, help);
++	c = command_new(context, parent, name, cr-&gt;handler, cr-&gt;mode, cr-&gt;help);
+ 	/* if allocation failed or it is a placeholder (no handler), we're done */
+ 	if (NULL == c || NULL == c-&gt;handler)
+ 		return c;
+@@ -762,8 +761,12 @@ int help_add_command(struct command_context *cmd_ctx, struct command *parent,
+ 	if (NULL == nc)
+ 	{
+ 		// add a new command with help text
+-		nc = register_command(cmd_ctx, parent, cmd_name,
+-				NULL, COMMAND_ANY, help_text);
++		struct command_registration cr = {
++				.name = cmd_name,
++				.mode = COMMAND_ANY,
++				.help = help_text,
++			};
++		nc = register_command(cmd_ctx, parent, &amp;cr);
+ 		if (NULL == nc)
+ 		{
+ 			LOG_ERROR(&quot;failed to add '%s' help text&quot;, cmd_name);
+diff --git a/src/helper/command.h b/src/helper/command.h
+index 25c0501..b57ca75 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -177,13 +177,9 @@ struct command
+  */
+ char *command_name(struct command *c, char delim);
+ 
+-/**
+- * Register a command @c handler that can be called from scripts during
+- * the execution @c mode specified.
+- *
+- * If @c parent is non-NULL, the new command will be registered as a
+- * sub-command under it; otherwise, it will be available as a top-level
+- * command.
++/*
++ * Commands should be registered by filling in one or more of these
++ * structures and passing them to register_command().
+  *
+  * A conventioal format should be used for help strings, to provide both
+  * usage and basic information:
+@@ -191,25 +187,48 @@ char *command_name(struct command *c, char delim);
+  * &quot;@&lt;options@&gt; ... - some explanation text&quot;
+  * @endcode
+  *
+- * @param cmd_ctx The command_context in which to register the command.
+- * @param parent Register this command as a child of this, or NULL to
+- * register a top-level command.
+  * @param name The name of the command to register, which must not have
+- * been registered previously.
++ * been registered previously in the intended context.
+  * @param handler The callback function that will be called.  If NULL,
+  * then the command serves as a placeholder for its children or a script.
+  * @param mode The command mode(s) in which this command may be run.
+  * @param help The help text that will be displayed to the user.
++ */
++struct command_registration {
++	const char *name;
++	command_handler_t handler;
++	enum command_mode mode;
++	const char *help;
++};
++
++/**
++ * Register a command @c handler that can be called from scripts during
++ * the execution @c mode specified.
++ *
++ * If @c parent is non-NULL, the new command will be registered as a
++ * sub-command under it; otherwise, it will be available as a top-level
++ * command.
++ *
++ * @param cmd_ctx The command_context in which to register the command.
++ * @param parent Register this command as a child of this, or NULL to
++ * register a top-level command.
++ * @param rec A command_registration record that contains the desired
++ * command parameters.
+  * @returns The new command, if successful; otherwise, NULL.
+  */
+ struct command* register_command(struct command_context *cmd_ctx,
+-		struct command *parent, const char *name,
+-		command_handler_t handler, enum command_mode mode,
+-		const char *help);
++		struct command *parent, const struct command_registration *rec);
+ 
+-// provide a simple shim, for now; allows parameters to be migrated
+ #define COMMAND_REGISTER(_cmd_ctx, _parent, _name, _handler, _mode, _help) \
+-		register_command(_cmd_ctx, _parent, _name, _handler, _mode, _help)
++	({ \
++		struct command_registration cr = { \
++				.name = _name, \
++				.handler = _handler, \
++				.mode = _mode, \
++				.help = _help, \
++			}; \
++		register_command(_cmd_ctx, _parent, &amp;cr); \
++	})
+ 
+ /**
+  * Unregisters command @c name from the given context, @c cmd_ctx.
+
+commit 833e7f5248778bcb31b4db1a1b91160995415203
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Fri Nov 20 11:26:35 2009 -0800
+
+    use COMMAND_REGISTER macro
+    
+    Replaces direct calls to register_command() with a macro, to allow
+    its parameters to be changed and callers updated in phases.
+
+diff --git a/src/ecosboard.c b/src/ecosboard.c
+index 58520c3..2789464 100644
+--- a/src/ecosboard.c
++++ b/src/ecosboard.c
+@@ -1091,7 +1091,7 @@ int main(int argc, char *argv[])
+ 
+ 
+ #ifdef CYGPKG_PROFILE_GPROF
+-	register_command(cmd_ctx, NULL, &quot;ecosboard_profile&quot;, eCosBoard_handle_eCosBoard_profile_command,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;ecosboard_profile&quot;, eCosBoard_handle_eCosBoard_profile_command,
+ 			COMMAND_ANY, NULL);
+ #endif
+ 
+diff --git a/src/flash/at91sam3.c b/src/flash/at91sam3.c
+index 195da91..d8460b0 100644
+--- a/src/flash/at91sam3.c
++++ b/src/flash/at91sam3.c
+@@ -2478,18 +2478,18 @@ sam3_register_commands(struct command_context *cmd_ctx)
+ 	if (!sam3_registered) {
+ 		sam3_registered++;
+ 
+-		pCmd = register_command(cmd_ctx, NULL, &quot;at91sam3&quot;, NULL, COMMAND_ANY, NULL);
+-		register_command(cmd_ctx, pCmd,
++		pCmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;at91sam3&quot;, NULL, COMMAND_ANY, NULL);
++		COMMAND_REGISTER(cmd_ctx, pCmd,
+ 						  &quot;gpnvm&quot;,
+ 						  sam3_handle_gpnvm_command,
+ 						  COMMAND_EXEC,
+ 						  &quot;at91sam3 gpnvm [action [&lt;BIT&gt;], by default 'show', otherwise set | clear BIT&quot;);
+-		register_command(cmd_ctx, pCmd,
++		COMMAND_REGISTER(cmd_ctx, pCmd,
+ 						  &quot;info&quot;,
+ 						  sam3_handle_info_command,
+ 						  COMMAND_EXEC,
+ 						  &quot;at91sam3 info - print information about the current sam3 chip&quot;);
+-		register_command(cmd_ctx, pCmd,
++		COMMAND_REGISTER(cmd_ctx, pCmd,
+ 						  &quot;slowclk&quot;,
+ 						  sam3_handle_slowclk_command,
+ 						  COMMAND_EXEC,
+diff --git a/src/flash/at91sam7.c b/src/flash/at91sam7.c
+index 3e5dbdd..1665b91 100644
+--- a/src/flash/at91sam7.c
++++ b/src/flash/at91sam7.c
+@@ -1180,10 +1180,10 @@ COMMAND_HANDLER(at91sam7_handle_gpnvm_command)
+ 
+ static int at91sam7_register_commands(struct command_context *cmd_ctx)
+ {
+-	struct command *at91sam7_cmd = register_command(cmd_ctx, NULL, &quot;at91sam7&quot;,
++	struct command *at91sam7_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;at91sam7&quot;,
+ 			NULL, COMMAND_ANY, NULL);
+ 
+-	register_command(cmd_ctx, at91sam7_cmd, &quot;gpnvm&quot;,
++	COMMAND_REGISTER(cmd_ctx, at91sam7_cmd, &quot;gpnvm&quot;,
+ 			at91sam7_handle_gpnvm_command, COMMAND_EXEC,
+ 			&quot;at91sam7 gpnvm &lt;bit&gt; set | clear, &quot;
+ 			&quot;set or clear one gpnvm bit&quot;);
+diff --git a/src/flash/avrf.c b/src/flash/avrf.c
+index 356c404..692992f 100644
+--- a/src/flash/avrf.c
++++ b/src/flash/avrf.c
+@@ -451,10 +451,10 @@ COMMAND_HANDLER(avrf_handle_mass_erase_command)
+ 
+ static int avrf_register_commands(struct command_context *cmd_ctx)
+ {
+-	struct command *avr_cmd = register_command(cmd_ctx, NULL, &quot;avr&quot;,
++	struct command *avr_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;avr&quot;,
+ 			NULL, COMMAND_ANY, &quot;avr flash specific commands&quot;);
+ 
+-	register_command(cmd_ctx, avr_cmd, &quot;mass_erase&quot;,
++	COMMAND_REGISTER(cmd_ctx, avr_cmd, &quot;mass_erase&quot;,
+ 			avrf_handle_mass_erase_command, COMMAND_EXEC,
+ 			&quot;mass erase device&quot;);
+ 
+diff --git a/src/flash/cfi.c b/src/flash/cfi.c
+index 59c9c6c..e743fe9 100644
+--- a/src/flash/cfi.c
++++ b/src/flash/cfi.c
+@@ -592,9 +592,9 @@ static int cfi_intel_info(struct flash_bank *bank, char *buf, int buf_size)
+ static int cfi_register_commands(struct command_context *cmd_ctx)
+ {
+ 	/*struct command *cfi_cmd = */
+-	register_command(cmd_ctx, NULL, &quot;cfi&quot;, NULL, COMMAND_ANY, &quot;flash bank cfi &lt;base&gt; &lt;size&gt; &lt;chip_width&gt; &lt;bus_width&gt; &lt;targetNum&gt; [jedec_probe/x16_as_x8]&quot;);
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;cfi&quot;, NULL, COMMAND_ANY, &quot;flash bank cfi &lt;base&gt; &lt;size&gt; &lt;chip_width&gt; &lt;bus_width&gt; &lt;targetNum&gt; [jedec_probe/x16_as_x8]&quot;);
+ 	/*
+-	register_command(cmd_ctx, cfi_cmd, &quot;part_id&quot;, cfi_handle_part_id_command, COMMAND_EXEC,
++	COMMAND_REGISTER(cmd_ctx, cfi_cmd, &quot;part_id&quot;, cfi_handle_part_id_command, COMMAND_EXEC,
+ 					 &quot;print part id of cfi flash bank &lt;num&gt;&quot;);
+ 	*/
+ 	return ERROR_OK;
+diff --git a/src/flash/ecos.c b/src/flash/ecos.c
+index 863c12b..381f858 100644
+--- a/src/flash/ecos.c
++++ b/src/flash/ecos.c
+@@ -338,7 +338,7 @@ static int ecosflash_probe(struct flash_bank *bank)
+ 
+ static int ecosflash_register_commands(struct command_context *cmd_ctx)
+ {
+-	register_command(cmd_ctx, NULL, &quot;ecosflash&quot;, NULL, COMMAND_ANY, NULL);
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;ecosflash&quot;, NULL, COMMAND_ANY, NULL);
+ 
+ 	return ERROR_OK;
+ }
+diff --git a/src/flash/flash.c b/src/flash/flash.c
+index e2136b7..7bc74ab 100644
+--- a/src/flash/flash.c
++++ b/src/flash/flash.c
+@@ -1280,42 +1280,42 @@ int flash_init_drivers(struct command_context *cmd_ctx)
+ 	if (!flash_banks)
+ 		return ERROR_OK;
+ 
+-	register_command(cmd_ctx, flash_cmd, &quot;info&quot;,
++	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;info&quot;,
+ 			handle_flash_info_command, COMMAND_EXEC,
+ 			&quot;print info about flash bank &lt;num&gt;&quot;);
+-	register_command(cmd_ctx, flash_cmd, &quot;probe&quot;,
++	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;probe&quot;,
+ 			handle_flash_probe_command, COMMAND_EXEC,
+ 			&quot;identify flash bank &lt;num&gt;&quot;);
+-	register_command(cmd_ctx, flash_cmd, &quot;erase_check&quot;,
++	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;erase_check&quot;,
+ 			handle_flash_erase_check_command, COMMAND_EXEC,
+ 			&quot;check erase state of sectors in flash bank &lt;num&gt;&quot;);
+-	register_command(cmd_ctx, flash_cmd, &quot;protect_check&quot;,
++	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;protect_check&quot;,
+ 			handle_flash_protect_check_command, COMMAND_EXEC,
+ 			&quot;check protection state of sectors in flash bank &lt;num&gt;&quot;);
+-	register_command(cmd_ctx, flash_cmd, &quot;erase_sector&quot;,
++	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;erase_sector&quot;,
+ 			handle_flash_erase_command, COMMAND_EXEC,
+ 			&quot;erase sectors at &lt;bank&gt; &lt;first&gt; &lt;last&gt;&quot;);
+-	register_command(cmd_ctx, flash_cmd, &quot;erase_address&quot;,
++	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;erase_address&quot;,
+ 			handle_flash_erase_address_command, COMMAND_EXEC,
+ 			&quot;erase address range &lt;address&gt; &lt;length&gt;&quot;);
+ 
+-	register_command(cmd_ctx, flash_cmd, &quot;fillw&quot;,
++	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;fillw&quot;,
+ 			handle_flash_fill_command, COMMAND_EXEC,
+ 			&quot;fill with pattern (no autoerase) &lt;address&gt; &lt;word_pattern&gt; &lt;count&gt;&quot;);
+-	register_command(cmd_ctx, flash_cmd, &quot;fillh&quot;,
++	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;fillh&quot;,
+ 			handle_flash_fill_command, COMMAND_EXEC,
+ 			&quot;fill with pattern &lt;address&gt; &lt;halfword_pattern&gt; &lt;count&gt;&quot;);
+-	register_command(cmd_ctx, flash_cmd, &quot;fillb&quot;,
++	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;fillb&quot;,
+ 			handle_flash_fill_command, COMMAND_EXEC,
+ 			&quot;fill with pattern &lt;address&gt; &lt;byte_pattern&gt; &lt;count&gt;&quot;);
+ 
+-	register_command(cmd_ctx, flash_cmd, &quot;write_bank&quot;,
++	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;write_bank&quot;,
+ 			handle_flash_write_bank_command, COMMAND_EXEC,
+ 			&quot;write binary data to &lt;bank&gt; &lt;file&gt; &lt;offset&gt;&quot;);
+-	register_command(cmd_ctx, flash_cmd, &quot;write_image&quot;,
++	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;write_image&quot;,
+ 			handle_flash_write_image_command, COMMAND_EXEC,
+ 			&quot;write_image [erase] [unlock] &lt;file&gt; [offset] [type]&quot;);
+-	register_command(cmd_ctx, flash_cmd, &quot;protect&quot;,
++	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;protect&quot;,
+ 			handle_flash_protect_command, COMMAND_EXEC,
+ 			&quot;set protection of sectors at &lt;bank&gt; &lt;first&gt; &lt;last&gt; &lt;on | off&gt;&quot;);
+ 
+@@ -1324,10 +1324,10 @@ int flash_init_drivers(struct command_context *cmd_ctx)
+ 
+ int flash_register_commands(struct command_context *cmd_ctx)
+ {
+-	flash_cmd = register_command(cmd_ctx, NULL, &quot;flash&quot;,
++	flash_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;flash&quot;,
+ 			NULL, COMMAND_ANY, NULL);
+ 
+-	register_command(cmd_ctx, flash_cmd, &quot;bank&quot;,
++	COMMAND_REGISTER(cmd_ctx, flash_cmd, &quot;bank&quot;,
+ 			handle_flash_bank_command, COMMAND_CONFIG,
+ 			&quot;flash bank &lt;driver&gt; &lt;base&gt; &lt;size&gt; &quot;
+ 			&quot;&lt;chip_width&gt; &lt;bus_width&gt; &lt;target&gt; [driver_options ...]&quot;);
+diff --git a/src/flash/lpc2000.c b/src/flash/lpc2000.c
+index b60c6cf..4a934c0 100644
+--- a/src/flash/lpc2000.c
++++ b/src/flash/lpc2000.c
+@@ -778,10 +778,10 @@ COMMAND_HANDLER(lpc2000_handle_part_id_command)
+ 
+ static int lpc2000_register_commands(struct command_context *cmd_ctx)
+ {
+-	struct command *lpc2000_cmd = register_command(cmd_ctx, NULL, &quot;lpc2000&quot;,
++	struct command *lpc2000_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;lpc2000&quot;,
+ 			NULL, COMMAND_ANY, NULL);
+ 
+-	register_command(cmd_ctx, lpc2000_cmd, &quot;part_id&quot;,
++	COMMAND_REGISTER(cmd_ctx, lpc2000_cmd, &quot;part_id&quot;,
+ 			lpc2000_handle_part_id_command, COMMAND_EXEC,
+ 			&quot;print part id of lpc2000 flash bank &lt;num&gt;&quot;);
+ 
+diff --git a/src/flash/lpc2900.c b/src/flash/lpc2900.c
+index 465d776..c7f1b3a 100644
+--- a/src/flash/lpc2900.c
++++ b/src/flash/lpc2900.c
+@@ -954,60 +954,36 @@ COMMAND_HANDLER(lpc2900_handle_secure_jtag_command)
+  */
+ static int lpc2900_register_commands(struct command_context *cmd_ctx)
+ {
+-	struct command *lpc2900_cmd = register_command(cmd_ctx, NULL, &quot;lpc2900&quot;,
++	struct command *lpc2900_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;lpc2900&quot;,
+ 	                                          NULL, COMMAND_ANY, NULL);
+ 
+-	register_command(
+-	    cmd_ctx,
+-	    lpc2900_cmd,
+-	    &quot;signature&quot;,
+-	    lpc2900_handle_signature_command,
+-	    COMMAND_EXEC,
++	COMMAND_REGISTER(cmd_ctx, lpc2900_cmd, &quot;signature&quot;,
++	    &amp;lpc2900_handle_signature_command, COMMAND_EXEC,
+ 	    &quot;&lt;bank&gt; | &quot;
+-            &quot;print device signature of flash bank&quot;);
+-
+-	register_command(
+-	    cmd_ctx,
+-	    lpc2900_cmd,
+-	    &quot;read_custom&quot;,
+-	    lpc2900_handle_read_custom_command,
+-	    COMMAND_EXEC,
++	    &quot;print device signature of flash bank&quot;);
++
++	COMMAND_REGISTER(cmd_ctx, lpc2900_cmd, &quot;read_custom&quot;,
++	    &amp;lpc2900_handle_read_custom_command, COMMAND_EXEC,
+ 	    &quot;&lt;bank&gt; &lt;filename&gt; | &quot;
+             &quot;read customer information from index sector to file&quot;);
+ 
+-	register_command(
+-	    cmd_ctx,
+-	    lpc2900_cmd,
+-	    &quot;password&quot;,
+-	    lpc2900_handle_password_command,
+-	    COMMAND_EXEC,
++	COMMAND_REGISTER(cmd_ctx, lpc2900_cmd, &quot;password&quot;,
++	    &amp;lpc2900_handle_password_command, COMMAND_EXEC,
+ 	    &quot;&lt;bank&gt; &lt;password&gt; | &quot;
+             &quot;enter password to enable 'dangerous' options&quot;);
+ 
+-	register_command(
+-	    cmd_ctx,
+-	    lpc2900_cmd,
+-	    &quot;write_custom&quot;,
+-	    lpc2900_handle_write_custom_command,
+-	    COMMAND_EXEC,
++	COMMAND_REGISTER(cmd_ctx, lpc2900_cmd, &quot;write_custom&quot;,
++	    &amp;lpc2900_handle_write_custom_command, COMMAND_EXEC,
+ 	    &quot;&lt;bank&gt; &lt;filename&gt; [&lt;type&gt;] | &quot;
+             &quot;write customer info from file to index sector&quot;);
+ 
+-	register_command(
+-	    cmd_ctx,
+-	    lpc2900_cmd,
+-	    &quot;secure_sector&quot;,
+-	    lpc2900_handle_secure_sector_command,
+-	    COMMAND_EXEC,
++	COMMAND_REGISTER(cmd_ctx, lpc2900_cmd, &quot;secure_sector&quot;,
++	    &amp;lpc2900_handle_secure_sector_command, COMMAND_EXEC,
+ 	    &quot;&lt;bank&gt; &lt;first&gt; &lt;last&gt; | &quot;
+             &quot;activate sector security for a range of sectors&quot;);
+ 
+-	register_command(
+-	    cmd_ctx,
+-	    lpc2900_cmd,
+-	    &quot;secure_jtag&quot;,
+-	    lpc2900_handle_secure_jtag_command,
+-	    COMMAND_EXEC,
++	COMMAND_REGISTER(cmd_ctx, lpc2900_cmd, &quot;secure_jtag&quot;,
++	    &amp;lpc2900_handle_secure_jtag_command, COMMAND_EXEC,
+ 	    &quot;&lt;bank&gt; &lt;level&gt; | &quot;
+             &quot;activate JTAG security&quot;);
+ 
+diff --git a/src/flash/lpc3180_nand_controller.c b/src/flash/lpc3180_nand_controller.c
+index 61bef90..801607d 100644
+--- a/src/flash/lpc3180_nand_controller.c
++++ b/src/flash/lpc3180_nand_controller.c
+@@ -875,9 +875,9 @@ COMMAND_HANDLER(handle_lpc3180_select_command)
+ 
+ static int lpc3180_register_commands(struct command_context *cmd_ctx)
+ {
+-	struct command *lpc3180_cmd = register_command(cmd_ctx, NULL, &quot;lpc3180&quot;, NULL, COMMAND_ANY, &quot;commands specific to the LPC3180 NAND flash controllers&quot;);
++	struct command *lpc3180_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;lpc3180&quot;, NULL, COMMAND_ANY, &quot;commands specific to the LPC3180 NAND flash controllers&quot;);
+ 
+-	register_command(cmd_ctx, lpc3180_cmd, &quot;select&quot;, handle_lpc3180_select_command, COMMAND_EXEC, &quot;select &lt;'mlc'|'slc'&gt; controller (default is mlc)&quot;);
++	COMMAND_REGISTER(cmd_ctx, lpc3180_cmd, &quot;select&quot;, handle_lpc3180_select_command, COMMAND_EXEC, &quot;select &lt;'mlc'|'slc'&gt; controller (default is mlc)&quot;);
+ 
+ 	return ERROR_OK;
+ }
+diff --git a/src/flash/mflash.c b/src/flash/mflash.c
+index 2a1fbe5..a4a45dc 100644
+--- a/src/flash/mflash.c
++++ b/src/flash/mflash.c
+@@ -1271,12 +1271,12 @@ COMMAND_HANDLER(mg_config_cmd)
+ int mflash_init_drivers(struct command_context *cmd_ctx)
+ {
+ 	if (mflash_bank) {
+-		register_command(cmd_ctx, mflash_cmd, &quot;probe&quot;, mg_probe_cmd, COMMAND_EXEC, NULL);
+-		register_command(cmd_ctx, mflash_cmd, &quot;write&quot;, mg_write_cmd, COMMAND_EXEC,
++		COMMAND_REGISTER(cmd_ctx, mflash_cmd, &quot;probe&quot;, mg_probe_cmd, COMMAND_EXEC, NULL);
++		COMMAND_REGISTER(cmd_ctx, mflash_cmd, &quot;write&quot;, mg_write_cmd, COMMAND_EXEC,
+ 				&quot;mflash write &lt;num&gt; &lt;file&gt; &lt;address&gt;&quot;);
+-		register_command(cmd_ctx, mflash_cmd, &quot;dump&quot;, mg_dump_cmd, COMMAND_EXEC,
++		COMMAND_REGISTER(cmd_ctx, mflash_cmd, &quot;dump&quot;, mg_dump_cmd, COMMAND_EXEC,
+ 						&quot;mflash dump &lt;num&gt; &lt;file&gt; &lt;address&gt; &lt;size&gt;&quot;);
+-		register_command(cmd_ctx, mflash_cmd, &quot;config&quot;, mg_config_cmd,
++		COMMAND_REGISTER(cmd_ctx, mflash_cmd, &quot;config&quot;, mg_config_cmd,
+ 				COMMAND_EXEC, &quot;mflash config &lt;num&gt; &lt;stage&gt;&quot;);
+ 	}
+ 
+@@ -1325,8 +1325,8 @@ COMMAND_HANDLER(mg_bank_cmd)
+ 
+ int mflash_register_commands(struct command_context *cmd_ctx)
+ {
+-	mflash_cmd = register_command(cmd_ctx, NULL, &quot;mflash&quot;, NULL, COMMAND_ANY, NULL);
+-	register_command(cmd_ctx, mflash_cmd, &quot;bank&quot;, mg_bank_cmd, COMMAND_CONFIG,
++	mflash_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;mflash&quot;, NULL, COMMAND_ANY, NULL);
++	COMMAND_REGISTER(cmd_ctx, mflash_cmd, &quot;bank&quot;, mg_bank_cmd, COMMAND_CONFIG,
+ 			&quot;mflash bank &lt;soc&gt; &lt;base&gt; &lt;RST pin&gt; &lt;target #&gt;&quot;);
+ 	return ERROR_OK;
+ }
+diff --git a/src/flash/nand.c b/src/flash/nand.c
+index 77aa3e5..2438ddd 100644
+--- a/src/flash/nand.c
++++ b/src/flash/nand.c
+@@ -281,13 +281,13 @@ COMMAND_HANDLER(handle_nand_device_command)
+ 
+ int nand_register_commands(struct command_context *cmd_ctx)
+ {
+-	nand_cmd = register_command(cmd_ctx, NULL, &quot;nand&quot;,
++	nand_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;nand&quot;,
+ 			NULL, COMMAND_ANY, &quot;NAND specific commands&quot;);
+ 
+-	register_command(cmd_ctx, nand_cmd, &quot;device&quot;,
++	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;device&quot;,
+ 			&amp;handle_nand_device_command, COMMAND_CONFIG,
+ 			&quot;defines a new NAND bank&quot;);
+-	register_command(cmd_ctx, nand_cmd, &quot;drivers&quot;,
++	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;drivers&quot;,
+ 			&amp;handle_nand_list_drivers, COMMAND_ANY,
+ 			&quot;lists available NAND drivers&quot;);
+ 
+@@ -1705,36 +1705,36 @@ int nand_init(struct command_context *cmd_ctx)
+ 	if (!nand_devices)
+ 		return ERROR_OK;
+ 
+-	register_command(cmd_ctx, nand_cmd, &quot;list&quot;,
++	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;list&quot;,
+ 			handle_nand_list_command, COMMAND_EXEC,
+ 			&quot;list configured NAND flash devices&quot;);
+-	register_command(cmd_ctx, nand_cmd, &quot;info&quot;,
++	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;info&quot;,
+ 			handle_nand_info_command, COMMAND_EXEC,
+ 			&quot;print info about NAND flash device &lt;num&gt;&quot;);
+-	register_command(cmd_ctx, nand_cmd, &quot;probe&quot;,
++	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;probe&quot;,
+ 			handle_nand_probe_command, COMMAND_EXEC,
+ 			&quot;identify NAND flash device &lt;num&gt;&quot;);
+ 
+-	register_command(cmd_ctx, nand_cmd, &quot;check_bad_blocks&quot;,
++	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;check_bad_blocks&quot;,
+ 			handle_nand_check_bad_blocks_command, COMMAND_EXEC,
+ 			&quot;check NAND flash device &lt;num&gt; for bad blocks [&lt;offset&gt; &lt;length&gt;]&quot;);
+-	register_command(cmd_ctx, nand_cmd, &quot;erase&quot;,
++	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;erase&quot;,
+ 			handle_nand_erase_command, COMMAND_EXEC,
+ 			&quot;erase blocks on NAND flash device &lt;num&gt; [&lt;offset&gt; &lt;length&gt;]&quot;);
+-	register_command(cmd_ctx, nand_cmd, &quot;dump&quot;,
++	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;dump&quot;,
+ 			handle_nand_dump_command, COMMAND_EXEC,
+ 			&quot;dump from NAND flash device &lt;num&gt; &lt;filename&gt; &quot;
+ 			 &quot;&lt;offset&gt; &lt;length&gt; [oob_raw | oob_only]&quot;);
+-	register_command(cmd_ctx, nand_cmd, &quot;verify&quot;,
++	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;verify&quot;,
+ 			&amp;handle_nand_verify_command, COMMAND_EXEC,
+ 			&quot;verify NAND flash device &lt;num&gt; &lt;filename&gt; &lt;offset&gt; &quot;
+ 			&quot;[oob_raw | oob_only | oob_softecc | oob_softecc_kw]&quot;);
+-	register_command(cmd_ctx, nand_cmd, &quot;write&quot;,
++	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;write&quot;,
+ 			handle_nand_write_command, COMMAND_EXEC,
+ 			&quot;write to NAND flash device &lt;num&gt; &lt;filename&gt; &lt;offset&gt; &quot;
+ 			&quot;[oob_raw | oob_only | oob_softecc | oob_softecc_kw]&quot;);
+ 
+-	register_command(cmd_ctx, nand_cmd, &quot;raw_access&quot;,
++	COMMAND_REGISTER(cmd_ctx, nand_cmd, &quot;raw_access&quot;,
+ 			handle_nand_raw_access_command, COMMAND_EXEC,
+ 			&quot;raw access to NAND flash device &lt;num&gt; ['enable'|'disable']&quot;);
+ 
+diff --git a/src/flash/pic32mx.c b/src/flash/pic32mx.c
+index fa5a4d6..c6d4615 100644
+--- a/src/flash/pic32mx.c
++++ b/src/flash/pic32mx.c
+@@ -885,20 +885,20 @@ COMMAND_HANDLER(pic32mx_handle_pgm_word_command)
+ 
+ static int pic32mx_register_commands(struct command_context *cmd_ctx)
+ {
+-	struct command *pic32mx_cmd = register_command(cmd_ctx, NULL, &quot;pic32mx&quot;,
++	struct command *pic32mx_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;pic32mx&quot;,
+ 			NULL, COMMAND_ANY, &quot;pic32mx flash specific commands&quot;);
+ #if 0
+-	register_command(cmd_ctx, pic32mx_cmd, &quot;lock&quot;,
++	COMMAND_REGISTER(cmd_ctx, pic32mx_cmd, &quot;lock&quot;,
+ 			pic32mx_handle_lock_command, COMMAND_EXEC,
+ 			&quot;lock device&quot;);
+-	register_command(cmd_ctx, pic32mx_cmd, &quot;unlock&quot;,
++	COMMAND_REGISTER(cmd_ctx, pic32mx_cmd, &quot;unlock&quot;,
+ 			pic32mx_handle_unlock_command, COMMAND_EXEC,
+ 			&quot;unlock protected device&quot;);
+ #endif
+-	register_command(cmd_ctx, pic32mx_cmd, &quot;chip_erase&quot;,
++	COMMAND_REGISTER(cmd_ctx, pic32mx_cmd, &quot;chip_erase&quot;,
+ 			pic32mx_handle_chip_erase_command, COMMAND_EXEC,
+ 			&quot;erase device&quot;);
+-	register_command(cmd_ctx, pic32mx_cmd, &quot;pgm_word&quot;,
++	COMMAND_REGISTER(cmd_ctx, pic32mx_cmd, &quot;pgm_word&quot;,
+ 			pic32mx_handle_pgm_word_command, COMMAND_EXEC,
+ 			&quot;program a word&quot;);
+ 	return ERROR_OK;
+diff --git a/src/flash/stellaris.c b/src/flash/stellaris.c
+index 32fa415..2d653ec 100644
+--- a/src/flash/stellaris.c
++++ b/src/flash/stellaris.c
+@@ -1163,10 +1163,10 @@ COMMAND_HANDLER(stellaris_handle_mass_erase_command)
+ 
+ static int stellaris_register_commands(struct command_context *cmd_ctx)
+ {
+-	struct command *stm32x_cmd = register_command(cmd_ctx, NULL, &quot;stellaris&quot;,
++	struct command *stm32x_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;stellaris&quot;,
+ 			NULL, COMMAND_ANY, &quot;stellaris flash specific commands&quot;);
+ 
+-	register_command(cmd_ctx, stm32x_cmd, &quot;mass_erase&quot;,
++	COMMAND_REGISTER(cmd_ctx, stm32x_cmd, &quot;mass_erase&quot;,
+ 			stellaris_handle_mass_erase_command, COMMAND_EXEC,
+ 			&quot;mass erase device&quot;);
+ 	return ERROR_OK;
+diff --git a/src/flash/stm32x.c b/src/flash/stm32x.c
+index c96b49d..c628f18 100644
+--- a/src/flash/stm32x.c
++++ b/src/flash/stm32x.c
+@@ -1184,22 +1184,22 @@ COMMAND_HANDLER(stm32x_handle_mass_erase_command)
+ 
+ static int stm32x_register_commands(struct command_context *cmd_ctx)
+ {
+-	struct command *stm32x_cmd = register_command(cmd_ctx, NULL, &quot;stm32x&quot;,
++	struct command *stm32x_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;stm32x&quot;,
+ 			NULL, COMMAND_ANY, &quot;stm32x flash specific commands&quot;);
+ 
+-	register_command(cmd_ctx, stm32x_cmd, &quot;lock&quot;,
++	COMMAND_REGISTER(cmd_ctx, stm32x_cmd, &quot;lock&quot;,
+ 			stm32x_handle_lock_command, COMMAND_EXEC,
+ 			&quot;lock device&quot;);
+-	register_command(cmd_ctx, stm32x_cmd, &quot;unlock&quot;,
++	COMMAND_REGISTER(cmd_ctx, stm32x_cmd, &quot;unlock&quot;,
+ 			stm32x_handle_unlock_command, COMMAND_EXEC,
+ 			&quot;unlock protected device&quot;);
+-	register_command(cmd_ctx, stm32x_cmd, &quot;mass_erase&quot;,
++	COMMAND_REGISTER(cmd_ctx, stm32x_cmd, &quot;mass_erase&quot;,
+ 			stm32x_handle_mass_erase_command, COMMAND_EXEC,
+ 			&quot;mass erase device&quot;);
+-	register_command(cmd_ctx, stm32x_cmd, &quot;options_read&quot;,
++	COMMAND_REGISTER(cmd_ctx, stm32x_cmd, &quot;options_read&quot;,
+ 			stm32x_handle_options_read_command, COMMAND_EXEC,
+ 			&quot;read device option bytes&quot;);
+-	register_command(cmd_ctx, stm32x_cmd, &quot;options_write&quot;,
++	COMMAND_REGISTER(cmd_ctx, stm32x_cmd, &quot;options_write&quot;,
+ 			stm32x_handle_options_write_command, COMMAND_EXEC,
+ 			&quot;write device option bytes&quot;);
+ 
+diff --git a/src/flash/str7x.c b/src/flash/str7x.c
+index b79dd17..b53ddf9 100644
+--- a/src/flash/str7x.c
++++ b/src/flash/str7x.c
+@@ -674,10 +674,10 @@ COMMAND_HANDLER(str7x_handle_disable_jtag_command)
+ 
+ static int str7x_register_commands(struct command_context *cmd_ctx)
+ {
+-	struct command *str7x_cmd = register_command(cmd_ctx, NULL, &quot;str7x&quot;,
++	struct command *str7x_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;str7x&quot;,
+ 			NULL, COMMAND_ANY, &quot;str7x flash specific commands&quot;);
+ 
+-	register_command(cmd_ctx, str7x_cmd, &quot;disable_jtag&quot;,
++	COMMAND_REGISTER(cmd_ctx, str7x_cmd, &quot;disable_jtag&quot;,
+ 			str7x_handle_disable_jtag_command, COMMAND_EXEC,
+ 			&quot;disable jtag access&quot;);
+ 
+diff --git a/src/flash/str9x.c b/src/flash/str9x.c
+index 3bb8970..6d556d9 100644
+--- a/src/flash/str9x.c
++++ b/src/flash/str9x.c
+@@ -678,10 +678,10 @@ COMMAND_HANDLER(str9x_handle_flash_config_command)
+ 
+ static int str9x_register_commands(struct command_context *cmd_ctx)
+ {
+-	struct command *str9x_cmd = register_command(cmd_ctx, NULL, &quot;str9x&quot;,
++	struct command *str9x_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;str9x&quot;,
+ 			NULL, COMMAND_ANY, &quot;str9x flash commands&quot;);
+ 
+-	register_command(cmd_ctx, str9x_cmd, &quot;flash_config&quot;,
++	COMMAND_REGISTER(cmd_ctx, str9x_cmd, &quot;flash_config&quot;,
+ 			str9x_handle_flash_config_command, COMMAND_EXEC,
+ 			&quot;configure str9 flash controller&quot;);
+ 
+diff --git a/src/flash/str9xpec.c b/src/flash/str9xpec.c
+index f7c705e..7519413 100644
+--- a/src/flash/str9xpec.c
++++ b/src/flash/str9xpec.c
+@@ -1165,40 +1165,40 @@ COMMAND_HANDLER(str9xpec_handle_flash_disable_turbo_command)
+ 
+ static int str9xpec_register_commands(struct command_context *cmd_ctx)
+ {
+-	struct command *str9xpec_cmd = register_command(cmd_ctx, NULL, &quot;str9xpec&quot;,
++	struct command *str9xpec_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;str9xpec&quot;,
+ 			NULL, COMMAND_ANY, &quot;str9xpec flash specific commands&quot;);
+ 
+-	register_command(cmd_ctx, str9xpec_cmd, &quot;enable_turbo&quot;,
++	COMMAND_REGISTER(cmd_ctx, str9xpec_cmd, &quot;enable_turbo&quot;,
+ 			str9xpec_handle_flash_enable_turbo_command,
+ 			COMMAND_EXEC, &quot;enable str9xpec turbo mode&quot;);
+-	register_command(cmd_ctx, str9xpec_cmd, &quot;disable_turbo&quot;,
++	COMMAND_REGISTER(cmd_ctx, str9xpec_cmd, &quot;disable_turbo&quot;,
+ 			str9xpec_handle_flash_disable_turbo_command,
+ 			COMMAND_EXEC, &quot;disable str9xpec turbo mode&quot;);
+-	register_command(cmd_ctx, str9xpec_cmd, &quot;options_cmap&quot;,
++	COMMAND_REGISTER(cmd_ctx, str9xpec_cmd, &quot;options_cmap&quot;,
+ 			str9xpec_handle_flash_options_cmap_command,
+ 			COMMAND_EXEC, &quot;configure str9xpec boot sector&quot;);
+-	register_command(cmd_ctx, str9xpec_cmd, &quot;options_lvdthd&quot;,
++	COMMAND_REGISTER(cmd_ctx, str9xpec_cmd, &quot;options_lvdthd&quot;,
+ 			str9xpec_handle_flash_options_lvdthd_command,
+ 			COMMAND_EXEC, &quot;configure str9xpec lvd threshold&quot;);
+-	register_command(cmd_ctx, str9xpec_cmd, &quot;options_lvdsel&quot;,
++	COMMAND_REGISTER(cmd_ctx, str9xpec_cmd, &quot;options_lvdsel&quot;,
+ 			str9xpec_handle_flash_options_lvdsel_command,
+ 			COMMAND_EXEC, &quot;configure str9xpec lvd selection&quot;);
+-	register_command(cmd_ctx, str9xpec_cmd, &quot;options_lvdwarn&quot;,
++	COMMAND_REGISTER(cmd_ctx, str9xpec_cmd, &quot;options_lvdwarn&quot;,
+ 			str9xpec_handle_flash_options_lvdwarn_command,
+ 			COMMAND_EXEC, &quot;configure str9xpec lvd warning&quot;);
+-	register_command(cmd_ctx, str9xpec_cmd, &quot;options_read&quot;,
++	COMMAND_REGISTER(cmd_ctx, str9xpec_cmd, &quot;options_read&quot;,
+ 			str9xpec_handle_flash_options_read_command,
+ 			COMMAND_EXEC, &quot;read str9xpec options&quot;);
+-	register_command(cmd_ctx, str9xpec_cmd, &quot;options_write&quot;,
++	COMMAND_REGISTER(cmd_ctx, str9xpec_cmd, &quot;options_write&quot;,
+ 			str9xpec_handle_flash_options_write_command,
+ 			COMMAND_EXEC, &quot;write str9xpec options&quot;);
+-	register_command(cmd_ctx, str9xpec_cmd, &quot;lock&quot;,
++	COMMAND_REGISTER(cmd_ctx, str9xpec_cmd, &quot;lock&quot;,
+ 			str9xpec_handle_flash_lock_command,
+ 			COMMAND_EXEC, &quot;lock str9xpec device&quot;);
+-	register_command(cmd_ctx, str9xpec_cmd, &quot;unlock&quot;,
++	COMMAND_REGISTER(cmd_ctx, str9xpec_cmd, &quot;unlock&quot;,
+ 			str9xpec_handle_flash_unlock_command,
+ 			COMMAND_EXEC, &quot;unlock str9xpec device&quot;);
+-	register_command(cmd_ctx, str9xpec_cmd, &quot;part_id&quot;,
++	COMMAND_REGISTER(cmd_ctx, str9xpec_cmd, &quot;part_id&quot;,
+ 			str9xpec_handle_part_id_command,
+ 			COMMAND_EXEC, &quot;print part id of str9xpec flash bank &lt;num&gt;&quot;);
+ 
+diff --git a/src/flash/tms470.c b/src/flash/tms470.c
+index f6f3900..bf58f1d 100644
+--- a/src/flash/tms470.c
++++ b/src/flash/tms470.c
+@@ -819,11 +819,11 @@ static int tms470_erase_sector(struct flash_bank *bank, int sector)
+ 
+ static int tms470_register_commands(struct command_context *cmd_ctx)
+ {
+-	struct command *tms470_cmd = register_command(cmd_ctx, NULL, &quot;tms470&quot;, NULL, COMMAND_ANY, &quot;applies to TI tms470 family&quot;);
++	struct command *tms470_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;tms470&quot;, NULL, COMMAND_ANY, &quot;applies to TI tms470 family&quot;);
+ 
+-	register_command(cmd_ctx, tms470_cmd, &quot;flash_keyset&quot;, tms470_handle_flash_keyset_command, COMMAND_ANY, &quot;tms470 flash_keyset &lt;key0&gt; &lt;key1&gt; &lt;key2&gt; &lt;key3&gt;&quot;);
+-	register_command(cmd_ctx, tms470_cmd, &quot;osc_megahertz&quot;, tms470_handle_osc_megahertz_command, COMMAND_ANY, &quot;tms470 osc_megahertz &lt;MHz&gt;&quot;);
+-	register_command(cmd_ctx, tms470_cmd, &quot;plldis&quot;, tms470_handle_plldis_command, COMMAND_ANY, &quot;tms470 plldis &lt;0/1&gt;&quot;);
++	COMMAND_REGISTER(cmd_ctx, tms470_cmd, &quot;flash_keyset&quot;, tms470_handle_flash_keyset_command, COMMAND_ANY, &quot;tms470 flash_keyset &lt;key0&gt; &lt;key1&gt; &lt;key2&gt; &lt;key3&gt;&quot;);
++	COMMAND_REGISTER(cmd_ctx, tms470_cmd, &quot;osc_megahertz&quot;, tms470_handle_osc_megahertz_command, COMMAND_ANY, &quot;tms470 osc_megahertz &lt;MHz&gt;&quot;);
++	COMMAND_REGISTER(cmd_ctx, tms470_cmd, &quot;plldis&quot;, tms470_handle_plldis_command, COMMAND_ANY, &quot;tms470 plldis &lt;0/1&gt;&quot;);
+ 
+ 	return ERROR_OK;
+ }
+diff --git a/src/hello.c b/src/hello.c
+index 2ab7eb5..8c97a40 100644
+--- a/src/hello.c
++++ b/src/hello.c
+@@ -56,17 +56,17 @@ COMMAND_HANDLER(handle_flag_command)
+ int foo_register_commands(struct command_context *cmd_ctx)
+ {
+ 	// register several commands under the foo command
+-	struct command *cmd = register_command(cmd_ctx, NULL, &quot;foo&quot;,
++	struct command *cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;foo&quot;,
+ 			NULL, COMMAND_ANY, &quot;foo: command handler skeleton&quot;);
+ 
+-	register_command(cmd_ctx, cmd, &quot;bar&quot;,
++	COMMAND_REGISTER(cmd_ctx, cmd, &quot;bar&quot;,
+ 			&amp;handle_foo_command, COMMAND_ANY,
+ 			&quot;&lt;address&gt; [enable|disable] - an example command&quot;);
+-	register_command(cmd_ctx, cmd, &quot;baz&quot;,
++	COMMAND_REGISTER(cmd_ctx, cmd, &quot;baz&quot;,
+ 			&amp;handle_foo_command, COMMAND_ANY,
+ 			&quot;&lt;address&gt; [enable|disable] - a sample command&quot;);
+ 
+-	register_command(cmd_ctx, cmd, &quot;flag&quot;,
++	COMMAND_REGISTER(cmd_ctx, cmd, &quot;flag&quot;,
+ 			&amp;handle_flag_command, COMMAND_ANY,
+ 			&quot;[on|off] - set a flag&quot;);
+ 
+@@ -103,7 +103,7 @@ int hello_register_commands(struct command_context *cmd_ctx)
+ {
+ 	foo_register_commands(cmd_ctx);
+ 
+-	struct command *cmd = register_command(cmd_ctx, NULL, &quot;hello&quot;,
++	struct command *cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;hello&quot;,
+ 			&amp;handle_hello_command, COMMAND_ANY,
+ 			&quot;[&lt;name&gt;] - prints a warm welcome&quot;);
+ 	return cmd ? ERROR_OK : -ENOMEM;
+diff --git a/src/helper/command.c b/src/helper/command.c
+index f6c6b2d..0561c6c 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -908,7 +908,7 @@ struct command_context* command_init(const char *startup_tcl)
+ 	interp-&gt;cb_fflush = openocd_jim_fflush;
+ 	interp-&gt;cb_fgets = openocd_jim_fgets;
+ 
+-	register_command(context, NULL, &quot;add_help_text&quot;,
++	COMMAND_REGISTER(context, NULL, &quot;add_help_text&quot;,
+ 			handle_help_add_command, COMMAND_ANY,
+ 			&quot;&lt;command&gt; [...] &lt;help_text&gt;] - &quot;
+ 			&quot;add new command help text&quot;);
+@@ -925,12 +925,12 @@ struct command_context* command_init(const char *startup_tcl)
+ 	}
+ 	Jim_DeleteAssocData(interp, &quot;context&quot;);
+ 
+-	register_command(context, NULL, &quot;sleep&quot;,
++	COMMAND_REGISTER(context, NULL, &quot;sleep&quot;,
+ 			handle_sleep_command, COMMAND_ANY,
+ 			&quot;&lt;n&gt; [busy] - sleep for n milliseconds. &quot;
+ 			&quot;\&quot;busy\&quot; means busy wait&quot;);
+ 
+-	register_command(context, NULL, &quot;help&quot;,
++	COMMAND_REGISTER(context, NULL, &quot;help&quot;,
+ 			&amp;handle_help_command, COMMAND_ANY,
+ 			&quot;[&lt;command_name&gt; ...] - show built-in command help&quot;);
+ 
+diff --git a/src/helper/ioutil.c b/src/helper/ioutil.c
+index 3fb3014..52ecb9f 100644
+--- a/src/helper/ioutil.c
++++ b/src/helper/ioutil.c
+@@ -647,22 +647,22 @@ static int zylinjtag_Jim_Command_mac(Jim_Interp *interp, int argc,
+ 
+ int ioutil_init(struct command_context *cmd_ctx)
+ {
+-	register_command(cmd_ctx, NULL, &quot;rm&quot;, handle_rm_command, COMMAND_ANY,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;rm&quot;, handle_rm_command, COMMAND_ANY,
+ 			&quot;remove file&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;cat&quot;, handle_cat_command, COMMAND_ANY,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;cat&quot;, handle_cat_command, COMMAND_ANY,
+ 			&quot;display file content&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;trunc&quot;, handle_trunc_command, COMMAND_ANY,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;trunc&quot;, handle_trunc_command, COMMAND_ANY,
+ 			&quot;truncate a file to 0 size&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;cp&quot;, handle_cp_command,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;cp&quot;, handle_cp_command,
+ 					 COMMAND_ANY, &quot;copy a file &lt;from&gt; &lt;to&gt;&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;append_file&quot;, handle_append_command,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;append_file&quot;, handle_append_command,
+ 			COMMAND_ANY, &quot;append a variable number of strings to a file&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;meminfo&quot;, handle_meminfo_command,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;meminfo&quot;, handle_meminfo_command,
+ 			COMMAND_ANY, &quot;display available ram memory&quot;);
+ 
+     Jim_CreateCommand(interp, &quot;rm&quot;, zylinjtag_Jim_Command_rm, NULL, NULL);
+diff --git a/src/helper/log.c b/src/helper/log.c
+index 2dcf7bb..b1352a3 100644
+--- a/src/helper/log.c
++++ b/src/helper/log.c
+@@ -319,9 +319,9 @@ COMMAND_HANDLER(handle_log_output_command)
+ int log_register_commands(struct command_context *cmd_ctx)
+ {
+ 	start = timeval_ms();
+-	register_command(cmd_ctx, NULL, &quot;log_output&quot;, handle_log_output_command,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;log_output&quot;, handle_log_output_command,
+ 		COMMAND_ANY, &quot;redirect logging to &lt;file&gt; (default: stderr)&quot;);
+-	register_command(cmd_ctx, NULL, &quot;debug_level&quot;, handle_debug_level_command,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;debug_level&quot;, handle_debug_level_command,
+ 		COMMAND_ANY, &quot;adjust debug level &lt;0-3&gt;&quot;);
+ 
+ 	return ERROR_OK;
+diff --git a/src/jtag/amt_jtagaccel.c b/src/jtag/amt_jtagaccel.c
+index 4da2fa1..0aabdc9 100644
+--- a/src/jtag/amt_jtagaccel.c
++++ b/src/jtag/amt_jtagaccel.c
+@@ -542,10 +542,10 @@ COMMAND_HANDLER(amt_jtagaccel_handle_rtck_command)
+ 
+ static int amt_jtagaccel_register_commands(struct command_context *cmd_ctx)
+ {
+-	register_command(cmd_ctx, NULL, &quot;parport_port&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;parport_port&quot;,
+ 			amt_jtagaccel_handle_parport_port_command, COMMAND_CONFIG,
+ 			NULL);
+-	register_command(cmd_ctx, NULL, &quot;rtck&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;rtck&quot;,
+ 			amt_jtagaccel_handle_rtck_command, COMMAND_CONFIG,
+ 			NULL);
+ 
+diff --git a/src/jtag/arm-jtag-ew.c b/src/jtag/arm-jtag-ew.c
+index 01c5559..f239371 100644
+--- a/src/jtag/arm-jtag-ew.c
++++ b/src/jtag/arm-jtag-ew.c
+@@ -504,7 +504,7 @@ COMMAND_HANDLER(armjtagew_handle_armjtagew_info_command)
+ 
+ static int armjtagew_register_commands(struct command_context *cmd_ctx)
+ {
+-	register_command(cmd_ctx, NULL, &quot;armjtagew_info&quot;, 
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;armjtagew_info&quot;,
+ 			&amp;armjtagew_handle_armjtagew_info_command, COMMAND_EXEC,
+ 			&quot;query armjtagew info&quot;);
+ 	return ERROR_OK;
+diff --git a/src/jtag/at91rm9200.c b/src/jtag/at91rm9200.c
+index 8fbdf39..024dd6d 100644
+--- a/src/jtag/at91rm9200.c
++++ b/src/jtag/at91rm9200.c
+@@ -202,7 +202,7 @@ static int at91rm9200_handle_device_command(struct command_context *cmd_ctx, cha
+ 
+ static int at91rm9200_register_commands(struct command_context *cmd_ctx)
+ {
+-	register_command(cmd_ctx, NULL, &quot;at91rm9200_device&quot;, at91rm9200_handle_device_command,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;at91rm9200_device&quot;, at91rm9200_handle_device_command,
+ 		COMMAND_CONFIG, NULL);
+ 	return ERROR_OK;
+ }
+diff --git a/src/jtag/ft2232.c b/src/jtag/ft2232.c
+index 451da41..e560b22 100644
+--- a/src/jtag/ft2232.c
++++ b/src/jtag/ft2232.c
+@@ -3971,20 +3971,20 @@ static void ktlink_blink(void)
+ 
+ static int ft2232_register_commands(struct command_context* cmd_ctx)
+ {
+-	register_command(cmd_ctx, NULL, &quot;ft2232_device_desc&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;ft2232_device_desc&quot;,
+ 			ft2232_handle_device_desc_command, COMMAND_CONFIG,
+ 			&quot;the USB device description of the FTDI FT2232 device&quot;);
+-	register_command(cmd_ctx, NULL, &quot;ft2232_serial&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;ft2232_serial&quot;,
+ 			ft2232_handle_serial_command, COMMAND_CONFIG,
+ 			&quot;the serial number of the FTDI FT2232 device&quot;);
+-	register_command(cmd_ctx, NULL, &quot;ft2232_layout&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;ft2232_layout&quot;,
+ 			ft2232_handle_layout_command, COMMAND_CONFIG,
+ 			&quot;the layout of the FT2232 GPIO signals used &quot;
+ 			&quot;to control output-enables and reset signals&quot;);
+-	register_command(cmd_ctx, NULL, &quot;ft2232_vid_pid&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;ft2232_vid_pid&quot;,
+ 			ft2232_handle_vid_pid_command, COMMAND_CONFIG,
+ 			&quot;the vendor ID and product ID of the FTDI FT2232 device&quot;);
+-	register_command(cmd_ctx, NULL, &quot;ft2232_latency&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;ft2232_latency&quot;,
+ 			ft2232_handle_latency_command, COMMAND_CONFIG,
+ 			&quot;set the FT2232 latency timer to a new value&quot;);
+ 
+diff --git a/src/jtag/gw16012.c b/src/jtag/gw16012.c
+index 2d7b453..bc0e472 100644
+--- a/src/jtag/gw16012.c
++++ b/src/jtag/gw16012.c
+@@ -564,7 +564,7 @@ COMMAND_HANDLER(gw16012_handle_parport_port_command)
+ 
+ static int gw16012_register_commands(struct command_context *cmd_ctx)
+ {
+-	register_command(cmd_ctx, NULL, &quot;parport_port&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;parport_port&quot;,
+ 			gw16012_handle_parport_port_command, COMMAND_CONFIG,
+ 			NULL);
+ 
+diff --git a/src/jtag/jlink.c b/src/jtag/jlink.c
+index f173ed7..1ca9c39 100644
+--- a/src/jtag/jlink.c
++++ b/src/jtag/jlink.c
+@@ -630,10 +630,10 @@ COMMAND_HANDLER(jlink_handle_jlink_hw_jtag_command)
+ static int jlink_register_commands(struct command_context *cmd_ctx)
+ {
+ 
+-	register_command(cmd_ctx, NULL, &quot;jlink_info&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;jlink_info&quot;,
+ 		&amp;jlink_handle_jlink_info_command, COMMAND_EXEC,
+ 		&quot;query jlink info&quot;);
+-	register_command(cmd_ctx, NULL, &quot;jlink_hw_jtag&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;jlink_hw_jtag&quot;,
+ 		&amp;jlink_handle_jlink_hw_jtag_command, COMMAND_EXEC,
+ 		&quot;set/get jlink hw jtag command version [2 | 3]&quot;);
+ 	return ERROR_OK;
+diff --git a/src/jtag/parport.c b/src/jtag/parport.c
+index b80626f..4b4df09 100644
+--- a/src/jtag/parport.c
++++ b/src/jtag/parport.c
+@@ -484,22 +484,22 @@ COMMAND_HANDLER(parport_handle_parport_toggling_time_command)
+ 
+ static int parport_register_commands(struct command_context *cmd_ctx)
+ {
+-	register_command(cmd_ctx, NULL, &quot;parport_port&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;parport_port&quot;,
+ 			parport_handle_parport_port_command, COMMAND_CONFIG,
+ 			&quot;either the address of the I/O port &quot;
+ 			&quot;or the number of the '/dev/parport' device&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;parport_cable&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;parport_cable&quot;,
+ 			parport_handle_parport_cable_command, COMMAND_CONFIG,
+ 			&quot;the layout of the parallel port cable &quot;
+ 			&quot;used to connect to the target&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;parport_write_on_exit&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;parport_write_on_exit&quot;,
+ 			parport_handle_write_on_exit_command, COMMAND_CONFIG,
+ 			&quot;configure the parallel driver to write &quot;
+ 			&quot;a known value to the parallel interface&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;parport_toggling_time&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;parport_toggling_time&quot;,
+ 			parport_handle_parport_toggling_time_command, COMMAND_ANY,
+ 			&quot;time &lt;ns&gt; it takes for the hardware to toggle TCK&quot;);
+ 
+diff --git a/src/jtag/presto.c b/src/jtag/presto.c
+index 437e2c0..f22bd9e 100644
+--- a/src/jtag/presto.c
++++ b/src/jtag/presto.c
+@@ -741,7 +741,7 @@ COMMAND_HANDLER(presto_handle_serial_command)
+ 
+ static int presto_jtag_register_commands(struct command_context *cmd_ctx)
+ {
+-	register_command(cmd_ctx, NULL, &quot;presto_serial&quot;, presto_handle_serial_command,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;presto_serial&quot;, presto_handle_serial_command,
+ 		COMMAND_CONFIG, NULL);
+ 	return ERROR_OK;
+ }
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index 7307f64..bd672b6 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -1418,21 +1418,21 @@ int jtag_register_commands(struct command_context *cmd_ctx)
+ 	register_jim(cmd_ctx, &quot;jtag&quot;, jim_jtag_command,
+ 			&quot;perform jtag tap actions&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;interface&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;interface&quot;,
+ 			handle_interface_command, COMMAND_CONFIG,
+ 			&quot;try to configure interface&quot;);
+-	register_command(cmd_ctx, NULL, &quot;interface_list&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;interface_list&quot;,
+ 			&amp;handle_interface_list_command, COMMAND_ANY,
+ 			&quot;list all built-in interfaces&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;jtag_khz&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;jtag_khz&quot;,
+ 			handle_jtag_khz_command, COMMAND_ANY,
+ 			&quot;set maximum jtag speed (if supported); &quot;
+ 			&quot;parameter is maximum khz, or 0 for adaptive clocking (RTCK).&quot;);
+-	register_command(cmd_ctx, NULL, &quot;jtag_rclk&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;jtag_rclk&quot;,
+ 			handle_jtag_rclk_command, COMMAND_ANY,
+ 			&quot;fallback_speed_khz - set JTAG speed to RCLK or use fallback speed&quot;);
+-	register_command(cmd_ctx, NULL, &quot;reset_config&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;reset_config&quot;,
+ 			handle_reset_config_command, COMMAND_ANY,
+ 			&quot;reset_config &quot;
+ 			&quot;[none|trst_only|srst_only|trst_and_srst] &quot;
+@@ -1441,35 +1441,35 @@ int jtag_register_commands(struct command_context *cmd_ctx)
+ 			&quot;[trst_push_pull|trst_open_drain] &quot;
+ 			&quot;[srst_push_pull|srst_open_drain]&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;jtag_nsrst_delay&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;jtag_nsrst_delay&quot;,
+ 			handle_jtag_nsrst_delay_command, COMMAND_ANY,
+ 			&quot;jtag_nsrst_delay &lt;ms&gt; &quot;
+ 			&quot;- delay after deasserting srst in ms&quot;);
+-	register_command(cmd_ctx, NULL, &quot;jtag_ntrst_delay&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;jtag_ntrst_delay&quot;,
+ 			handle_jtag_ntrst_delay_command, COMMAND_ANY,
+ 			&quot;jtag_ntrst_delay &lt;ms&gt; &quot;
+ 			&quot;- delay after deasserting trst in ms&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;jtag_nsrst_assert_width&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;jtag_nsrst_assert_width&quot;,
+ 			handle_jtag_nsrst_assert_width_command, COMMAND_ANY,
+ 			&quot;jtag_nsrst_assert_width &lt;ms&gt; &quot;
+ 			&quot;- delay after asserting srst in ms&quot;);
+-	register_command(cmd_ctx, NULL, &quot;jtag_ntrst_assert_width&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;jtag_ntrst_assert_width&quot;,
+ 			handle_jtag_ntrst_assert_width_command, COMMAND_ANY,
+ 			&quot;jtag_ntrst_assert_width &lt;ms&gt; &quot;
+ 			&quot;- delay after asserting trst in ms&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;scan_chain&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;scan_chain&quot;,
+ 			handle_scan_chain_command, COMMAND_EXEC,
+ 			&quot;print current scan chain configuration&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;jtag_reset&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;jtag_reset&quot;,
+ 			handle_jtag_reset_command, COMMAND_EXEC,
+ 			&quot;toggle reset lines &lt;trst&gt; &lt;srst&gt;&quot;);
+-	register_command(cmd_ctx, NULL, &quot;runtest&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;runtest&quot;,
+ 			handle_runtest_command, COMMAND_EXEC,
+ 			&quot;move to Run-Test/Idle, and execute &lt;num_cycles&gt;&quot;);
+-	register_command(cmd_ctx, NULL, &quot;irscan&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;irscan&quot;,
+ 			handle_irscan_command, COMMAND_EXEC,
+ 			&quot;execute IR scan &lt;device&gt; &lt;instr&gt; [dev2] [instr2] ...&quot;);
+ 
+@@ -1484,14 +1484,14 @@ int jtag_register_commands(struct command_context *cmd_ctx)
+ 			&quot;&lt;state1&gt;,&lt;state2&gt;,&lt;state3&gt;... &quot;
+ 			&quot;- move JTAG to state1 then to state2, state3, etc.&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;verify_ircapture&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;verify_ircapture&quot;,
+ 			handle_verify_ircapture_command, COMMAND_ANY,
+ 			&quot;verify value captured during Capture-IR &lt;enable | disable&gt;&quot;);
+-	register_command(cmd_ctx, NULL, &quot;verify_jtag&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;verify_jtag&quot;,
+ 			handle_verify_jtag_command, COMMAND_ANY,
+ 			&quot;verify value capture &lt;enable | disable&gt;&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;tms_sequence&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;tms_sequence&quot;,
+ 			handle_tms_sequence_command, COMMAND_ANY,
+ 			&quot;choose short(default) or long tms_sequence &lt;short | long&gt;&quot;);
+ 
+diff --git a/src/jtag/vsllink.c b/src/jtag/vsllink.c
+index d28854d..3526198 100644
+--- a/src/jtag/vsllink.c
++++ b/src/jtag/vsllink.c
+@@ -1858,22 +1858,22 @@ static void vsllink_debug_buffer(uint8_t *buffer, int length)
+ 
+ static int vsllink_register_commands(struct command_context *cmd_ctx)
+ {
+-	register_command(cmd_ctx, NULL, &quot;vsllink_usb_vid&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;vsllink_usb_vid&quot;,
+ 			vsllink_handle_usb_vid_command, COMMAND_CONFIG,
+ 			NULL);
+-	register_command(cmd_ctx, NULL, &quot;vsllink_usb_pid&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;vsllink_usb_pid&quot;,
+ 			vsllink_handle_usb_pid_command, COMMAND_CONFIG,
+ 			NULL);
+-	register_command(cmd_ctx, NULL, &quot;vsllink_usb_bulkin&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;vsllink_usb_bulkin&quot;,
+ 			vsllink_handle_usb_bulkin_command, COMMAND_CONFIG,
+ 			NULL);
+-	register_command(cmd_ctx, NULL, &quot;vsllink_usb_bulkout&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;vsllink_usb_bulkout&quot;,
+ 			vsllink_handle_usb_bulkout_command, COMMAND_CONFIG,
+ 			NULL);
+-	register_command(cmd_ctx, NULL, &quot;vsllink_usb_interface&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;vsllink_usb_interface&quot;,
+ 			vsllink_handle_usb_interface_command, COMMAND_CONFIG,
+ 			NULL);
+-	register_command(cmd_ctx, NULL, &quot;vsllink_mode&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;vsllink_mode&quot;,
+ 			vsllink_handle_mode_command, COMMAND_CONFIG,
+ 			NULL);
+ 
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index 8b5b753..5ea72a7 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -372,7 +372,7 @@ zylinjtag_Jim_Command_powerstatus(Jim_Interp *interp,
+ 
+ int zy1000_register_commands(struct command_context *cmd_ctx)
+ {
+-	register_command(cmd_ctx, NULL, &quot;power&quot;, handle_power_command, COMMAND_ANY,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;power&quot;, handle_power_command, COMMAND_ANY,
+ 			&quot;power &lt;on/off&gt; - turn power switch to target on/off. No arguments - print status.&quot;);
+ 
+ 	Jim_CreateCommand(interp, &quot;zy1000_version&quot;, jim_zy1000_version, NULL, NULL);
+diff --git a/src/openocd.c b/src/openocd.c
+index 8e8ceac..379373c 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -171,7 +171,7 @@ struct command_context *setup_command_handler(void)
+ 
+ 	global_cmd_ctx = cmd_ctx = command_init(openocd_startup_tcl);
+ 
+-	register_command(cmd_ctx, NULL, &quot;version&quot;, handle_version_command,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;version&quot;, handle_version_command,
+ 					 COMMAND_EXEC, &quot;show OpenOCD version&quot;);
+ 
+ 	/* register subsystem commands */
+@@ -198,7 +198,7 @@ struct command_context *setup_command_handler(void)
+ 
+ 	LOG_OUTPUT(OPENOCD_VERSION &quot;\n&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;init&quot;, handle_init_command,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;init&quot;, handle_init_command,
+ 					 COMMAND_ANY, &quot;initializes target and servers - nop on subsequent invocations&quot;);
+ 
+ 	return cmd_ctx;
+diff --git a/src/pld/pld.c b/src/pld/pld.c
+index d021f7b..021a8e6 100644
+--- a/src/pld/pld.c
++++ b/src/pld/pld.c
+@@ -189,10 +189,10 @@ int pld_init(struct command_context *cmd_ctx)
+ 	if (!pld_devices)
+ 		return ERROR_OK;
+ 
+-	register_command(cmd_ctx, pld_cmd, &quot;devices&quot;,
++	COMMAND_REGISTER(cmd_ctx, pld_cmd, &quot;devices&quot;,
+ 			handle_pld_devices_command, COMMAND_EXEC,
+ 			&quot;list configured pld devices&quot;);
+-	register_command(cmd_ctx, pld_cmd, &quot;load&quot;,
++	COMMAND_REGISTER(cmd_ctx, pld_cmd, &quot;load&quot;,
+ 			handle_pld_load_command, COMMAND_EXEC,
+ 			&quot;load configuration &lt;file&gt; into programmable logic device&quot;);
+ 
+@@ -201,9 +201,9 @@ int pld_init(struct command_context *cmd_ctx)
+ 
+ int pld_register_commands(struct command_context *cmd_ctx)
+ {
+-	pld_cmd = register_command(cmd_ctx, NULL, &quot;pld&quot;, NULL, COMMAND_ANY, &quot;programmable logic device commands&quot;);
++	pld_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;pld&quot;, NULL, COMMAND_ANY, &quot;programmable logic device commands&quot;);
+ 
+-	register_command(cmd_ctx, pld_cmd, &quot;device&quot;, handle_pld_device_command, COMMAND_CONFIG, NULL);
++	COMMAND_REGISTER(cmd_ctx, pld_cmd, &quot;device&quot;, handle_pld_device_command, COMMAND_CONFIG, NULL);
+ 
+ 	return ERROR_OK;
+ }
+diff --git a/src/pld/virtex2.c b/src/pld/virtex2.c
+index e8fe63b..527434a 100644
+--- a/src/pld/virtex2.c
++++ b/src/pld/virtex2.c
+@@ -235,10 +235,10 @@ PLD_DEVICE_COMMAND_HANDLER(virtex2_pld_device_command)
+ 
+ static int virtex2_register_commands(struct command_context *cmd_ctx)
+ {
+-	struct command *virtex2_cmd = register_command(cmd_ctx, NULL, &quot;virtex2&quot;,
++	struct command *virtex2_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;virtex2&quot;,
+ 			NULL, COMMAND_ANY, &quot;virtex2 specific commands&quot;);
+ 
+-	register_command(cmd_ctx, virtex2_cmd, &quot;read_stat&quot;,
++	COMMAND_REGISTER(cmd_ctx, virtex2_cmd, &quot;read_stat&quot;,
+ 			&amp;virtex2_handle_read_stat_command, COMMAND_EXEC,
+ 			&quot;read Virtex-II status register&quot;);
+ 
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index 21dc24c..be1f8db 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -2328,23 +2328,23 @@ COMMAND_HANDLER(handle_gdb_breakpoint_override_command)
+ 
+ int gdb_register_commands(struct command_context *command_context)
+ {
+-	register_command(command_context, NULL, &quot;gdb_sync&quot;,
++	COMMAND_REGISTER(command_context, NULL, &quot;gdb_sync&quot;,
+ 			handle_gdb_sync_command, COMMAND_ANY,
+ 			&quot;next stepi will return immediately allowing GDB to &quot;
+ 			&quot;fetch register state without affecting target state&quot;);
+-	register_command(command_context, NULL, &quot;gdb_port&quot;,
++	COMMAND_REGISTER(command_context, NULL, &quot;gdb_port&quot;,
+ 			handle_gdb_port_command, COMMAND_ANY,
+ 			&quot;daemon configuration command gdb_port&quot;);
+-	register_command(command_context, NULL, &quot;gdb_memory_map&quot;,
++	COMMAND_REGISTER(command_context, NULL, &quot;gdb_memory_map&quot;,
+ 			handle_gdb_memory_map_command, COMMAND_CONFIG,
+ 			&quot;enable or disable memory map&quot;);
+-	register_command(command_context, NULL, &quot;gdb_flash_program&quot;,
++	COMMAND_REGISTER(command_context, NULL, &quot;gdb_flash_program&quot;,
+ 			handle_gdb_flash_program_command, COMMAND_CONFIG,
+ 			&quot;enable or disable flash program&quot;);
+-	register_command(command_context, NULL, &quot;gdb_report_data_abort&quot;,
++	COMMAND_REGISTER(command_context, NULL, &quot;gdb_report_data_abort&quot;,
+ 			handle_gdb_report_data_abort_command, COMMAND_CONFIG,
+ 			&quot;enable or disable reporting data aborts&quot;);
+-	register_command(command_context, NULL, &quot;gdb_breakpoint_override&quot;,
++	COMMAND_REGISTER(command_context, NULL, &quot;gdb_breakpoint_override&quot;,
+ 			handle_gdb_breakpoint_override_command, COMMAND_EXEC,
+ 			&quot;hard/soft/disable - force type of breakpoint &quot;
+ 			&quot;used by gdb 'break' commands.&quot;);
+diff --git a/src/server/server.c b/src/server/server.c
+index b28aa50..5be1316 100644
+--- a/src/server/server.c
++++ b/src/server/server.c
+@@ -541,7 +541,7 @@ COMMAND_HANDLER(handle_shutdown_command)
+ 
+ int server_register_commands(struct command_context *context)
+ {
+-	register_command(context, NULL, &quot;shutdown&quot;,
++	COMMAND_REGISTER(context, NULL, &quot;shutdown&quot;,
+ 			handle_shutdown_command, COMMAND_ANY,
+ 			&quot;shut the server down&quot;);
+ 
+diff --git a/src/server/tcl_server.c b/src/server/tcl_server.c
+index 40a0428..a12176e 100644
+--- a/src/server/tcl_server.c
++++ b/src/server/tcl_server.c
+@@ -177,7 +177,7 @@ COMMAND_HANDLER(handle_tcl_port_command)
+ 
+ int tcl_register_commands(struct command_context *cmd_ctx)
+ {
+-	register_command(cmd_ctx, NULL, &quot;tcl_port&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;tcl_port&quot;,
+ 			handle_tcl_port_command, COMMAND_CONFIG,
+ 			&quot;port on which to listen for incoming TCL syntax&quot;);
+ 	return ERROR_OK;
+diff --git a/src/server/telnet_server.c b/src/server/telnet_server.c
+index 46d438e..c52119d 100644
+--- a/src/server/telnet_server.c
++++ b/src/server/telnet_server.c
+@@ -618,11 +618,11 @@ COMMAND_HANDLER(handle_exit_command)
+ 
+ int telnet_register_commands(struct command_context *command_context)
+ {
+-	register_command(command_context, NULL, &quot;exit&quot;,
++	COMMAND_REGISTER(command_context, NULL, &quot;exit&quot;,
+ 			&amp;handle_exit_command, COMMAND_EXEC,
+ 			&quot;exit telnet session&quot;);
+ 
+-	register_command(command_context, NULL, &quot;telnet_port&quot;,
++	COMMAND_REGISTER(command_context, NULL, &quot;telnet_port&quot;,
+ 			&amp;handle_telnet_port_command, COMMAND_ANY,
+ 			&quot;port on which to listen for incoming telnet connections&quot;);
+ 
+diff --git a/src/svf/svf.c b/src/svf/svf.c
+index 545bcf8..1fc3835 100644
+--- a/src/svf/svf.c
++++ b/src/svf/svf.c
+@@ -1462,7 +1462,7 @@ static int svf_run_command(struct command_context *cmd_ctx, char *cmd_str)
+ 
+ int svf_register_commands(struct command_context *cmd_ctx)
+ {
+-	register_command(cmd_ctx, NULL, &quot;svf&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;svf&quot;,
+ 			&amp;handle_svf_command, COMMAND_EXEC,
+ 			&quot;run svf &lt;file&gt;&quot;);
+ 
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index a5175af..66954fa 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -1571,34 +1571,34 @@ static int arm11_register_commands(struct command_context *cmd_ctx)
+ 
+ 	armv4_5_register_commands(cmd_ctx);
+ 
+-	top_cmd = register_command(cmd_ctx, NULL, &quot;arm11&quot;,
++	top_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;arm11&quot;,
+ 			NULL, COMMAND_ANY, NULL);
+ 
+ 	/* &quot;hardware_step&quot; is only here to check if the default
+ 	 * simulate + breakpoint implementation is broken.
+ 	 * TEMPORARY! NOT DOCUMENTED!
+ 	 */
+-	register_command(cmd_ctx, top_cmd, &quot;hardware_step&quot;,
++	COMMAND_REGISTER(cmd_ctx, top_cmd, &quot;hardware_step&quot;,
+ 			arm11_handle_bool_hardware_step, COMMAND_ANY,
+ 			&quot;DEBUG ONLY - Hardware single stepping&quot;
+ 				&quot; (default: disabled)&quot;);
+ 
+-	mw_cmd = register_command(cmd_ctx, top_cmd, &quot;memwrite&quot;,
++	mw_cmd = COMMAND_REGISTER(cmd_ctx, top_cmd, &quot;memwrite&quot;,
+ 			NULL, COMMAND_ANY, NULL);
+-	register_command(cmd_ctx, mw_cmd, &quot;burst&quot;,
++	COMMAND_REGISTER(cmd_ctx, mw_cmd, &quot;burst&quot;,
+ 			arm11_handle_bool_memwrite_burst, COMMAND_ANY,
+ 			&quot;Enable/Disable non-standard but fast burst mode&quot;
+ 				&quot; (default: enabled)&quot;);
+-	register_command(cmd_ctx, mw_cmd, &quot;error_fatal&quot;,
++	COMMAND_REGISTER(cmd_ctx, mw_cmd, &quot;error_fatal&quot;,
+ 			arm11_handle_bool_memwrite_error_fatal, COMMAND_ANY,
+ 			&quot;Terminate program if transfer error was found&quot;
+ 				&quot; (default: enabled)&quot;);
+ 
+-	register_command(cmd_ctx, top_cmd, &quot;step_irq_enable&quot;,
++	COMMAND_REGISTER(cmd_ctx, top_cmd, &quot;step_irq_enable&quot;,
+ 			arm11_handle_bool_step_irq_enable, COMMAND_ANY,
+ 			&quot;Enable interrupts while stepping&quot;
+ 				&quot; (default: disabled)&quot;);
+-	register_command(cmd_ctx, top_cmd, &quot;vcr&quot;,
++	COMMAND_REGISTER(cmd_ctx, top_cmd, &quot;vcr&quot;,
+ 			arm11_handle_vcr, COMMAND_ANY,
+ 			&quot;Control (Interrupt) Vector Catch Register&quot;);
+ 
+diff --git a/src/target/arm720t.c b/src/target/arm720t.c
+index f9388ab..4ca80e1 100644
+--- a/src/target/arm720t.c
++++ b/src/target/arm720t.c
+@@ -499,11 +499,11 @@ static int arm720t_register_commands(struct command_context *cmd_ctx)
+ 
+ 	retval = arm7_9_register_commands(cmd_ctx);
+ 
+-	arm720t_cmd = register_command(cmd_ctx, NULL, &quot;arm720t&quot;,
++	arm720t_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;arm720t&quot;,
+ 			NULL, COMMAND_ANY,
+ 			&quot;arm720t specific commands&quot;);
+ 
+-	register_command(cmd_ctx, arm720t_cmd, &quot;cp15&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm720t_cmd, &quot;cp15&quot;,
+ 			arm720t_handle_cp15_command, COMMAND_EXEC,
+ 			&quot;display/modify cp15 register &lt;opcode&gt; [value]&quot;);
+ 
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index 4c5e286..1601ee1 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -2851,18 +2851,18 @@ int arm7_9_register_commands(struct command_context *cmd_ctx)
+ {
+ 	struct command *arm7_9_cmd;
+ 
+-	arm7_9_cmd = register_command(cmd_ctx, NULL, &quot;arm7_9&quot;,
++	arm7_9_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;arm7_9&quot;,
+ 			NULL, COMMAND_ANY, &quot;arm7/9 specific commands&quot;);
+ 
+-	register_command(cmd_ctx, arm7_9_cmd, &quot;dbgrq&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm7_9_cmd, &quot;dbgrq&quot;,
+ 			handle_arm7_9_dbgrq_command, COMMAND_ANY,
+ 			&quot;use EmbeddedICE dbgrq instead of breakpoint &quot;
+ 			&quot;for target halt requests &lt;enable | disable&gt;&quot;);
+-	register_command(cmd_ctx, arm7_9_cmd, &quot;fast_memory_access&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm7_9_cmd, &quot;fast_memory_access&quot;,
+ 			handle_arm7_9_fast_memory_access_command, COMMAND_ANY,
+ 			&quot;use fast memory accesses instead of slower &quot;
+ 			&quot;but potentially safer accesses &lt;enable | disable&gt;&quot;);
+-	register_command(cmd_ctx, arm7_9_cmd, &quot;dcc_downloads&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm7_9_cmd, &quot;dcc_downloads&quot;,
+ 			handle_arm7_9_dcc_downloads_command, COMMAND_ANY,
+ 			&quot;use DCC downloads for larger memory writes &lt;enable | disable&gt;&quot;);
+ 
+diff --git a/src/target/arm920t.c b/src/target/arm920t.c
+index 0610c93..e927844 100644
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -1369,24 +1369,24 @@ int arm920t_register_commands(struct command_context *cmd_ctx)
+ 
+ 	retval = arm9tdmi_register_commands(cmd_ctx);
+ 
+-	arm920t_cmd = register_command(cmd_ctx, NULL, &quot;arm920t&quot;,
++	arm920t_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;arm920t&quot;,
+ 			NULL, COMMAND_ANY,
+ 			&quot;arm920t specific commands&quot;);
+ 
+-	register_command(cmd_ctx, arm920t_cmd, &quot;cp15&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm920t_cmd, &quot;cp15&quot;,
+ 			arm920t_handle_cp15_command, COMMAND_EXEC,
+ 			&quot;display/modify cp15 register &lt;num&gt; [value]&quot;);
+-	register_command(cmd_ctx, arm920t_cmd, &quot;cp15i&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm920t_cmd, &quot;cp15i&quot;,
+ 			arm920t_handle_cp15i_command, COMMAND_EXEC,
+ 			&quot;display/modify cp15 (interpreted access) &quot;
+ 				&quot;&lt;opcode&gt; [value] [address]&quot;);
+-	register_command(cmd_ctx, arm920t_cmd, &quot;cache_info&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm920t_cmd, &quot;cache_info&quot;,
+ 			arm920t_handle_cache_info_command, COMMAND_EXEC,
+ 			&quot;display information about target caches&quot;);
+-	register_command(cmd_ctx, arm920t_cmd, &quot;read_cache&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm920t_cmd, &quot;read_cache&quot;,
+ 			arm920t_handle_read_cache_command, COMMAND_EXEC,
+ 			&quot;display I/D cache content&quot;);
+-	register_command(cmd_ctx, arm920t_cmd, &quot;read_mmu&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm920t_cmd, &quot;read_mmu&quot;,
+ 			arm920t_handle_read_mmu_command, COMMAND_EXEC,
+ 			&quot;display I/D mmu content&quot;);
+ 
+diff --git a/src/target/arm926ejs.c b/src/target/arm926ejs.c
+index 24488c4..030405a 100644
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -764,11 +764,11 @@ int arm926ejs_register_commands(struct command_context *cmd_ctx)
+ 
+ 	retval = arm9tdmi_register_commands(cmd_ctx);
+ 
+-	arm926ejs_cmd = register_command(cmd_ctx, NULL, &quot;arm926ejs&quot;,
++	arm926ejs_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;arm926ejs&quot;,
+ 		NULL, COMMAND_ANY,
+ 		&quot;arm926ejs specific commands&quot;);
+ 
+-	register_command(cmd_ctx, arm926ejs_cmd, &quot;cache_info&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm926ejs_cmd, &quot;cache_info&quot;,
+ 		arm926ejs_handle_cache_info_command, COMMAND_EXEC,
+ 		&quot;display information about target caches&quot;);
+ 
+diff --git a/src/target/arm966e.c b/src/target/arm966e.c
+index 9302199..f617875 100644
+--- a/src/target/arm966e.c
++++ b/src/target/arm966e.c
+@@ -228,10 +228,10 @@ int arm966e_register_commands(struct command_context *cmd_ctx)
+ 	struct command *arm966e_cmd;
+ 
+ 	retval = arm9tdmi_register_commands(cmd_ctx);
+-	arm966e_cmd = register_command(cmd_ctx, NULL, &quot;arm966e&quot;,
++	arm966e_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;arm966e&quot;,
+ 			NULL, COMMAND_ANY,
+ 			&quot;arm966e specific commands&quot;);
+-	register_command(cmd_ctx, arm966e_cmd, &quot;cp15&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm966e_cmd, &quot;cp15&quot;,
+ 			arm966e_handle_cp15_command, COMMAND_EXEC,
+ 			&quot;display/modify cp15 register &lt;num&gt; [value]&quot;);
+ 
+diff --git a/src/target/arm9tdmi.c b/src/target/arm9tdmi.c
+index 298b26a..f965429 100644
+--- a/src/target/arm9tdmi.c
++++ b/src/target/arm9tdmi.c
+@@ -914,10 +914,10 @@ int arm9tdmi_register_commands(struct command_context *cmd_ctx)
+ 	struct command *arm9tdmi_cmd;
+ 
+ 	retval = arm7_9_register_commands(cmd_ctx);
+-	arm9tdmi_cmd = register_command(cmd_ctx, NULL, &quot;arm9&quot;,
++	arm9tdmi_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;arm9&quot;,
+ 			NULL, COMMAND_ANY,
+ 			&quot;arm9 specific commands&quot;);
+-	register_command(cmd_ctx, arm9tdmi_cmd, &quot;vector_catch&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm9tdmi_cmd, &quot;vector_catch&quot;,
+ 			handle_arm9tdmi_catch_vectors_command, COMMAND_EXEC,
+ 			&quot;arm9 vector_catch [all|none|reset|undef|swi|pabt|dabt|irq|fiq] ...&quot;);
+ 
+diff --git a/src/target/armv4_5.c b/src/target/armv4_5.c
+index da5c75a..ec6d5a0 100644
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -790,17 +790,17 @@ int armv4_5_register_commands(struct command_context *cmd_ctx)
+ {
+ 	struct command *armv4_5_cmd;
+ 
+-	armv4_5_cmd = register_command(cmd_ctx, NULL, &quot;arm&quot;,
++	armv4_5_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;arm&quot;,
+ 			NULL, COMMAND_ANY,
+ 			&quot;generic ARM commands&quot;);
+ 
+-	register_command(cmd_ctx, armv4_5_cmd, &quot;reg&quot;,
++	COMMAND_REGISTER(cmd_ctx, armv4_5_cmd, &quot;reg&quot;,
+ 			handle_armv4_5_reg_command, COMMAND_EXEC,
+ 			&quot;display ARM core registers&quot;);
+-	register_command(cmd_ctx, armv4_5_cmd, &quot;core_state&quot;,
++	COMMAND_REGISTER(cmd_ctx, armv4_5_cmd, &quot;core_state&quot;,
+ 			handle_armv4_5_core_state_command, COMMAND_EXEC,
+ 			&quot;display/change ARM core state &lt;arm | thumb&gt;&quot;);
+-	register_command(cmd_ctx, armv4_5_cmd, &quot;disassemble&quot;,
++	COMMAND_REGISTER(cmd_ctx, armv4_5_cmd, &quot;disassemble&quot;,
+ 			handle_armv4_5_disassemble_command, COMMAND_EXEC,
+ 			&quot;disassemble instructions &quot;
+ 				&quot;&lt;address&gt; [&lt;count&gt; ['thumb']]&quot;);
+diff --git a/src/target/armv7a.c b/src/target/armv7a.c
+index 1d13779..6763863 100644
+--- a/src/target/armv7a.c
++++ b/src/target/armv7a.c
+@@ -148,26 +148,26 @@ int armv7a_register_commands(struct command_context *cmd_ctx)
+ {
+ 	struct command *arm_adi_v5_dap_cmd;
+ 
+-	arm_adi_v5_dap_cmd = register_command(cmd_ctx, NULL, &quot;dap&quot;,
++	arm_adi_v5_dap_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;dap&quot;,
+ 			NULL, COMMAND_ANY,
+ 			&quot;cortex dap specific commands&quot;);
+ 
+-	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;info&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm_adi_v5_dap_cmd, &quot;info&quot;,
+ 			handle_dap_info_command, COMMAND_EXEC,
+ 			&quot;dap info for ap [num], &quot;
+ 			&quot;default currently selected AP&quot;);
+-	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;apsel&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm_adi_v5_dap_cmd, &quot;apsel&quot;,
+ 			handle_dap_apsel_command, COMMAND_EXEC,
+ 			&quot;select a different AP [num] (default 0)&quot;);
+-	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;apid&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm_adi_v5_dap_cmd, &quot;apid&quot;,
+ 			handle_dap_apid_command, COMMAND_EXEC,
+ 			&quot;return id reg from AP [num], &quot;
+ 			&quot;default currently selected AP&quot;);
+-	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;baseaddr&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm_adi_v5_dap_cmd, &quot;baseaddr&quot;,
+ 			handle_dap_baseaddr_command, COMMAND_EXEC,
+ 			&quot;return debug base address from AP [num], &quot;
+ 			&quot;default currently selected AP&quot;);
+-	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;memaccess&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm_adi_v5_dap_cmd, &quot;memaccess&quot;,
+ 			handle_dap_memaccess_command, COMMAND_EXEC,
+ 			&quot;set/get number of extra tck for mem-ap memory &quot;
+ 			&quot;bus access [0-255]&quot;);
+diff --git a/src/target/armv7m.c b/src/target/armv7m.c
+index 88ff6f2..9fd24e9 100644
+--- a/src/target/armv7m.c
++++ b/src/target/armv7m.c
+@@ -800,26 +800,26 @@ int armv7m_register_commands(struct command_context *cmd_ctx)
+ {
+ 	struct command *arm_adi_v5_dap_cmd;
+ 
+-	arm_adi_v5_dap_cmd = register_command(cmd_ctx, NULL, &quot;dap&quot;,
++	arm_adi_v5_dap_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;dap&quot;,
+ 			NULL, COMMAND_ANY,
+ 			&quot;cortex dap specific commands&quot;);
+ 
+-	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;info&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm_adi_v5_dap_cmd, &quot;info&quot;,
+ 			handle_dap_info_command, COMMAND_EXEC,
+ 			&quot;Displays dap info for ap [num],&quot;
+ 			&quot;default currently selected AP&quot;);
+-	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;apsel&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm_adi_v5_dap_cmd, &quot;apsel&quot;,
+ 			handle_dap_apsel_command, COMMAND_EXEC,
+ 			&quot;Select a different AP [num] (default 0)&quot;);
+-	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;apid&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm_adi_v5_dap_cmd, &quot;apid&quot;,
+ 			handle_dap_apid_command, COMMAND_EXEC,
+ 			&quot;Displays id reg from AP [num], &quot;
+ 			&quot;default currently selected AP&quot;);
+-	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;baseaddr&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm_adi_v5_dap_cmd, &quot;baseaddr&quot;,
+ 			handle_dap_baseaddr_command, COMMAND_EXEC,
+ 			&quot;Displays debug base address from AP [num],&quot;
+ 			&quot;default currently selected AP&quot;);
+-	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;memaccess&quot;,
++	COMMAND_REGISTER(cmd_ctx, arm_adi_v5_dap_cmd, &quot;memaccess&quot;,
+ 			handle_dap_memaccess_command, COMMAND_EXEC,
+ 			&quot;set/get number of extra tck for mem-ap &quot;
+ 			&quot;memory bus access [0-255]&quot;);
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index 08e5460..519ba3f 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -1634,15 +1634,15 @@ static int cortex_a8_register_commands(struct command_context *cmd_ctx)
+ 	armv4_5_register_commands(cmd_ctx);
+ 	armv7a_register_commands(cmd_ctx);
+ 
+-	cortex_a8_cmd =	register_command(cmd_ctx, NULL, &quot;cortex_a8&quot;,
++	cortex_a8_cmd =	COMMAND_REGISTER(cmd_ctx, NULL, &quot;cortex_a8&quot;,
+ 			NULL, COMMAND_ANY,
+ 			&quot;cortex_a8 specific commands&quot;);
+ 
+-	register_command(cmd_ctx, cortex_a8_cmd, &quot;cache_info&quot;,
++	COMMAND_REGISTER(cmd_ctx, cortex_a8_cmd, &quot;cache_info&quot;,
+ 			cortex_a8_handle_cache_info_command, COMMAND_EXEC,
+ 			&quot;display information about target caches&quot;);
+ 
+-	register_command(cmd_ctx, cortex_a8_cmd, &quot;dbginit&quot;,
++	COMMAND_REGISTER(cmd_ctx, cortex_a8_cmd, &quot;dbginit&quot;,
+ 			cortex_a8_handle_dbginit_command, COMMAND_EXEC,
+ 			&quot;Initialize core debug&quot;);
+ 
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index 8279a8b..47052e9 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -1919,16 +1919,16 @@ static int cortex_m3_register_commands(struct command_context *cmd_ctx)
+ 
+ 	retval = armv7m_register_commands(cmd_ctx);
+ 
+-	cortex_m3_cmd = register_command(cmd_ctx, NULL, &quot;cortex_m3&quot;,
++	cortex_m3_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;cortex_m3&quot;,
+ 			NULL, COMMAND_ANY, &quot;cortex_m3 specific commands&quot;);
+ 
+-	register_command(cmd_ctx, cortex_m3_cmd, &quot;disassemble&quot;,
++	COMMAND_REGISTER(cmd_ctx, cortex_m3_cmd, &quot;disassemble&quot;,
+ 			han
+dle_cortex_m3_disassemble_command, COMMAND_EXEC,
+ 			&quot;disassemble Thumb2 instructions &lt;address&gt; [&lt;count&gt;]&quot;);
+-	register_command(cmd_ctx, cortex_m3_cmd, &quot;maskisr&quot;,
++	COMMAND_REGISTER(cmd_ctx, cortex_m3_cmd, &quot;maskisr&quot;,
+ 			handle_cortex_m3_mask_interrupts_command, COMMAND_EXEC,
+ 			&quot;mask cortex_m3 interrupts ['on'|'off']&quot;);
+-	register_command(cmd_ctx, cortex_m3_cmd, &quot;vector_catch&quot;,
++	COMMAND_REGISTER(cmd_ctx, cortex_m3_cmd, &quot;vector_catch&quot;,
+ 			handle_cortex_m3_vector_catch_command, COMMAND_EXEC,
+ 			&quot;catch hardware vectors ['all'|'none'|&lt;list&gt;]&quot;);
+ 
+diff --git a/src/target/etb.c b/src/target/etb.c
+index df04e40..1f44d3a 100644
+--- a/src/target/etb.c
++++ b/src/target/etb.c
+@@ -404,10 +404,10 @@ COMMAND_HANDLER(handle_etb_config_command)
+ 
+ static int etb_register_commands(struct command_context *cmd_ctx)
+ {
+-	struct command *etb_cmd = register_command(cmd_ctx, NULL, &quot;etb&quot;,
++	struct command *etb_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;etb&quot;,
+ 			NULL, COMMAND_ANY, &quot;Embedded Trace Buffer&quot;);
+ 
+-	register_command(cmd_ctx, etb_cmd, &quot;config&quot;,
++	COMMAND_REGISTER(cmd_ctx, etb_cmd, &quot;config&quot;,
+ 			handle_etb_config_command, COMMAND_CONFIG,
+ 			NULL);
+ 
+diff --git a/src/target/etm.c b/src/target/etm.c
+index 1678c2f..6df354a 100644
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -2097,9 +2097,9 @@ COMMAND_HANDLER(handle_etm_analyze_command)
+ 
+ int etm_register_commands(struct command_context *cmd_ctx)
+ {
+-	etm_cmd = register_command(cmd_ctx, NULL, &quot;etm&quot;, NULL, COMMAND_ANY, &quot;Embedded Trace Macrocell&quot;);
++	etm_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;etm&quot;, NULL, COMMAND_ANY, &quot;Embedded Trace Macrocell&quot;);
+ 
+-	register_command(cmd_ctx, etm_cmd, &quot;config&quot;, handle_etm_config_command,
++	COMMAND_REGISTER(cmd_ctx, etm_cmd, &quot;config&quot;, handle_etm_config_command,
+ 		COMMAND_CONFIG, &quot;etm config &lt;target&gt; &lt;port_width&gt; &lt;port_mode&gt; &lt;clocking&gt; &lt;capture_driver&gt;&quot;);
+ 
+ 	return ERROR_OK;
+@@ -2107,32 +2107,32 @@ int etm_register_commands(struct command_context *cmd_ctx)
+ 
+ static int etm_register_user_commands(struct command_context *cmd_ctx)
+ {
+-	register_command(cmd_ctx, etm_cmd, &quot;tracemode&quot;, handle_etm_tracemode_command,
++	COMMAND_REGISTER(cmd_ctx, etm_cmd, &quot;tracemode&quot;, handle_etm_tracemode_command,
+ 		COMMAND_EXEC, &quot;configure/display trace mode: &quot;
+ 			&quot;&lt;none | data | address | all&gt; &quot;
+ 			&quot;&lt;context_id_bits&gt; &lt;cycle_accurate&gt; &lt;branch_output&gt;&quot;);
+ 
+-	register_command(cmd_ctx, etm_cmd, &quot;info&quot;, handle_etm_info_command,
++	COMMAND_REGISTER(cmd_ctx, etm_cmd, &quot;info&quot;, handle_etm_info_command,
+ 		COMMAND_EXEC, &quot;display info about the current target's ETM&quot;);
+ 
+-	register_command(cmd_ctx, etm_cmd, &quot;trigger_percent&quot;, handle_etm_trigger_percent_command,
++	COMMAND_REGISTER(cmd_ctx, etm_cmd, &quot;trigger_percent&quot;, handle_etm_trigger_percent_command,
+ 		COMMAND_EXEC, &quot;amount (&lt;percent&gt;) of trace buffer to be filled after the trigger occured&quot;);
+-	register_command(cmd_ctx, etm_cmd, &quot;status&quot;, handle_etm_status_command,
++	COMMAND_REGISTER(cmd_ctx, etm_cmd, &quot;status&quot;, handle_etm_status_command,
+ 		COMMAND_EXEC, &quot;display current target's ETM status&quot;);
+-	register_command(cmd_ctx, etm_cmd, &quot;start&quot;, handle_etm_start_command,
++	COMMAND_REGISTER(cmd_ctx, etm_cmd, &quot;start&quot;, handle_etm_start_command,
+ 		COMMAND_EXEC, &quot;start ETM trace collection&quot;);
+-	register_command(cmd_ctx, etm_cmd, &quot;stop&quot;, handle_etm_stop_command,
++	COMMAND_REGISTER(cmd_ctx, etm_cmd, &quot;stop&quot;, handle_etm_stop_command,
+ 		COMMAND_EXEC, &quot;stop ETM trace collection&quot;);
+ 
+-	register_command(cmd_ctx, etm_cmd, &quot;analyze&quot;, handle_etm_analyze_command,
++	COMMAND_REGISTER(cmd_ctx, etm_cmd, &quot;analyze&quot;, handle_etm_analyze_command,
+ 		COMMAND_EXEC, &quot;anaylze collected ETM trace&quot;);
+ 
+-	register_command(cmd_ctx, etm_cmd, &quot;image&quot;, handle_etm_image_command,
++	COMMAND_REGISTER(cmd_ctx, etm_cmd, &quot;image&quot;, handle_etm_image_command,
+ 		COMMAND_EXEC, &quot;load image from &lt;file&gt; [base address]&quot;);
+ 
+-	register_command(cmd_ctx, etm_cmd, &quot;dump&quot;, handle_etm_dump_command,
++	COMMAND_REGISTER(cmd_ctx, etm_cmd, &quot;dump&quot;, handle_etm_dump_command,
+ 		COMMAND_EXEC, &quot;dump captured trace data &lt;file&gt;&quot;);
+-	register_command(cmd_ctx, etm_cmd, &quot;load&quot;, handle_etm_load_command,
++	COMMAND_REGISTER(cmd_ctx, etm_cmd, &quot;load&quot;, handle_etm_load_command,
+ 		COMMAND_EXEC, &quot;load trace data for analysis &lt;file&gt;&quot;);
+ 
+ 	return ERROR_OK;
+diff --git a/src/target/etm_dummy.c b/src/target/etm_dummy.c
+index 7621414..2df8943 100644
+--- a/src/target/etm_dummy.c
++++ b/src/target/etm_dummy.c
+@@ -62,9 +62,9 @@ static int etm_dummy_register_commands(struct command_context *cmd_ctx)
+ {
+ 	struct command *etm_dummy_cmd;
+ 
+-	etm_dummy_cmd = register_command(cmd_ctx, NULL, &quot;etm_dummy&quot;, NULL, COMMAND_ANY, &quot;Dummy ETM capture driver&quot;);
++	etm_dummy_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;etm_dummy&quot;, NULL, COMMAND_ANY, &quot;Dummy ETM capture driver&quot;);
+ 
+-	register_command(cmd_ctx, etm_dummy_cmd, &quot;config&quot;, handle_etm_dummy_config_command, COMMAND_CONFIG, NULL);
++	COMMAND_REGISTER(cmd_ctx, etm_dummy_cmd, &quot;config&quot;, handle_etm_dummy_config_command, COMMAND_CONFIG, NULL);
+ 
+ 	return ERROR_OK;
+ }
+diff --git a/src/target/oocd_trace.c b/src/target/oocd_trace.c
+index 05df258..596a4d6 100644
+--- a/src/target/oocd_trace.c
++++ b/src/target/oocd_trace.c
+@@ -411,12 +411,12 @@ int oocd_trace_register_commands(struct command_context *cmd_ctx)
+ {
+ 	struct command *oocd_trace_cmd;
+ 
+-	oocd_trace_cmd = register_command(cmd_ctx, NULL, &quot;oocd_trace&quot;, NULL, COMMAND_ANY, &quot;OpenOCD + trace&quot;);
++	oocd_trace_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;oocd_trace&quot;, NULL, COMMAND_ANY, &quot;OpenOCD + trace&quot;);
+ 
+-	register_command(cmd_ctx, oocd_trace_cmd, &quot;config&quot;, handle_oocd_trace_config_command, COMMAND_CONFIG, NULL);
++	COMMAND_REGISTER(cmd_ctx, oocd_trace_cmd, &quot;config&quot;, handle_oocd_trace_config_command, COMMAND_CONFIG, NULL);
+ 
+-	register_command(cmd_ctx, oocd_trace_cmd, &quot;status&quot;, handle_oocd_trace_status_command, COMMAND_EXEC, &quot;display OpenOCD + trace status&quot;);
+-	register_command(cmd_ctx, oocd_trace_cmd, &quot;resync&quot;, handle_oocd_trace_resync_command, COMMAND_EXEC, &quot;resync OpenOCD + trace capture clock&quot;);
++	COMMAND_REGISTER(cmd_ctx, oocd_trace_cmd, &quot;status&quot;, handle_oocd_trace_status_command, COMMAND_EXEC, &quot;display OpenOCD + trace status&quot;);
++	COMMAND_REGISTER(cmd_ctx, oocd_trace_cmd, &quot;resync&quot;, handle_oocd_trace_resync_command, COMMAND_EXEC, &quot;resync OpenOCD + trace capture clock&quot;);
+ 
+ 	return ERROR_OK;
+ }
+diff --git a/src/target/target.c b/src/target/target.c
+index 55adcce..2e93382 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -4765,7 +4765,7 @@ static int jim_mcrmrc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ int target_register_commands(struct command_context *cmd_ctx)
+ {
+ 
+-	register_command(cmd_ctx, NULL, &quot;targets&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;targets&quot;,
+ 			handle_targets_command, COMMAND_EXEC,
+ 			&quot;change current command line target (one parameter) &quot;
+ 			&quot;or list targets (no parameters)&quot;);
+@@ -4784,7 +4784,7 @@ int target_register_user_commands(struct command_context *cmd_ctx)
+ 	if ((retval = trace_register_commands(cmd_ctx)) != ERROR_OK)
+ 		return retval;
+ 
+-	register_command(cmd_ctx, NULL, &quot;profile&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;profile&quot;,
+ 			handle_profile_command, COMMAND_EXEC,
+ 			&quot;profiling samples the CPU PC&quot;);
+ 
+@@ -4796,94 +4796,94 @@ int target_register_user_commands(struct command_context *cmd_ctx)
+ 			&quot;convert a TCL array to memory locations and write the values &quot;
+ 			&quot;&lt;ARRAYNAME&gt; &lt;WIDTH = 32/16/8&gt; &lt;ADDRESS&gt; &lt;COUNT&gt;&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;fast_load_image&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;fast_load_image&quot;,
+ 			handle_fast_load_image_command, COMMAND_ANY,
+ 			&quot;same CMD_ARGV as load_image, image stored in memory &quot;
+ 			&quot;- mainly for profiling purposes&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;fast_load&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;fast_load&quot;,
+ 			handle_fast_load_command, COMMAND_ANY,
+ 			&quot;loads active fast load image to current target &quot;
+ 			&quot;- mainly for profiling purposes&quot;);
+ 
+ 	/** @todo don't register virt2phys() unless target supports it */
+-	register_command(cmd_ctx, NULL, &quot;virt2phys&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;virt2phys&quot;,
+ 			handle_virt2phys_command, COMMAND_ANY,
+ 			&quot;translate a virtual address into a physical address&quot;);
+ 
+-	register_command(cmd_ctx,  NULL, &quot;reg&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;reg&quot;,
+ 			handle_reg_command, COMMAND_EXEC,
+ 			&quot;display or set a register&quot;);
+ 
+-	register_command(cmd_ctx,  NULL, &quot;poll&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;poll&quot;,
+ 			handle_poll_command, COMMAND_EXEC,
+ 			&quot;poll target state&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;wait_halt&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;wait_halt&quot;,
+ 			handle_wait_halt_command, COMMAND_EXEC,
+ 			&quot;wait for target halt [time (s)]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;halt&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;halt&quot;,
+ 			handle_halt_command, COMMAND_EXEC,
+ 			&quot;halt target&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;resume&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;resume&quot;,
+ 			handle_resume_command, COMMAND_EXEC,
+ 			&quot;resume target [addr]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;reset&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;reset&quot;,
+ 			handle_reset_command, COMMAND_EXEC,
+ 			&quot;reset target [run | halt | init] - default is run&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;soft_reset_halt&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;soft_reset_halt&quot;,
+ 			handle_soft_reset_halt_command, COMMAND_EXEC,
+ 			&quot;halt the target and do a soft reset&quot;);
+ 
+-	register_command(cmd_ctx,  NULL, &quot;step&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;step&quot;,
+ 			handle_step_command, COMMAND_EXEC,
+ 			&quot;step one instruction from current PC or [addr]&quot;);
+ 
+-	register_command(cmd_ctx,  NULL, &quot;mdw&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;mdw&quot;,
+ 			handle_md_command, COMMAND_EXEC,
+ 			&quot;display memory words [phys] &lt;addr&gt; [count]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;mdh&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;mdh&quot;,
+ 			handle_md_command, COMMAND_EXEC,
+ 			&quot;display memory half-words [phys] &lt;addr&gt; [count]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;mdb&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;mdb&quot;,
+ 			handle_md_command, COMMAND_EXEC,
+ 			&quot;display memory bytes [phys] &lt;addr&gt; [count]&quot;);
+ 
+-	register_command(cmd_ctx,  NULL, &quot;mww&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;mww&quot;,
+ 			handle_mw_command, COMMAND_EXEC,
+ 			&quot;write memory word [phys]  &lt;addr&gt; &lt;value&gt; [count]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;mwh&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;mwh&quot;,
+ 			handle_mw_command, COMMAND_EXEC,
+ 			&quot;write memory half-word [phys]  &lt;addr&gt; &lt;value&gt; [count]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;mwb&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;mwb&quot;,
+ 			handle_mw_command, COMMAND_EXEC,
+ 			&quot;write memory byte [phys] &lt;addr&gt; &lt;value&gt; [count]&quot;);
+ 
+-	register_command(cmd_ctx,  NULL, &quot;bp&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;bp&quot;,
+ 			handle_bp_command, COMMAND_EXEC,
+ 			&quot;list or set breakpoint [&lt;address&gt; &lt;length&gt; [hw]]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;rbp&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;rbp&quot;,
+ 			handle_rbp_command, COMMAND_EXEC,
+ 			&quot;remove breakpoint &lt;address&gt;&quot;);
+ 
+-	register_command(cmd_ctx,  NULL, &quot;wp&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;wp&quot;,
+ 			handle_wp_command, COMMAND_EXEC,
+ 			&quot;list or set watchpoint &quot;
+ 				&quot;[&lt;address&gt; &lt;length&gt; &lt;r/w/a&gt; [value] [mask]]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;rwp&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;rwp&quot;,
+ 			handle_rwp_command, COMMAND_EXEC,
+ 			&quot;remove watchpoint &lt;address&gt;&quot;);
+ 
+-	register_command(cmd_ctx,  NULL, &quot;load_image&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;load_image&quot;,
+ 			handle_load_image_command, COMMAND_EXEC,
+ 			&quot;load_image &lt;file&gt; &lt;address&gt; &quot;
+ 			&quot;['bin'|'ihex'|'elf'|'s19'] [min_address] [max_length]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;dump_image&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;dump_image&quot;,
+ 			handle_dump_image_command, COMMAND_EXEC,
+ 			&quot;dump_image &lt;file&gt; &lt;address&gt; &lt;size&gt;&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;verify_image&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;verify_image&quot;,
+ 			handle_verify_image_command, COMMAND_EXEC,
+ 			&quot;verify_image &lt;file&gt; [offset] [type]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;test_image&quot;,
++	COMMAND_REGISTER(cmd_ctx,  NULL, &quot;test_image&quot;,
+ 			handle_test_image_command, COMMAND_EXEC,
+ 			&quot;test_image &lt;file&gt; [offset] [type]&quot;);
+ 
+diff --git a/src/target/target_request.c b/src/target/target_request.c
+index 583f4c0..a02e2c1 100644
+--- a/src/target/target_request.c
++++ b/src/target/target_request.c
+@@ -303,9 +303,9 @@ COMMAND_HANDLER(handle_target_request_debugmsgs_command)
+ int target_request_register_commands(struct command_context *cmd_ctx)
+ {
+ 	target_request_cmd =
+-		register_command(cmd_ctx, NULL, &quot;target_request&quot;, NULL, COMMAND_ANY, &quot;target_request commands&quot;);
++		COMMAND_REGISTER(cmd_ctx, NULL, &quot;target_request&quot;, NULL, COMMAND_ANY, &quot;target_request commands&quot;);
+ 
+-	register_command(cmd_ctx, target_request_cmd, &quot;debugmsgs&quot;, handle_target_request_debugmsgs_command,
++	COMMAND_REGISTER(cmd_ctx, target_request_cmd, &quot;debugmsgs&quot;, handle_target_request_debugmsgs_command,
+ 		COMMAND_EXEC, &quot;enable/disable reception of debug messages from target&quot;);
+ 
+ 	return ERROR_OK;
+diff --git a/src/target/trace.c b/src/target/trace.c
+index c038a15..c3897a0 100644
+--- a/src/target/trace.c
++++ b/src/target/trace.c
+@@ -159,12 +159,12 @@ COMMAND_HANDLER(handle_trace_history_command)
+ int trace_register_commands(struct command_context *cmd_ctx)
+ {
+ 	struct command *trace_cmd =
+-		register_command(cmd_ctx, NULL, &quot;trace&quot;, NULL, COMMAND_ANY, &quot;trace commands&quot;);
++		COMMAND_REGISTER(cmd_ctx, NULL, &quot;trace&quot;, NULL, COMMAND_ANY, &quot;trace commands&quot;);
+ 
+-	register_command(cmd_ctx, trace_cmd, &quot;history&quot;, handle_trace_history_command,
++	COMMAND_REGISTER(cmd_ctx, trace_cmd, &quot;history&quot;, handle_trace_history_command,
+ 		COMMAND_EXEC, &quot;display trace history, ['clear'] history or set [size]&quot;);
+ 
+-	register_command(cmd_ctx, trace_cmd, &quot;point&quot;, handle_trace_point_command,
++	COMMAND_REGISTER(cmd_ctx, trace_cmd, &quot;point&quot;, handle_trace_point_command,
+ 		COMMAND_EXEC, &quot;display trace points, ['clear'] list of trace points, or add new tracepoint at [address]&quot;);
+ 
+ 	return ERROR_OK;
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index e471ac3..c2b3493 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -3558,27 +3558,27 @@ static int xscale_register_commands(struct command_context *cmd_ctx)
+ {
+ 	struct command *xscale_cmd;
+ 
+-	xscale_cmd = register_command(cmd_ctx, NULL, &quot;xscale&quot;, NULL, COMMAND_ANY, &quot;xscale specific commands&quot;);
++	xscale_cmd = COMMAND_REGISTER(cmd_ctx, NULL, &quot;xscale&quot;, NULL, COMMAND_ANY, &quot;xscale specific commands&quot;);
+ 
+-	register_command(cmd_ctx, xscale_cmd, &quot;debug_handler&quot;, xscale_handle_debug_handler_command, COMMAND_ANY, &quot;'xscale debug_handler &lt;target#&gt; &lt;address&gt;' command takes two required operands&quot;);
+-	register_command(cmd_ctx, xscale_cmd, &quot;cache_clean_address&quot;, xscale_handle_cache_clean_address_command, COMMAND_ANY, NULL);
++	COMMAND_REGISTER(cmd_ctx, xscale_cmd, &quot;debug_handler&quot;, xscale_handle_debug_handler_command, COMMAND_ANY, &quot;'xscale debug_handler &lt;target#&gt; &lt;address&gt;' command takes two required operands&quot;);
++	COMMAND_REGISTER(cmd_ctx, xscale_cmd, &quot;cache_clean_address&quot;, xscale_handle_cache_clean_address_command, COMMAND_ANY, NULL);
+ 
+-	register_command(cmd_ctx, xscale_cmd, &quot;cache_info&quot;, xscale_handle_cache_info_command, COMMAND_EXEC, NULL);
+-	register_command(cmd_ctx, xscale_cmd, &quot;mmu&quot;, xscale_handle_mmu_command, COMMAND_EXEC, &quot;['enable'|'disable'] the MMU&quot;);
+-	register_command(cmd_ctx, xscale_cmd, &quot;icache&quot;, xscale_handle_idcache_command, COMMAND_EXEC, &quot;['enable'|'disable'] the ICache&quot;);
+-	register_command(cmd_ctx, xscale_cmd, &quot;dcache&quot;, xscale_handle_idcache_command, COMMAND_EXEC, &quot;['enable'|'disable'] the DCache&quot;);
++	COMMAND_REGISTER(cmd_ctx, xscale_cmd, &quot;cache_info&quot;, xscale_handle_cache_info_command, COMMAND_EXEC, NULL);
++	COMMAND_REGISTER(cmd_ctx, xscale_cmd, &quot;mmu&quot;, xscale_handle_mmu_command, COMMAND_EXEC, &quot;['enable'|'disable'] the MMU&quot;);
++	COMMAND_REGISTER(cmd_ctx, xscale_cmd, &quot;icache&quot;, xscale_handle_idcache_command, COMMAND_EXEC, &quot;['enable'|'disable'] the ICache&quot;);
++	COMMAND_REGISTER(cmd_ctx, xscale_cmd, &quot;dcache&quot;, xscale_handle_idcache_command, COMMAND_EXEC, &quot;['enable'|'disable'] the DCache&quot;);
+ 
+-	register_command(cmd_ctx, xscale_cmd, &quot;vector_catch&quot;, xscale_handle_vector_catch_command, COMMAND_EXEC, &quot;&lt;mask&gt; of vectors that should be catched&quot;);
+-	register_command(cmd_ctx, xscale_cmd, &quot;vector_table&quot;, xscale_handle_vector_table_command, COMMAND_EXEC, &quot;&lt;high|low&gt; &lt;index&gt; &lt;code&gt; set static code for exception handler entry&quot;);
++	COMMAND_REGISTER(cmd_ctx, xscale_cmd, &quot;vector_catch&quot;, xscale_handle_vector_catch_command, COMMAND_EXEC, &quot;&lt;mask&gt; of vectors that should be catched&quot;);
++	COMMAND_REGISTER(cmd_ctx, xscale_cmd, &quot;vector_table&quot;, xscale_handle_vector_table_command, COMMAND_EXEC, &quot;&lt;high|low&gt; &lt;index&gt; &lt;code&gt; set static code for exception handler entry&quot;);
+ 
+-	register_command(cmd_ctx, xscale_cmd, &quot;trace_buffer&quot;, xscale_handle_trace_buffer_command, COMMAND_EXEC, &quot;&lt;enable | disable&gt; ['fill' [n]|'wrap']&quot;);
++	COMMAND_REGISTER(cmd_ctx, xscale_cmd, &quot;trace_buffer&quot;, xscale_handle_trace_buffer_command, COMMAND_EXEC, &quot;&lt;enable | disable&gt; ['fill' [n]|'wrap']&quot;);
+ 
+-	register_command(cmd_ctx, xscale_cmd, &quot;dump_trace&quot;, xscale_handle_dump_trace_command, COMMAND_EXEC, &quot;dump content of trace buffer to &lt;file&gt;&quot;);
+-	register_command(cmd_ctx, xscale_cmd, &quot;analyze_trace&quot;, xscale_handle_analyze_trace_buffer_command, COMMAND_EXEC, &quot;analyze content of trace buffer&quot;);
+-	register_command(cmd_ctx, xscale_cmd, &quot;trace_image&quot;, xscale_handle_trace_image_command,
++	COMMAND_REGISTER(cmd_ctx, xscale_cmd, &quot;dump_trace&quot;, xscale_handle_dump_trace_command, COMMAND_EXEC, &quot;dump content of trace buffer to &lt;file&gt;&quot;);
++	COMMAND_REGISTER(cmd_ctx, xscale_cmd, &quot;analyze_trace&quot;, xscale_handle_analyze_trace_buffer_command, COMMAND_EXEC, &quot;analyze content of trace buffer&quot;);
++	COMMAND_REGISTER(cmd_ctx, xscale_cmd, &quot;trace_image&quot;, xscale_handle_trace_image_command,
+ 		COMMAND_EXEC, &quot;load image from &lt;file&gt; [base address]&quot;);
+ 
+-	register_command(cmd_ctx, xscale_cmd, &quot;cp15&quot;, xscale_handle_cp15, COMMAND_EXEC, &quot;access coproc 15 &lt;register&gt; [value]&quot;);
++	COMMAND_REGISTER(cmd_ctx, xscale_cmd, &quot;cp15&quot;, xscale_handle_cp15, COMMAND_EXEC, &quot;access coproc 15 &lt;register&gt; [value]&quot;);
+ 
+ 	armv4_5_register_commands(cmd_ctx);
+ 
+diff --git a/src/xsvf/xsvf.c b/src/xsvf/xsvf.c
+index 9af9767..82ddb84 100644
+--- a/src/xsvf/xsvf.c
++++ b/src/xsvf/xsvf.c
+@@ -1052,7 +1052,7 @@ COMMAND_HANDLER(handle_xsvf_command)
+ 
+ int xsvf_register_commands(struct command_context *cmd_ctx)
+ {
+-	register_command(cmd_ctx, NULL, &quot;xsvf&quot;,
++	COMMAND_REGISTER(cmd_ctx, NULL, &quot;xsvf&quot;,
+ 			&amp;handle_xsvf_command, COMMAND_EXEC,
+ 			&quot;run xsvf &lt;file&gt; [virt2] [quiet]&quot;);
+ 
+
+commit f7e1f2df74b599903a6fb2d2ace94c3f1ef06097
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Fri Nov 20 11:30:00 2009 -0800
+
+    add COMMAND_REGISTER macro
+    
+    Provides a migration path for the widely used register_command API,
+    which needs to be updated to provide new functionality.
+    
+    This macro allows the API to change without having to update all of its
+    callers at the same time.
+
+diff --git a/src/helper/command.h b/src/helper/command.h
+index 837b4bd..25c0501 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -207,6 +207,10 @@ struct command* register_command(struct command_context *cmd_ctx,
+ 		command_handler_t handler, enum command_mode mode,
+ 		const char *help);
+ 
++// provide a simple shim, for now; allows parameters to be migrated
++#define COMMAND_REGISTER(_cmd_ctx, _parent, _name, _handler, _mode, _help) \
++		register_command(_cmd_ctx, _parent, _name, _handler, _mode, _help)
++
+ /**
+  * Unregisters command @c name from the given context, @c cmd_ctx.
+  * @param cmd_ctx The context of the registered command.
+
+commit 47cb10217a7bc4b97fa169a821db05f40bc2e51d
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sat Nov 21 19:41:21 2009 -0800
+
+    improve startup tcl scripts
+    
+    Fix a couple of layering violations missed in the last round.
+    Add missing comment headers.
+
+diff --git a/src/helper/startup.tcl b/src/helper/startup.tcl
+index fc84943..845198a 100644
+--- a/src/helper/startup.tcl
++++ b/src/helper/startup.tcl
+@@ -61,10 +61,6 @@ proc unknown {args} {
+ 	return -code error &quot;Unknown command: $args&quot;
+ }
+ 
+-proc new_target_name { } {
+-	return [target number [expr [target count] - 1 ]]
+-}
+-
+ # Try flipping / and \ to find file if the filename does not
+ # match the precise spelling
+ proc find {filename} {
+diff --git a/src/jtag/startup.tcl b/src/jtag/startup.tcl
+index 999f5d0..ab215ba 100644
+--- a/src/jtag/startup.tcl
++++ b/src/jtag/startup.tcl
+@@ -9,6 +9,21 @@ proc jtag_init {} {
+ 	}
+ }
+ 
++# This reset logic may be overridden by board/target/... scripts as needed
++# to provide a reset that, if possible, is close to a power-up reset.
++#
++# Exit requirements include:  (a) JTAG must be working, (b) the scan
++# chain was validated with &quot;jtag arp_init&quot; (or equivalent), (c) nothing
++# stays in reset.  No TAP-specific scans were performed.  It's OK if
++# some targets haven't been reset yet; they may need TAP-specific scans.
++#
++# The &quot;mode&quot; values include:  halt, init, run (from &quot;reset&quot; command);
++# startup (at OpenOCD server startup, when JTAG may not yet work); and
++# potentially more (for reset types like cold, warm, etc)
++proc init_reset { mode } {
++	jtag arp_init-reset
++}
++
+ #########
+ 
+ # TODO: power_restore and power_dropout are currently neither
+diff --git a/src/server/startup.tcl b/src/server/startup.tcl
+index 677bb2d..7801d1b 100644
+--- a/src/server/startup.tcl
++++ b/src/server/startup.tcl
+@@ -1,3 +1,5 @@
++# Defines basic Tcl procs for OpenOCD server modules
++
+ # Handle GDB 'R' packet. Can be overriden by configuration script,
+ # but it's not something one would expect target scripts to do
+ # normally
+diff --git a/src/target/startup.tcl b/src/target/startup.tcl
+index d480f33..b597b84 100644
+--- a/src/target/startup.tcl
++++ b/src/target/startup.tcl
+@@ -1,21 +1,9 @@
+-#########
++# Defines basic Tcl procs for OpenOCD target module
+ 
+-# This reset logic may be overridden by board/target/... scripts as needed
+-# to provide a reset that, if possible, is close to a power-up reset.
+-#
+-# Exit requirements include:  (a) JTAG must be working, (b) the scan
+-# chain was validated with &quot;jtag arp_init&quot; (or equivalent), (c) nothing
+-# stays in reset.  No TAP-specific scans were performed.  It's OK if
+-# some targets haven't been reset yet; they may need TAP-specific scans.
+-#
+-# The &quot;mode&quot; values include:  halt, init, run (from &quot;reset&quot; command);
+-# startup (at OpenOCD server startup, when JTAG may not yet work); and
+-# potentially more (for reset types like cold, warm, etc)
+-proc init_reset { mode } {
+-	jtag arp_init-reset
++proc new_target_name { } {
++	return [target number [expr [target count] - 1 ]]
+ }
+ 
+-
+ global in_process_reset
+ set in_process_reset 0
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/ecosboard.c                     |    2 +-
+ src/flash/at91sam3.c                |    8 +-
+ src/flash/at91sam7.c                |    4 +-
+ src/flash/avrf.c                    |    4 +-
+ src/flash/cfi.c                     |    4 +-
+ src/flash/ecos.c                    |    2 +-
+ src/flash/flash.c                   |   28 ++--
+ src/flash/lpc2000.c                 |    4 +-
+ src/flash/lpc2900.c                 |   54 ++-----
+ src/flash/lpc3180_nand_controller.c |    4 +-
+ src/flash/mflash.c                  |   12 +-
+ src/flash/nand.c                    |   24 ++--
+ src/flash/pic32mx.c                 |   10 +-
+ src/flash/stellaris.c               |    4 +-
+ src/flash/stm32x.c                  |   12 +-
+ src/flash/str7x.c                   |    4 +-
+ src/flash/str9x.c                   |    4 +-
+ src/flash/str9xpec.c                |   24 ++--
+ src/flash/tms470.c                  |    8 +-
+ src/hello.c                         |   10 +-
+ src/helper/command.c                |  311 ++++++++++++++++++++++++++++-------
+ src/helper/command.h                |   89 +++++++++--
+ src/helper/ioutil.c                 |   12 +-
+ src/helper/log.c                    |    4 +-
+ src/helper/startup.tcl              |   21 ---
+ src/jtag/amt_jtagaccel.c            |    4 +-
+ src/jtag/arm-jtag-ew.c              |    2 +-
+ src/jtag/at91rm9200.c               |    2 +-
+ src/jtag/ft2232.c                   |   10 +-
+ src/jtag/gw16012.c                  |    2 +-
+ src/jtag/jlink.c                    |    4 +-
+ src/jtag/parport.c                  |    8 +-
+ src/jtag/presto.c                   |    2 +-
+ src/jtag/startup.tcl                |   15 ++
+ src/jtag/tcl.c                      |   32 ++--
+ src/jtag/vsllink.c                  |   12 +-
+ src/jtag/zy1000/zy1000.c            |    2 +-
+ src/openocd.c                       |    4 +-
+ src/pld/pld.c                       |    8 +-
+ src/pld/virtex2.c                   |    4 +-
+ src/server/gdb_server.c             |   12 +-
+ src/server/server.c                 |    2 +-
+ src/server/startup.tcl              |    2 +
+ src/server/tcl_server.c             |    2 +-
+ src/server/telnet_server.c          |    4 +-
+ src/svf/svf.c                       |    2 +-
+ src/target/arm11.c                  |   14 +-
+ src/target/arm720t.c                |    4 +-
+ src/target/arm7_9_common.c          |    8 +-
+ src/target/arm920t.c                |   12 +-
+ src/target/arm926ejs.c              |    4 +-
+ src/target/arm966e.c                |    4 +-
+ src/target/arm9tdmi.c               |    4 +-
+ src/target/armv4_5.c                |    8 +-
+ src/target/armv7a.c                 |   12 +-
+ src/target/armv7m.c                 |   12 +-
+ src/target/cortex_a8.c              |    6 +-
+ src/target/cortex_m3.c              |    8 +-
+ src/target/etb.c                    |    4 +-
+ src/target/etm.c                    |   24 ++--
+ src/target/etm_dummy.c              |    4 +-
+ src/target/oocd_trace.c             |    8 +-
+ src/target/startup.tcl              |   18 +--
+ src/target/target.c                 |   54 +++---
+ src/target/target_request.c         |    4 +-
+ src/target/trace.c                  |    6 +-
+ src/target/xscale.c                 |   28 ++--
+ src/xsvf/xsvf.c                     |    2 +-
+ 68 files changed, 629 insertions(+), 417 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001857.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-563-gb621090
+</A></li>
+	<LI>Next message: <A HREF="001859.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-584-ge2f23c5
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1858">[ date ]</a>
+              <a href="thread.html#1858">[ thread ]</a>
+              <a href="subject.html#1858">[ subject ]</a>
+              <a href="author.html#1858">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

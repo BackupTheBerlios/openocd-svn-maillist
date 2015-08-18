@@ -1,0 +1,371 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-851-gecd5e5d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-851-gecd5e5d&In-Reply-To=%3Cmailman.61.1331736154.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002575.html">
+   <LINK REL="Next"  HREF="002577.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-851-gecd5e5d</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-851-gecd5e5d&In-Reply-To=%3Cmailman.61.1331736154.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-851-gecd5e5d">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Wed Apr 13 21:34:29 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002575.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-848-g5cc83a8
+</A></li>
+        <LI>Next message: <A HREF="002577.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-852-gf9feeac
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2576">[ date ]</a>
+              <a href="thread.html#2576">[ thread ]</a>
+              <a href="subject.html#2576">[ subject ]</a>
+              <a href="author.html#2576">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  ecd5e5de7f34f4255f4482c66c7c3ddfca0f4804 (commit)
+       via  81f238f522ecba6c24217d94b17086e2d4fcce59 (commit)
+       via  041953f3b1e615ed898068a659d429e20f7a4007 (commit)
+      from  5cc83a880a7041be7307156a0a24e0395a654ccb (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit ecd5e5de7f34f4255f4482c66c7c3ddfca0f4804
+Author: Luca Ellero &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lroluk at gmail.com</A>&gt;
+Date:   Wed Apr 13 18:55:19 2011 +0000
+
+    Replace byte-access to memory with faster word-access
+    
+    Freescale iMX53 doesn't seem to like unaligned accesses to his memory
+    mapped registers.
+    Anyway this patch makes dump_image/load_image 4X faster for every
+    access through APB.
+    
+    Signed-off-by: Luca Ellero &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lroluk at gmail.com</A>&gt;
+
+diff --git a/src/target/cortex_a.c b/src/target/cortex_a.c
+old mode 100644
+new mode 100755
+index 86706cc..934f75a
+--- a/src/target/cortex_a.c
++++ b/src/target/cortex_a.c
+@@ -1450,42 +1450,76 @@ static int cortex_a8_deassert_reset(struct target *target)
+ 	return ERROR_OK;
+ }
+ 
++
+ static int cortex_a8_write_apb_ab_memory(struct target *target,
+                 uint32_t address, uint32_t size,
+                 uint32_t count, const uint8_t *buffer)
+ {
++
++	/* write memory through APB-AP */
++
+ 	int retval = ERROR_INVALID_ARGUMENTS;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct arm *armv4_5 = &amp;armv7a-&gt;armv4_5_common;
+-	int nbytes = count * size;
+-	uint32_t data;
++	int total_bytes = count * size;
++	int start_byte, nbytes_to_write, i;
+ 	struct reg *reg;
++	union _data {
++		uint8_t uc_a[4];
++		uint32_t ui;
++	} data;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+ 		LOG_WARNING(&quot;target not halted&quot;);
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
++
+ 	reg = arm_reg_current(armv4_5, 0);
+ 	reg-&gt;dirty = 1;
+ 	reg = arm_reg_current(armv4_5, 1);
+ 	reg-&gt;dirty = 1;
+-	retval = cortex_a8_dap_write_coreregister_u32(target, address, 0);
++
++	retval = cortex_a8_dap_write_coreregister_u32(target, address &amp; 0xFFFFFFFC, 0);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+-	while (nbytes &gt; 0) {
+-		data = *buffer++;
+-		retval = cortex_a8_dap_write_coreregister_u32(target, data, 1);
++	start_byte = address &amp; 0x3;
++
++	while (total_bytes &gt; 0) {
++
++		nbytes_to_write = 4 - start_byte;
++		if (total_bytes &lt; nbytes_to_write)
++			nbytes_to_write = total_bytes; 
++			
++		if ( nbytes_to_write != 4 ) {
++		
++			/* execute instruction LDR r1, [r0] */
++			retval = cortex_a8_exec_opcode(target,  ARMV4_5_LDR(1, 0), NULL);
++			if (retval != ERROR_OK)
++				return retval;
++
++			retval = cortex_a8_dap_read_coreregister_u32(target, &amp;data.ui, 1);
++			if (retval != ERROR_OK)
++				return retval;
++		}
++	
++		for (i = 0; i &lt; nbytes_to_write; ++i)
++			data.uc_a[i + start_byte] = *buffer++;
++
++		retval = cortex_a8_dap_write_coreregister_u32(target, data.ui, 1);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+ 
+-		/* execute instruction STRB r1, [r0], 1 (0xe4c01001) */
+-		retval = cortex_a8_exec_opcode(target, ARMV4_5_STRB_IP(1, 0) , NULL);
++		/* execute instruction STRW r1, [r0], 1 (0xe4801004) */
++		retval = cortex_a8_exec_opcode(target, ARMV4_5_STRW_IP(1, 0) , NULL);
+ 		if (retval != ERROR_OK)
+-			return retval;
+-		--nbytes;
++				return retval;
++
++		total_bytes -= nbytes_to_write;
++		start_byte = 0;
+ 	}
++
+ 	return retval;
+ }
+ 
+@@ -1494,13 +1528,19 @@ static int cortex_a8_read_apb_ab_memory(struct target *target,
+                 uint32_t address, uint32_t size,
+                 uint32_t count, uint8_t *buffer)
+ {
++
++	/* read memory through APB-AP */
++
+ 	int retval = ERROR_INVALID_ARGUMENTS;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct arm *armv4_5 = &amp;armv7a-&gt;armv4_5_common;
+-	/* read memory through APB-AP */
+-	int nbytes = count * size;
+-	uint32_t data;
++	int total_bytes = count * size;
++	int start_byte, nbytes_to_read, i;
+ 	struct reg *reg;
++	union _data {
++		uint8_t uc_a[4];
++		uint32_t ui;
++	} data;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -1513,26 +1553,34 @@ static int cortex_a8_read_apb_ab_memory(struct target *target,
+ 	reg = arm_reg_current(armv4_5, 1);
+ 	reg-&gt;dirty = 1;
+ 
+-	retval = cortex_a8_dap_write_coreregister_u32(target, address, 0);
++	retval = cortex_a8_dap_write_coreregister_u32(target, address &amp; 0xFFFFFFFC, 0);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+-	while (nbytes &gt; 0) {
++	start_byte = address &amp; 0x3;
+ 
++	while (total_bytes &gt; 0) {
+ 
+-		/* execute instruction LDRB r1, [r0], 1 (0xe4d01001) */
+-		retval = cortex_a8_exec_opcode(target, ARMV4_5_LDRB_IP(1, 0) , NULL);
++		/* execute instruction LDRW r1, [r0], 4 (0xe4901004)  */
++		retval = cortex_a8_exec_opcode(target,  ARMV4_5_LDRW_IP(1, 0), NULL);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+ 
+-		retval = cortex_a8_dap_read_coreregister_u32(target, &amp;data, 1);
++		retval = cortex_a8_dap_read_coreregister_u32(target, &amp;data.ui, 1);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+ 
+-		*buffer++ = data;
+-		--nbytes;
+-
++		nbytes_to_read = 4 - start_byte;
++		if (total_bytes &lt; nbytes_to_read)
++			nbytes_to_read = total_bytes; 
++	
++		for (i = 0; i &lt; nbytes_to_read; ++i)
++			*buffer++ = data.uc_a[i + start_byte];
++			
++		total_bytes -= nbytes_to_read;
++		start_byte = 0;
+ 	}
++
+ 	return retval;
+ }
+ 
+
+commit 81f238f522ecba6c24217d94b17086e2d4fcce59
+Author: Luca Ellero &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lroluk at gmail.com</A>&gt;
+Date:   Wed Apr 13 18:55:18 2011 +0000
+
+    Add opcodes for load/store registers words immediate post-indexed
+    
+    Signed-off-by: Luca Ellero &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lroluk at gmail.com</A>&gt;
+
+diff --git a/src/target/arm_opcodes.h b/src/target/arm_opcodes.h
+old mode 100644
+new mode 100755
+index b77721e..9a48e6d
+--- a/src/target/arm_opcodes.h
++++ b/src/target/arm_opcodes.h
+@@ -86,6 +86,12 @@
+ #define ARMV4_5_MSR_IM(Im, Rotate, Field, R) \
+ 	(0xe320f000 | (Im)  | ((Rotate) &lt;&lt; 8) | ((Field) &lt;&lt; 16) | ((R) &lt;&lt; 22))
+ 
++/* Load Register Word Immediate Post-Index
++ * Rd: register to load
++ * Rn: base register
++ */
++#define ARMV4_5_LDRW_IP(Rd, Rn)	(0xe4900004 | ((Rd) &lt;&lt; 12) | ((Rn) &lt;&lt; 16)) 
++	
+ /* Load Register Halfword Immediate Post-Index
+  * Rd: register to load
+  * Rn: base register
+@@ -98,6 +104,12 @@
+  */
+ #define ARMV4_5_LDRB_IP(Rd, Rn)	(0xe4d00001 | ((Rd) &lt;&lt; 12) | ((Rn) &lt;&lt; 16))
+ 
++/* Store register Word Immediate Post-Index
++ * Rd: register to store
++ * Rn: base register
++ */
++#define ARMV4_5_STRW_IP(Rd, Rn)	(0xe4800004 | ((Rd) &lt;&lt; 12) | ((Rn) &lt;&lt; 16)) 
++
+ /* Store register Halfword Immediate Post-Index
+  * Rd: register to store
+  * Rn: base register
+
+commit 041953f3b1e615ed898068a659d429e20f7a4007
+Author: Luca Ellero &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lroluk at gmail.com</A>&gt;
+Date:   Wed Apr 13 18:55:17 2011 +0000
+
+    Add preliminary support for Freescale iMX53
+    
+    Signed-off-by: Luca Ellero &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lroluk at gmail.com</A>&gt;
+
+diff --git a/tcl/target/imx53.cfg b/tcl/target/imx53.cfg
+new file mode 100644
+index 0000000..b242fd6
+--- /dev/null
++++ b/tcl/target/imx53.cfg
+@@ -0,0 +1,51 @@
++# Freescale i.MX53
++
++if { [info exists CHIPNAME] } {
++   set  _CHIPNAME $CHIPNAME
++} else {
++   set  _CHIPNAME imx53
++}
++
++# CoreSight Debug Access Port
++if { [info exists DAP_TAPID ] } {
++   set _DAP_TAPID $DAP_TAPID
++} else {
++   set _DAP_TAPID 0x1ba00477
++}
++
++jtag newtap $_CHIPNAME DAP -irlen 4 -ircapture 0x1 -irmask 0xf \
++        -expected-id $_DAP_TAPID
++
++# SDMA / no IDCODE
++jtag newtap $_CHIPNAME SDMA -irlen 4 -ircapture 0x0 -irmask 0xf
++
++# SJC
++if { [info exists SJC_TAPID ] } {
++   set _SJC_TAPID SJC_TAPID
++} else {
++   set _SJC_TAPID 0x0190d01d
++}
++
++jtag newtap $_CHIPNAME SJC -irlen 5 -ircapture 0x1 -irmask 0x1f \
++        -expected-id $_SJC_TAPID -ignore-version
++
++# GDB target:  Cortex-A8, using DAP
++set _TARGETNAME $_CHIPNAME.cpu
++target create $_TARGETNAME cortex_a8 -chain-position $_CHIPNAME.DAP
++
++# some TCK tycles are required to activate the DEBUG power domain
++jtag configure $_CHIPNAME.SJC -event post-reset &quot;runtest 100&quot;
++
++# have the DAP &quot;always&quot; be active
++jtag configure $_CHIPNAME.SJC -event setup &quot;jtag tapenable $_CHIPNAME.DAP&quot;
++
++proc imx53_dbginit {target} {
++     # General Cortex A8 debug initialisation
++     cortex_a8 dbginit
++}
++
++# Slow speed to be sure it will work
++jtag_rclk 1000
++$_TARGETNAME configure -event &quot;reset-start&quot; { jtag_rclk 1000 }
++
++$_TARGETNAME configure -event reset-assert-post &quot;imx53_dbginit $_TARGETNAME&quot;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm_opcodes.h            |   12 +++++
+ src/target/cortex_a.c               |   90 ++++++++++++++++++++++++++--------
+ tcl/target/{imx51.cfg =&gt; imx53.cfg} |   10 ++--
+ 3 files changed, 86 insertions(+), 26 deletions(-)
+ mode change 100644 =&gt; 100755 src/target/arm_opcodes.h
+ mode change 100644 =&gt; 100755 src/target/cortex_a.c
+ copy tcl/target/{imx51.cfg =&gt; imx53.cfg} (87%)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002575.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-848-g5cc83a8
+</A></li>
+	<LI>Next message: <A HREF="002577.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-852-gf9feeac
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2576">[ date ]</a>
+              <a href="thread.html#2576">[ thread ]</a>
+              <a href="subject.html#2576">[ subject ]</a>
+              <a href="author.html#2576">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

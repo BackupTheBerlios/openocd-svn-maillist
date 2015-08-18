@@ -1,0 +1,191 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-375-gab3e913
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%200.2.0-375-gab3e913&In-Reply-To=%3CE1MyGe9-0006Pj-4x%40cj8yhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001640.html">
+   <LINK REL="Next"  HREF="001642.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-375-gab3e913</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%200.2.0-375-gab3e913&In-Reply-To=%3CE1MyGe9-0006Pj-4x%40cj8yhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-375-gab3e913">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Thu Oct 15 05:04:54 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001640.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-374-g1a9c531
+</A></li>
+        <LI>Next message: <A HREF="001642.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-376-g82c1c78
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1641">[ date ]</a>
+              <a href="thread.html#1641">[ thread ]</a>
+              <a href="subject.html#1641">[ subject ]</a>
+              <a href="author.html#1641">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  ab3e9131136963201cedbd40afef010bea6b31c0 (commit)
+      from  1a9c531938e55c6b05c1d02a895a2300c7ac1a55 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit ab3e9131136963201cedbd40afef010bea6b31c0
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Wed Oct 14 20:04:33 2009 -0700
+
+    portability updates
+    
+    Based on some patches from &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">redirect.slash.nil at gmail.com</A>&gt;
+    for preliminary Win64 compilation.  More such updates are
+    needed, but they need work.  Compile tested on 64 and 32 bit
+    Linuxes, and Cygwin.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/helper/jim.c b/src/helper/jim.c
+index 48e21e9..dfee1dd 100644
+--- a/src/helper/jim.c
++++ b/src/helper/jim.c
+@@ -4754,7 +4754,7 @@ const char *Jim_GetSharedString(Jim_Interp *interp, const char *str)
+         Jim_AddHashEntry(&amp;interp-&gt;sharedStrings, strCopy, (void*)1);
+         return strCopy;
+     } else {
+-        long refCount = (long) he-&gt;val;
++        intptr_t refCount = (intptr_t) he-&gt;val;
+ 
+         refCount++;
+         he-&gt;val = (void*) refCount;
+@@ -4764,13 +4764,13 @@ const char *Jim_GetSharedString(Jim_Interp *interp, const char *str)
+ 
+ void Jim_ReleaseSharedString(Jim_Interp *interp, const char *str)
+ {
+-    long refCount;
++    intptr_t refCount;
+     Jim_HashEntry *he = Jim_FindHashEntry(&amp;interp-&gt;sharedStrings, str);
+ 
+     if (he == NULL)
+         Jim_Panic(interp,&quot;Jim_ReleaseSharedString called with &quot;
+               &quot;unknown shared string '%s'&quot;, str);
+-    refCount = (long) he-&gt;val;
++    refCount = (intptr_t) he-&gt;val;
+     refCount--;
+     if (refCount == 0) {
+         Jim_DeleteHashEntry(&amp;interp-&gt;sharedStrings, str);
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index 564b93f..415d1e8 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -991,8 +991,9 @@ static bool jtag_examine_chain_match_tap(const struct jtag_tap_s *tap)
+ 		return true;
+ 
+ 	/* Loop over the expected identification codes and test for a match */
+-	uint8_t ii;
+-	for (ii = 0; ii &lt; tap-&gt;expected_ids_cnt; ii++)
++	unsigned ii, limit = tap-&gt;expected_ids_cnt;
++
++	for (ii = 0; ii &lt; limit; ii++)
+ 	{
+ 		if (tap-&gt;idcode == tap-&gt;expected_ids[ii])
+ 			return true;
+@@ -1005,11 +1006,11 @@ static bool jtag_examine_chain_match_tap(const struct jtag_tap_s *tap)
+ 	/* If none of the expected ids matched, warn */
+ 	jtag_examine_chain_display(LOG_LVL_WARNING, &quot;UNEXPECTED&quot;,
+ 			tap-&gt;dotted_name, tap-&gt;idcode);
+-	for (ii = 0; ii &lt; tap-&gt;expected_ids_cnt; ii++)
++	for (ii = 0; ii &lt; limit; ii++)
+ 	{
+ 		char msg[32];
+-		snprintf(msg, sizeof(msg), &quot;expected %hhu of %hhu&quot;,
+-				ii + 1, tap-&gt;expected_ids_cnt);
++
++		snprintf(msg, sizeof(msg), &quot;expected %u of %u&quot;, ii + 1, limit);
+ 		jtag_examine_chain_display(LOG_LVL_ERROR, msg,
+ 				tap-&gt;dotted_name, tap-&gt;expected_ids[ii]);
+ 	}
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 94d5fb1..289d64c 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -1656,10 +1656,10 @@ int arm11_run_algorithm(struct target_s *target, int num_mem_params, mem_param_t
+ //		return ERROR_FAIL;
+ 
+ 	// Save regs
+-	for (size_t i = 0; i &lt; 16; i++)
++	for (unsigned i = 0; i &lt; 16; i++)
+ 	{
+ 		context[i] = buf_get_u32((uint8_t*)(&amp;arm11-&gt;reg_values[i]),0,32);
+-		LOG_DEBUG(&quot;Save %zi: 0x%&quot; PRIx32 &quot;&quot;,i,context[i]);
++		LOG_DEBUG(&quot;Save %u: 0x%&quot; PRIx32 &quot;&quot;, i, context[i]);
+ 	}
+ 
+ 	cpsr = buf_get_u32((uint8_t*)(arm11-&gt;reg_values + ARM11_RC_CPSR),0,32);
+diff --git a/src/target/armv4_5.h b/src/target/armv4_5.h
+index 3c8411f..7ea3826 100644
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -74,7 +74,7 @@ typedef struct armv4_5_common_s
+ {
+ 	int common_magic;
+ 	reg_cache_t *core_cache;
+-	enum armv4_5_mode core_mode;
++	int /* armv4_5_mode */ core_mode;
+ 	enum armv4_5_state core_state;
+ 	bool is_armv4;
+ 	int (*full_context)(struct target_s *target);
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/helper/jim.c     |    6 +++---
+ src/jtag/core.c      |   11 ++++++-----
+ src/target/arm11.c   |    4 ++--
+ src/target/armv4_5.h |    2 +-
+ 4 files changed, 12 insertions(+), 11 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001640.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-374-g1a9c531
+</A></li>
+	<LI>Next message: <A HREF="001642.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-376-g82c1c78
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1641">[ date ]</a>
+              <a href="thread.html#1641">[ thread ]</a>
+              <a href="subject.html#1641">[ subject ]</a>
+              <a href="author.html#1641">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

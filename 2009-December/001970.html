@@ -1,0 +1,338 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-963-g3f18900
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-963-g3f18900&In-Reply-To=%3CE1NLixv-0002KG-C7%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001969.html">
+   <LINK REL="Next"  HREF="001971.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-963-g3f18900</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-963-g3f18900&In-Reply-To=%3CE1NLixv-0002KG-C7%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-963-g3f18900">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Fri Dec 18 20:58:17 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001969.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-959-g85a4136
+</A></li>
+        <LI>Next message: <A HREF="001971.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-970-g3ac2a44
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1970">[ date ]</a>
+              <a href="thread.html#1970">[ thread ]</a>
+              <a href="subject.html#1970">[ subject ]</a>
+              <a href="author.html#1970">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  3f18900b19f49a84ba9df56f2e089c255e610011 (commit)
+       via  013b05f7f813f0d0c15a6bb20068e9423a28bd0d (commit)
+       via  7641934197abbd851127afcb0b7cebc30242f717 (commit)
+       via  12b8c7b89b021c882e68bb0e28863c802fe36ac4 (commit)
+      from  85a4136d0baccf5c3b8f717710584f7faed0ca30 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 3f18900b19f49a84ba9df56f2e089c255e610011
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Dec 18 10:16:52 2009 -0800
+
+    NOR FLASH: only erase/unlock whole sectors
+    
+    Much to my surprise, I observed a &quot;flash erase_address ...&quot;
+    command erasing data which I said should not be erased.
+    
+    The issue turns out to be generic NOR flash code which was
+    silently, and rather dangerously, morphing partial-sector
+    references into unrequested whole-sector ones.
+    
+    This patch removes that low-level morphing.  If desired, it
+    can and should be done in higher level code.  (We might need
+    to fix some stuff in the GDB server code.)
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/NEWS b/NEWS
+index 498797b..2d01f00 100644
+--- a/NEWS
++++ b/NEWS
+@@ -39,6 +39,8 @@ Flash Layer:
+ 		- &lt;bank_name&gt;: reference the bank with its defined name
+ 		- &lt;driver_name&gt;[.N]: reference the driver's Nth bank
+ 	New 'nand verify' command to check bank against an image file.
++	The &quot;flash erase_address&quot; command now rejects partial sectors;
++		previously it would silently erase extra data.
+ 
+ Board, Target, and Interface Configuration Scripts:
+ 	ARM9
+diff --git a/src/flash/nor/core.c b/src/flash/nor/core.c
+index c2ea134..1873dee 100644
+--- a/src/flash/nor/core.c
++++ b/src/flash/nor/core.c
+@@ -279,11 +279,13 @@ int default_flash_blank_check(struct flash_bank *bank)
+ 
+ 	return ERROR_OK;
+ }
++
+ /* erase given flash region, selects proper bank according to target and address */
+ static int flash_iterate_address_range(struct target *target, uint32_t addr, uint32_t length,
+ 		int (*callback)(struct flash_bank *bank, int first, int last))
+ {
+ 	struct flash_bank *c;
++	uint32_t last_addr = addr + length;	/* first address AFTER end */
+ 	int first = -1;
+ 	int last = -1;
+ 	int i;
+@@ -306,26 +308,52 @@ static int flash_iterate_address_range(struct target *target, uint32_t addr, uin
+ 		return callback(c, 0, c-&gt;num_sectors - 1);
+ 	}
+ 
+-	/* check whether it fits */
++	/* check whether it all fits in this bank */
+ 	if (addr + length - 1 &gt; c-&gt;base + c-&gt;size - 1)
+ 		return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+ 
++	/** @todo: handle erasures that cross into adjacent banks */
++
+ 	addr -= c-&gt;base;
+ 
+ 	for (i = 0; i &lt; c-&gt;num_sectors; i++)
+ 	{
+-		/* check whether sector overlaps with the given range and is not yet erased */
+-		if (addr &lt; c-&gt;sectors[i].offset + c-&gt;sectors[i].size &amp;&amp; addr + length &gt; c-&gt;sectors[i].offset &amp;&amp; c-&gt;sectors[i].is_erased != 1) {
+-			/* if first is not set yet then this is the first sector */
+-			if (first == -1)
++		struct flash_sector *f = c-&gt;sectors + i;
++
++		/* start only on a sector boundary */
++		if (first &lt; 0) {
++			/* is this the first sector? */
++			if (addr == f-&gt;offset)
+ 				first = i;
+-			last = i; /* and it is the last one so far in any case */
++			else if (addr &lt; f-&gt;offset)
++				break;
+ 		}
++
++		/* is this (also?) the last sector? */
++		if (last_addr == f-&gt;offset + f-&gt;size) {
++			last = i;
++			break;
++		}
++
++		/* MUST finish on a sector boundary */
++		if (last_addr &lt;= f-&gt;offset)
++			break;
+ 	}
+ 
+-	if (first == -1 || last == -1)
+-		return ERROR_OK;
++	/* invalid start or end address? */
++	if (first == -1 || last == -1) {
++		LOG_ERROR(&quot;address range 0x%8.8x .. 0x%8.8x &quot;
++				&quot;is not sector-aligned&quot;,
++				(unsigned) c-&gt;base + addr,
++				(unsigned) last_addr - 1);
++		return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
++	}
+ 
++	/* The NOR driver may trim this range down, based on
++	 * whether or not a given sector is already erased.
++	 *
++	 * REVISIT should *we* trim it... ?
++	 */
+ 	return callback(c, first, last);
+ }
+ 
+
+commit 013b05f7f813f0d0c15a6bb20068e9423a28bd0d
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Dec 18 10:09:35 2009 -0800
+
+    Subject: flash fill[bwh] should use bulk i/o
+    
+    It's currently allocating a big buffer but writing it out in
+    units of sizeof(host's pointer) ... sub-optimal.
+    
+    Plus fix a couple minor coding style goofs.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/flash/nor/tcl.c b/src/flash/nor/tcl.c
+index 1e933b2..b5e1b2c 100644
+--- a/src/flash/nor/tcl.c
++++ b/src/flash/nor/tcl.c
+@@ -534,14 +534,16 @@ COMMAND_HANDLER(handle_flash_fill_command)
+ 
+ 	for (wrote = 0; wrote &lt; (count*wordsize); wrote += cur_size)
+ 	{
+-		cur_size = MIN((count*wordsize - wrote), sizeof(chunk));
+ 		struct flash_bank *bank;
++
+ 		bank = get_flash_bank_by_addr(target, address);
+ 		if (bank == NULL)
+ 		{
+ 			retval = ERROR_FAIL;
+ 			goto done;
+ 		}
++
++		cur_size = MIN((count * wordsize - wrote), chunksize);
+ 		err = flash_driver_write(bank, chunk, address - bank-&gt;base + wrote, cur_size);
+ 		if (err != ERROR_OK)
+ 		{
+@@ -576,7 +578,7 @@ COMMAND_HANDLER(handle_flash_fill_command)
+ 				duration_elapsed(&amp;bench), duration_kbps(&amp;bench, wrote));
+ 	}
+ 
+-	done:
++done:
+ 	free(readback);
+ 	free(chunk);
+ 
+
+commit 7641934197abbd851127afcb0b7cebc30242f717
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Dec 18 09:59:40 2009 -0800
+
+    stellaris: fix min buffer length checks
+    
+    Word count == size/4; cope.  And increase buf_min so it's large
+    enough to cover the overhead in my tests.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/flash/nor/stellaris.c b/src/flash/nor/stellaris.c
+index 51fe677..f414ca6 100644
+--- a/src/flash/nor/stellaris.c
++++ b/src/flash/nor/stellaris.c
+@@ -826,10 +826,10 @@ static int stellaris_write_block(struct flash_bank *bank,
+ 	int retval = ERROR_OK;
+ 
+ 	/* power of two, and multiple of word size */
+-	static const unsigned buf_min = 32;
++	static const unsigned buf_min = 128;
+ 
+ 	/* for small buffers it's faster not to download an algorithm */
+-	if (wcount &lt; buf_min)
++	if (wcount * 4 &lt; buf_min)
+ 		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+ 
+ 	LOG_DEBUG(&quot;(bank=%p buffer=%p offset=%08&quot; PRIx32 &quot; wcount=%08&quot; PRIx32 &quot;&quot;,
+@@ -843,11 +843,8 @@ static int stellaris_write_block(struct flash_bank *bank,
+ 	};
+ 
+ 	/* plus a buffer big enough for this data */
+-	if (wcount &lt; buffer_size) {
+-		buffer_size = wcount;
+-		buffer_size += buf_min - 1;
+-		buffer_size &amp;= ~(buf_min - 1);
+-	}
++	if (wcount * 4 &lt; buffer_size)
++		buffer_size = wcount * 4;
+ 
+ 	/* memory buffer */
+ 	while (target_alloc_working_area(target, buffer_size, &amp;source) != ERROR_OK)
+
+commit 12b8c7b89b021c882e68bb0e28863c802fe36ac4
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Dec 18 09:53:59 2009 -0800
+
+    XScale: better {read,write}_phys()
+    
+    We can actually do the right thing if the MMU is off; save
+    the error message for the phys-but-MMU-enabled path, which
+    is what isn't yet supported.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 4cf5aeb..f1afc71 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -1905,7 +1905,13 @@ static int xscale_read_memory(struct target *target, uint32_t address,
+ static int xscale_read_phys_memory(struct target *target, uint32_t address,
+ 		uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+-	/** \todo: provide a non-stub implementtion of this routine. */
++	struct xscale_common *xscale = target_to_xscale(target);
++
++	/* with MMU inactive, there are only physical addresses */
++	if (!xscale-&gt;armv4_5_mmu.mmu_enabled)
++		return xscale_read_memory(target, address, size, count, buffer);
++
++	/** \todo: provide a non-stub implementation of this routine. */
+ 	LOG_ERROR(&quot;%s: %s is not implemented.  Disable MMU?&quot;,
+ 			target_name(target), __func__);
+ 	return ERROR_FAIL;
+@@ -1992,7 +1998,13 @@ static int xscale_write_memory(struct target *target, uint32_t address,
+ static int xscale_write_phys_memory(struct target *target, uint32_t address,
+ 		uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+-	/** \todo: provide a non-stub implementtion of this routine. */
++	struct xscale_common *xscale = target_to_xscale(target);
++
++	/* with MMU inactive, there are only physical addresses */
++	if (!xscale-&gt;armv4_5_mmu.mmu_enabled)
++		return xscale_read_memory(target, address, size, count, buffer);
++
++	/** \todo: provide a non-stub implementation of this routine. */
+ 	LOG_ERROR(&quot;%s: %s is not implemented.  Disable MMU?&quot;,
+ 			target_name(target), __func__);
+ 	return ERROR_FAIL;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ NEWS                      |    2 ++
+ src/flash/nor/core.c      |   44 ++++++++++++++++++++++++++++++++++++--------
+ src/flash/nor/stellaris.c |   11 ++++-------
+ src/flash/nor/tcl.c       |    6 ++++--
+ src/target/xscale.c       |   16 ++++++++++++++--
+ 5 files changed, 60 insertions(+), 19 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001969.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-959-g85a4136
+</A></li>
+	<LI>Next message: <A HREF="001971.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-970-g3ac2a44
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1970">[ date ]</a>
+              <a href="thread.html#1970">[ thread ]</a>
+              <a href="subject.html#1970">[ subject ]</a>
+              <a href="author.html#1970">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

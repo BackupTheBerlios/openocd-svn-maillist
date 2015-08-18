@@ -1,0 +1,151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2769 - in trunk: doc/manual src/server
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2769%20-%20in%20trunk%3A%20doc/manual%20src/server&In-Reply-To=%3C200909291346.n8TDkRa5022484%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001551.html">
+   <LINK REL="Next"  HREF="001553.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2769 - in trunk: doc/manual src/server</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2769%20-%20in%20trunk%3A%20doc/manual%20src/server&In-Reply-To=%3C200909291346.n8TDkRa5022484%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2769 - in trunk: doc/manual src/server">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Tue Sep 29 15:46:27 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001551.html">[Openocd-svn] r2768 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="001553.html">[Openocd-svn] r2770 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1552">[ date ]</a>
+              <a href="thread.html#1552">[ thread ]</a>
+              <a href="subject.html#1552">[ subject ]</a>
+              <a href="author.html#1552">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-09-29 15:46:26 +0200 (Tue, 29 Sep 2009)
+New Revision: 2769
+
+Modified:
+   trunk/doc/manual/server.txt
+   trunk/src/server/httpd.c
+Log:
+httpd smoketest info
+
+Modified: trunk/doc/manual/server.txt
+===================================================================
+--- trunk/doc/manual/server.txt	2009-09-29 06:07:50 UTC (rev 2768)
++++ trunk/doc/manual/server.txt	2009-09-29 13:46:26 UTC (rev 2769)
+@@ -311,6 +311,15 @@
+ 
+ /** @page serverhttp OpenOCD HTTP Server API
+ 
+-This section needs to be expanded.
+ 
++Smoketest:
++
++configure --enable-httpd --enable-dummy --enable-ioutil
++
++openocd -s /usr/local/share/openocd -f httpd/httpd.tcl -f interface/dummy.cfg -f target/lpc2148.cfg
++
++Navigate to: <A HREF="http://localhost:8888/">http://localhost:8888/</A>
++
++ 
++
+  */
+
+Modified: trunk/src/server/httpd.c
+===================================================================
+--- trunk/src/server/httpd.c	2009-09-29 06:07:50 UTC (rev 2768)
++++ trunk/src/server/httpd.c	2009-09-29 13:46:26 UTC (rev 2769)
+@@ -1,9 +1,7 @@
+ /***************************************************************************
+- *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
++ *   Copyright (C) 2007,2008,2009 &#216;yvind Harboe                            *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
+  *                                                                         *
+- *   Copyright (C) 2008 Free Software Foundation
+- *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -198,6 +196,7 @@
+ 		const char *data, size_t off, size_t size)
+ {
+ 	Jim_Obj *keyObj = Jim_NewStringObj(interp, key, -1);
++	Jim_IncrRefCount(keyObj);
+ 	Jim_Obj *value = NULL;
+ 
+ 	Jim_Obj *dict = Jim_GetVariableStr(interp, &quot;httppostdata&quot;, 0);
+@@ -208,16 +207,32 @@
+ 		{
+ 			 value = NULL;
+ 		}
++		else
++		{
++			Jim_IncrRefCount(value);
++		}
+ 	}
++
+ 	if (value == NULL)
++	{
+ 		value = Jim_NewStringObj(interp, &quot;&quot;, -1);
++		Jim_IncrRefCount(value);
+ 
++	}
++
+ 	/* create a new object we append to and insert into this location */
+ 	Jim_Obj *newObj = Jim_NewStringObj(interp, &quot;&quot;, -1);
++	Jim_IncrRefCount(newObj);
+ 	Jim_AppendObj(interp, newObj, value);
+ 	Jim_AppendString(interp, newObj, data, size);
+ 	/* uhh... use name here of dictionary */
+-	Jim_SetDictKeysVector(interp, Jim_NewStringObj(interp, &quot;httppostdata&quot;, -1), &amp;keyObj, 1, newObj);
++	dict = Jim_NewStringObj(interp, &quot;httppostdata&quot;, -1);
++	Jim_IncrRefCount(dict);
++	Jim_SetDictKeysVector(interp, dict, &amp;keyObj, 1, newObj);
++	Jim_DecrRefCount(interp, dict);
++	Jim_DecrRefCount(interp, value);
++	Jim_DecrRefCount(interp, newObj);
++	Jim_DecrRefCount(interp, keyObj);
+ }
+ 
+ /* append data to each key */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001551.html">[Openocd-svn] r2768 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="001553.html">[Openocd-svn] r2770 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1552">[ date ]</a>
+              <a href="thread.html#1552">[ thread ]</a>
+              <a href="subject.html#1552">[ subject ]</a>
+              <a href="author.html#1552">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

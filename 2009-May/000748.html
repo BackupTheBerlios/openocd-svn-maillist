@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1964 - in trunk/src: server target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1964%20-%20in%20trunk/src%3A%20server%20target&In-Reply-To=%3C200905311131.n4VBV5b3011878%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000747.html">
+   <LINK REL="Next"  HREF="000749.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1964 - in trunk/src: server target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1964%20-%20in%20trunk/src%3A%20server%20target&In-Reply-To=%3C200905311131.n4VBV5b3011878%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1964 - in trunk/src: server target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Sun May 31 13:31:05 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000747.html">[Openocd-svn] r1963 - in trunk/src: flash target
+</A></li>
+        <LI>Next message: <A HREF="000749.html">[Openocd-svn] r1965 - in trunk/src: server target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#748">[ date ]</a>
+              <a href="thread.html#748">[ thread ]</a>
+              <a href="subject.html#748">[ subject ]</a>
+              <a href="author.html#748">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-31 13:30:59 +0200 (Sun, 31 May 2009)
+New Revision: 1964
+
+Modified:
+   trunk/src/server/gdb_server.c
+   trunk/src/target/target.c
+   trunk/src/target/target.h
+Log:
+Add target_get_gdb_reg_list wrapper:
+- replaces all calls to target-&gt;type-&gt;get_gdb_reg_list.
+- add documentation in target_s to warn not to invoke callback directly.
+
+
+Modified: trunk/src/server/gdb_server.c
+===================================================================
+--- trunk/src/server/gdb_server.c	2009-05-31 09:39:04 UTC (rev 1963)
++++ trunk/src/server/gdb_server.c	2009-05-31 11:30:59 UTC (rev 1964)
+@@ -947,7 +947,7 @@
+ 	LOG_DEBUG(&quot;-&quot;);
+ #endif
+ 
+-	if ((retval = target-&gt;type-&gt;get_gdb_reg_list(target, &amp;reg_list, &amp;reg_list_size)) != ERROR_OK)
++	if ((retval = target_get_gdb_reg_list(target, &amp;reg_list, &amp;reg_list_size)) != ERROR_OK)
+ 	{
+ 		return gdb_error(connection, retval);
+ 	}
+@@ -1005,7 +1005,7 @@
+ 		return ERROR_SERVER_REMOTE_CLOSED;
+ 	}
+ 
+-	if ((retval = target-&gt;type-&gt;get_gdb_reg_list(target, &amp;reg_list, &amp;reg_list_size)) != ERROR_OK)
++	if ((retval = target_get_gdb_reg_list(target, &amp;reg_list, &amp;reg_list_size)) != ERROR_OK)
+ 	{
+ 		return gdb_error(connection, retval);
+ 	}
+@@ -1057,7 +1057,7 @@
+ 	LOG_DEBUG(&quot;-&quot;);
+ #endif
+ 
+-	if ((retval = target-&gt;type-&gt;get_gdb_reg_list(target, &amp;reg_list, &amp;reg_list_size)) != ERROR_OK)
++	if ((retval = target_get_gdb_reg_list(target, &amp;reg_list, &amp;reg_list_size)) != ERROR_OK)
+ 	{
+ 		return gdb_error(connection, retval);
+ 	}
+@@ -1092,7 +1092,7 @@
+ 
+ 	LOG_DEBUG(&quot;-&quot;);
+ 
+-	if ((retval = target-&gt;type-&gt;get_gdb_reg_list(target, &amp;reg_list, &amp;reg_list_size)) != ERROR_OK)
++	if ((retval = target_get_gdb_reg_list(target, &amp;reg_list, &amp;reg_list_size)) != ERROR_OK)
+ 	{
+ 		return gdb_error(connection, retval);
+ 	}
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-05-31 09:39:04 UTC (rev 1963)
++++ trunk/src/target/target.c	2009-05-31 11:30:59 UTC (rev 1964)
+@@ -543,6 +543,12 @@
+ }
+ 
+ 
++int target_get_gdb_reg_list(struct target_s *target,
++		struct reg_s **reg_list[], int *reg_list_size)
++{
++	return target-&gt;type-&gt;get_gdb_reg_list(target, reg_list, reg_list_size);
++}
++
+ int target_run_algorithm(struct target_s *target,
+ 		int num_mem_params, mem_param_t *mem_params,
+ 		int num_reg_params, reg_param_t *reg_param,
+
+Modified: trunk/src/target/target.h
+===================================================================
+--- trunk/src/target/target.h	2009-05-31 09:39:04 UTC (rev 1963)
++++ trunk/src/target/target.h	2009-05-31 11:30:59 UTC (rev 1964)
+@@ -151,7 +151,9 @@
+ 	int (*soft_reset_halt_imp)(struct target_s *target);
+ 	int (*soft_reset_halt)(struct target_s *target);
+ 
+-	/* target register access for gdb.
++	/**
++	 * Target register access for GDB.  Do @b not call this function
++	 * directly, use target_get_gdb_reg_list() instead.
+ 	 *
+ 	 * Danger! this function will succeed even if the target is running
+ 	 * and return a register list with dummy values.
+@@ -401,6 +403,14 @@
+ extern void target_reset_examined(struct target_s *target);
+ 
+ /**
++ * Obtain the registers for GDB.
++ *
++ * This routine is a wrapper for target-&gt;type-&gt;get_gdb_reg_list.
++ */
++extern int target_get_gdb_reg_list(struct target_s *target,
++		struct reg_s **reg_list[], int *reg_list_size);
++
++/**
+  * Run an algorithm on the @a target given.
+  *
+  * This routine is a wrapper for target-&gt;type-&gt;run_algorithm.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000747.html">[Openocd-svn] r1963 - in trunk/src: flash target
+</A></li>
+	<LI>Next message: <A HREF="000749.html">[Openocd-svn] r1965 - in trunk/src: server target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#748">[ date ]</a>
+              <a href="thread.html#748">[ thread ]</a>
+              <a href="subject.html#748">[ subject ]</a>
+              <a href="author.html#748">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

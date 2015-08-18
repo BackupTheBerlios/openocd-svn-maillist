@@ -1,0 +1,330 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1735 - in trunk/src: jtag target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1735%20-%20in%20trunk/src%3A%20jtag%20target&In-Reply-To=%3C200905110839.n4B8doRN003250%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000518.html">
+   <LINK REL="Next"  HREF="000520.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1735 - in trunk/src: jtag target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1735%20-%20in%20trunk/src%3A%20jtag%20target&In-Reply-To=%3C200905110839.n4B8doRN003250%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1735 - in trunk/src: jtag target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Mon May 11 10:39:50 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000518.html">[Openocd-svn] r1734 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000520.html">[Openocd-svn] r1736 - zy1000/trunk/build/include
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#519">[ date ]</a>
+              <a href="thread.html#519">[ thread ]</a>
+              <a href="subject.html#519">[ subject ]</a>
+              <a href="author.html#519">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-05-11 10:39:49 +0200 (Mon, 11 May 2009)
+New Revision: 1735
+
+Modified:
+   trunk/src/jtag/jtag.c
+   trunk/src/jtag/jtag.h
+   trunk/src/target/arm7tdmi.c
+   trunk/src/target/arm9tdmi.c
+Log:
+change jtag_add_callback API to be able to support check_value/mask
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-05-11 08:26:42 UTC (rev 1734)
++++ trunk/src/jtag/jtag.c	2009-05-11 08:39:49 UTC (rev 1735)
+@@ -77,7 +77,7 @@
+ 	u8 *in;
+ 	jtag_callback_data_t data1;
+ 	jtag_callback_data_t data2;
+-
++	jtag_callback_data_t data3;
+ };
+ 
+ 
+@@ -725,6 +725,62 @@
+ 		jtag_error=retval;
+ }
+ 
++
++int jtag_check_value_inner(u8 *captured, u8 *in_check_value, u8 *in_check_mask, int num_bits);
++
++static int jtag_check_value_mask_callback(u8 *in, jtag_callback_data_t data1, jtag_callback_data_t data2, jtag_callback_data_t data3)
++{
++	return jtag_check_value_inner(in, (u8 *)data1, (u8 *)data2, (int)data3);
++}
++
++void jtag_add_dr_scan_check(int num_fields, scan_field_t *fields, tap_state_t state)
++{
++	for (int i=0; i&lt;num_fields; i++)
++	{
++		fields[i].allocated=0;
++		fields[i].modified=0;
++		if ((fields[i].check_value!=NULL)&amp;&amp;(fields[i].in_value==NULL))
++		{
++			fields[i].modified=1;
++			/* we need storage space... */
++#ifdef HAVE_JTAG_MINIDRIVER_H
++			if (fields[i].num_bits&lt;=32)
++			{
++				/* This is enough space and we're executing this synchronously */
++				fields[i].in_value=(u8 *)&amp;fields[i].intmp;
++			} else
++			{
++				fields[i].in_value=(u8 *)malloc(CEIL(fields[i].num_bits, 8));
++				fields[i].allocated=1;
++			}
++#else
++			fields[i].in_value=(u8 *)cmd_queue_alloc(CEIL(fields[i].num_bits, 8));
++#endif
++		}
++	}
++
++	jtag_add_dr_scan(num_fields, fields, state);
++
++	for (int i=0; i&lt;num_fields; i++)
++	{
++		if ((fields[i].check_value!=NULL)&amp;&amp;(fields[i].in_value!=NULL))
++		{
++			/* this is synchronous for a minidriver */
++			jtag_add_callback4(jtag_check_value_mask_callback, fields[i].in_value, fields[i].check_value, fields[i].check_mask, (jtag_callback_data_t)fields[i].num_bits);
++		}
++		if (fields[i].allocated)
++		{
++			free(fields[i].in_value);
++		}
++		if (fields[i].modified)
++		{
++			fields[i].in_value=NULL;
++		}
++	}
++
++
++}
++
+ void jtag_add_dr_scan_now(int num_fields, scan_field_t *fields, tap_state_t state)
+ {
+ 	jtag_add_dr_scan(num_fields, fields, state);
+@@ -1362,10 +1418,9 @@
+ 	return (tap == NULL) ? &quot;(unknown)&quot; : tap-&gt;dotted_name;
+ }
+ 
+-int jtag_check_value_inner(u8 *captured, scan_field_t *field, u8 *in_check_value, u8 *in_check_mask)
++int jtag_check_value_inner(u8 *captured, u8 *in_check_value, u8 *in_check_mask, int num_bits)
+ {
+ 	int retval = ERROR_OK;
+-	int num_bits = field-&gt;num_bits;
+ 
+ 	int compare_failed = 0;
+ 
+@@ -1379,8 +1434,10 @@
+ 		 * only report a problem when there wasn't a handler, or if the handler
+ 		 * acknowledged the error
+ 		 */
++		/*
+ 		LOG_WARNING(&quot;TAP %s:&quot;,
+ 					jtag_tap_name(field-&gt;tap));
++					*/
+ 		if (compare_failed)
+ 		{
+ 			char *captured_char = buf_to_str(captured, (num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : num_bits, 16);
+@@ -1422,7 +1479,7 @@
+ 
+ 	jtag_execute_queue_noclear();
+ 
+-	int retval=jtag_check_value_inner(field-&gt;in_value, field, value, mask);
++	int retval=jtag_check_value_inner(field-&gt;in_value, value, mask, field-&gt;num_bits);
+ 	jtag_set_error(retval);
+ }
+ 
+@@ -1447,7 +1504,7 @@
+ 
+ #ifndef HAVE_JTAG_MINIDRIVER_H
+ /* add callback to end of queue */
+-void jtag_add_callback3(jtag_callback_t callback, u8 *in, jtag_callback_data_t data1, jtag_callback_data_t data2)
++void jtag_add_callback4(jtag_callback_t callback, u8 *in, jtag_callback_data_t data1, jtag_callback_data_t data2, jtag_callback_data_t data3)
+ {
+ 	struct jtag_callback_entry *entry=cmd_queue_alloc(sizeof(struct jtag_callback_entry));
+ 
+@@ -1456,6 +1513,7 @@
+ 	entry-&gt;in=in;
+ 	entry-&gt;data1=data1;
+ 	entry-&gt;data2=data2;
++	entry-&gt;data3=data3;
+ 
+ 	if (jtag_callback_queue_head==NULL)
+ 	{
+@@ -1469,7 +1527,7 @@
+ }
+ 
+ 
+-static int jtag_convert_to_callback3(u8 *in, jtag_callback_data_t data1, jtag_callback_data_t data2)
++static int jtag_convert_to_callback4(u8 *in, jtag_callback_data_t data1, jtag_callback_data_t data2, jtag_callback_data_t data3)
+ {
+ 	((jtag_callback1_t)data1)(in);
+ 	return ERROR_OK;
+@@ -1477,7 +1535,7 @@
+ 
+ void jtag_add_callback(jtag_callback1_t callback, u8 *in)
+ {
+-	jtag_add_callback3(jtag_convert_to_callback3, in, (jtag_callback_data_t)callback, 0);
++	jtag_add_callback4(jtag_convert_to_callback4, in, (jtag_callback_data_t)callback, 0, 0);
+ }
+ #endif
+ 
+@@ -1500,7 +1558,7 @@
+ 		struct jtag_callback_entry *entry;
+ 		for (entry=jtag_callback_queue_head; entry!=NULL; entry=entry-&gt;next)
+ 		{
+-			retval=entry-&gt;callback(entry-&gt;in, entry-&gt;data1, entry-&gt;data2);
++			retval=entry-&gt;callback(entry-&gt;in, entry-&gt;data1, entry-&gt;data2, entry-&gt;data3);
+ 			if (retval!=ERROR_OK)
+ 				break;
+ 		}
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-05-11 08:26:42 UTC (rev 1734)
++++ trunk/src/jtag/jtag.h	2009-05-11 08:39:49 UTC (rev 1735)
+@@ -269,6 +269,15 @@
+ 	int         num_bits;           /* number of bits this field specifies (up to 32) */
+ 	u8*         out_value;          /* value to be scanned into the device */
+ 	u8*         in_value;           /* pointer to a 32-bit memory location to take data scanned out */
++
++	u8*         check_value;        /* Used together with jtag_add_dr_scan_check() to check data clocked
++	                                   in */
++	u8*         check_mask;         /* mask to go with check_value */
++
++	/* internal work space */
++	int			allocated;			/* in_value has been allocated for the queue */
++	int			modified;			/* did we modify the in_value? */
++	u32			intmp;				/* temporary storage for checking synchronously */
+ } scan_field_t;
+ 
+ enum scan_type {
+@@ -555,6 +564,9 @@
+ extern void jtag_add_ir_scan_noverify(int num_fields, scan_field_t *fields, tap_state_t state);
+ extern int  interface_jtag_add_ir_scan(int num_fields, scan_field_t* fields, tap_state_t endstate);
+ extern void jtag_add_dr_scan(int num_fields, scan_field_t* fields, tap_state_t endstate);
++
++/* This version of jtag_add_dr_scan() uses the check_value/mask fields */
++extern void jtag_add_dr_scan_check(int num_fields, scan_field_t* fields, tap_state_t endstate);
+ /* same as jtag_add_dr_scan but the scan is executed immediately. sets jtag_error if there
+  * was a failure.
+  */
+@@ -573,7 +585,7 @@
+ typedef void (*jtag_callback1_t)(u8 *in);
+ 
+ #ifndef HAVE_JTAG_MINIDRIVER_H
+-/* A simpler version of jtag_add_callback3 */
++/* A simpler version of jtag_add_callback4 */
+ extern void jtag_add_callback(jtag_callback1_t, u8 *in);
+ #else
+ /* implemented by minidriver */
+@@ -588,7 +600,7 @@
+  * The callback is invoked with three arguments. The first argument is
+  * the pointer to the data clocked in.
+  */
+-typedef int (*jtag_callback_t)(u8 *in, jtag_callback_data_t data1, jtag_callback_data_t data2);
++typedef int (*jtag_callback_t)(u8 *in, jtag_callback_data_t data1, jtag_callback_data_t data2, jtag_callback_data_t data3);
+ 
+ 
+ /* This callback can be executed immediately the queue has been flushed. Note that
+@@ -623,7 +635,7 @@
+  * callbacks may or may not be invoked depending on driver implementation.
+  */
+ #ifndef HAVE_JTAG_MINIDRIVER_H
+-extern void jtag_add_callback3(jtag_callback_t, u8 *in, jtag_callback_data_t data1, jtag_callback_data_t data2);
++extern void jtag_add_callback4(jtag_callback_t, u8 *in, jtag_callback_data_t data1, jtag_callback_data_t data2, jtag_callback_data_t data3);
+ #else
+ /* implemented by minidriver */
+ #endif
+
+Modified: trunk/src/target/arm7tdmi.c
+===================================================================
+--- trunk/src/target/arm7tdmi.c	2009-05-11 08:26:42 UTC (rev 1734)
++++ trunk/src/target/arm7tdmi.c	2009-05-11 08:39:49 UTC (rev 1735)
+@@ -244,7 +244,7 @@
+ 	}
+ }
+ 
+-static int arm7endianness(u8 *in, jtag_callback_data_t size, jtag_callback_data_t be)
++static int arm7endianness(u8 *in, jtag_callback_data_t size, jtag_callback_data_t be, jtag_callback_data_t dummy)
+ {
+ 	arm_endianness(in, in, (int)size, (int)be, 1);
+ 	return ERROR_OK;
+@@ -278,7 +278,7 @@
+ 
+ 	jtag_add_dr_scan(2, fields, TAP_INVALID);
+ 
+-	jtag_add_callback3(arm7endianness, in, (jtag_callback_data_t)size, (jtag_callback_data_t)be);
++	jtag_add_callback4(arm7endianness, in, (jtag_callback_data_t)size, (jtag_callback_data_t)be, NULL);
+ 
+ 	jtag_add_runtest(0, TAP_INVALID);
+ 
+
+Modified: trunk/src/target/arm9tdmi.c
+===================================================================
+--- trunk/src/target/arm9tdmi.c	2009-05-11 08:26:42 UTC (rev 1734)
++++ trunk/src/target/arm9tdmi.c	2009-05-11 08:39:49 UTC (rev 1735)
+@@ -291,7 +291,7 @@
+ 
+ extern void arm_endianness(u8 *tmp, void *in, int size, int be, int flip);
+ 
+-static int arm9endianness(u8 *in, jtag_callback_data_t size, jtag_callback_data_t be)
++static int arm9endianness(u8 *in, jtag_callback_data_t size, jtag_callback_data_t be, jtag_callback_data_t dummy)
+ {
+ 	arm_endianness(in, in, (int)size, (int)be, 0);
+ 	return ERROR_OK;
+@@ -331,7 +331,7 @@
+ 
+ 	jtag_add_dr_scan(3, fields, TAP_INVALID);
+ 
+-	jtag_add_callback3(arm9endianness, in, (jtag_callback_data_t)size, (jtag_callback_data_t)be);
++	jtag_add_callback4(arm9endianness, in, (jtag_callback_data_t)size, (jtag_callback_data_t)be, 0);
+ 
+ 	jtag_add_runtest(0, TAP_INVALID);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000518.html">[Openocd-svn] r1734 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000520.html">[Openocd-svn] r1736 - zy1000/trunk/build/include
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#519">[ date ]</a>
+              <a href="thread.html#519">[ thread ]</a>
+              <a href="subject.html#519">[ subject ]</a>
+              <a href="author.html#519">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

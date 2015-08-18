@@ -1,0 +1,150 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-137-g1350b6a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-137-g1350b6a&In-Reply-To=%3CE1NXyTf-0006Ve-TF%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002057.html">
+   <LINK REL="Next"  HREF="002059.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-137-g1350b6a</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-137-g1350b6a&In-Reply-To=%3CE1NXyTf-0006Ve-TF%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-137-g1350b6a">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Thu Jan 21 15:57:41 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002057.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-136-g60cb5bd
+</A></li>
+        <LI>Next message: <A HREF="002059.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-139-gdfba7fa
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2058">[ date ]</a>
+              <a href="thread.html#2058">[ thread ]</a>
+              <a href="subject.html#2058">[ subject ]</a>
+              <a href="author.html#2058">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  1350b6aad074c1556604c5969dee43f294371461 (commit)
+      from  60cb5bdd30ec3265cbb5c1c667f5c98cbbb84aab (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 1350b6aad074c1556604c5969dee43f294371461
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Wed Jan 20 23:36:57 2010 +0100
+
+    gdb_server: handle stepi/continue packet while target is running with more grace
+    
+    Rather than issuing a halt and then stepi/resume, just
+    wait for target to halt.
+    
+    Issue a sterner warning via gdb console that any gdb
+    register changes will be ignored in this case.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index f3e0575..17ca439 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -2212,12 +2212,13 @@ static int gdb_input_inner(struct connection *connection)
+ 						log_add_callback(gdb_log_callback, connection);
+ 
+ 						bool nostep = false;
++						bool already_running = false;
+ 						if (target-&gt;state == TARGET_RUNNING)
+ 						{
+-							LOG_WARNING(&quot;The target is already running. Halt target before stepi/continue.&quot;);
+-							retval = target_halt(target);
+-							if (retval == ERROR_OK)
+-								retval = target_wait_state(target, TARGET_HALTED, 100);
++							LOG_WARNING(&quot;WARNING! The target is already running. &quot;
++									&quot;All changes GDB did to registers will be discarded! &quot;
++									&quot;Waiting for target to halt.&quot;);
++							already_running = true;
+ 						} else if (target-&gt;state != TARGET_HALTED)
+ 						{
+ 							LOG_WARNING(&quot;The target is not in the halted nor running stated, stepi/continue ignored.&quot;);
+@@ -2233,7 +2234,7 @@ static int gdb_input_inner(struct connection *connection)
+ 						}
+ 						gdb_con-&gt;sync = false;
+ 
+-						if ((retval!=ERROR_OK) || nostep)
++						if ((retval!=ERROR_OK) || (!already_running &amp;&amp; nostep))
+ 						{
+ 							/* Either the target isn't in the halted state, then we can't
+ 							 * step/continue. This might be early setup, etc.
+@@ -2253,11 +2254,15 @@ static int gdb_input_inner(struct connection *connection)
+ 							 */
+ 							gdb_con-&gt;frontend_state = TARGET_RUNNING;
+ 							target_call_event_callbacks(target, TARGET_EVENT_GDB_START);
+-							int retval = gdb_step_continue_packet(connection, target, packet, packet_size);
+-							if (retval != ERROR_OK)
++
++							if (!already_running)
+ 							{
+-								/* we'll never receive a halted condition... issue a false one.. */
+-								gdb_frontend_halted(target, connection);
++								int retval = gdb_step_continue_packet(connection, target, packet, packet_size);
++								if (retval != ERROR_OK)
++								{
++									/* we'll never receive a halted condition... issue a false one.. */
++									gdb_frontend_halted(target, connection);
++								}
+ 							}
+ 						}
+ 					}
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/server/gdb_server.c |   23 ++++++++++++++---------
+ 1 files changed, 14 insertions(+), 9 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002057.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-136-g60cb5bd
+</A></li>
+	<LI>Next message: <A HREF="002059.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-139-gdfba7fa
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2058">[ date ]</a>
+              <a href="thread.html#2058">[ thread ]</a>
+              <a href="subject.html#2058">[ subject ]</a>
+              <a href="author.html#2058">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,1156 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-557-g96f0ab8
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-557-g96f0ab8&In-Reply-To=%3CE1NCyoW-0006ks-EN%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001853.html">
+   <LINK REL="Next"  HREF="001855.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-557-g96f0ab8</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-557-g96f0ab8&In-Reply-To=%3CE1NCyoW-0006ks-EN%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-557-g96f0ab8">zwelch at users.sourceforge.net
+       </A><BR>
+    <I>Tue Nov 24 18:04:27 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001853.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-549-g3efc99b
+</A></li>
+        <LI>Next message: <A HREF="001855.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-558-g5507b5f
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1854">[ date ]</a>
+              <a href="thread.html#1854">[ thread ]</a>
+              <a href="subject.html#1854">[ subject ]</a>
+              <a href="author.html#1854">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  96f0ab894adf606526325cd0b0d0c25413d448b8 (commit)
+       via  31fc1586a064b8631956095cb029290e1dc6625f (commit)
+       via  9a21ef7614d6de4b3c03db625eca07c0eed045c3 (commit)
+       via  ec5e484fd60d1f4ea1f476b57520f4e7e73e8de4 (commit)
+       via  de9a182ca6e29611181fec95cff539fd329bdd2e (commit)
+       via  0f544f4310dcd9e056f668f5ddceaad5d7725801 (commit)
+       via  d836b079b413e8cbd30267a741f09b6c6f44f378 (commit)
+       via  3a660e229301c905392a0b2826e5ebf08c4e01b9 (commit)
+      from  3efc99b34a934cb4d657ec27a164769c46c10f28 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 96f0ab894adf606526325cd0b0d0c25413d448b8
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 19 12:57:32 2009 -0800
+
+    jlink: rewrite to use jtag_usb_open
+    
+    Rewrite jlink_usb_open to use jtag_usb_open helper.
+
+diff --git a/src/jtag/jlink.c b/src/jtag/jlink.c
+index 8f1d112..f173ed7 100644
+--- a/src/jtag/jlink.c
++++ b/src/jtag/jlink.c
+@@ -27,8 +27,7 @@
+ 
+ #include &quot;interface.h&quot;
+ #include &quot;commands.h&quot;
+-
+-#include &lt;usb.h&gt;
++#include &quot;usb_common.h&quot;
+ 
+ 
+ #define VID 0x1366
+@@ -818,53 +817,17 @@ static int jlink_tap_execute(void)
+ 	return ERROR_OK;
+ }
+ 
+-static struct usb_device* find_jlink_device(void)
+-{
+-	struct usb_bus *busses;
+-	struct usb_bus *bus;
+-	struct usb_device *dev;
+-
+-	usb_find_busses();
+-	usb_find_devices();
+-
+-	busses = usb_get_busses();
+-
+-	/* find jlink device in usb bus */
+-
+-	for (bus = busses; bus; bus = bus-&gt;next)
+-	{
+-		for (dev = bus-&gt;devices; dev; dev = dev-&gt;next)
+-		{
+-			if ((dev-&gt;descriptor.idVendor == VID) &amp;&amp; (dev-&gt;descriptor.idProduct == PID)) {
+-				return dev;
+-			}
+-		}
+-	}
+-
+-	return NULL;
+-}
+-
+ /*****************************************************************************/
+ /* JLink USB low-level functions */
+ 
+ static struct jlink* jlink_usb_open()
+ {
+-	struct usb_device *dev;
+-
+-	struct jlink *result;
+-
+-	result = (struct jlink*) malloc(sizeof(struct jlink));
+-
+ 	usb_init();
+ 
+-	if ((dev = find_jlink_device()) == NULL) {
+-		free(result);
+-		return NULL;
+-	}
+-
+-	result-&gt;usb_handle = usb_open(dev);
+-
+-	if (NULL == result-&gt;usb_handle)
++	const uint16_t vids[] = { VID, 0 };
++	const uint16_t pids[] = { PID, 0 };
++	struct usb_dev_handle *dev;
++	if (jtag_usb_open(vids, pids, &amp;dev) != ERROR_OK)
+ 		return NULL;
+ 
+ 	/* BE ***VERY CAREFUL*** ABOUT MAKING CHANGES IN THIS
+@@ -880,15 +843,15 @@ static struct jlink* jlink_usb_open()
+ 
+ #if IS_WIN32 == 0
+ 
+-	usb_reset(result-&gt;usb_handle);
++	usb_reset(dev);
+ 
+ #if IS_DARWIN == 0
+ 
+ 	int timeout = 5;
+-
+ 	/* reopen jlink after usb_reset
+ 	 * on win32 this may take a second or two to re-enumerate */
+-	while ((dev = find_jlink_device()) == NULL)
++	int retval;
++	while ((retval = jtag_usb_open(vids, pids, &amp;dev)) != ERROR_OK)
+ 	{
+ 		usleep(1000);
+ 		timeout--;
+@@ -896,27 +859,16 @@ static struct jlink* jlink_usb_open()
+ 			break;
+ 		}
+ 	}
+-
+-	if (dev == NULL)
+-	{
+-		free(result);
++	if (ERROR_OK != retval)
+ 		return NULL;
+-	}
+-
+-	result-&gt;usb_handle = usb_open(dev);
+ #endif
+ 
+ #endif
+ 
+-	if (NULL == result-&gt;usb_handle)
+-	{
+-		free(result);
+-		return NULL;
+-	}
+-
+ 	/* usb_set_configuration required under win32 */
+-	usb_set_configuration(result-&gt;usb_handle, dev-&gt;config[0].bConfigurationValue);
+-	usb_claim_interface(result-&gt;usb_handle, 0);
++	struct usb_device *udev = usb_device(dev);
++	usb_set_configuration(dev, udev-&gt;config[0].bConfigurationValue);
++	usb_claim_interface(dev, 0);
+ 
+ #if 0
+ 	/*
+@@ -925,7 +877,7 @@ static struct jlink* jlink_usb_open()
+ 	 */
+ 	usb_set_altinterface(result-&gt;usb_handle, 0);
+ #endif
+-	struct usb_interface *iface = dev-&gt;config-&gt;interface;
++	struct usb_interface *iface = udev-&gt;config-&gt;interface;
+ 	struct usb_interface_descriptor *desc = iface-&gt;altsetting;
+ 	for (int i = 0; i &lt; desc-&gt;bNumEndpoints; i++)
+ 	{
+@@ -938,6 +890,8 @@ static struct jlink* jlink_usb_open()
+ 			jlink_write_ep = epnum;
+ 	}
+ 
++	struct jlink *result = malloc(sizeof(struct jlink));
++	result-&gt;usb_handle = dev;
+ 	return result;
+ }
+ 
+
+commit 31fc1586a064b8631956095cb029290e1dc6625f
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 19 12:41:25 2009 -0800
+
+    jlink: remove superfluous indentation
+    
+    Rewrite logic to remove indentation in jlink_usb_open, in prep
+    for further surgery.
+
+diff --git a/src/jtag/jlink.c b/src/jtag/jlink.c
+index ebc9acd..8f1d112 100644
+--- a/src/jtag/jlink.c
++++ b/src/jtag/jlink.c
+@@ -864,78 +864,81 @@ static struct jlink* jlink_usb_open()
+ 
+ 	result-&gt;usb_handle = usb_open(dev);
+ 
+-	if (result-&gt;usb_handle)
+-	{
++	if (NULL == result-&gt;usb_handle)
++		return NULL;
+ 
+-		/* BE ***VERY CAREFUL*** ABOUT MAKING CHANGES IN THIS AREA!!!!!!!!!!!
+-		 * The behavior of libusb is not completely consistent across Windows, Linux, and Mac OS X platforms.  The actions taken
+-		 * in the following compiler conditionals may not agree with published documentation for libusb, but were found
+-		 * to be necessary through trials and tribulations.  Even little tweaks can break one or more platforms, so if you do make changes
+-		 * test them carefully on all platforms before committing them!
+-		 */
++	/* BE ***VERY CAREFUL*** ABOUT MAKING CHANGES IN THIS
++	 * AREA!!!!!!!!!!!  The behavior of libusb is not completely
++	 * consistent across Windows, Linux, and Mac OS X platforms.
++	 * The actions taken in the following compiler conditionals may
++	 * not agree with published documentation for libusb, but were
++	 * found to be necessary through trials and tribulations.  Even
++	 * little tweaks can break one or more platforms, so if you do
++	 * make changes test them carefully on all platforms before
++	 * committing them!
++	 */
+ 
+ #if IS_WIN32 == 0
+ 
+-		usb_reset(result-&gt;usb_handle);
++	usb_reset(result-&gt;usb_handle);
+ 
+ #if IS_DARWIN == 0
+ 
+-		int timeout = 5;
++	int timeout = 5;
+ 
+-		/* reopen jlink after usb_reset
+-		 * on win32 this may take a second or two to re-enumerate */
+-		while ((dev = find_jlink_device()) == NULL)
+-		{
+-			usleep(1000);
+-			timeout--;
+-			if (!timeout) {
+-				break;
+-			}
++	/* reopen jlink after usb_reset
++	 * on win32 this may take a second or two to re-enumerate */
++	while ((dev = find_jlink_device()) == NULL)
++	{
++		usleep(1000);
++		timeout--;
++		if (!timeout) {
++			break;
+ 		}
++	}
+ 
+-		if (dev == NULL)
+-		{
+-			free(result);
+-			return NULL;
+-		}
++	if (dev == NULL)
++	{
++		free(result);
++		return NULL;
++	}
+ 
+-		result-&gt;usb_handle = usb_open(dev);
++	result-&gt;usb_handle = usb_open(dev);
+ #endif
+ 
+ #endif
+ 
+-		if (result-&gt;usb_handle)
+-		{
+-			/* usb_set_configuration required under win32 */
+-			usb_set_configuration(result-&gt;usb_handle, dev-&gt;config[0].bConfigurationValue);
+-			usb_claim_interface(result-&gt;usb_handle, 0);
++	if (NULL == result-&gt;usb_handle)
++	{
++		free(result);
++		return NULL;
++	}
++
++	/* usb_set_configuration required under win32 */
++	usb_set_configuration(result-&gt;usb_handle, dev-&gt;config[0].bConfigurationValue);
++	usb_claim_interface(result-&gt;usb_handle, 0);
+ 
+ #if 0
+-			/*
+-			 * This makes problems under Mac OS X. And is not needed
+-			 * under Windows. Hopefully this will not break a linux build
+-			 */
+-			usb_set_altinterface(result-&gt;usb_handle, 0);
++	/*
++	 * This makes problems under Mac OS X. And is not needed
++	 * under Windows. Hopefully this will not break a linux build
++	 */
++	usb_set_altinterface(result-&gt;usb_handle, 0);
+ #endif
+-			struct usb_interface *iface = dev-&gt;config-&gt;interface;
+-			struct usb_interface_descriptor *desc = iface-&gt;altsetting;
+-			for (int i = 0; i &lt; desc-&gt;bNumEndpoints; i++)
+-			{
+-				uint8_t epnum = desc-&gt;endpoint[i].bEndpointAddress;
+-				bool is_input = epnum &amp; 0x80;
+-				LOG_DEBUG(&quot;usb ep %s %02x&quot;, is_input ? &quot;in&quot; : &quot;out&quot;, epnum);
+-				if (is_input)
+-					jlink_read_ep = epnum;
+-				else
+-					jlink_write_ep = epnum;
+-			}
+-
+-			return result;
+-		}
++	struct usb_interface *iface = dev-&gt;config-&gt;interface;
++	struct usb_interface_descriptor *desc = iface-&gt;altsetting;
++	for (int i = 0; i &lt; desc-&gt;bNumEndpoints; i++)
++	{
++		uint8_t epnum = desc-&gt;endpoint[i].bEndpointAddress;
++		bool is_input = epnum &amp; 0x80;
++		LOG_DEBUG(&quot;usb ep %s %02x&quot;, is_input ? &quot;in&quot; : &quot;out&quot;, epnum);
++		if (is_input)
++			jlink_read_ep = epnum;
++		else
++			jlink_write_ep = epnum;
+ 	}
+ 
+-	free(result);
+-	return NULL;
++	return result;
+ }
+ 
+ static void jlink_usb_close(struct jlink *jlink)
+
+commit 9a21ef7614d6de4b3c03db625eca07c0eed045c3
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 19 12:25:16 2009 -0800
+
+    rlink: use jtag_usb_open helper
+    
+    Rewrite rlink_init routine to use jtag_usb_open helper.  Eliminates
+    some spurious calls to exit().
+    
+    Wraps a tremendously long line of comment to fit 80 columns too.
+
+diff --git a/src/jtag/rlink/rlink.c b/src/jtag/rlink/rlink.c
+index 2cdc70a..6fb721d 100644
+--- a/src/jtag/rlink/rlink.c
++++ b/src/jtag/rlink/rlink.c
+@@ -34,9 +34,7 @@
+ #include &quot;st7.h&quot;
+ #include &quot;ep1_cmd.h&quot;
+ #include &quot;dtc_cmd.h&quot;
+-
+-/* system includes */
+-#include &lt;usb.h&gt;
++#include &quot;usb_common.h&quot;
+ 
+ 
+ /* This feature is made useless by running the DTC all the time.  When automatic, the LED is on whenever the DTC is running.  Otherwise, USB messages are sent to turn it on and off. */
+@@ -1616,103 +1614,72 @@ int rlink_register_commands(struct command_context *cmd_ctx)
+ static
+ int rlink_init(void)
+ {
+-	struct usb_bus *busses;
+-	struct usb_bus *bus;
+ 	int i, j, retries;
+-	int found = 0;
+-	int success = 0;
+ 	uint8_t reply_buffer[USB_EP1IN_SIZE];
+ 
+ 	usb_init();
+-	usb_find_busses();
+-	usb_find_devices();
+-
+-	busses = usb_get_busses();
++	const uint16_t vids[] = { USB_IDVENDOR, 0 };
++	const uint16_t pids[] = { USB_IDPRODUCT, 0 };
++	if (jtag_usb_open(vids, pids, &amp;pHDev) != ERROR_OK)
++		return ERROR_FAIL;
+ 
+-	for (bus = busses; bus; bus = bus-&gt;next)
++	struct usb_device *dev = usb_device(pHDev);
++	if (dev-&gt;descriptor.bNumConfigurations &gt; 1)
+ 	{
+-		struct usb_device *dev;
+-
+-		for (dev = bus-&gt;devices; dev; dev = dev-&gt;next)
+-		{
+-			if ((dev-&gt;descriptor.idVendor != USB_IDVENDOR) ||
+-				(dev-&gt;descriptor.idProduct != USB_IDPRODUCT))
+-			{
+-				continue;
+-			}
+-			found = 1;
+-			LOG_DEBUG(&quot;Found device on bus.\n&quot;);
+-
+-			if (dev-&gt;descriptor.bNumConfigurations &gt; 1)
+-			{
+-				LOG_ERROR(&quot;Whoops! NumConfigurations is not 1, don't know what to do...\n&quot;);
+-				break;
+-			}
+-			if (dev-&gt;config-&gt;bNumInterfaces &gt; 1)
+-			{
+-				LOG_ERROR(&quot;Whoops! NumInterfaces is not 1, don't know what to do...\n&quot;);
+-				break;
+-			}
++		LOG_ERROR(&quot;Whoops! NumConfigurations is not 1, don't know what to do...\n&quot;);
++		return ERROR_FAIL;
++	}
++	if (dev-&gt;config-&gt;bNumInterfaces &gt; 1)
++	{
++		LOG_ERROR(&quot;Whoops! NumInterfaces is not 1, don't know what to do...\n&quot;);
++		return ERROR_FAIL;
++	}
+ 
+-			pHDev = usb_open(dev);
+-			if (!pHDev)
+-			{
+-				LOG_ERROR (&quot;Failed to open device.\n&quot;);
+-				break;
+-			}
+-			LOG_DEBUG(&quot;Opened device, pHDev = %p\n&quot;,pHDev);
++	LOG_DEBUG(&quot;Opened device, pHDev = %p\n&quot;, pHDev);
+ 
+-			/* usb_set_configuration required under win32 */
+-			usb_set_configuration(pHDev, dev-&gt;config[0].bConfigurationValue);
++	/* usb_set_configuration required under win32 */
++	usb_set_configuration(pHDev, dev-&gt;config[0].bConfigurationValue);
+ 
+-			retries = 3;
+-			do
+-			{
+-				i = usb_claim_interface(pHDev,0);
+-				if (i)
+-				{
+-					LOG_ERROR(&quot;usb_claim_interface: %s&quot;, usb_strerror());
++	retries = 3;
++	do
++	{
++		i = usb_claim_interface(pHDev,0);
++		if (i)
++		{
++			LOG_ERROR(&quot;usb_claim_interface: %s&quot;, usb_strerror());
+ #ifdef LIBUSB_HAS_DETACH_KERNEL_DRIVER_NP
+-					j = usb_detach_kernel_driver_np(pHDev, 0);
+-					if (j)
+-						LOG_ERROR(&quot;detach kernel driver: %s&quot;, usb_strerror());
++			j = usb_detach_kernel_driver_np(pHDev, 0);
++			if (j)
++				LOG_ERROR(&quot;detach kernel driver: %s&quot;, usb_strerror());
+ #endif
+-				}
+-				else
+-				{
+-					LOG_DEBUG(&quot;interface claimed!\n&quot;);
+-					break;
+-				}
+-			} while (--retries);
+-
+-			if (!i)
+-			{
+-				if (usb_set_altinterface(pHDev,0))
+-				{
+-					LOG_ERROR(&quot;Failed to set interface.\n&quot;);
+-					break;
+-				}
+-				else
+-					success = 1;
+-			}
+ 		}
+-	}
++		else
++		{
++			LOG_DEBUG(&quot;interface claimed!\n&quot;);
++			break;
++		}
++	} while (--retries);
+ 
+-	if (!found)
++	if (i)
+ 	{
+-		LOG_ERROR(&quot;No device found on bus.\n&quot;);
+-		exit(1);
++		LOG_ERROR(&quot;Initialisation failed.&quot;);
++		return ERROR_FAIL;
+ 	}
+-
+-	if (!success)
++	if (usb_set_altinterface(pHDev,0) != 0)
+ 	{
+-		LOG_ERROR(&quot;Initialisation failed.&quot;);
+-		exit(1);
++		LOG_ERROR(&quot;Failed to set interface.\n&quot;);
++		return ERROR_FAIL;
+ 	}
+ 
+-
+-	/* The device starts out in an unknown state on open.  As such, result reads time out, and it's not even known whether the command was accepted.  So, for this first command, we issue it repeatedly until its response doesn't time out.  Also, if sending a command is going to time out, we'll find that out here. */
+-	/* It must be possible to open the device in such a way that this special magic isn't needed, but, so far, it escapes us. */
++	/* The device starts out in an unknown state on open.  As such,
++	 * result reads time out, and it's not even known whether the
++	 * command was accepted.  So, for this first command, we issue
++	 * it repeatedly until its response doesn't time out.  Also, if
++	 * sending a command is going to time out, we find that out here.
++	 *
++	 * It must be possible to open the device in such a way that
++	 * this special magic isn't needed, but, so far, it escapes us.
++	 */
+ 	for (i = 0; i &lt; 5; i++) {
+ 		j = ep1_generic_commandl(
+ 			pHDev, 1,
+
+commit ec5e484fd60d1f4ea1f476b57520f4e7e73e8de4
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 19 12:12:21 2009 -0800
+
+    rlink: eliminate spurious indentation
+    
+    Rework rlink_init to use less indentation.  Best viewed with diff -w.
+
+diff --git a/src/jtag/rlink/rlink.c b/src/jtag/rlink/rlink.c
+index c88067c..2cdc70a 100644
+--- a/src/jtag/rlink/rlink.c
++++ b/src/jtag/rlink/rlink.c
+@@ -1635,66 +1635,65 @@ int rlink_init(void)
+ 
+ 		for (dev = bus-&gt;devices; dev; dev = dev-&gt;next)
+ 		{
+-			if ((dev-&gt;descriptor.idVendor == USB_IDVENDOR) &amp;&amp; (dev-&gt;descriptor.idProduct == USB_IDPRODUCT))
++			if ((dev-&gt;descriptor.idVendor != USB_IDVENDOR) ||
++				(dev-&gt;descriptor.idProduct != USB_IDPRODUCT))
+ 			{
+-				found = 1;
+-				LOG_DEBUG(&quot;Found device on bus.\n&quot;);
++				continue;
++			}
++			found = 1;
++			LOG_DEBUG(&quot;Found device on bus.\n&quot;);
+ 
+-				do
+-				{
+-					if (dev-&gt;descriptor.bNumConfigurations &gt; 1)
+-					{
+-						LOG_ERROR(&quot;Whoops! NumConfigurations is not 1, don't know what to do...\n&quot;);
+-						break;
+-					}
+-					if (dev-&gt;config-&gt;bNumInterfaces &gt; 1)
+-					{
+-						LOG_ERROR(&quot;Whoops! NumInterfaces is not 1, don't know what to do...\n&quot;);
+-						break;
+-					}
++			if (dev-&gt;descriptor.bNumConfigurations &gt; 1)
++			{
++				LOG_ERROR(&quot;Whoops! NumConfigurations is not 1, don't know what to do...\n&quot;);
++				break;
++			}
++			if (dev-&gt;config-&gt;bNumInterfaces &gt; 1)
++			{
++				LOG_ERROR(&quot;Whoops! NumInterfaces is not 1, don't know what to do...\n&quot;);
++				break;
++			}
++
++			pHDev = usb_open(dev);
++			if (!pHDev)
++			{
++				LOG_ERROR (&quot;Failed to open device.\n&quot;);
++				break;
++			}
++			LOG_DEBUG(&quot;Opened device, pHDev = %p\n&quot;,pHDev);
++
++			/* usb_set_configuration required under win32 */
++			usb_set_configuration(pHDev, dev-&gt;config[0].bConfigurationValue);
+ 
+-					pHDev = usb_open(dev);
+-					if (!pHDev)
+-						LOG_ERROR (&quot;Failed to open device.\n&quot;);
+-					else
+-					{
+-						LOG_DEBUG(&quot;Opened device, pHDev = %p\n&quot;,pHDev);
+-
+-						/* usb_set_configuration required under win32 */
+-						usb_set_configuration(pHDev, dev-&gt;config[0].bConfigurationValue);
+-
+-						retries = 3;
+-						do
+-						{
+-							i = usb_claim_interface(pHDev,0);
+-							if (i)
+-							{
+-								LOG_ERROR(&quot;usb_claim_interface: %s&quot;, usb_strerror());
++			retries = 3;
++			do
++			{
++				i = usb_claim_interface(pHDev,0);
++				if (i)
++				{
++					LOG_ERROR(&quot;usb_claim_interface: %s&quot;, usb_strerror());
+ #ifdef LIBUSB_HAS_DETACH_KERNEL_DRIVER_NP
+-								j = usb_detach_kernel_driver_np(pHDev, 0);
+-								if (j)
+-									LOG_ERROR(&quot;detach kernel driver: %s&quot;, usb_strerror());
++					j = usb_detach_kernel_driver_np(pHDev, 0);
++					if (j)
++						LOG_ERROR(&quot;detach kernel driver: %s&quot;, usb_strerror());
+ #endif
+-							}
+-							else
+-							{
+-								LOG_DEBUG(&quot;interface claimed!\n&quot;);
+-								break;
+-							}
+-						} while (--retries);
+-
+-						if (!i)
+-						{
+-							if (usb_set_altinterface(pHDev,0))
+-							{
+-								LOG_ERROR(&quot;Failed to set interface.\n&quot;);
+-								break;
+-							}
+-							else
+-								success = 1;
+-						}
+-					}
+-				} while (0);
++				}
++				else
++				{
++					LOG_DEBUG(&quot;interface claimed!\n&quot;);
++					break;
++				}
++			} while (--retries);
++
++			if (!i)
++			{
++				if (usb_set_altinterface(pHDev,0))
++				{
++					LOG_ERROR(&quot;Failed to set interface.\n&quot;);
++					break;
++				}
++				else
++					success = 1;
+ 			}
+ 		}
+ 	}
+
+commit de9a182ca6e29611181fec95cff539fd329bdd2e
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 19 12:11:03 2009 -0800
+
+    vsllink: rewrite to use jtag_usb_open
+    
+    Rewrite vsllink_usb_open to use jtag_usb_open helper.
+    
+    Eliminates spurious calls to exit().
+
+diff --git a/src/jtag/vsllink.c b/src/jtag/vsllink.c
+index 7962249..d28854d 100644
+--- a/src/jtag/vsllink.c
++++ b/src/jtag/vsllink.c
+@@ -28,9 +28,7 @@
+ 
+ #include &quot;interface.h&quot;
+ #include &quot;commands.h&quot;
+-
+-#include &lt;usb.h&gt;
+-
++#include &quot;usb_common.h&quot;
+ 
+ //#define _VSLLINK_IN_DEBUG_MODE_
+ 
+@@ -1703,64 +1701,42 @@ static int vsllink_tap_execute_dma(void)
+ 
+ static struct vsllink* vsllink_usb_open(void)
+ {
+-	struct usb_bus *busses;
+-	struct usb_bus *bus;
+-	struct usb_device *dev;
+-	int ret;
+-
+-	struct vsllink *result;
+-
+-	result = (struct vsllink*) malloc(sizeof(struct vsllink));
+-
+ 	usb_init();
+-	usb_find_busses();
+-	usb_find_devices();
+ 
+-	busses = usb_get_busses();
++	const uint16_t vids[] = { vsllink_usb_vid, 0 };
++	const uint16_t pids[] = { vsllink_usb_pid, 0 };
++	struct usb_dev_handle *dev;
++	if (jtag_usb_open(vids, pids, &amp;dev) != ERROR_OK)
++		return NULL;
+ 
+-	/* find vsllink device in usb bus */
+-
+-	for (bus = busses; bus; bus = bus-&gt;next)
++	/* usb_set_configuration required under win32 */
++	struct usb_device *udev = usb_device(dev);
++	int ret = usb_set_configuration(dev, udev-&gt;config[0].bConfigurationValue);
++	if (ret != 0)
+ 	{
+-		for (dev = bus-&gt;devices; dev; dev = dev-&gt;next)
+-		{
+-			if ((dev-&gt;descriptor.idVendor == vsllink_usb_vid) &amp;&amp; (dev-&gt;descriptor.idProduct == vsllink_usb_pid))
+-			{
+-				result-&gt;usb_handle = usb_open(dev);
+-				if (NULL == result-&gt;usb_handle)
+-				{
+-					LOG_ERROR(&quot;failed to open %04X:%04X, not enough permissions?&quot;, vsllink_usb_vid, vsllink_usb_pid);
+-					exit(-1);
+-				}
+-
+-				/* usb_set_configuration required under win32 */
+-				ret = usb_set_configuration(result-&gt;usb_handle, dev-&gt;config[0].bConfigurationValue);
+-				if (ret != 0)
+-				{
+-					LOG_ERROR(&quot;fail to set configuration to %d, %d returned, not enough permissions?&quot;, dev-&gt;config[0].bConfigurationValue, ret);
+-					exit(-1);
+-				}
+-				ret = usb_claim_interface(result-&gt;usb_handle, vsllink_usb_interface);
+-				if (ret != 0)
+-				{
+-					LOG_ERROR(&quot;fail to claim interface %d, %d returned&quot;, vsllink_usb_interface, ret);
+-					exit(-1);
+-				}
+-
++		LOG_ERROR(&quot;fail to set configuration to %d (error %d).&quot;
++				&quot;Not enough permissions for the device?&quot;,
++				udev-&gt;config[0].bConfigurationValue, ret);
++		return NULL;
++	}
++	ret = usb_claim_interface(dev, vsllink_usb_interface);
++	if (ret != 0)
++	{
++		LOG_ERROR(&quot;fail to claim interface %d, %d returned&quot;,
++				vsllink_usb_interface, ret);
++		return NULL;
++	}
+ #if 0
+-				/*
+-				 * This makes problems under Mac OS X. And is not needed
+-				 * under Windows. Hopefully this will not break a linux build
+-				 */
+-				usb_set_altinterface(result-&gt;usb_handle, 0);
++	/*
++	* This makes problems under Mac OS X. And is not needed
++	* under Windows. Hopefully this will not break a linux build
++	*/
++	usb_set_altinterface(dev, 0);
+ #endif
+-				return result;
+-			}
+-		}
+-	}
+ 
+-	free(result);
+-	return NULL;
++	struct vsllink *result = malloc(sizeof(struct vsllink));
++	result-&gt;usb_handle = dev;
++	return result;
+ }
+ 
+ static void vsllink_usb_close(struct vsllink *vsllink)
+
+commit 0f544f4310dcd9e056f668f5ddceaad5d7725801
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 19 12:09:11 2009 -0800
+
+    usbprog: use jtag_usb_open
+    
+    Rewrite usbprob_jtag_open to use jtag_usb_open helper.
+
+diff --git a/src/jtag/usbprog.c b/src/jtag/usbprog.c
+index e8c0ead..204d0e2 100644
+--- a/src/jtag/usbprog.c
++++ b/src/jtag/usbprog.c
+@@ -36,8 +36,7 @@
+ 
+ #include &quot;interface.h&quot;
+ #include &quot;commands.h&quot;
+-
+-#include &lt;usb.h&gt;
++#include &quot;usb_common.h&quot;
+ 
+ 
+ #define VID 0x1781
+@@ -383,39 +382,23 @@ struct usb_bus *busses;
+ 
+ struct usbprog_jtag* usbprog_jtag_open(void)
+ {
+-	struct usb_bus *bus;
+-	struct usb_device *dev;
+-
+-	struct usbprog_jtag *tmp;
+-
+-	tmp = (struct usbprog_jtag*)malloc(sizeof(struct usbprog_jtag));
+-
+ 	usb_set_debug(10);
+ 	usb_init();
+-	usb_find_busses();
+-	usb_find_devices();
+ 
+-	busses = usb_get_busses();
++	const uint16_t vids[] = { VID, 0 };
++	const uint16_t pids[] = { PID, 0 };
++	struct usb_dev_handle *dev;
++	if (jtag_usb_open(vids, pids, &amp;dev) != ERROR_OK)
++		return NULL;
+ 
+-	/* find usbprog_jtag device in usb bus */
++	struct usbprog_jtag *tmp = malloc(sizeof(struct usbprog_jtag));
++	tmp-&gt;usb_handle = dev;
+ 
+-	for (bus = busses; bus; bus = bus-&gt;next)
+-	{
+-		for (dev = bus-&gt;devices; dev; dev = dev-&gt;next)
+-		{
+-			/* condition for sucessfully hit (too bad, I only check the vendor id)*/
+-			if (dev-&gt;descriptor.idVendor == VID &amp;&amp; dev-&gt;descriptor.idProduct == PID)
+-			{
+-				tmp-&gt;usb_handle = usb_open(dev);
+-				usb_set_configuration(tmp-&gt;usb_handle, 1);
+-				usb_claim_interface(tmp-&gt;usb_handle, 0);
+-				usb_set_altinterface(tmp-&gt;usb_handle, 0);
+-				return tmp;
+-			}
+-		}
+-	}
+-	free(tmp);
+-	return 0;
++	usb_set_configuration(dev, 1);
++	usb_claim_interface(dev, 0);
++	usb_set_altinterface(dev, 0);
++
++	return tmp;
+ }
+ 
+ #if 0
+
+commit d836b079b413e8cbd30267a741f09b6c6f44f378
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 19 12:06:05 2009 -0800
+
+    arm-jtag-ew: use jtag_usb_open
+    
+    Rewrite armjtagwe_usb_open to use jtag_usb_open.
+
+diff --git a/src/jtag/arm-jtag-ew.c b/src/jtag/arm-jtag-ew.c
+index 46dacc6..01c5559 100644
+--- a/src/jtag/arm-jtag-ew.c
++++ b/src/jtag/arm-jtag-ew.c
+@@ -25,6 +25,7 @@
+ #include &quot;interface.h&quot;
+ #include &quot;commands.h&quot;
+ #include &lt;usb.h&gt;
++#include &quot;usb_common.h&quot;
+ 
+ 
+ #define USB_VID						0x15ba
+@@ -714,50 +715,30 @@ static int armjtagew_tap_execute(void)
+ 
+ static struct armjtagew* armjtagew_usb_open()
+ {
+-	struct usb_bus *busses;
+-	struct usb_bus *bus;
+-	struct usb_device *dev;
+-
+-	struct armjtagew *result;
+-
+-	result = (struct armjtagew*) malloc(sizeof(struct armjtagew));
+-
+ 	usb_init();
+-	usb_find_busses();
+-	usb_find_devices();
+-
+-	busses = usb_get_busses();
+ 
+-	/* find armjtagew device in usb bus */
++	const uint16_t vids[] = { USB_VID, 0 };
++	const uint16_t pids[] = { USB_PID, 0 };
++	struct usb_dev_handle *dev;
++	if (jtag_usb_open(vids, pids, &amp;dev) != ERROR_OK)
++		return NULL;
+ 
+-	for (bus = busses; bus; bus = bus-&gt;next)
+-	{
+-		for (dev = bus-&gt;devices; dev; dev = dev-&gt;next)
+-		{
+-			if ((dev-&gt;descriptor.idVendor == USB_VID) &amp;&amp; (dev-&gt;descriptor.idProduct == USB_PID))
+-			{
+-				result-&gt;usb_handle = usb_open(dev);
++	struct armjtagew *result = malloc(sizeof(struct armjtagew));
++	result-&gt;usb_handle = dev;
+ 
+ #if 0
+-				/* usb_set_configuration required under win32 */
+-				usb_set_configuration(result-&gt;usb_handle, dev-&gt;config[0].bConfigurationValue);
++	/* usb_set_configuration required under win32 */
++	usb_set_configuration(dev, dev-&gt;config[0].bConfigurationValue);
+ #endif
+-				usb_claim_interface(result-&gt;usb_handle, 0);
+-
++	usb_claim_interface(dev, 0);
+ #if 0
+-				/*
+-				 * This makes problems under Mac OS X. And is not needed
+-				 * under Windows. Hopefully this will not break a linux build
+-				 */
+-				usb_set_altinterface(result-&gt;usb_handle, 0);
++	/*
++	 * This makes problems under Mac OS X. And is not needed
++	 * under Windows. Hopefully this will not break a linux build
++	 */
++	usb_set_altinterface(dev, 0);
+ #endif
+-				return result;
+-			}
+-		}
+-	}
+-
+-	free(result);
+-	return NULL;
++	return result;
+ }
+ 
+ static void armjtagew_usb_close(struct armjtagew *armjtagew)
+
+commit 3a660e229301c905392a0b2826e5ebf08c4e01b9
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 19 12:02:07 2009 -0800
+
+    add jtag/usb_common.[ch] files
+    
+    Begins to consolidate code used by several USB JTAG interfaces.
+    This first patch provides the required build system changes and
+    a common jtag_usb_open routine, which will replace the guts for
+    probing the busses and devices for possible VID/PID matches.
+    The following patches convert each driver to use it.
+
+diff --git a/configure.in b/configure.in
+index 8ba8951..81e4326 100644
+--- a/configure.in
++++ b/configure.in
+@@ -996,6 +996,7 @@ if test $build_jlink = yes -o $build_vsllink = yes -o $build_usbprog = yes -o \
+ then
+   AC_CHECK_HEADERS([usb.h],[],
+   [AC_MSG_ERROR([usb.h is required to build some OpenOCD driver(s)])])
++  build_usb=yes
+ fi
+ 
+ AM_CONDITIONAL(RELEASE, test $build_release = yes)
+@@ -1021,6 +1022,7 @@ AM_CONDITIONAL(JLINK, test $build_jlink = yes)
+ AM_CONDITIONAL(VSLLINK, test $build_vsllink = yes)
+ AM_CONDITIONAL(RLINK, test $build_rlink = yes)
+ AM_CONDITIONAL(ARMJTAGEW, test $build_armjtagew = yes)
++AM_CONDITIONAL(USB, test $build_usb = yes)
+ AM_CONDITIONAL(IS_CYGWIN, test $is_cygwin = yes)
+ AM_CONDITIONAL(IS_MINGW, test $is_mingw = yes)
+ AM_CONDITIONAL(IS_WIN32, test $is_win32 = yes)
+diff --git a/src/jtag/Makefile.am b/src/jtag/Makefile.am
+index 85d98c0..5254a2b 100644
+--- a/src/jtag/Makefile.am
++++ b/src/jtag/Makefile.am
+@@ -23,6 +23,10 @@ else
+ # Standard Driver: common files
+ DRIVERFILES += driver.c commands.c
+ 
++if USB
++DRIVERFILES += usb_common.c
++endif
++
+ if BITBANG
+ DRIVERFILES += bitbang.c
+ endif
+@@ -92,7 +96,8 @@ noinst_HEADERS = \
+ 	rlink/ep1_cmd.h \
+ 	rlink/rlink.h \
+ 	rlink/st7.h \
+-	minidummy/jtag_minidriver.h
++	minidummy/jtag_minidriver.h \
++	usb_common.h
+ 
+ EXTRA_DIST = startup.tcl
+ 
+diff --git a/src/jtag/usb_common.c b/src/jtag/usb_common.c
+new file mode 100644
+index 0000000..463f1af
+--- /dev/null
++++ b/src/jtag/usb_common.c
+@@ -0,0 +1,61 @@
++/***************************************************************************
++ *   Copyright (C) 2009 by Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;          *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++#include &quot;usb_common.h&quot;
++
++
++static bool jtag_usb_match(struct usb_device *dev,
++		const uint16_t vids[], const uint16_t pids[])
++{
++	for (unsigned i = 0; vids[i] &amp;&amp; pids[i]; i++)
++	{
++		if (dev-&gt;descriptor.idVendor == vids[i] &amp;&amp;
++			dev-&gt;descriptor.idProduct == pids[i])
++		{
++			return true;
++		}
++	}
++	return false;
++}
++
++int jtag_usb_open(const uint16_t vids[], const uint16_t pids[],
++		struct usb_dev_handle **out)
++{
++	usb_find_busses();
++	usb_find_devices();
++
++	struct usb_bus *busses = usb_get_busses();
++	for (struct usb_bus *bus = busses; bus; bus = bus-&gt;next)
++	{
++		for (struct usb_device *dev = bus-&gt;devices; dev; dev = dev-&gt;next)
++		{
++			if (!jtag_usb_match(dev, vids, pids))
++				continue;
++
++			*out = usb_open(dev);
++			if (NULL == *out)
++				return -errno;
++			return 0;
++		}
++	}
++	return -ENODEV;
++}
+diff --git a/src/jtag/usb_common.h b/src/jtag/usb_common.h
+new file mode 100644
+index 0000000..da395ad
+--- /dev/null
++++ b/src/jtag/usb_common.h
+@@ -0,0 +1,30 @@
++/***************************************************************************
++ *   Copyright (C) 2009 by Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;          *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifndef JTAG_USB_COMMON_H
++#define JTAG_USB_COMMON_H
++
++#include &quot;types.h&quot;
++
++#include &lt;usb.h&gt;
++
++int jtag_usb_open(const uint16_t vids[], const uint16_t pids[],
++		struct usb_dev_handle **out);
++
++#endif // JTAG_USB_COMMON_H
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ configure.in                                   |    2 +
+ src/jtag/Makefile.am                           |    7 +-
+ src/jtag/arm-jtag-ew.c                         |   53 +++------
+ src/jtag/jlink.c                               |  147 +++++++++---------------
+ src/jtag/rlink/rlink.c                         |  132 ++++++++-------------
+ src/{flash/common.c =&gt; jtag/usb_common.c}      |   51 +++++---
+ src/{server/tcl_server.h =&gt; jtag/usb_common.h} |   16 ++-
+ src/jtag/usbprog.c                             |   43 ++-----
+ src/jtag/vsllink.c                             |   84 +++++---------
+ 9 files changed, 210 insertions(+), 325 deletions(-)
+ copy src/{flash/common.c =&gt; jtag/usb_common.c} (65%)
+ copy src/{server/tcl_server.h =&gt; jtag/usb_common.h} (81%)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001853.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-549-g3efc99b
+</A></li>
+	<LI>Next message: <A HREF="001855.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-558-g5507b5f
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1854">[ date ]</a>
+              <a href="thread.html#1854">[ thread ]</a>
+              <a href="subject.html#1854">[ subject ]</a>
+              <a href="author.html#1854">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

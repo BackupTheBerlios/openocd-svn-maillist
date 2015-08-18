@@ -1,0 +1,137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1620 - trunk/src/helper
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1620%20-%20trunk/src/helper&In-Reply-To=%3C200905062121.n46LLMe4031249%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000403.html">
+   <LINK REL="Next"  HREF="000405.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1620 - trunk/src/helper</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1620%20-%20trunk/src/helper&In-Reply-To=%3C200905062121.n46LLMe4031249%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1620 - trunk/src/helper">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Wed May  6 23:21:22 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000403.html">[Openocd-svn] r1619 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000405.html">[Openocd-svn] r1621 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#404">[ date ]</a>
+              <a href="thread.html#404">[ thread ]</a>
+              <a href="subject.html#404">[ subject ]</a>
+              <a href="author.html#404">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-06 23:21:18 +0200 (Wed, 06 May 2009)
+New Revision: 1620
+
+Modified:
+   trunk/src/helper/jim.c
+Log:
+Fix pointer cast alignment warnings in jim.c.
+
+Modified: trunk/src/helper/jim.c
+===================================================================
+--- trunk/src/helper/jim.c	2009-05-06 18:47:15 UTC (rev 1619)
++++ trunk/src/helper/jim.c	2009-05-06 21:21:18 UTC (rev 1620)
+@@ -7650,6 +7650,8 @@
+                 scanned += 1;
+                 break;
+             case 'd': case 'o': case 'x': case 'u': case 'i': {
++                jim_wide jwvalue;
++                long lvalue;
+                 char *endp;  /* Position where the number finished */
+                 int base = descr-&gt;type == 'o' ? 8
+                     : descr-&gt;type == 'x' ? 16
+@@ -7659,16 +7661,22 @@
+                 do {
+                     /* Try to scan a number with the given base */
+                     if (descr-&gt;modifier == 'l')
++                    {
+ #ifdef HAVE_LONG_LONG
+-                      *(jim_wide*)value = JimStrtoll(tok, &amp;endp, base);
++                        jwvalue = JimStrtoll(tok, &amp;endp, base),
+ #else
+-                      *(jim_wide*)value = strtol(tok, &amp;endp, base);
++                        jwvalue = strtol(tok, &amp;endp, base),
+ #endif
++                        memcpy(value, &amp;jwvalue, sizeof(jim_wide));
++                    }
+                     else
++                    {
+                       if (descr-&gt;type == 'u')
+-                        *(long*)value = strtoul(tok, &amp;endp, base);
++                        lvalue = strtoul(tok, &amp;endp, base);
+                       else
+-                        *(long*)value = strtol(tok, &amp;endp, base);
++                        lvalue = strtol(tok, &amp;endp, base);
++                      memcpy(value, &amp;lvalue, sizeof(lvalue));
++                    }
+                     /* If scanning failed, and base was undetermined, simply
+                      * put it to 10 and try once more. This should catch the
+                      * case where %i begin to parse a number prefix (e.g. 
+@@ -7680,9 +7688,9 @@
+                 if (endp != tok) {
+                     /* There was some number sucessfully scanned! */
+                     if (descr-&gt;modifier == 'l')
+-                        *valObjPtr = Jim_NewIntObj(interp, *(jim_wide*)value);
++                        *valObjPtr = Jim_NewIntObj(interp, jwvalue);
+                     else
+-                        *valObjPtr = Jim_NewIntObj(interp, *(long*)value);
++                        *valObjPtr = Jim_NewIntObj(interp, lvalue);
+                     /* Adjust the number-of-chars scanned so far */
+                     scanned += endp - tok;
+                 } else {
+@@ -7701,10 +7709,11 @@
+             case 'e': case 'f': case 'g': {
+                 char *endp;
+ 
+-                *(double*)value = strtod(tok, &amp;endp);
++                double dvalue = strtod(tok, &amp;endp);
++                memcpy(value, &amp;dvalue, sizeof(double));
+                 if (endp != tok) {
+                     /* There was some number sucessfully scanned! */
+-                    *valObjPtr = Jim_NewDoubleObj(interp, *(double*)value);
++                    *valObjPtr = Jim_NewDoubleObj(interp, dvalue);
+                     /* Adjust the number-of-chars scanned so far */
+                     scanned += endp - tok;
+                 } else {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000403.html">[Openocd-svn] r1619 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000405.html">[Openocd-svn] r1621 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#404">[ date ]</a>
+              <a href="thread.html#404">[ thread ]</a>
+              <a href="subject.html#404">[ subject ]</a>
+              <a href="author.html#404">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

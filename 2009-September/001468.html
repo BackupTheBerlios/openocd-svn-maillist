@@ -1,0 +1,1129 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2685 - trunk/src/flash
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2685%20-%20trunk/src/flash&In-Reply-To=%3C200909101317.n8ADHPvu018571%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001467.html">
+   <LINK REL="Next"  HREF="001469.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2685 - trunk/src/flash</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2685%20-%20trunk/src/flash&In-Reply-To=%3C200909101317.n8ADHPvu018571%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2685 - trunk/src/flash">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Thu Sep 10 15:17:25 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001467.html">[Openocd-svn] r2684 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001469.html">[Openocd-svn] r2686 - trunk/src/flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1468">[ date ]</a>
+              <a href="thread.html#1468">[ thread ]</a>
+              <a href="subject.html#1468">[ subject ]</a>
+              <a href="author.html#1468">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-09-10 15:17:25 +0200 (Thu, 10 Sep 2009)
+New Revision: 2685
+
+Added:
+   trunk/src/flash/mx3_nand.c
+   trunk/src/flash/mx3_nand.h
+Modified:
+   trunk/src/flash/Makefile.am
+   trunk/src/flash/nand.c
+Log:
+Alexei Babich &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">a.babich at rez.ru</A>&gt;  imx31 nand flash controller support
+
+Modified: trunk/src/flash/Makefile.am
+===================================================================
+--- trunk/src/flash/Makefile.am	2009-09-10 13:17:05 UTC (rev 2684)
++++ trunk/src/flash/Makefile.am	2009-09-10 13:17:25 UTC (rev 2685)
+@@ -36,7 +36,8 @@
+ 	ocl.c \
+ 	mflash.c \
+ 	pic32mx.c \
+-	avrf.c
++	avrf.c \
++	mx3_nand.c
+ 
+ noinst_HEADERS = \
+ 	arm_nandio.h \
+@@ -60,6 +61,7 @@
+ 	mflash.h \
+ 	ocl.h \
+ 	pic32mx.h \
+-	avrf.h
++	avrf.h \
++	mx3_nand.h
+ 
+ MAINTAINERCLEANFILES = $(srcdir)/Makefile.in
+
+Added: trunk/src/flash/mx3_nand.c
+===================================================================
+--- trunk/src/flash/mx3_nand.c	2009-09-10 13:17:05 UTC (rev 2684)
++++ trunk/src/flash/mx3_nand.c	2009-09-10 13:17:25 UTC (rev 2685)
+@@ -0,0 +1,908 @@
++
++/***************************************************************************
++ *   Copyright (C) 2009 by Alexei Babich                                   *
++ *   Rezonans plc., Chelyabinsk, Russia                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">impatt at mail.ru</A>                                                        *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++/*
++ * Freescale iMX3* OpenOCD NAND Flash controller support.
++ *
++ * Many thanks to Ben Dooks for writing s3c24xx driver.
++ */
++
++/*
++driver tested with STMicro NAND512W3A @imx31
++tested &quot;nand probe #&quot;, &quot;nand erase # 0 #&quot;, &quot;nand dump # file 0 #&quot;, &quot;nand write # file 0&quot;
++get_next_halfword_from_sram_buffer() not tested
++*/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;mx3_nand.h&quot;
++
++static const char target_not_halted_err_msg[] =
++	&quot;target must be halted to use mx3 NAND flash controller&quot;;
++static const char data_block_size_err_msg[] =
++	&quot;minimal granularity is one half-word, %d is incorrect&quot;;
++static const char sram_buffer_bounds_err_msg[] =
++	&quot;trying to access out of SRAM buffer bound (addr=0x%x)&quot;;
++static const char invalid_command_sequense_err_msg[] =
++	&quot;invalid command sequence in %s&quot;;
++static const char get_status_register_err_msg[] = &quot;can't get NAND status&quot;;
++static uint32_t in_sram_address;
++unsigned char sign_of_sequental_byte_read;
++
++static int test_iomux_settings (target_t * target, uint32_t value,
++				uint32_t mask, const char *text);
++static int initialize_nf_controller (struct nand_device_s *device);
++static int get_next_byte_from_sram_buffer (target_t * target, uint8_t * value);
++static int get_next_halfword_from_sram_buffer (target_t * target,
++					       uint16_t * value);
++static int poll_for_complete_op (target_t * target, const char *text);
++static int validate_target_state (struct nand_device_s *device);
++static int do_data_output (struct nand_device_s *device);
++
++static int imx31_nand_device_command (struct command_context_s *cmd_ctx,
++				      char *cmd, char **args, int argc,
++				      struct nand_device_s *device);
++static int imx31_init (struct nand_device_s *device);
++static int imx31_read_data (struct nand_device_s *device, void *data);
++static int imx31_write_data (struct nand_device_s *device, uint16_t data);
++static int imx31_nand_ready (struct nand_device_s *device, int timeout);
++static int imx31_register_commands (struct command_context_s *cmd_ctx);
++static int imx31_reset (struct nand_device_s *device);
++static int imx31_command (struct nand_device_s *device, uint8_t command);
++static int imx31_address (struct nand_device_s *device, uint8_t address);
++static int imx31_controller_ready (struct nand_device_s *device, int tout);
++static int imx31_write_page (struct nand_device_s *device, uint32_t page,
++			     uint8_t * data, uint32_t data_size, uint8_t * oob,
++			     uint32_t oob_size);
++static int imx31_read_page (struct nand_device_s *device, uint32_t page,
++			    uint8_t * data, uint32_t data_size, uint8_t * oob,
++			    uint32_t oob_size);
++
++nand_flash_controller_t imx31_nand_flash_controller = {
++	.name = &quot;imx31&quot;,
++	.nand_device_command = imx31_nand_device_command,
++	.register_commands = imx31_register_commands,
++	.init = imx31_init,
++	.reset = imx31_reset,
++	.command = imx31_command,
++	.address = imx31_address,
++	.write_data = imx31_write_data,
++	.read_data = imx31_read_data,
++	.write_page = imx31_write_page,
++	.read_page = imx31_read_page,
++	.controller_ready = imx31_controller_ready,
++	.nand_ready = imx31_nand_ready,
++};
++
++static int imx31_nand_device_command (struct command_context_s *cmd_ctx,
++				      char *cmd, char **args, int argc,
++				      struct nand_device_s *device)
++{
++	mx3_nf_controller_t *mx3_nf_info;
++	mx3_nf_info = malloc (sizeof (mx3_nf_controller_t));
++	if (mx3_nf_info == NULL)
++	{
++	    LOG_ERROR (&quot;no memory for nand controller&quot;);
++	    return ERROR_FAIL;
++	}
++
++	device-&gt;controller_priv = mx3_nf_info;
++
++	mx3_nf_info-&gt;target = get_target (args[1]);
++	if (mx3_nf_info-&gt;target == NULL)
++	{
++	    LOG_ERROR (&quot;target '%s' not defined&quot;, args[1]);
++	    return ERROR_FAIL;
++	}
++	if (argc &lt; 3)
++	{
++	    LOG_ERROR (&quot;use \&quot;nand device imx31 target noecc|hwecc\&quot;&quot;);
++	    return ERROR_FAIL;
++	}
++	/*
++	* check hwecc requirements
++	*/
++	{
++	int hwecc_needed;
++	hwecc_needed = strcmp (args[2], &quot;hwecc&quot;);
++	if (hwecc_needed == 0)
++	    {
++		mx3_nf_info-&gt;flags.hw_ecc_enabled = 1;
++	    }
++	else
++	    {
++		mx3_nf_info-&gt;flags.hw_ecc_enabled = 0;
++	    }
++	}
++
++	mx3_nf_info-&gt;optype = MX3_NF_DATAOUT_PAGE;
++	mx3_nf_info-&gt;fin = MX3_NF_FIN_NONE;
++	mx3_nf_info-&gt;flags.target_little_endian =
++	(mx3_nf_info-&gt;target-&gt;endianness == TARGET_LITTLE_ENDIAN);
++	/*
++	* testing host endianess
++	*/
++	{
++	int x = 1;
++	if (*(char *) &amp;x == 1)
++	    {
++		mx3_nf_info-&gt;flags.host_little_endian = 1;
++	    }
++	else
++	    {
++		mx3_nf_info-&gt;flags.host_little_endian = 0;
++	    }
++	}
++	return ERROR_OK;
++}
++
++static int imx31_init (struct nand_device_s *device)
++{
++	mx3_nf_controller_t *mx3_nf_info = device-&gt;controller_priv;
++	target_t *target = mx3_nf_info-&gt;target;
++
++	{
++	/*
++	 * validate target state
++	 */
++	int validate_target_result;
++	validate_target_result = validate_target_state (device);
++	if (validate_target_result != ERROR_OK)
++	    {
++		return validate_target_result;
++	    }
++	}
++
++	{
++	uint16_t buffsize_register_content;
++	target_read_u16 (target, MX3_NF_BUFSIZ, &amp;buffsize_register_content);
++	mx3_nf_info-&gt;flags.one_kb_sram = !(buffsize_register_content &amp; 0x000f);
++	}
++
++	{
++	uint32_t pcsr_register_content;
++	target_read_u32 (target, MX3_PCSR, &amp;pcsr_register_content);
++	if (!device-&gt;bus_width)
++	    {
++		device-&gt;bus_width =
++		    (pcsr_register_content &amp; 0x80000000) ? 16 : 8;
++	    }
++	else
++	    {
++		pcsr_register_content |=
++		    ((device-&gt;bus_width == 16) ? 0x80000000 : 0x00000000);
++		target_write_u32 (target, MX3_PCSR, pcsr_register_content);
++	    }
++
++	if (!device-&gt;page_size)
++	    {
++		device-&gt;page_size =
++		    (pcsr_register_content &amp; 0x40000000) ? 2048 : 512;
++	    }
++	else
++	    {
++		pcsr_register_content |=
++		    ((device-&gt;page_size == 2048) ? 0x40000000 : 0x00000000);
++		target_write_u32 (target, MX3_PCSR, pcsr_register_content);
++	    }
++	if (mx3_nf_info-&gt;flags.one_kb_sram &amp;&amp; (device-&gt;page_size == 2048))
++	    {
++		LOG_ERROR
++		    (&quot;NAND controller have only 1 kb SRAM, so pagesize 2048 is incompatible with it&quot;);
++	    }
++	}
++
++	{
++	uint32_t cgr_register_content;
++	target_read_u32 (target, MX3_CCM_CGR2, &amp;cgr_register_content);
++	if (!(cgr_register_content &amp; 0x00000300))
++	    {
++		LOG_ERROR (&quot;clock gating to EMI disabled&quot;);
++		return ERROR_FAIL;
++	    }
++	}
++
++	{
++	uint32_t gpr_register_content;
++	target_read_u32 (target, MX3_GPR, &amp;gpr_register_content);
++	if (gpr_register_content &amp; 0x00000060)
++	    {
++		LOG_ERROR (&quot;pins mode overrided by GPR&quot;);
++		return ERROR_FAIL;
++	    }
++	}
++
++	{
++	/*
++	 * testing IOMUX settings; must be in &quot;functional-mode output and
++	 * functional-mode input&quot; mode
++	 */
++	uint8_t test_iomux;
++	test_iomux = ERROR_OK;
++	test_iomux |=
++	    test_iomux_settings (target, 0x43fac0c0, 0x7f7f7f00, &quot;d0,d1,d2&quot;);
++	test_iomux |=
++	    test_iomux_settings (target, 0x43fac0c4, 0x7f7f7f7f, &quot;d3,d4,d5,d6&quot;);
++	test_iomux |=
++	    test_iomux_settings (target, 0x43fac0c8, 0x0000007f, &quot;d7&quot;);
++	if (device-&gt;bus_width == 16)
++	    {
++		test_iomux |=
++		    test_iomux_settings (target, 0x43fac0c8, 0x7f7f7f00,
++					 &quot;d8,d9,d10&quot;);
++		test_iomux |=
++		    test_iomux_settings (target, 0x43fac0cc, 0x7f7f7f7f,
++					 &quot;d11,d12,d13,d14&quot;);
++		test_iomux |=
++		    test_iomux_settings (target, 0x43fac0d0, 0x0000007f, &quot;d15&quot;);
++	    }
++	test_iomux |=
++	    test_iomux_settings (target, 0x43fac0d0, 0x7f7f7f00,
++				 &quot;nfwp,nfce,nfrb&quot;);
++	test_iomux |=
++	    test_iomux_settings (target, 0x43fac0d4, 0x7f7f7f7f,
++				 &quot;nfwe,nfre,nfale,nfcle&quot;);
++	if (test_iomux != ERROR_OK)
++	    {
++		return ERROR_FAIL;
++	    }
++	}
++
++	initialize_nf_controller (device);
++
++	{
++	int retval;
++	uint16_t nand_status_content;
++	retval = ERROR_OK;
++	retval |= imx31_command (device, NAND_CMD_STATUS);
++	retval |= imx31_address (device, 0x00);
++	retval |= do_data_output (device);
++	if (retval != ERROR_OK)
++	    {
++		LOG_ERROR (get_status_register_err_msg);
++		return ERROR_FAIL;
++	    }
++	target_read_u16 (target, MX3_NF_MAIN_BUFFER0, &amp;nand_status_content);
++	if (!(nand_status_content &amp; 0x0080))
++	    {
++		/*
++		 * is host-big-endian correctly ??
++		 */
++		LOG_INFO (&quot;NAND read-only&quot;);
++		mx3_nf_info-&gt;flags.nand_readonly = 1;
++	    }
++	else
++	    {
++		mx3_nf_info-&gt;flags.nand_readonly = 0;
++	    }
++	}
++	return ERROR_OK;
++}
++
++static int imx31_read_data (struct nand_device_s *device, void *data)
++{
++	mx3_nf_controller_t *mx3_nf_info = device-&gt;controller_priv;
++	target_t *target = mx3_nf_info-&gt;target;
++	{
++	/*
++	 * validate target state
++	 */
++	int validate_target_result;
++	validate_target_result = validate_target_state (device);
++	if (validate_target_result != ERROR_OK)
++	    {
++		return validate_target_result;
++	    }
++	}
++
++	{
++	/*
++	 * get data from nand chip
++	 */
++	int try_data_output_from_nand_chip;
++	try_data_output_from_nand_chip = do_data_output (device);
++	if (try_data_output_from_nand_chip != ERROR_OK)
++	    {
++		return try_data_output_from_nand_chip;
++	    }
++	}
++
++	if (device-&gt;bus_width == 16)
++	{
++	    get_next_halfword_from_sram_buffer (target, data);
++	}
++	else
++	{
++	    get_next_byte_from_sram_buffer (target, data);
++	}
++
++	return ERROR_OK;
++}
++
++static int imx31_write_data (struct nand_device_s *device, uint16_t data)
++{
++	LOG_ERROR (&quot;write_data() not implemented&quot;);
++	return ERROR_NAND_OPERATION_FAILED;
++}
++
++static int imx31_nand_ready (struct nand_device_s *device, int timeout)
++{
++	return imx31_controller_ready (device, timeout);
++}
++
++static int imx31_register_commands (struct command_context_s *cmd_ctx)
++{
++	return ERROR_OK;
++}
++
++static int imx31_reset (struct nand_device_s *device)
++{
++	/*
++	* validate target state
++	*/
++	int validate_target_result;
++	validate_target_result = validate_target_state (device);
++	if (validate_target_result != ERROR_OK)
++	{
++	    return validate_target_result;
++	}
++	initialize_nf_controller (device);
++	return ERROR_OK;
++}
++
++static int imx31_command (struct nand_device_s *device, uint8_t command)
++{
++	mx3_nf_controller_t *mx3_nf_info = device-&gt;controller_priv;
++	target_t *target = mx3_nf_info-&gt;target;
++	{
++	/*
++	 * validate target state
++	 */
++	int validate_target_result;
++	validate_target_result = validate_target_state (device);
++	if (validate_target_result != ERROR_OK)
++	    {
++		return validate_target_result;
++	    }
++	}
++
++	switch (command)
++	{
++	    case NAND_CMD_READOOB:
++		command = NAND_CMD_READ0;
++		in_sram_address = MX3_NF_SPARE_BUFFER0;	/* set read point for
++							 * data_read() and
++							 * read_block_data() to
++							 * spare area in SRAM
++							 * buffer */
++		break;
++	    case NAND_CMD_READ1:
++		command = NAND_CMD_READ0;
++		/*
++		 * offset == one half of page size
++		 */
++		in_sram_address =
++		    MX3_NF_MAIN_BUFFER0 + (device-&gt;page_size &gt;&gt; 1);
++	    default:
++		in_sram_address = MX3_NF_MAIN_BUFFER0;
++	}
++
++	target_write_u16 (target, MX3_NF_FCMD, command);
++	/*
++	* start command input operation (set MX3_NF_BIT_OP_DONE==0)
++	*/
++	target_write_u16 (target, MX3_NF_CFG2, MX3_NF_BIT_OP_FCI);
++	{
++	int poll_result;
++	poll_result = poll_for_complete_op (target, &quot;command&quot;);
++	if (poll_result != ERROR_OK)
++	    {
++		return poll_result;
++	    }
++	}
++	/*
++	* reset cursor to begin of the buffer
++	*/
++	sign_of_sequental_byte_read = 0;
++	switch (command)
++	{
++	    case NAND_CMD_READID:
++		mx3_nf_info-&gt;optype = MX3_NF_DATAOUT_NANDID;
++		mx3_nf_info-&gt;fin = MX3_NF_FIN_DATAOUT;
++		break;
++	    case NAND_CMD_STATUS:
++		mx3_nf_info-&gt;optype = MX3_NF_DATAOUT_NANDSTATUS;
++		mx3_nf_info-&gt;fin = MX3_NF_FIN_DATAOUT;
++		break;
++	    case NAND_CMD_READ0:
++		mx3_nf_info-&gt;fin = MX3_NF_FIN_DATAOUT;
++		mx3_nf_info-&gt;optype = MX3_NF_DATAOUT_PAGE;
++		break;
++	    case NAND_CMD_SEQIN:
++		LOG_ERROR (&quot;aaa&quot;);
++		return ERROR_FAIL;
++		break;
++	    default:
++		mx3_nf_info-&gt;optype = MX3_NF_DATAOUT_PAGE;
++	}
++	return ERROR_OK;
++}
++
++static int imx31_address (struct nand_device_s *device, uint8_t address)
++{
++	mx3_nf_controller_t *mx3_nf_info = device-&gt;controller_priv;
++	target_t *target = mx3_nf_info-&gt;target;
++	{
++	/*
++	 * validate target state
++	 */
++	int validate_target_result;
++	validate_target_result = validate_target_state (device);
++	if (validate_target_result != ERROR_OK)
++	    {
++		return validate_target_result;
++	    }
++	}
++
++	target_write_u16 (target, MX3_NF_FADDR, address);
++	/*
++	* start address input operation (set MX3_NF_BIT_OP_DONE==0)
++	*/
++	target_write_u16 (target, MX3_NF_CFG2, MX3_NF_BIT_OP_FAI);
++	{
++	int poll_result;
++	poll_result = poll_for_complete_op (target, &quot;address&quot;);
++	if (poll_result != ERROR_OK)
++	    {
++		return poll_result;
++	    }
++	}
++	return ERROR_OK;
++}
++
++static int imx31_controller_ready (struct nand_device_s *device, int tout)
++{
++	uint16_t poll_complete_status;
++	mx3_nf_controller_t *mx3_nf_info = device-&gt;controller_priv;
++	target_t *target = mx3_nf_info-&gt;target;
++
++	{
++	/*
++	 * validate target state
++	 */
++	int validate_target_result;
++	validate_target_result = validate_target_state (device);
++	if (validate_target_result != ERROR_OK)
++	    {
++		return validate_target_result;
++	    }
++	}
++
++	do
++	{
++	    target_read_u16 (target, MX3_NF_CFG2, &amp;poll_complete_status);
++	    if (poll_complete_status &amp; MX3_NF_BIT_OP_DONE)
++		{
++		    return tout;
++		}
++	    alive_sleep (1);
++	}
++	while (tout-- &gt; 0);
++	return tout;
++}
++
++static int imx31_write_page (struct nand_device_s *device, uint32_t page,
++			     uint8_t * data, uint32_t data_size, uint8_t * oob,
++			     uint32_t oob_size)
++{
++	mx3_nf_controller_t *mx3_nf_info = device-&gt;controller_priv;
++	target_t *target = mx3_nf_info-&gt;target;
++
++	if (data_size % 2)
++	{
++	    LOG_ERROR (data_block_size_err_msg, data_size);
++	    return ERROR_NAND_OPERATION_FAILED;
++	}
++	if (oob_size % 2)
++	{
++	    LOG_ERROR (data_block_size_err_msg, oob_size);
++	    return ERROR_NAND_OPERATION_FAILED;
++	}
++	if (!data)
++	{
++	    LOG_ERROR (&quot;nothing to program&quot;);
++	    return ERROR_NAND_OPERATION_FAILED;
++	}
++	{
++	/*
++	 * validate target state
++	 */
++	int retval;
++	retval = validate_target_state (device);
++	if (retval != ERROR_OK)
++	    {
++		return retval;
++	    }
++	}
++	{
++	int retval = ERROR_OK;
++	retval |= imx31_command (device, NAND_CMD_SEQIN);
++	retval |= imx31_address (device, 0x00);
++	retval |= imx31_address (device, page &amp; 0xff);
++	retval |= imx31_address (device, (page &gt;&gt; 8) &amp; 0xff);
++	if (device-&gt;address_cycles &gt;= 4)
++	    {
++		retval |= imx31_address (device, (page &gt;&gt; 16) &amp; 0xff);
++		if (device-&gt;address_cycles &gt;= 5)
++		    {
++			retval |= imx31_address (device, (page &gt;&gt; 24) &amp; 0xff);
++		    }
++	    }
++	target_write_buffer (target, MX3_NF_MAIN_BUFFER0, data_size, data);
++	if (oob)
++	    {
++		if (mx3_nf_info-&gt;flags.hw_ecc_enabled)
++		    {
++			/*
++			 * part of spare block will be overrided by hardware
++			 * ECC generator
++			 */
++			LOG_DEBUG
++			    (&quot;part of spare block will be overrided by hardware ECC generator&quot;);
++		    }
++		target_write_buffer (target, MX3_NF_SPARE_BUFFER0, oob_size,
++				     oob);
++	    }
++	/*
++	 * start data input operation (set MX3_NF_BIT_OP_DONE==0)
++	 */
++	target_write_u16 (target, MX3_NF_CFG2, MX3_NF_BIT_OP_FDI);
++	{
++	    int poll_result;
++	    poll_result = poll_for_complete_op (target, &quot;data input&quot;);
++	    if (poll_result != ERROR_OK)
++		{
++		    return poll_result;
++		}
++	}
++	retval |= imx31_command (device, NAND_CMD_PAGEPROG);
++	if (retval != ERROR_OK)
++	    {
++		return retval;
++	    }
++
++	/*
++	 * check status register
++	 */
++	{
++	    uint16_t nand_status_content;
++	    retval = ERROR_OK;
++	    retval |= imx31_command (device, NAND_CMD_STATUS);
++	    retval |= imx31_address (device, 0x00);
++	    retval |= do_data_output (device);
++	    if (retval != ERROR_OK)
++		{
++		    LOG_ERROR (get_status_register_err_msg);
++		    return retval;
++		}
++	    target_read_u16 (target, MX3_NF_MAIN_BUFFER0, &amp;nand_status_content);
++	    if (nand_status_content &amp; 0x0001)
++		{
++		    /*
++		     * is host-big-endian correctly ??
++		     */
++		    return ERROR_NAND_OPERATION_FAILED;
++		}
++	}
++	}
++	return ERROR_OK;
++}
++
++static int imx31_read_page (struct nand_device_s *device, uint32_t page,
++			    uint8_t * data, uint32_t data_size, uint8_t * oob,
++			    uint32_t oob_size)
++{
++	mx3_nf_controller_t *mx3_nf_info = device-&gt;controller_priv;
++	target_t *target = mx3_nf_info-&gt;target;
++
++	if (data_size % 2)
++	{
++	    LOG_ERROR (data_block_size_err_msg, data_size);
++	    return ERROR_NAND_OPERATION_FAILED;
++	}
++	if (oob_size % 2)
++	{
++	    LOG_ERROR (data_block_size_err_msg, oob_size);
++	    return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	{
++	/*
++	 * validate target state
++	 */
++	int retval;
++	retval = validate_target_state (device);
++	if (retval != ERROR_OK)
++	    {
++		return retval;
++	    }
++	}
++	{
++	int retval = ERROR_OK;
++	retval |= imx31_command (device, NAND_CMD_READ0);
++	retval |= imx31_address (device, 0x00);
++	retval |= imx31_address (device, page &amp; 0xff);
++	retval |= imx31_address (device, (page &gt;&gt; 8) &amp; 0xff);
++	if (device-&gt;address_cycles &gt;= 4)
++	    {
++		retval |= imx31_address (device, (page &gt;&gt; 16) &amp; 0xff);
++		if (device-&gt;address_cycles &gt;= 5)
++		    {
++			retval |= imx31_address (device, (page &gt;&gt; 24) &amp; 0xff);
++			retval |= imx31_command (device, NAND_CMD_READSTART);
++		    }
++	    }
++	retval |= do_data_output (device);
++	if (retval != ERROR_OK)
++	    {
++		return retval;
++	    }
++
++	if (data)
++	    {
++		target_read_buffer (target, MX3_NF_MAIN_BUFFER0, data_size,
++				    data);
++	    }
++	if (oob)
++	    {
++		target_read_buffer (target, MX3_NF_SPARE_BUFFER0, oob_size,
++				    oob);
++	    }
++	}
++	return ERROR_OK;
++}
++
++static int test_iomux_settings (target_t * target, uint32_t address,
++				uint32_t mask, const char *text)
++{
++	uint32_t register_content;
++	target_read_u32 (target, address, &amp;register_content);
++	if ((register_content &amp; mask) != (0x12121212 &amp; mask))
++	{
++	    LOG_ERROR (&quot;IOMUX for {%s} is bad&quot;, text);
++	    return ERROR_FAIL;
++	}
++	return ERROR_OK;
++}
++
++static int initialize_nf_controller (struct nand_device_s *device)
++{
++	mx3_nf_controller_t *mx3_nf_info = device-&gt;controller_priv;
++	target_t *target = mx3_nf_info-&gt;target;
++	/*
++	* resets NAND flash controller in zero time ? I dont know.
++	*/
++	target_write_u16 (target, MX3_NF_CFG1, MX3_NF_BIT_RESET_EN);
++	{
++	uint16_t work_mode;
++	work_mode = MX3_NF_BIT_INT_DIS;	/* disable interrupt */
++	if (target-&gt;endianness == TARGET_BIG_ENDIAN)
++	    {
++		work_mode |= MX3_NF_BIT_BE_EN;
++	    }
++	if (mx3_nf_info-&gt;flags.hw_ecc_enabled)
++	    {
++		work_mode |= MX3_NF_BIT_ECC_EN;
++	    }
++	target_write_u16 (target, MX3_NF_CFG1, work_mode);
++	}
++	/*
++	* unlock SRAM buffer for write; 2 mean &quot;Unlock&quot;, other values means &quot;Lock&quot;
++	*/
++	target_write_u16 (target, MX3_NF_BUFCFG, 2);
++	{
++	uint16_t temp;
++	target_read_u16 (target, MX3_NF_FWP, &amp;temp);
++	if ((temp &amp; 0x0007) == 1)
++	    {
++		LOG_ERROR (&quot;NAND flash is tight-locked, reset needed&quot;);
++		return ERROR_FAIL;
++	    }
++
++	}
++	/*
++	* unlock NAND flash for write
++	*/
++	target_write_u16 (target, MX3_NF_FWP, 4);
++	target_write_u16 (target, MX3_NF_LOCKSTART, 0x0000);
++	target_write_u16 (target, MX3_NF_LOCKEND, 0xFFFF);
++	/*
++	* 0x0000 means that first SRAM buffer @0xB800_0000 will be used
++	*/
++	target_write_u16 (target, MX3_NF_BUFADDR, 0x0000);
++	/*
++	* address of SRAM buffer
++	*/
++	in_sram_address = MX3_NF_MAIN_BUFFER0;
++	sign_of_sequental_byte_read = 0;
++	return ERROR_OK;
++}
++
++static int get_next_byte_from_sram_buffer (target_t * target, uint8_t * value)
++{
++	static uint8_t even_byte = 0;
++	/*
++	* host-big_endian ??
++	*/
++	if (sign_of_sequental_byte_read == 0)
++	{
++	    even_byte = 0;
++	}
++	if (in_sram_address &gt; MX3_NF_LAST_BUFFER_ADDR)
++	{
++	    LOG_ERROR (sram_buffer_bounds_err_msg, in_sram_address);
++	    *value = 0;
++	    sign_of_sequental_byte_read = 0;
++	    even_byte = 0;
++	    return ERROR_NAND_OPERATION_FAILED;
++	}
++	else
++	{
++	    uint16_t temp;
++	    target_read_u16 (target, in_sram_address, &amp;temp);
++	    if (even_byte)
++		{
++		    *value = temp &gt;&gt; 8;
++		    even_byte = 0;
++		    in_sram_address += 2;
++		}
++	    else
++		{
++		    *value = temp &amp; 0xff;
++		    even_byte = 1;
++		}
++	}
++	sign_of_sequental_byte_read = 1;
++	return ERROR_OK;
++}
++
++static int get_next_halfword_from_sram_buffer (target_t * target,
++					       uint16_t * value)
++{
++	if (in_sram_address &gt; MX3_NF_LAST_BUFFER_ADDR)
++	{
++	    LOG_ERROR (sram_buffer_bounds_err_msg, in_sram_address);
++	    *value = 0;
++	    return ERROR_NAND_OPERATION_FAILED;
++	}
++	else
++	{
++	    target_read_u16 (target, in_sram_address, value);
++	    in_sram_address += 2;
++	}
++	return ERROR_OK;
++}
++
++static int poll_for_complete_op (target_t * target, const char *text)
++{
++	uint16_t poll_complete_status;
++	for (int poll_cycle_count = 0; poll_cycle_count &lt; 100; poll_cycle_count++)
++	{
++	    usleep (25);
++	    target_read_u16 (target, MX3_NF_CFG2, &amp;poll_complete_status);
++	    if (poll_complete_status &amp; MX3_NF_BIT_OP_DONE)
++		{
++		    break;
++		}
++	}
++	if (!(poll_complete_status &amp; MX3_NF_BIT_OP_DONE))
++	{
++	    LOG_ERROR (&quot;%s sending timeout&quot;, text);
++	    return ERROR_NAND_OPERATION_FAILED;
++	}
++	return ERROR_OK;
++}
++
++static int validate_target_state (struct nand_device_s *device)
++{
++	mx3_nf_controller_t *mx3_nf_info = device-&gt;controller_priv;
++	target_t *target = mx3_nf_info-&gt;target;
++
++	if (target-&gt;state != TARGET_HALTED)
++	{
++	    LOG_ERROR (target_not_halted_err_msg);
++	    return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	if (mx3_nf_info-&gt;flags.target_little_endian !=
++	(target-&gt;endianness == TARGET_LITTLE_ENDIAN))
++	{
++	    /*
++	     * endianness changed after NAND controller probed
++	     */
++	    return ERROR_NAND_OPERATION_FAILED;
++	}
++	return ERROR_OK;
++}
++
++static int do_data_output (struct nand_device_s *device)
++{
++	mx3_nf_controller_t *mx3_nf_info = device-&gt;controller_priv;
++	target_t *target = mx3_nf_info-&gt;target;
++	switch (mx3_nf_info-&gt;fin)
++	{
++	    case MX3_NF_FIN_DATAOUT:
++		/*
++		 * start data output operation (set MX3_NF_BIT_OP_DONE==0)
++		 */
++		target_write_u16 (target, MX3_NF_CFG2,
++				  MX3_NF_BIT_DATAOUT_TYPE (mx3_nf_info-&gt;
++							   optype));
++		{
++		    int poll_result;
++		    poll_result = poll_for_complete_op (target, &quot;data output&quot;);
++		    if (poll_result != ERROR_OK)
++			{
++			    return poll_result;
++			}
++		}
++		mx3_nf_info-&gt;fin = MX3_NF_FIN_NONE;
++		/*
++		 * ECC stuff
++		 */
++		if ((mx3_nf_info-&gt;optype == MX3_NF_DATAOUT_PAGE)
++		    &amp;&amp; mx3_nf_info-&gt;flags.hw_ecc_enabled)
++		    {
++			uint16_t ecc_status;
++			target_read_u16 (target, MX3_NF_ECCSTATUS, &amp;ecc_status);
++			switch (ecc_status &amp; 0x000c)
++			    {
++				case 1 &lt;&lt; 2:
++				    LOG_DEBUG
++					(&quot;main area readed with 1 (correctable) error&quot;);
++				    break;
++				case 2 &lt;&lt; 2:
++				    LOG_DEBUG
++					(&quot;main area readed with more than 1 (incorrectable) error&quot;);
++				    return ERROR_NAND_OPERATION_FAILED;
++				    break;
++			    }
++			switch (ecc_status &amp; 0x0003)
++			    {
++				case 1:
++				    LOG_DEBUG
++					(&quot;spare area readed with 1 (correctable) error&quot;);
++				    break;
++				case 2:
++				    LOG_DEBUG
++					(&quot;main area readed with more than 1 (incorrectable) error&quot;);
++				    return ERROR_NAND_OPERATION_FAILED;
++				    break;
++			    }
++		    }
++		break;
++	    case MX3_NF_FIN_NONE:
++		break;
++	}
++	return ERROR_OK;
++}
+
+Added: trunk/src/flash/mx3_nand.h
+===================================================================
+--- trunk/src/flash/mx3_nand.h	2009-09-10 13:17:05 UTC (rev 2684)
++++ trunk/src/flash/mx3_nand.h	2009-09-10 13:17:25 UTC (rev 2685)
+@@ -0,0 +1,90 @@
++#include &lt;nand.h&gt;
++
++#define		MX3_NF_BASE_ADDR		0xb8000000
++#define		MX3_NF_BUFSIZ			(MX3_NF_BASE_ADDR + 0xe00)
++#define		MX3_NF_BUFADDR			(MX3_NF_BASE_ADDR + 0xe04)
++#define		MX3_NF_FADDR			(MX3_NF_BASE_ADDR + 0xe06)
++#define		MX3_NF_FCMD				(MX3_NF_BASE_ADDR + 0xe08)
++#define		MX3_NF_BUFCFG			(MX3_NF_BASE_ADDR + 0xe0a)
++#define		MX3_NF_ECCSTATUS			(MX3_NF_BASE_ADDR + 0xe0c)
++#define		MX3_NF_ECCMAINPOS			(MX3_NF_BASE_ADDR + 0xe0e)
++#define		MX3_NF_ECCSPAREPOS			(MX3_NF_BASE_ADDR + 0xe10)
++#define		MX3_NF_FWP			(MX3_NF_BASE_ADDR + 0xe12)
++#define		MX3_NF_LOCKSTART			(MX3_NF_BASE_ADDR + 0xe14)
++#define		MX3_NF_LOCKEND			(MX3_NF_BASE_ADDR + 0xe16)
++#define		MX3_NF_FWPSTATUS			(MX3_NF_BASE_ADDR + 0xe18)
++ /*
++  * all bits not marked as self-clearing bit
++  */
++#define		MX3_NF_CFG1			(MX3_NF_BASE_ADDR + 0xe1a)
++#define		MX3_NF_CFG2			(MX3_NF_BASE_ADDR + 0xe1c)
++
++#define		MX3_NF_MAIN_BUFFER0		(MX3_NF_BASE_ADDR + 0x0000)
++#define		MX3_NF_MAIN_BUFFER1		(MX3_NF_BASE_ADDR + 0x0200)
++#define		MX3_NF_MAIN_BUFFER2		(MX3_NF_BASE_ADDR + 0x0400)
++#define		MX3_NF_MAIN_BUFFER3		(MX3_NF_BASE_ADDR + 0x0600)
++#define		MX3_NF_SPARE_BUFFER0	(MX3_NF_BASE_ADDR + 0x0800)
++#define		MX3_NF_SPARE_BUFFER1	(MX3_NF_BASE_ADDR + 0x0810)
++#define		MX3_NF_SPARE_BUFFER2	(MX3_NF_BASE_ADDR + 0x0820)
++#define		MX3_NF_SPARE_BUFFER3	(MX3_NF_BASE_ADDR + 0x0830)
++#define		MX3_NF_MAIN_BUFFER_LEN	512
++#define		MX3_NF_SPARE_BUFFER_LEN	16
++#define		MX3_NF_LAST_BUFFER_ADDR	((MX3_NF_SPARE_BUFFER3) + MX3_NF_SPARE_BUFFER_LEN - 2)
++
++/* bits in MX3_NF_CFG1 register */
++#define		MX3_NF_BIT_SPARE_ONLY_EN	(1&lt;&lt;2)
++#define		MX3_NF_BIT_ECC_EN			(1&lt;&lt;3)
++#define		MX3_NF_BIT_INT_DIS			(1&lt;&lt;4)
++#define		MX3_NF_BIT_BE_EN			(1&lt;&lt;5)
++#define		MX3_NF_BIT_RESET_EN			(1&lt;&lt;6)
++#define		MX3_NF_BIT_FORCE_CE			(1&lt;&lt;7)
++
++/* bits in MX3_NF_CFG2 register */
++
++/*Flash Command Input*/
++#define		MX3_NF_BIT_OP_FCI			(1&lt;&lt;0)
++ /*
++  * Flash Address Input
++  */
++#define		MX3_NF_BIT_OP_FAI			(1&lt;&lt;1)
++ /*
++  * Flash Data Input
++  */
++#define		MX3_NF_BIT_OP_FDI			(1&lt;&lt;2)
++
++/* see &quot;enum mx_dataout_type&quot; below */
++#define		MX3_NF_BIT_DATAOUT_TYPE(x)	((x)&lt;&lt;3)
++#define		MX3_NF_BIT_OP_DONE			(1&lt;&lt;15)
++
++#define		MX3_CCM_CGR2		0x53f80028
++#define		MX3_GPR				0x43fac008
++#define		MX3_PCSR			0x53f8000c
++
++enum mx_dataout_type
++{
++	MX3_NF_DATAOUT_PAGE = 1,
++	MX3_NF_DATAOUT_NANDID = 2,
++	MX3_NF_DATAOUT_NANDSTATUS = 4,
++};
++enum mx_nf_finalize_action
++{
++	MX3_NF_FIN_NONE,
++	MX3_NF_FIN_DATAOUT,
++};
++
++struct mx3_nf_flags
++{
++	unsigned host_little_endian:1;
++	unsigned target_little_endian:1;
++	unsigned nand_readonly:1;
++	unsigned one_kb_sram:1;
++	unsigned hw_ecc_enabled:1;
++};
++
++typedef struct mx3_nf_controller_s
++{
++	struct target_s *target;
++	enum mx_dataout_type optype;
++	enum mx_nf_finalize_action fin;
++	struct mx3_nf_flags flags;
++} mx3_nf_controller_t;
+
+Modified: trunk/src/flash/nand.c
+===================================================================
+--- trunk/src/flash/nand.c	2009-09-10 13:17:05 UTC (rev 2684)
++++ trunk/src/flash/nand.c	2009-09-10 13:17:25 UTC (rev 2685)
+@@ -52,6 +52,7 @@
+ extern nand_flash_controller_t s3c2412_nand_controller;
+ extern nand_flash_controller_t s3c2440_nand_controller;
+ extern nand_flash_controller_t s3c2443_nand_controller;
++extern nand_flash_controller_t imx31_nand_flash_controller;
+ 
+ /* extern nand_flash_controller_t boundary_scan_nand_controller; */
+ 
+@@ -64,6 +65,7 @@
+ 	&amp;s3c2412_nand_controller,
+ 	&amp;s3c2440_nand_controller,
+ 	&amp;s3c2443_nand_controller,
++ 	&amp;imx31_nand_flash_controller,
+ /*	&amp;boundary_scan_nand_controller, */
+ 	NULL
+ };
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001467.html">[Openocd-svn] r2684 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001469.html">[Openocd-svn] r2686 - trunk/src/flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1468">[ date ]</a>
+              <a href="thread.html#1468">[ thread ]</a>
+              <a href="subject.html#1468">[ subject ]</a>
+              <a href="author.html#1468">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

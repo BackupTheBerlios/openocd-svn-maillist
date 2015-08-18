@@ -1,0 +1,176 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2247 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2247%20-%20trunk/src/target&In-Reply-To=%3C200906160023.n5G0NGEC028238%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001030.html">
+   <LINK REL="Next"  HREF="001032.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2247 - trunk/src/target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2247%20-%20trunk/src/target&In-Reply-To=%3C200906160023.n5G0NGEC028238%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2247 - trunk/src/target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun 16 02:23:16 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001030.html">[Openocd-svn] r2246 - in trunk: doc src/jtag
+</A></li>
+        <LI>Next message: <A HREF="001032.html">[Openocd-svn] r2248 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1031">[ date ]</a>
+              <a href="thread.html#1031">[ thread ]</a>
+              <a href="subject.html#1031">[ subject ]</a>
+              <a href="author.html#1031">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-16 02:23:13 +0200 (Tue, 16 Jun 2009)
+New Revision: 2247
+
+Modified:
+   trunk/src/target/target.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Fix some polling issues:
+
+ - Don't background-poll disabled TAPs ... this was just a bug
+   waiting to happen.  (And then it happened!)
+
+ - Don't fail command line polls of disabled taps; that's not any
+   kind of error, it's just that you can't do much.  But do show
+   that tap-disabled status.
+
+ - Spell &quot;continuous&quot; correctly in the variable name.  ;)
+
+Not resolved by this patch:  the need for an interlock whereby
+other code (like the JTAG layer) can block all other access to
+the JTAG layer, e.g. while enabling or disabling TAPs.  And
+that interlock needs to be timer-safe...
+
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-06-16 00:23:00 UTC (rev 2246)
++++ trunk/src/target/target.c	2009-06-16 00:23:13 UTC (rev 2247)
+@@ -269,7 +269,7 @@
+ 	return x+1;
+ }
+ 
+-static int target_continous_poll = 1;
++static int target_continuous_poll = 1;
+ 
+ /* read a u32 from a buffer in target memory endianness */
+ u32 target_buffer_get_u32(target_t *target, const u8 *buffer)
+@@ -436,13 +436,13 @@
+ 	 * more predictable, i.e. dr/irscan &amp; pathmove in events will
+ 	 * not have JTAG operations injected into the middle of a sequence.
+ 	 */
+-	int save_poll = target_continous_poll;
+-	target_continous_poll = 0;
++	int save_poll = target_continuous_poll;
++	target_continuous_poll = 0;
+ 
+ 	sprintf( buf, &quot;ocd_process_reset %s&quot;, n-&gt;name );
+ 	retval = Jim_Eval( interp, buf );
+ 
+-	target_continous_poll = save_poll;
++	target_continuous_poll = save_poll;
+ 
+ 	if(retval != JIM_OK) {
+ 		Jim_PrintErrorMessage(interp);
+@@ -1650,20 +1650,23 @@
+ 		recursive = 0;
+ 	}
+ 
+-	target_t *target = all_targets;
+-
+-	while (target)
++	/* Poll targets for state changes unless that's globally disabled.
++	 * Skip targets that are currently disabled.
++	 */
++	for (target_t *target = all_targets;
++			target_continuous_poll &amp;&amp; target;
++			target = target-&gt;next)
+ 	{
++		if (!target-&gt;tap-&gt;enabled)
++			continue;
+ 
+ 		/* only poll target if we've got power and srst isn't asserted */
+-		if (target_continous_poll&amp;&amp;!powerDropout&amp;&amp;!srstAsserted)
++		if (!powerDropout &amp;&amp; !srstAsserted)
+ 		{
+ 			/* polling may fail silently until the target has been examined */
+ 			if((retval = target_poll(target)) != ERROR_OK)
+ 				return retval;
+ 		}
+-
+-		target = target-&gt;next;
+ 	}
+ 
+ 	return retval;
+@@ -1791,7 +1794,12 @@
+ 	if (argc == 0)
+ 	{
+ 		command_print(cmd_ctx, &quot;background polling: %s&quot;,
+-				target_continous_poll ?  &quot;on&quot; : &quot;off&quot;);
++				target_continuous_poll ?  &quot;on&quot; : &quot;off&quot;);
++		command_print(cmd_ctx, &quot;TAP: %s (%s)&quot;,
++				target-&gt;tap-&gt;dotted_name,
++				target-&gt;tap-&gt;enabled ? &quot;enabled&quot; : &quot;disabled&quot;);
++		if (!target-&gt;tap-&gt;enabled)
++			return ERROR_OK;
+ 		if ((retval = target_poll(target)) != ERROR_OK)
+ 			return retval;
+ 		if ((retval = target_arch_state(target)) != ERROR_OK)
+@@ -1802,11 +1810,11 @@
+ 	{
+ 		if (strcmp(args[0], &quot;on&quot;) == 0)
+ 		{
+-			target_continous_poll = 1;
++			target_continuous_poll = 1;
+ 		}
+ 		else if (strcmp(args[0], &quot;off&quot;) == 0)
+ 		{
+-			target_continous_poll = 0;
++			target_continuous_poll = 0;
+ 		}
+ 		else
+ 		{
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001030.html">[Openocd-svn] r2246 - in trunk: doc src/jtag
+</A></li>
+	<LI>Next message: <A HREF="001032.html">[Openocd-svn] r2248 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1031">[ date ]</a>
+              <a href="thread.html#1031">[ thread ]</a>
+              <a href="subject.html#1031">[ subject ]</a>
+              <a href="author.html#1031">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

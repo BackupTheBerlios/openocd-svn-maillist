@@ -1,0 +1,296 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2822 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2822%20-%20trunk/src/jtag&In-Reply-To=%3C200910071730.n97HUrg6000816%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001604.html">
+   <LINK REL="Next"  HREF="001606.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2822 - trunk/src/jtag</H1>
+    <B>dbrownell at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2822%20-%20trunk/src/jtag&In-Reply-To=%3C200910071730.n97HUrg6000816%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2822 - trunk/src/jtag">dbrownell at mail.berlios.de
+       </A><BR>
+    <I>Wed Oct  7 19:30:53 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001604.html">[Openocd-svn] r2821 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001606.html">[Openocd-svn] r2823 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1605">[ date ]</a>
+              <a href="thread.html#1605">[ thread ]</a>
+              <a href="subject.html#1605">[ subject ]</a>
+              <a href="author.html#1605">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: dbrownell
+Date: 2009-10-07 19:30:51 +0200 (Wed, 07 Oct 2009)
+New Revision: 2822
+
+Modified:
+   trunk/src/jtag/commands.c
+   trunk/src/jtag/ft2232.c
+   trunk/src/jtag/jtag.h
+Log:
+Remove much #ifdeffery around _DEBUG_JTAG_IO_ usage.
+Have DEBUG_JTAG_IO() always trigger necessary warnings.
+
+
+Modified: trunk/src/jtag/commands.c
+===================================================================
+--- trunk/src/jtag/commands.c	2009-10-07 16:28:44 UTC (rev 2821)
++++ trunk/src/jtag/commands.c	2009-10-07 17:30:51 UTC (rev 2822)
+@@ -184,36 +184,37 @@
+ 
+ 	bit_count = 0;
+ 
+-#ifdef _DEBUG_JTAG_IO_
+-	LOG_DEBUG(&quot;%s num_fields: %i&quot;, cmd-&gt;ir_scan ? &quot;IRSCAN&quot; : &quot;DRSCAN&quot;, cmd-&gt;num_fields);
+-#endif
++	DEBUG_JTAG_IO(&quot;%s num_fields: %i&quot;,
++			cmd-&gt;ir_scan ? &quot;IRSCAN&quot; : &quot;DRSCAN&quot;,
++			cmd-&gt;num_fields);
+ 
+ 	for (i = 0; i &lt; cmd-&gt;num_fields; i++)
+ 	{
+ 		if (cmd-&gt;fields[i].out_value)
+ 		{
+ #ifdef _DEBUG_JTAG_IO_
+-			char* char_buf = buf_to_str(cmd-&gt;fields[i].out_value, (cmd-&gt;fields[i].num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : cmd-&gt;fields[i].num_bits, 16);
+-#endif
+-			buf_set_buf(cmd-&gt;fields[i].out_value, 0, *buffer, bit_count, cmd-&gt;fields[i].num_bits);
+-#ifdef _DEBUG_JTAG_IO_
+-			LOG_DEBUG(&quot;fields[%i].out_value[%i]: 0x%s&quot;, i, cmd-&gt;fields[i].num_bits, char_buf);
++			char *char_buf = buf_to_str(cmd-&gt;fields[i].out_value,
++				(cmd-&gt;fields[i].num_bits &gt; DEBUG_JTAG_IOZ)
++					? DEBUG_JTAG_IOZ
++					: cmd-&gt;fields[i].num_bits, 16);
++
++			LOG_DEBUG(&quot;fields[%i].out_value[%i]: 0x%s&quot;, i,
++					cmd-&gt;fields[i].num_bits, char_buf);
+ 			free(char_buf);
+ #endif
++			buf_set_buf(cmd-&gt;fields[i].out_value, 0, *buffer,
++					bit_count, cmd-&gt;fields[i].num_bits);
+ 		}
+ 		else
+ 		{
+-#ifdef _DEBUG_JTAG_IO_
+-			LOG_DEBUG(&quot;fields[%i].out_value[%i]: NULL&quot;, i, cmd-&gt;fields[i].num_bits);
+-#endif
++			DEBUG_JTAG_IO(&quot;fields[%i].out_value[%i]: NULL&quot;,
++					i, cmd-&gt;fields[i].num_bits);
+ 		}
+ 
+ 		bit_count += cmd-&gt;fields[i].num_bits;
+ 	}
+ 
+-#ifdef _DEBUG_JTAG_IO_
+-	//LOG_DEBUG(&quot;bit_count totalling: %i&quot;,  bit_count);
+-#endif
++	//DEBUG_JTAG_IO(&quot;bit_count totalling: %i&quot;,  bit_count);
+ 
+ 	return bit_count;
+ }
+@@ -238,8 +239,13 @@
+ 			uint8_t *captured = buf_set_buf(buffer, bit_count, malloc(CEIL(num_bits, 8)), 0, num_bits);
+ 
+ #ifdef _DEBUG_JTAG_IO_
+-			char *char_buf = buf_to_str(captured, (num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : num_bits, 16);
+-			LOG_DEBUG(&quot;fields[%i].in_value[%i]: 0x%s&quot;, i, num_bits, char_buf);
++			char *char_buf = buf_to_str(captured,
++					(num_bits &gt; DEBUG_JTAG_IOZ)
++						? DEBUG_JTAG_IOZ
++						: num_bits, 16);
++
++			LOG_DEBUG(&quot;fields[%i].in_value[%i]: 0x%s&quot;,
++					i, num_bits, char_buf);
+ 			free(char_buf);
+ #endif
+ 
+
+Modified: trunk/src/jtag/ft2232.c
+===================================================================
+--- trunk/src/jtag/ft2232.c	2009-10-07 16:28:44 UTC (rev 2821)
++++ trunk/src/jtag/ft2232.c	2009-10-07 17:30:51 UTC (rev 2822)
+@@ -263,9 +263,8 @@
+ 
+ 	assert(tms_count &gt; 0);
+ 
+-#if 0
+-	LOG_DEBUG(&quot;mpsse cmd=%02x, tms_bits = 0x%08x, bit_count=%d&quot;, mpsse_cmd, tms_bits, tms_count);
+-#endif
++	DEBUG_JTAG_IO(&quot;mpsse cmd=%02x, tms_bits = 0x%08x, bit_count=%d&quot;,
++			mpsse_cmd, tms_bits, tms_count);
+ 
+ 	for (tms_byte = tms_ndx = i = 0;   i &lt; tms_count;   ++i, tms_bits&gt;&gt;=1)
+ 	{
+@@ -773,6 +772,8 @@
+ 
+ 	assert((unsigned) num_states &lt;= 32u);		/* tms_bits only holds 32 bits */
+ 
++	DEBUG_JTAG_IO(&quot;-&quot;);
++
+ 	/* this loop verifies that the path is legal and logs each state in the path */
+ 	while (num_states)
+ 	{
+@@ -952,7 +953,6 @@
+ 			tms_count = 2;
+ 			/* Clock Data to TMS/CS Pin with Read */
+ 			mpsse_cmd = 0x6b;
+-			/* LOG_DEBUG(&quot;added TMS scan (read)&quot;); */
+ 		}
+ 		else
+ 		{
+@@ -960,9 +960,9 @@
+ 			tms_count = tap_get_tms_path_len(tap_get_state(), tap_get_end_state());
+ 			/* Clock Data to TMS/CS Pin (no Read) */
+ 			mpsse_cmd = 0x4b;
+-			/* LOG_DEBUG(&quot;added TMS scan (no read)&quot;); */
+ 		}
+ 
++		DEBUG_JTAG_IO(&quot;finish %s&quot;, (type == SCAN_OUT) ? &quot;without read&quot; : &quot;via PAUSE&quot;);
+ 		clock_tms(mpsse_cmd, tms_bits, tms_count, last_bit);
+ 	}
+ 
+@@ -1154,6 +1154,7 @@
+ 			/* LOG_DEBUG(&quot;added TMS scan (no read)&quot;); */
+ 		}
+ 
++		DEBUG_JTAG_IO(&quot;finish, %s&quot;, (type == SCAN_OUT) ? &quot;no read&quot; : &quot;read&quot;);
+ 		clock_tms(mpsse_cmd, tms_bits, tms_count, last_bit);
+ 	}
+ 
+@@ -1565,10 +1566,9 @@
+ 	}
+ 
+ 	require_send = 1;
+-#ifdef _DEBUG_JTAG_IO_
+-	LOG_DEBUG(&quot;runtest: %i, end in %s&quot;, cmd-&gt;cmd.runtest-&gt;num_cycles, tap_state_name(tap_get_end_state()));
+-#endif
+-
++	DEBUG_JTAG_IO(&quot;runtest: %i, end in %s&quot;,
++			cmd-&gt;cmd.runtest-&gt;num_cycles,
++			tap_state_name(tap_get_end_state()));
+ 	return retval;
+ }
+ 
+@@ -1577,7 +1577,8 @@
+ 	int	predicted_size = 0;
+ 	int	retval = ERROR_OK;
+ 
+-	DEBUG_JTAG_IO(&quot;statemove end in %i&quot;, cmd-&gt;cmd.statemove-&gt;end_state);
++	DEBUG_JTAG_IO(&quot;statemove end in %s&quot;,
++			tap_state_name(cmd-&gt;cmd.statemove-&gt;end_state));
+ 
+ 	/* only send the maximum buffer size that FT2232C can handle */
+ 	predicted_size = 3;
+@@ -1685,10 +1686,9 @@
+ 	require_send = 1;
+ 	if (buffer)
+ 		free(buffer);
+-#ifdef _DEBUG_JTAG_IO_
+-	LOG_DEBUG(&quot;%s scan, %i bits, end in %s&quot;, (cmd-&gt;cmd.scan-&gt;ir_scan) ? &quot;IR&quot; : &quot;DR&quot;, scan_size,
++	DEBUG_JTAG_IO(&quot;%s scan, %i bits, end in %s&quot;,
++			(cmd-&gt;cmd.scan-&gt;ir_scan) ? &quot;IR&quot; : &quot;DR&quot;, scan_size,
+ 			tap_state_name(tap_get_end_state()));
+-#endif
+ 	return retval;
+ 
+ }
+@@ -1720,9 +1720,8 @@
+ 	layout-&gt;reset(cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
+ 	require_send = 1;
+ 
+-#ifdef _DEBUG_JTAG_IO_
+-	LOG_DEBUG(&quot;trst: %i, srst: %i&quot;, cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
+-#endif
++	DEBUG_JTAG_IO(&quot;trst: %i, srst: %i&quot;,
++			cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
+ 	return retval;
+ }
+ 
+@@ -1737,10 +1736,9 @@
+ 				retval = ERROR_JTAG_QUEUE_FAILED;
+ 	first_unsent = cmd-&gt;next;
+ 	jtag_sleep(cmd-&gt;cmd.sleep-&gt;us);
+-#ifdef _DEBUG_JTAG_IO_
+-			LOG_DEBUG(&quot;sleep %i usec while in %s&quot;, cmd-&gt;cmd.sleep-&gt;us, tap_state_name(tap_get_state()));
+-#endif
+-
++	DEBUG_JTAG_IO(&quot;sleep %i usec while in %s&quot;,
++			cmd-&gt;cmd.sleep-&gt;us,
++			tap_state_name(tap_get_state()));
+ 	return retval;
+ }
+ 
+@@ -1754,10 +1752,9 @@
+ 	 */
+ 	if (ft2232_stableclocks(cmd-&gt;cmd.stableclocks-&gt;num_cycles, cmd) != ERROR_OK)
+ 		retval = ERROR_JTAG_QUEUE_FAILED;
+-#ifdef _DEBUG_JTAG_IO_
+-	LOG_DEBUG(&quot;clocks %i while in %s&quot;, cmd-&gt;cmd.stableclocks-&gt;num_cycles, tap_state_name(tap_get_state()));
+-#endif
+-
++	DEBUG_JTAG_IO(&quot;clocks %i while in %s&quot;,
++			cmd-&gt;cmd.stableclocks-&gt;num_cycles,
++			tap_state_name(tap_get_state()));
+ 	return retval;
+ }
+ 
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-10-07 16:28:44 UTC (rev 2821)
++++ trunk/src/jtag/jtag.h	2009-10-07 17:30:51 UTC (rev 2822)
+@@ -28,9 +28,11 @@
+ 
+ 
+ #ifdef _DEBUG_JTAG_IO_
+-#define DEBUG_JTAG_IO(expr ...)		LOG_DEBUG(expr)
++#define DEBUG_JTAG_IO(expr ...) \
++	do { if (1) LOG_DEBUG(expr); } while (0)
+ #else
+-#define DEBUG_JTAG_IO(expr ...)
++#define DEBUG_JTAG_IO(expr ...) \
++	do { if (0) LOG_DEBUG(expr); } while (0)
+ #endif
+ 
+ #ifndef DEBUG_JTAG_IOZ
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001604.html">[Openocd-svn] r2821 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001606.html">[Openocd-svn] r2823 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1605">[ date ]</a>
+              <a href="thread.html#1605">[ thread ]</a>
+              <a href="subject.html#1605">[ subject ]</a>
+              <a href="author.html#1605">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

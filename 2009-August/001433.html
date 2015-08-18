@@ -1,0 +1,373 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2650 - in trunk: doc src/flash src/helper src/server	src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2650%20-%20in%20trunk%3A%20doc%20src/flash%20src/helper%20src/server%0A%09src/target&In-Reply-To=%3C200908301730.n7UHUOpI030053%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001432.html">
+   <LINK REL="Next"  HREF="001434.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2650 - in trunk: doc src/flash src/helper src/server	src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2650%20-%20in%20trunk%3A%20doc%20src/flash%20src/helper%20src/server%0A%09src/target&In-Reply-To=%3C200908301730.n7UHUOpI030053%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2650 - in trunk: doc src/flash src/helper src/server	src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Sun Aug 30 19:30:24 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001432.html">[Openocd-svn] r2649 - in trunk/src: . helper
+</A></li>
+        <LI>Next message: <A HREF="001434.html">[Openocd-svn] r2651 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1433">[ date ]</a>
+              <a href="thread.html#1433">[ thread ]</a>
+              <a href="subject.html#1433">[ subject ]</a>
+              <a href="author.html#1433">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-08-30 19:30:14 +0200 (Sun, 30 Aug 2009)
+New Revision: 2650
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/flash/at91sam7.c
+   trunk/src/flash/orion_nand.c
+   trunk/src/helper/startup.tcl
+   trunk/src/server/gdb_server.c
+   trunk/src/target/target.c
+   trunk/src/target/target.h
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt; start phasing out integers as target IDs
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-08-30 17:27:50 UTC (rev 2649)
++++ trunk/doc/openocd.texi	2009-08-30 17:30:14 UTC (rev 2650)
+@@ -2365,6 +2365,10 @@
+ Several commands let you examine the list of targets:
+ 
+ @deffn Command {target count}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at emph</A>{Note: target numbers are deprecated; don't use them.
++They will be removed shortly after August 2010, including this command.
++Iterate target using @command{target names}, not by counting.}
++
+ Returns the number of targets, @math{N}.
+ The highest numbered target is @math{N - 1}.
+ @example
+@@ -2390,6 +2394,9 @@
+ @end deffn
+ 
+ @deffn Command {target number} number
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at emph</A>{Note: target numbers are deprecated; don't use them.
++They will be removed shortly after August 2010, including this command.}
++
+ The list of targets is numbered starting at zero.
+ This command returns the name of the target at index @var{number}.
+ @example
+@@ -2711,8 +2718,7 @@
+ all the targets you might use something like this:
+ 
+ @example
+-for @{ set x 0 @} @{ $x &lt; [target count] @} @{ incr x @} @{
+-    set name [target number $x]
++foreach name [target names] @{
+     set y [$name cget -endian]
+     set z [$name cget -type]
+     puts [format &quot;Chip %d is %s, Endian: %s, type: %s&quot; \
+
+Modified: trunk/src/flash/at91sam7.c
+===================================================================
+--- trunk/src/flash/at91sam7.c	2009-08-30 17:27:50 UTC (rev 2649)
++++ trunk/src/flash/at91sam7.c	2009-08-30 17:30:14 UTC (rev 2650)
+@@ -20,20 +20,30 @@
+  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+ ****************************************************************************/
+ 
+-/***************************************************************************************************************************************************************************************
++/***************************************************************************
+ *
+ * New flash setup command:
+ *
+-* flash bank &lt;driver&gt; &lt;base_addr&gt; &lt;size&gt; &lt;chip_width&gt; &lt;bus_width&gt; &lt;target_number&gt; [&lt;target_name&gt; &lt;banks&gt; &lt;sectors_per_bank&gt; &lt;pages_per_sector&gt; &lt;page_size&gt; &lt;num_nvmbits&gt; &lt;ext_freq_khz&gt;]
++* flash bank &lt;driver&gt; &lt;base_addr&gt; &lt;size&gt; &lt;chip_width&gt; &lt;bus_width&gt; &lt;target_id&gt;
++*	[&lt;chip_type&gt; &lt;banks&gt;
++*	 &lt;sectors_per_bank&gt; &lt;pages_per_sector&gt;
++*	 &lt;page_size&gt; &lt;num_nvmbits&gt;
++*	 &lt;ext_freq_khz&gt;]
+ *
+ *   &lt;ext_freq_khz&gt; - MUST be used if clock is from external source,
+-*                    CAN be used if main oscillator frequency is known (recomended)
++*                    CAN be used if main oscillator frequency is known (recommended)
+ * Examples:
+-*  flash bank at91sam7 0x00100000 0 0 4 0 0 AT91SAM7XC256 1 16 64 256 3 25000                   ==== RECOMENDED ============
+-*  flash bank at91sam7 0 0 0 0 0 0 0 0 0 0 0 0 25000    (auto-detection, except for clock)      ==== RECOMENDED ============
+-*  flash bank at91sam7 0x00100000 0 0 4 0 0 AT91SAM7XC256 1 16 64 256 3 0                       ==== NOT RECOMENDED !!! ====
+-*  flash bank at91sam7 0 0 0 0 0            (old style, full auto-detection)                    ==== NOT RECOMENDED !!! ====
+-****************************************************************************************************************************************************************************************/
++* ==== RECOMMENDED (covers clock speed) ============
++*  flash bank at91sam7 0x00100000 0 0 4 $_TARGETNAME AT91SAM7XC256 1 16 64 256 3 25000
++*			(if auto-detect fails; provides clock spec)
++*  flash bank at91sam7 0 0 0 0 $_TARGETNAME 0 0 0 0 0 0 25000
++*			(auto-detect everything except the clock)
++* ==== NOT RECOMMENDED !!! (clock speed is not configured) ====
++*  flash bank at91sam7 0x00100000 0 0 4 $_TARGETNAME AT91SAM7XC256 1 16 64 256 3 0
++*			(if auto-detect fails)
++*  flash bank at91sam7 0 0 0 0 $_TARGETNAME
++*			(old style, auto-detect everything)
++****************************************************************************/
+ 
+ #ifdef HAVE_CONFIG_H
+ #include &quot;config.h&quot;
+@@ -734,16 +744,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-/***************************************************************************************************************************************************************************************
+-# flash bank &lt;driver&gt; &lt;base_addr&gt; &lt;size&gt; &lt;chip_width&gt; &lt;bus_width&gt; &lt;target_number&gt; [&lt;target_name&gt; &lt;banks&gt; &lt;sectors_per_bank&gt; &lt;pages_per_sector&gt; &lt;page_size&gt; &lt;num_nvmbits&gt; &lt;ext_freq_khz&gt;]
+-#   &lt;ext_freq_khz&gt; - MUST be used if clock is from external source
+-#                    CAN be used if main oscillator frequency is known
+-# Examples:
+-#  flash bank at91sam7 0x00100000 0 0 4 0 0 AT91SAM7XC256 1 16 64 256 3 25000                   ==== RECOMENDED ============
+-#  flash bank at91sam7 0 0 0 0 0 0 0 0 0 0 0 0 25000    (auto-detection, except for clock)      ==== RECOMENDED ============
+-#  flash bank at91sam7 0x00100000 0 0 4 0 0 AT91SAM7XC256 1 16 64 256 3 0                       ==== NOT RECOMENDED !!! ====
+-#  flash bank at91sam7 0 0 0 0 0                        (old style, full auto-detection)        ==== NOT RECOMENDED !!! ====
+-****************************************************************************************************************************************************************************************/
+ static int at91sam7_flash_bank_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc, struct flash_bank_s *bank)
+ {
+ 	flash_bank_t *t_bank = bank;
+
+Modified: trunk/src/flash/orion_nand.c
+===================================================================
+--- trunk/src/flash/orion_nand.c	2009-08-30 17:27:50 UTC (rev 2649)
++++ trunk/src/flash/orion_nand.c	2009-08-30 17:30:14 UTC (rev 2650)
+@@ -198,7 +198,7 @@
+ 	uint8_t ale, cle;
+ 
+ 	if (argc != 3) {
+-		LOG_ERROR(&quot;arguments must be: &lt;target_number&gt; &lt;NAND_address&gt;\n&quot;);
++		LOG_ERROR(&quot;arguments must be: &lt;target_id&gt; &lt;NAND_address&gt;\n&quot;);
+ 		return ERROR_NAND_DEVICE_INVALID;
+ 	}
+ 
+
+Modified: trunk/src/helper/startup.tcl
+===================================================================
+--- trunk/src/helper/startup.tcl	2009-08-30 17:27:50 UTC (rev 2649)
++++ trunk/src/helper/startup.tcl	2009-08-30 17:30:14 UTC (rev 2650)
+@@ -128,7 +128,7 @@
+ # Handle GDB 'R' packet. Can be overriden by configuration script,
+ # but it's not something one would expect target scripts to do
+ # normally
+-proc ocd_gdb_restart {target_num} {
++proc ocd_gdb_restart {target_id} {
+ 	# Fix!!! we're resetting all targets here! Really we should reset only
+ 	# one target
+ 	reset halt
+
+Modified: trunk/src/server/gdb_server.c
+===================================================================
+--- trunk/src/server/gdb_server.c	2009-08-30 17:27:50 UTC (rev 2649)
++++ trunk/src/server/gdb_server.c	2009-08-30 17:30:14 UTC (rev 2650)
+@@ -2156,7 +2156,9 @@
+ 					/* handle extended restart packet */
+ 					breakpoint_clear_target(gdb_service-&gt;target);
+ 					watchpoint_clear_target(gdb_service-&gt;target);
+-					command_run_linef(connection-&gt;cmd_ctx, &quot;ocd_gdb_restart %d&quot;, get_num_by_target(target));
++					command_run_linef(connection-&gt;cmd_ctx,
++							&quot;ocd_gdb_restart %s&quot;,
++							target-&gt;cmd_name);
+ 					break;
+ 				default:
+ 					/* ignore unkown packets */
+@@ -2230,17 +2232,23 @@
+ 	}
+ 	else
+ 	{
++		unsigned short port = gdb_port;
++
+ 		while (target)
+ 		{
+ 			gdb_service = malloc(sizeof(gdb_service_t));
+ 			gdb_service-&gt;target = target;
+ 
+-			add_service(&quot;gdb&quot;, CONNECTION_TCP, gdb_port + target-&gt;target_number, 1, gdb_new_connection, gdb_input, gdb_connection_closed, gdb_service);
++			add_service(&quot;gdb&quot;, CONNECTION_TCP,
++					port, 1,
++					gdb_new_connection, gdb_input,
++					gdb_connection_closed, gdb_service);
+ 
+-			LOG_DEBUG(&quot;gdb service for target %s at port %i&quot;,
++			LOG_DEBUG(&quot;gdb service for target %s at TCP port %i&quot;,
+ 					target_get_name(target),
+-					gdb_port + target-&gt;target_number);
++					port);
+ 			target = target-&gt;next;
++			port++;
+ 		}
+ 	}
+ 
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-08-30 17:27:50 UTC (rev 2649)
++++ trunk/src/target/target.c	2009-08-30 17:30:14 UTC (rev 2650)
+@@ -249,22 +249,6 @@
+ 	return cp;
+ }
+ 
+-static int max_target_number(void)
+-{
+-	target_t *t;
+-	int x;
+-
+-	x = -1;
+-	t = all_targets;
+-	while (t) {
+-		if (x &lt; t-&gt;target_number) {
+-			x = (t-&gt;target_number) + 1;
+-		}
+-		t = t-&gt;next;
+-	}
+-	return x;
+-}
+-
+ /* determine the number of the new target */
+ static int new_target_number(void)
+ {
+@@ -346,14 +330,19 @@
+ 			return target;
+ 	}
+ 
++	/* It's OK to remove this fallback sometime after August 2010 or so */
++
+ 	/* no match, try as number */
+ 	unsigned num;
+ 	if (parse_uint(id, &amp;num) != ERROR_OK)
+ 		return NULL;
+ 
+ 	for (target = all_targets; target; target = target-&gt;next) {
+-		if (target-&gt;target_number == (int)num)
++		if (target-&gt;target_number == (int)num) {
++			LOG_WARNING(&quot;use '%s' as target identifier, not '%u'&quot;,
++					target-&gt;cmd_name, num);
+ 			return target;
++		}
+ 	}
+ 
+ 	return NULL;
+@@ -374,11 +363,6 @@
+ 	return NULL;
+ }
+ 
+-int get_num_by_target(target_t *query_target)
+-{
+-	return query_target-&gt;target_number;
+-}
+-
+ target_t* get_current_target(command_context_t *cmd_ctx)
+ {
+ 	target_t *target = get_target_by_num(cmd_ctx-&gt;current_target);
+@@ -4387,6 +4371,8 @@
+ 		return target_create(&amp;goi);
+ 		break;
+ 	case TG_CMD_NUMBER:
++		/* It's OK to remove this mechanism sometime after August 2010 or so */
++		LOG_WARNING(&quot;don't use numbers as target identifiers; use names&quot;);
+ 		if (goi.argc != 1) {
+ 			Jim_SetResult_sprintf(goi.interp, &quot;expected: target number ?NUMBER?&quot;);
+ 			return JIM_ERR;
+@@ -4395,23 +4381,25 @@
+ 		if (e != JIM_OK) {
+ 			return JIM_ERR;
+ 		}
+-		{
+-			target_t *t;
+-			t = get_target_by_num(w);
+-			if (t == NULL) {
+-				Jim_SetResult_sprintf(goi.interp,&quot;Target: number %d does not exist&quot;, (int)(w));
+-				return JIM_ERR;
+-			}
+-			Jim_SetResultString(goi.interp, t-&gt;cmd_name, -1);
+-			return JIM_OK;
++		for (x = 0, target = all_targets; target; target = target-&gt;next, x++) {
++			if (target-&gt;target_number == w)
++				break;
+ 		}
++		if (target == NULL) {
++			Jim_SetResult_sprintf(goi.interp,
++					&quot;Target: number %d does not exist&quot;, (int)(w));
++			return JIM_ERR;
++		}
++		Jim_SetResultString(goi.interp, target-&gt;cmd_name, -1);
++		return JIM_OK;
+ 	case TG_CMD_COUNT:
+ 		if (goi.argc != 0) {
+ 			Jim_WrongNumArgs(goi.interp, 0, goi.argv, &quot;&lt;no parameters&gt;&quot;);
+ 			return JIM_ERR;
+ 		}
+-		Jim_SetResult(goi.interp,
+-					   Jim_NewIntObj(goi.interp, max_target_number()));
++		for (x = 0, target = all_targets; target; target = target-&gt;next, x++)
++			continue;
++		Jim_SetResult(goi.interp, Jim_NewIntObj(goi.interp, x));
+ 		return JIM_OK;
+ 	}
+ 
+
+Modified: trunk/src/target/target.h
+===================================================================
+--- trunk/src/target/target.h	2009-08-30 17:27:50 UTC (rev 2649)
++++ trunk/src/target/target.h	2009-08-30 17:30:14 UTC (rev 2650)
+@@ -120,7 +120,7 @@
+ {
+ 	target_type_t *type;				/* target type definition (name, access functions) */
+ 	const char *cmd_name;				/* tcl Name of target */
+-	int target_number;					/* generaly, target index but may not be in order */
++	int target_number;					/* DO NOT USE!  field to be removed in 2010 */
+ 	jtag_tap_t *tap;					/* where on the jtag chain is this */
+ 	const char *variant;				/* what varient of this chip is it? */
+ 	target_event_action_t *event_action;
+@@ -250,7 +250,6 @@
+ extern int target_call_timer_callbacks_now(void);
+ 
+ extern target_t* get_current_target(struct command_context_s *cmd_ctx);
+-extern int get_num_by_target(target_t *query_target);
+ extern target_t *get_target(const char *id);
+ 
+ /**
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001432.html">[Openocd-svn] r2649 - in trunk/src: . helper
+</A></li>
+	<LI>Next message: <A HREF="001434.html">[Openocd-svn] r2651 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1433">[ date ]</a>
+              <a href="thread.html#1433">[ thread ]</a>
+              <a href="subject.html#1433">[ subject ]</a>
+              <a href="author.html#1433">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

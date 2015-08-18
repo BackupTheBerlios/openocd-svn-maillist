@@ -1,0 +1,304 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2159 - in trunk/src/jtag: . rlink zy1000
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2159%20-%20in%20trunk/src/jtag%3A%20.%20rlink%20zy1000&In-Reply-To=%3C200906090840.n598eKq7020659%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000942.html">
+   <LINK REL="Next"  HREF="000944.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2159 - in trunk/src/jtag: . rlink zy1000</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2159%20-%20in%20trunk/src/jtag%3A%20.%20rlink%20zy1000&In-Reply-To=%3C200906090840.n598eKq7020659%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2159 - in trunk/src/jtag: . rlink zy1000">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun  9 10:40:20 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000942.html">[Openocd-svn] r2158 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000944.html">[Openocd-svn] r2160 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#943">[ date ]</a>
+              <a href="thread.html#943">[ thread ]</a>
+              <a href="subject.html#943">[ subject ]</a>
+              <a href="author.html#943">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-09 10:40:10 +0200 (Tue, 09 Jun 2009)
+New Revision: 2159
+
+Modified:
+   trunk/src/jtag/amt_jtagaccel.c
+   trunk/src/jtag/core.c
+   trunk/src/jtag/ft2232.c
+   trunk/src/jtag/gw16012.c
+   trunk/src/jtag/jlink.c
+   trunk/src/jtag/jtag.h
+   trunk/src/jtag/parport.c
+   trunk/src/jtag/presto.c
+   trunk/src/jtag/rlink/rlink.c
+   trunk/src/jtag/tcl.c
+   trunk/src/jtag/zy1000/zy1000.c
+Log:
+Add get and set accessors for jtag_speed:
+- Setter calls the interface driver callback to improve core encapsulation.
+- Use getter in standard JTAG interface drivers and ZY1000 minidriver.
+
+
+Modified: trunk/src/jtag/amt_jtagaccel.c
+===================================================================
+--- trunk/src/jtag/amt_jtagaccel.c	2009-06-09 08:40:02 UTC (rev 2158)
++++ trunk/src/jtag/amt_jtagaccel.c	2009-06-09 08:40:10 UTC (rev 2159)
+@@ -187,6 +187,7 @@
+ 
+ 	aw_scan_tms_5 = 0x40 | (tms_scan[0] &amp; 0x1f);
+ 	AMT_AW(aw_scan_tms_5);
++	int jtag_speed = jtag_get_speed();
+ 	if (jtag_speed &gt; 3 || rtck_enabled)
+ 		amt_wait_scan_busy();
+ 
+@@ -244,6 +245,7 @@
+ 	u8 dr_tdo;
+ 	u8 aw_tms_scan;
+ 	u8 tms_scan[2];
++	int jtag_speed = jtag_get_speed();
+ 
+ 	if (ir_scan)
+ 		amt_jtagaccel_end_state(TAP_IRSHIFT);
+@@ -496,7 +498,7 @@
+ 	aw_control_fsm |= 0x04;
+ 	AMT_AW(aw_control_fsm);
+ 
+-	amt_jtagaccel_speed(jtag_speed);
++	amt_jtagaccel_speed(jtag_get_speed());
+ 
+ 	if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
+ 		aw_control_rst &amp;= ~0x8;
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-06-09 08:40:02 UTC (rev 2158)
++++ trunk/src/jtag/core.c	2009-06-09 08:40:10 UTC (rev 2159)
+@@ -1153,7 +1153,19 @@
+ {
+ 	return speed_khz;
+ }
++int jtag_get_speed(void)
++{
++	return jtag_speed;
++}
+ 
++int jtag_set_speed(int speed)
++{
++	jtag_speed = speed;
++	/* this command can be called during CONFIG,
++	 * in which case jtag isn't initialized */
++	return jtag ? jtag-&gt;speed(speed) : ERROR_OK;
++}
++
+ void jtag_set_verify(bool enable)
+ {
+ 	jtag_verify = enable;
+
+Modified: trunk/src/jtag/ft2232.c
+===================================================================
+--- trunk/src/jtag/ft2232.c	2009-06-09 08:40:02 UTC (rev 2158)
++++ trunk/src/jtag/ft2232.c	2009-06-09 08:40:10 UTC (rev 2159)
+@@ -2099,7 +2099,7 @@
+ 	if (layout-&gt;init() != ERROR_OK)
+ 		return ERROR_JTAG_INIT_FAILED;
+ 
+-	ft2232_speed(jtag_speed);
++	ft2232_speed(jtag_get_speed());
+ 
+ 	buf[0] = 0x85; /* Disconnect TDI/DO to TDO/DI for Loopback */
+ 	if (((retval = ft2232_write(buf, 1, &amp;bytes_written)) != ERROR_OK) || (bytes_written != 1))
+
+Modified: trunk/src/jtag/gw16012.c
+===================================================================
+--- trunk/src/jtag/gw16012.c	2009-06-09 08:40:02 UTC (rev 2158)
++++ trunk/src/jtag/gw16012.c	2009-06-09 08:40:10 UTC (rev 2159)
+@@ -557,7 +557,7 @@
+ 	gw16012_input(&amp;status_port);
+ 	gw16012_msb = (status_port &amp; 0x80) ^ 0x80;
+ 
+-	gw16012_speed(jtag_speed);
++	gw16012_speed(jtag_get_speed());
+ 	gw16012_reset(0, 0);
+ 
+ 	return ERROR_OK;
+
+Modified: trunk/src/jtag/jlink.c
+===================================================================
+--- trunk/src/jtag/jlink.c	2009-06-09 08:40:02 UTC (rev 2158)
++++ trunk/src/jtag/jlink.c	2009-06-09 08:40:10 UTC (rev 2159)
+@@ -340,7 +340,7 @@
+ 	jlink_reset(0, 0);
+ 	jtag_sleep(3000);
+ 	jlink_tap_init();
+-	jlink_speed(jtag_speed);
++	jlink_speed(jtag_get_speed());
+ 
+ 	/* v5/6 jlink seems to have an issue if the first tap move
+ 	 * is not divisible by 8, so we send a TLR on first power up */
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-06-09 08:40:02 UTC (rev 2158)
++++ trunk/src/jtag/jtag.h	2009-06-09 08:40:10 UTC (rev 2159)
+@@ -255,7 +255,17 @@
+ 	struct jtag_event_callback_s* next;
+ } jtag_event_callback_t;
+ 
+-extern int jtag_speed;
++/// @returns The current JTAG speed setting.
++int jtag_get_speed(void);
++/**
++ * Set the JTAG speed. This routine will call the underlying
++ * interface @c speed callback, if the interface has been initialized.
++ * @param speed The new speed setting.
++ * @returns ERROR_OK during configuration or on success, or an error
++ *   code returned from the interface @c speed callback.
++ */
++int jtag_set_speed(int speed);
++
+ extern int jtag_speed_post_reset;
+ 
+ enum reset_types {
+
+Modified: trunk/src/jtag/parport.c
+===================================================================
+--- trunk/src/jtag/parport.c	2009-06-09 08:40:02 UTC (rev 2158)
++++ trunk/src/jtag/parport.c	2009-06-09 08:40:10 UTC (rev 2159)
+@@ -189,7 +189,7 @@
+ 
+ static void parport_write(int tck, int tms, int tdi)
+ {
+-	int i = jtag_speed + 1;
++	int i = jtag_get_speed() + 1;
+ 
+ 	if (tck)
+ 		dataport_value |= cable-&gt;TCK_MASK;
+
+Modified: trunk/src/jtag/presto.c
+===================================================================
+--- trunk/src/jtag/presto.c	2009-06-09 08:40:02 UTC (rev 2158)
++++ trunk/src/jtag/presto.c	2009-06-09 08:40:10 UTC (rev 2159)
+@@ -787,7 +787,7 @@
+ 	LOG_INFO(&quot;PRESTO open, serial number '%s'&quot;, presto-&gt;serial);
+ 
+ 	/* use JTAG speed setting from configuration file */
+-	presto_jtag_speed(jtag_speed);
++	presto_jtag_speed(jtag_get_speed());
+ 
+ 	bitq_interface = &amp;presto_bitq;
+ 	return ERROR_OK;
+
+Modified: trunk/src/jtag/rlink/rlink.c
+===================================================================
+--- trunk/src/jtag/rlink/rlink.c	2009-06-09 08:40:02 UTC (rev 2158)
++++ trunk/src/jtag/rlink/rlink.c	2009-06-09 08:40:10 UTC (rev 2159)
+@@ -1849,7 +1849,7 @@
+ 
+ 	tap_state_queue_init();
+ 	dtc_queue_init();
+-	rlink_speed(jtag_speed);
++	rlink_speed(jtag_get_speed());
+ 	rlink_reset(0, 0);
+ 
+ 	return ERROR_OK;
+
+Modified: trunk/src/jtag/tcl.c
+===================================================================
+--- trunk/src/jtag/tcl.c	2009-06-09 08:40:02 UTC (rev 2158)
++++ trunk/src/jtag/tcl.c	2009-06-09 08:40:10 UTC (rev 2159)
+@@ -960,14 +960,11 @@
+ 		LOG_DEBUG(&quot;handle jtag speed&quot;);
+ 
+ 		int cur_speed = 0;
+-		cur_speed = jtag_speed = strtoul(args[0], NULL, 0);
++		cur_speed = strtoul(args[0], NULL, 0);
++		retval = jtag_set_speed(cur_speed);
+ 
+-		/* this command can be called during CONFIG,
+-		 * in which case jtag isn't initialized */
+-		if (jtag)
+-			retval = jtag-&gt;speed(cur_speed);
+ 	}
+-	command_print(cmd_ctx, &quot;jtag_speed: %d&quot;, jtag_speed);
++	command_print(cmd_ctx, &quot;jtag_speed: %d&quot;, jtag_get_speed());
+ 
+ 	return retval;
+ }
+@@ -994,9 +991,9 @@
+ 				jtag_set_speed_khz(0);
+ 				return retval;
+ 			}
+-			cur_speed = jtag_speed = speed_div1;
++			cur_speed = speed_div1;
+ 
+-			retval = jtag-&gt;speed(cur_speed);
++			retval = jtag_set_speed(cur_speed);
+ 		}
+ 		else
+ 			hasKHz = true;
+@@ -1005,7 +1002,7 @@
+ 	cur_speed = jtag_get_speed_khz();
+ 	if (jtag != NULL)
+ 	{
+-		retval = jtag-&gt;speed_div(jtag_speed, &amp;cur_speed);
++		retval = jtag-&gt;speed_div(jtag_get_speed(), &amp;cur_speed);
+ 		if (ERROR_OK != retval)
+ 			return retval;
+ 	}
+
+Modified: trunk/src/jtag/zy1000/zy1000.c
+===================================================================
+--- trunk/src/jtag/zy1000/zy1000.c	2009-06-09 08:40:02 UTC (rev 2158)
++++ trunk/src/jtag/zy1000/zy1000.c	2009-06-09 08:40:10 UTC (rev 2159)
+@@ -356,7 +356,7 @@
+ 
+ 	 /* deassert resets. Important to avoid infinite loop waiting for SRST to deassert */
+ 	zy1000_reset(0, 0);
+-	zy1000_speed(jtag_speed);
++	zy1000_speed(jtag_get_speed());
+ 
+ 	return ERROR_OK;
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000942.html">[Openocd-svn] r2158 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000944.html">[Openocd-svn] r2160 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#943">[ date ]</a>
+              <a href="thread.html#943">[ thread ]</a>
+              <a href="subject.html#943">[ subject ]</a>
+              <a href="author.html#943">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

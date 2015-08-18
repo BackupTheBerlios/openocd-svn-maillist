@@ -1,0 +1,554 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1551 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1551%20-%20trunk/src/target&In-Reply-To=%3C200904280729.n3S7TIBw014851%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000334.html">
+   <LINK REL="Next"  HREF="000336.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1551 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1551%20-%20trunk/src/target&In-Reply-To=%3C200904280729.n3S7TIBw014851%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1551 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Tue Apr 28 09:29:18 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000334.html">[Openocd-svn] r1550 - in trunk: . contrib
+</A></li>
+        <LI>Next message: <A HREF="000336.html">[Openocd-svn] r1552 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#335">[ date ]</a>
+              <a href="thread.html#335">[ thread ]</a>
+              <a href="subject.html#335">[ subject ]</a>
+              <a href="author.html#335">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-04-28 09:29:18 +0200 (Tue, 28 Apr 2009)
+New Revision: 1551
+
+Modified:
+   trunk/src/target/arm11.c
+   trunk/src/target/arm11.h
+   trunk/src/target/arm11_dbgtap.c
+Log:
+Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mbruck at digenius.de</A>&gt; macros for error handling
+
+Modified: trunk/src/target/arm11.c
+===================================================================
+--- trunk/src/target/arm11.c	2009-04-28 06:29:32 UTC (rev 1550)
++++ trunk/src/target/arm11.c	2009-04-28 07:29:18 UTC (rev 1551)
+@@ -316,15 +316,14 @@
+ int arm11_check_init(arm11_common_t * arm11, u32 * dscr)
+ {
+ 	FNC_INFO;
+-	int retval;
+ 
+ 	u32			dscr_local_tmp_copy;
+ 
+ 	if (!dscr)
+ 	{
+ 		dscr = &amp;dscr_local_tmp_copy;
+-		if ((retval=arm11_read_DSCR(arm11, dscr))!=ERROR_OK)
+-			return retval;
++		
++		CHECK_RETVAL(arm11_read_DSCR(arm11, dscr));
+ 	}
+ 
+ 	if (!(*dscr &amp; ARM11_DSCR_MODE_SELECT))
+@@ -382,9 +381,7 @@
+ 	}}
+ 
+ 	/* Save DSCR */
+-	int retval;
+-	if ((retval=arm11_read_DSCR(arm11, &amp;R(DSCR)))!=ERROR_OK)
+-		return retval;
++	CHECK_RETVAL(arm11_read_DSCR(arm11, &amp;R(DSCR)));
+ 
+ 	/* Save wDTR */
+ 
+@@ -586,12 +583,9 @@
+ 	   otherwise our programming would be sloppy */
+ 	{
+ 		u32 DSCR;
+-		int retval;
+-		if ((retval=arm11_read_DSCR(arm11, &amp;DSCR))!=ERROR_OK)
+-		{
+-			return retval;
+-		}
+ 
++		CHECK_RETVAL(arm11_read_DSCR(arm11, &amp;DSCR));
++
+ 		if (DSCR &amp; (ARM11_DSCR_RDTR_FULL | ARM11_DSCR_WDTR_FULL))
+ 		{
+ 			LOG_ERROR(&quot;wDTR/rDTR inconsistent (DSCR %08x)&quot;, DSCR);
+@@ -679,14 +673,12 @@
+ 		return ERROR_OK;
+ 
+ 	u32	dscr;
+-	int retval;
+-	if ((retval=arm11_read_DSCR(arm11, &amp;dscr))!=ERROR_OK)
+-		return retval;
++	
++	CHECK_RETVAL(arm11_read_DSCR(arm11, &amp;dscr));
+ 
+ 	LOG_DEBUG(&quot;DSCR %08x&quot;, dscr);
+ 
+-	if ((retval=arm11_check_init(arm11, &amp;dscr))!=ERROR_OK)
+-		return retval;
++	CHECK_RETVAL(arm11_check_init(arm11, &amp;dscr));
+ 
+ 	if (dscr &amp; ARM11_DSCR_CORE_HALTED)
+ 	{
+@@ -739,8 +731,6 @@
+ /* target execution control */
+ int arm11_halt(struct target_s *target)
+ {
+-	int retval = ERROR_OK;
+-
+ 	FNC_INFO;
+ 
+ 	arm11_common_t * arm11 = target-&gt;arch_info;
+@@ -767,19 +757,13 @@
+ 
+ 	arm11_add_IR(arm11, ARM11_HALT, TAP_IDLE);
+ 
+-	if((retval = jtag_execute_queue()) != ERROR_OK)
+-	{
+-		return retval;
+-	}
++	CHECK_RETVAL(jtag_execute_queue());
+ 
+ 	u32 dscr;
+ 
+ 	while (1)
+ 	{
+-		int retval;
+-		retval = arm11_read_DSCR(arm11, &amp;dscr);
+-		if (retval!=ERROR_OK)
+-			return retval;
++		CHECK_RETVAL(arm11_read_DSCR(arm11, &amp;dscr));
+ 
+ 		if (dscr &amp; ARM11_DSCR_CORE_HALTED)
+ 			break;
+@@ -792,19 +776,15 @@
+ 	target-&gt;state		= TARGET_HALTED;
+ 	target-&gt;debug_reason	= arm11_get_DSCR_debug_reason(dscr);
+ 
+-	if((retval = target_call_event_callbacks(target,
+-		old_state == TARGET_DEBUG_RUNNING ? TARGET_EVENT_DEBUG_HALTED : TARGET_EVENT_HALTED)) != ERROR_OK)
+-	{
+-		return retval;
+-	}
++	CHECK_RETVAL(
++		target_call_event_callbacks(target,
++			old_state == TARGET_DEBUG_RUNNING ? TARGET_EVENT_DEBUG_HALTED : TARGET_EVENT_HALTED));
+ 
+ 	return ERROR_OK;
+ }
+ 
+ int arm11_resume(struct target_s *target, int current, u32 address, int handle_breakpoints, int debug_execution)
+ {
+-	int retval = ERROR_OK;
+-
+ 	FNC_INFO;
+ 
+ 	//	  LOG_DEBUG(&quot;current %d  address %08x  handle_breakpoints %d  debug_execution %d&quot;,
+@@ -876,17 +856,13 @@
+ 
+ 	arm11_add_IR(arm11, ARM11_RESTART, TAP_IDLE);
+ 
+-	if((retval = jtag_execute_queue()) != ERROR_OK)
+-	{
+-		return retval;
+-	}
++	CHECK_RETVAL(jtag_execute_queue());
+ 
+ 	while (1)
+ 	{
+ 		u32 dscr;
+-		retval = arm11_read_DSCR(arm11, &amp;dscr);
+-		if (retval!=ERROR_OK)
+-			return retval;
++	
++		CHECK_RETVAL(arm11_read_DSCR(arm11, &amp;dscr));
+ 
+ 		LOG_DEBUG(&quot;DSCR %08x&quot;, dscr);
+ 
+@@ -899,19 +875,14 @@
+ 		target-&gt;state			= TARGET_RUNNING;
+ 		target-&gt;debug_reason	= DBG_REASON_NOTHALTED;
+ 
+-		if((retval = target_call_event_callbacks(target, TARGET_EVENT_RESUMED)) != ERROR_OK)
+-		{
+-			return retval;
+-		}
++		CHECK_RETVAL(target_call_event_callbacks(target, TARGET_EVENT_RESUMED));
+ 	}
+ 	else
+ 	{
+ 		target-&gt;state			= TARGET_DEBUG_RUNNING;
+ 		target-&gt;debug_reason	= DBG_REASON_NOTHALTED;
+-		if((retval = target_call_event_callbacks(target, TARGET_EVENT_RESUMED)) != ERROR_OK)
+-		{
+-			return retval;
+-		}
++
++		CHECK_RETVAL(target_call_event_callbacks(target, TARGET_EVENT_RESUMED));
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -919,8 +890,6 @@
+ 
+ int arm11_step(struct target_s *target, int current, u32 address, int handle_breakpoints)
+ {
+-	int retval = ERROR_OK;
+-
+ 	FNC_INFO;
+ 
+ 	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
+@@ -943,8 +912,7 @@
+ 
+ 	u32	next_instruction;
+ 
+-	if ((arm11_read_memory_word(arm11, R(PC), &amp;next_instruction))!=ERROR_OK)
+-		return retval;
++	CHECK_RETVAL(arm11_read_memory_word(arm11, R(PC), &amp;next_instruction));
+ 
+ 	/* skip over BKPT */
+ 	if ((next_instruction &amp; 0xFFF00070) == 0xe1200070)
+@@ -988,8 +956,7 @@
+ 		brp[1].address	= ARM11_SC7_BCR0;
+ 		brp[1].value	= 0x1 | (3 &lt;&lt; 1) | (0x0F &lt;&lt; 5) | (0 &lt;&lt; 14) | (0 &lt;&lt; 16) | (0 &lt;&lt; 20) | (2 &lt;&lt; 21);
+ 
+-		if ((retval=arm11_sc7_run(arm11, brp, asizeof(brp)))!=ERROR_OK)
+-			return retval;
++		CHECK_RETVAL(arm11_sc7_run(arm11, brp, asizeof(brp)));
+ 
+ 		/* resume */
+ 
+@@ -1000,15 +967,11 @@
+ 			R(DSCR) |= ARM11_DSCR_INTERRUPTS_DISABLE;
+ 
+ 
+-		if ((retval=arm11_leave_debug_state(arm11))!=ERROR_OK)
+-			return retval;
++		CHECK_RETVAL(arm11_leave_debug_state(arm11));
+ 
+ 		arm11_add_IR(arm11, ARM11_RESTART, TAP_IDLE);
+ 
+-		if((retval = jtag_execute_queue()) != ERROR_OK)
+-		{
+-			return retval;
+-		}
++		CHECK_RETVAL(jtag_execute_queue());
+ 
+ 		/** \todo TODO: add a timeout */
+ 
+@@ -1017,10 +980,9 @@
+ 		while (1)
+ 		{
+ 			u32 dscr;
+-			retval = arm11_read_DSCR(arm11, &amp;dscr);
+-			if (retval!=ERROR_OK)
+-				return retval;
+ 
++			CHECK_RETVAL(arm11_read_DSCR(arm11, &amp;dscr));
++
+ 			LOG_DEBUG(&quot;DSCR %08x&quot;, dscr);
+ 
+ 			if ((dscr &amp; (ARM11_DSCR_CORE_RESTARTED | ARM11_DSCR_CORE_HALTED)) ==
+@@ -1032,8 +994,7 @@
+ 		arm11_sc7_clear_vbw(arm11);
+ 
+ 		/* save state */
+-		if((retval = arm11_on_enter_debug_state(arm11))!=ERROR_OK)
+-			return retval;
++		CHECK_RETVAL(arm11_on_enter_debug_state(arm11));
+ 
+ 	    /* restore default state */
+ 		R(DSCR) &amp;= ~ARM11_DSCR_INTERRUPTS_DISABLE;
+@@ -1043,10 +1004,7 @@
+ 	//	  target-&gt;state		= TARGET_HALTED;
+ 	target-&gt;debug_reason	= DBG_REASON_SINGLESTEP;
+ 
+-	if((retval = target_call_event_callbacks(target, TARGET_EVENT_HALTED)) != ERROR_OK)
+-	{
+-		return retval;
+-	}
++	CHECK_RETVAL(target_call_event_callbacks(target, TARGET_EVENT_HALTED));
+ 
+ 	return ERROR_OK;
+ }
+@@ -1069,9 +1027,7 @@
+ 
+ 	if (target-&gt;reset_halt)
+ 	{
+-		int retval;
+-		if ((retval = target_halt(target))!=ERROR_OK)
+-			return retval;
++		CHECK_RETVAL(target_halt(target));
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -1511,25 +1467,18 @@
+ 	}
+ 
+ 	// no debug, otherwise breakpoint is not set
+-	if((retval = target_resume(target, 0, entry_point, 1, 0)) != ERROR_OK)
+-	{
+-		return retval;
+-	}
++	CHECK_RETVAL(target_resume(target, 0, entry_point, 1, 0));
+ 
+-	if((retval = target_wait_state(target, TARGET_HALTED, timeout_ms)) != ERROR_OK)
+-	{
+-		return retval;
+-	}
++	CHECK_RETVAL(target_wait_state(target, TARGET_HALTED, timeout_ms));
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+-		if ((retval=target_halt(target))!=ERROR_OK)
+-			return retval;
+-		if ((retval=target_wait_state(target, TARGET_HALTED, 500))!=ERROR_OK)
+-		{
+-			return retval;
+-		}
++		CHECK_RETVAL(target_halt(target));
++
++		CHECK_RETVAL(target_wait_state(target, TARGET_HALTED, 500));
++
+ 		retval = ERROR_TARGET_TIMEOUT;
++
+ 		goto del_breakpoint;
+ 	}
+ 
+@@ -1590,7 +1539,6 @@
+ 
+ int arm11_target_create(struct target_s *target, Jim_Interp *interp)
+ {
+-	int retval = ERROR_OK;
+ 	FNC_INFO;
+ 
+ 	NEW(arm11_common_t, arm11, 1);
+@@ -1601,10 +1549,7 @@
+ 	arm11-&gt;jtag_info.tap	= target-&gt;tap;
+ 	arm11-&gt;jtag_info.scann_size	= 5;
+ 
+-	if((retval = arm_jtag_setup_connection(&amp;arm11-&gt;jtag_info)) != ERROR_OK)
+-	{
+-		return retval;
+-	}
++	CHECK_RETVAL(arm_jtag_setup_connection(&amp;arm11-&gt;jtag_info));
+ 
+ 	if (target-&gt;tap==NULL)
+ 		return ERROR_FAIL;
+@@ -1630,7 +1575,6 @@
+ int arm11_examine(struct target_s *target)
+ {
+ 	FNC_INFO;
+-	int retval;
+ 
+ 	arm11_common_t * arm11 = target-&gt;arch_info;
+ 
+@@ -1657,10 +1601,8 @@
+ 
+ 	arm11_add_dr_scan_vc(asizeof(chain0_fields), chain0_fields, TAP_IDLE);
+ 
+-	if ((retval=jtag_execute_queue())!=ERROR_OK)
+-		return retval;
++	CHECK_RETVAL(jtag_execute_queue());
+ 
+-
+ 	switch (arm11-&gt;device_id &amp; 0x0FFFF000)
+ 	{
+ 	case 0x07B36000:	LOG_INFO(&quot;found ARM1136&quot;); break;
+
+Modified: trunk/src/target/arm11.h
+===================================================================
+--- trunk/src/target/arm11.h	2009-04-28 06:29:32 UTC (rev 1550)
++++ trunk/src/target/arm11.h	2009-04-28 07:29:18 UTC (rev 1551)
+@@ -51,6 +51,16 @@
+ #define ARM11_TAP_DEFAULT			TAP_INVALID
+ 
+ 
++#define CHECK_RETVAL(action)								\
++do {														\
++	int __retval = (action);								\
++															\
++	if (__retval != ERROR_OK)								\
++		return __retval;									\
++															\
++} while (0)
++
++
+ typedef struct arm11_register_history_s
+ {
+ 	u32		value;
+
+Modified: trunk/src/target/arm11_dbgtap.c
+===================================================================
+--- trunk/src/target/arm11_dbgtap.c	2009-04-28 06:29:32 UTC (rev 1550)
++++ trunk/src/target/arm11_dbgtap.c	2009-04-28 07:29:18 UTC (rev 1551)
+@@ -229,11 +229,7 @@
+ 
+ 	arm11_add_dr_scan_vc(1, &amp;chain1_field, TAP_DRPAUSE);
+ 
+-	int retval;
+-	if ((retval=jtag_execute_queue())!=ERROR_OK)
+-	{
+-		return retval;
+-	}
++	CHECK_RETVAL(jtag_execute_queue());
+ 
+ 	if (arm11-&gt;last_dscr != dscr)
+ 		JTAG_DEBUG(&quot;DSCR  = %08x (OLD %08x)&quot;, dscr, arm11-&gt;last_dscr);
+@@ -242,7 +238,7 @@
+ 
+ 	*value=dscr;
+ 
+-	return retval;
++	return ERROR_OK;
+ }
+ 
+ /** Write the Debug Status and Control Register (DSCR)
+@@ -266,9 +262,7 @@
+ 
+ 	arm11_add_dr_scan_vc(1, &amp;chain1_field, TAP_DRPAUSE);
+ 
+-	int retval;
+-	if ((retval=jtag_execute_queue())!=ERROR_OK)
+-		return retval;
++	CHECK_RETVAL(jtag_execute_queue());
+ 
+ 	JTAG_DEBUG(&quot;DSCR &lt;= %08x (OLD %08x)&quot;, dscr, arm11-&gt;last_dscr);
+ 
+@@ -383,9 +377,7 @@
+ 
+ 			arm11_add_debug_INST(arm11, 0, &amp;flag, count ? TAP_IDLE : TAP_DRPAUSE);
+ 
+-			int retval;
+-			if ((retval=jtag_execute_queue())!=ERROR_OK)
+-				return retval;
++			CHECK_RETVAL(jtag_execute_queue());
+ 
+ 			if (flag)
+ 				break;
+@@ -447,10 +439,9 @@
+ 			Data	    = *data;
+ 
+ 			arm11_add_dr_scan_vc(asizeof(chain5_fields), chain5_fields, TAP_IDLE);
+-			int retval;
+-			if ((retval=jtag_execute_queue())!=ERROR_OK)
+-				return retval;
+ 
++			CHECK_RETVAL(jtag_execute_queue());
++
+ 			JTAG_DEBUG(&quot;DTR  Ready %d  nRetry %d&quot;, Ready, nRetry);
+ 		}
+ 		while (!Ready);
+@@ -465,10 +456,9 @@
+ 		Data	    = 0;
+ 
+ 		arm11_add_dr_scan_vc(asizeof(chain5_fields), chain5_fields, TAP_DRPAUSE);
+-		int retval;
+-		if ((retval=jtag_execute_queue())!=ERROR_OK)
+-			return retval;
+ 
++		CHECK_RETVAL(jtag_execute_queue());
++
+ 		JTAG_DEBUG(&quot;DTR  Data %08x  Ready %d  nRetry %d&quot;, Data, Ready, nRetry);
+ 	}
+ 	while (!Ready);
+@@ -550,9 +540,7 @@
+ 
+ 	arm11_add_dr_scan_vc(asizeof(chain5_fields), chain5_fields, TAP_DRPAUSE);
+ 
+-	int retval;
+-	if ((retval=jtag_execute_queue())!=ERROR_OK)
+-		return retval;
++	CHECK_RETVAL(jtag_execute_queue());
+ 
+ 	size_t error_count = 0;
+ 
+@@ -625,9 +613,8 @@
+ 		do
+ 		{
+ 			arm11_add_dr_scan_vc(asizeof(chain5_fields), chain5_fields, count ? TAP_IDLE : TAP_DRPAUSE);
+-			int retval;
+-			if ((retval=jtag_execute_queue())!=ERROR_OK)
+-				return retval;
++			
++			CHECK_RETVAL(jtag_execute_queue());
+ 
+ 			JTAG_DEBUG(&quot;DTR  Data %08x  Ready %d  nRetry %d&quot;, Data, Ready, nRetry);
+ 		}
+@@ -728,9 +715,8 @@
+ 			JTAG_DEBUG(&quot;SC7 &lt;= Address %02x  Data %08x    nRW %d&quot;, AddressOut, DataOut, nRW);
+ 
+ 			arm11_add_dr_scan_vc(asizeof(chain7_fields), chain7_fields, TAP_DRPAUSE);
+-			int retval;
+-			if ((retval=jtag_execute_queue())!=ERROR_OK)
+-				return retval;
++			
++			CHECK_RETVAL(jtag_execute_queue());
+ 
+ 			JTAG_DEBUG(&quot;SC7 =&gt; Address %02x  Data %08x  Ready %d&quot;, AddressIn, DataIn, Ready);
+ 		}
+@@ -826,16 +812,13 @@
+  */
+ int arm11_read_memory_word(arm11_common_t * arm11, u32 address, u32 * result)
+ {
+-	int retval;
+ 	arm11_run_instr_data_prepare(arm11);
+ 
+ 	/* MRC p14,0,r0,c0,c5,0 (r0 = address) */
+-	if ((retval=arm11_run_instr_data_to_core1(arm11, 0xee100e15, address))!=ERROR_OK)
+-		return retval;
++	CHECK_RETVAL(arm11_run_instr_data_to_core1(arm11, 0xee100e15, address));
+ 
+ 	/* LDC p14,c5,[R0],#4 (DTR = [r0]) */
+-	if ((retval=arm11_run_instr_data_from_core(arm11, 0xecb05e01, result, 1))!=ERROR_OK)
+-		return retval;
++	CHECK_RETVAL(arm11_run_instr_data_from_core(arm11, 0xecb05e01, result, 1));
+ 
+ 	arm11_run_instr_data_finish(arm11);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000334.html">[Openocd-svn] r1550 - in trunk: . contrib
+</A></li>
+	<LI>Next message: <A HREF="000336.html">[Openocd-svn] r1552 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#335">[ date ]</a>
+              <a href="thread.html#335">[ thread ]</a>
+              <a href="subject.html#335">[ subject ]</a>
+              <a href="author.html#335">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

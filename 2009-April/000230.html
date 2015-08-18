@@ -1,0 +1,202 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1446 - trunk/src/flash
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1446%20-%20trunk/src/flash&In-Reply-To=%3C200904022124.n32LO9hT014131%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000229.html">
+   <LINK REL="Next"  HREF="000231.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1446 - trunk/src/flash</H1>
+    <B>oharboe at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1446%20-%20trunk/src/flash&In-Reply-To=%3C200904022124.n32LO9hT014131%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1446 - trunk/src/flash">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Thu Apr  2 23:24:09 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000229.html">[Openocd-svn] r1445 - trunk/src/flash
+</A></li>
+        <LI>Next message: <A HREF="000231.html">[Openocd-svn] r1447 - trunk/src/target/board
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#230">[ date ]</a>
+              <a href="thread.html#230">[ thread ]</a>
+              <a href="subject.html#230">[ subject ]</a>
+              <a href="author.html#230">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-04-02 23:24:08 +0200 (Thu, 02 Apr 2009)
+New Revision: 1446
+
+Modified:
+   trunk/src/flash/nand.c
+   trunk/src/flash/nand.h
+Log:
+Nicolas Pitre nico at cam.org The ECC data is automatically computed and written to the OOB area
+when the oob_softecc option is passed to the &quot;nand write&quot; command.
+
+
+Modified: trunk/src/flash/nand.c
+===================================================================
+--- trunk/src/flash/nand.c	2009-04-02 21:23:16 UTC (rev 1445)
++++ trunk/src/flash/nand.c	2009-04-02 21:24:08 UTC (rev 1446)
+@@ -186,6 +186,39 @@
+ 	{0x0, NULL},
+ };
+ 
++/*
++ * Define default oob placement schemes for large and small page devices
++ */
++
++nand_ecclayout_t nand_oob_8 = {
++	.eccbytes = 3,
++	.eccpos = {0, 1, 2},
++	.oobfree = {
++		{.offset = 3,
++		 .length = 2},
++		{.offset = 6,
++		 .length = 2}}
++};
++
++nand_ecclayout_t nand_oob_16 = {
++	.eccbytes = 6,
++	.eccpos = {0, 1, 2, 3, 6, 7},
++	.oobfree = {
++		{.offset = 8,
++		 . length = 8}}
++};
++
++nand_ecclayout_t nand_oob_64 = {
++	.eccbytes = 24,
++	.eccpos = {
++		   40, 41, 42, 43, 44, 45, 46, 47,
++		   48, 49, 50, 51, 52, 53, 54, 55,
++		   56, 57, 58, 59, 60, 61, 62, 63},
++	.oobfree = {
++		{.offset = 2,
++		 .length = 38}}
++};
++
+ /* nand device &lt;nand_controller&gt; [controller options]
+  */
+ int handle_nand_device_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+@@ -1291,6 +1324,7 @@
+ 		u32 page_size = 0;
+ 		u8 *oob = NULL;
+ 		u32 oob_size = 0;
++		const int *eccpos = NULL;
+ 			
+ 		offset = strtoul(args[2], NULL, 0);
+ 		
+@@ -1303,6 +1337,8 @@
+ 					oob_format |= NAND_OOB_RAW;
+ 				else if (!strcmp(args[i], &quot;oob_only&quot;))
+ 					oob_format |= NAND_OOB_RAW | NAND_OOB_ONLY;
++				else if (!strcmp(args[i], &quot;oob_softecc&quot;))
++					oob_format |= NAND_OOB_SW_ECC;
+ 				else
+ 				{
+ 					command_print(cmd_ctx, &quot;unknown option: %s&quot;, args[i]);
+@@ -1326,12 +1362,15 @@
+ 			page = malloc(p-&gt;page_size);
+ 		}
+ 
+-		if (oob_format &amp; NAND_OOB_RAW)
++		if (oob_format &amp; (NAND_OOB_RAW | NAND_OOB_SW_ECC))
+ 		{
+-			if (p-&gt;page_size == 512)
++			if (p-&gt;page_size == 512) {
+ 				oob_size = 16;
+-			else if (p-&gt;page_size == 2048)
++				eccpos = nand_oob_16.eccpos;
++			} else if (p-&gt;page_size == 2048) {
+ 				oob_size = 64;
++				eccpos = nand_oob_64.eccpos;
++			}
+ 			oob = malloc(oob_size);
+ 		}
+ 		
+@@ -1357,9 +1396,21 @@
+ 					memset(page + size_read, 0xff, page_size - size_read);
+ 				}
+ 			}
+-				
+-			if (NULL != oob)
++
++			if (oob_format &amp; NAND_OOB_SW_ECC)
+ 			{
++				int i, j;
++				u8 ecc[3];
++				memset(oob, 0xff, oob_size);
++				for (i = 0, j = 0; i &lt; page_size; i += 256) {
++					nand_calculate_ecc(p, page+i, ecc);
++					oob[eccpos[j++]] = ecc[0];
++					oob[eccpos[j++]] = ecc[1];
++					oob[eccpos[j++]] = ecc[2];
++				}
++			}
++			else if (NULL != oob)
++			{
+ 				fileio_read(&amp;fileio, oob_size, oob, &amp;size_read);
+ 				buf_cnt -= size_read;
+ 				if (size_read &lt; oob_size)
+
+Modified: trunk/src/flash/nand.h
+===================================================================
+--- trunk/src/flash/nand.h	2009-04-02 21:23:16 UTC (rev 1445)
++++ trunk/src/flash/nand.h	2009-04-02 21:24:08 UTC (rev 1446)
+@@ -56,6 +56,18 @@
+ 	int is_bad;
+ } nand_block_t;
+ 
++struct nand_oobfree {
++	int offset;
++	int length;
++};
++
++typedef struct nand_ecclayout_s {
++	int eccbytes;
++	int eccpos[64];
++	int oobavail;
++	struct nand_oobfree oobfree[2];
++} nand_ecclayout_t;
++
+ typedef struct nand_device_s
+ {
+ 	nand_flash_controller_t *controller;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000229.html">[Openocd-svn] r1445 - trunk/src/flash
+</A></li>
+	<LI>Next message: <A HREF="000231.html">[Openocd-svn] r1447 - trunk/src/target/board
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#230">[ date ]</a>
+              <a href="thread.html#230">[ thread ]</a>
+              <a href="subject.html#230">[ subject ]</a>
+              <a href="author.html#230">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

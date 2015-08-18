@@ -1,0 +1,142 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1482 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1482%20-%20trunk/src/target&In-Reply-To=%3C200904210535.n3L5ZClP009777%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000265.html">
+   <LINK REL="Next"  HREF="000267.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1482 - trunk/src/target</H1>
+    <B>oharboe at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1482%20-%20trunk/src/target&In-Reply-To=%3C200904210535.n3L5ZClP009777%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1482 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Tue Apr 21 07:35:12 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000265.html">[Openocd-svn] r1481 - in trunk/src: helper jtag target xsvf
+</A></li>
+        <LI>Next message: <A HREF="000267.html">[Openocd-svn] r1483 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#266">[ date ]</a>
+              <a href="thread.html#266">[ thread ]</a>
+              <a href="subject.html#266">[ subject ]</a>
+              <a href="author.html#266">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-04-21 07:35:10 +0200 (Tue, 21 Apr 2009)
+New Revision: 1482
+
+Modified:
+   trunk/src/target/target.c
+Log:
+Zach Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;fix unused return value warnings (3 of 4)
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-04-21 05:33:47 UTC (rev 1481)
++++ trunk/src/target/target.c	2009-04-21 05:35:10 UTC (rev 1482)
+@@ -2491,20 +2491,27 @@
+ 	return retval;
+ }
+ 
++static void writeData(FILE *f, const void *data, size_t len)
++{
++	size_t written = fwrite(data, len, 1, f);
++	if (written != len)
++		LOG_ERROR(&quot;failed to write %u bytes: %s&quot;, len, strerror(errno));
++}
++
+ static void writeLong(FILE *f, int l)
+ {
+ 	int i;
+ 	for (i=0; i&lt;4; i++)
+ 	{
+ 		char c=(l&gt;&gt;(i*8))&amp;0xff;
+-		fwrite(&amp;c, 1, 1, f);
++		writeData(f, &amp;c, 1);
+ 	}
+ 
+ }
+ 
+ static void writeString(FILE *f, char *s)
+ {
+-	fwrite(s, 1, strlen(s), f);
++	writeData(f, s, strlen(s));
+ }
+ 
+ /* Dump a gmon.out histogram file. */
+@@ -2514,13 +2521,14 @@
+ 	FILE *f=fopen(filename, &quot;w&quot;);
+ 	if (f==NULL)
+ 		return;
+-	fwrite(&quot;gmon&quot;, 1, 4, f);
++	writeString(f, &quot;gmon&quot;);
+ 	writeLong(f, 0x00000001); /* Version */
+ 	writeLong(f, 0); /* padding */
+ 	writeLong(f, 0); /* padding */
+ 	writeLong(f, 0); /* padding */
+ 
+-	fwrite(&quot;&quot;, 1, 1, f);  /* GMON_TAG_TIME_HIST */
++	u8 zero = 0;  /* GMON_TAG_TIME_HIST */
++	writeData(f, &amp;zero, 1);
+ 
+ 	/* figure out bucket size */
+ 	u32 min=samples[0];
+@@ -2569,9 +2577,7 @@
+ 	writeLong(f, 64000000); 	/* 64MHz */
+ 	writeString(f, &quot;seconds&quot;);
+ 	for (i=0; i&lt;(15-strlen(&quot;seconds&quot;)); i++)
+-	{
+-		fwrite(&quot;&quot;, 1, 1, f);	/* padding */
+-	}
++		writeData(f, &amp;zero, 1);
+ 	writeString(f, &quot;s&quot;);
+ 
+ 	/*append binary memory gmon.out profile_hist_data (profile_hist_data + profile_hist_hdr.hist_size) */
+@@ -2591,7 +2597,7 @@
+ 			data[i*2+1]=(val&gt;&gt;8)&amp;0xff;
+ 		}
+ 		free(buckets);
+-		fwrite(data, 1, length*2, f);
++		writeData(f, data, length * 2);
+ 		free(data);
+ 	} else
+ 	{
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000265.html">[Openocd-svn] r1481 - in trunk/src: helper jtag target xsvf
+</A></li>
+	<LI>Next message: <A HREF="000267.html">[Openocd-svn] r1483 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#266">[ date ]</a>
+              <a href="thread.html#266">[ thread ]</a>
+              <a href="subject.html#266">[ subject ]</a>
+              <a href="author.html#266">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1730 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1730%20-%20trunk/src/target&In-Reply-To=%3C200905110740.n4B7ehgF018723%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000513.html">
+   <LINK REL="Next"  HREF="000515.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1730 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1730%20-%20trunk/src/target&In-Reply-To=%3C200905110740.n4B7ehgF018723%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1730 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Mon May 11 09:40:43 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000513.html">[Openocd-svn] r1729 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="000515.html">[Openocd-svn] r1731 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#514">[ date ]</a>
+              <a href="thread.html#514">[ thread ]</a>
+              <a href="subject.html#514">[ subject ]</a>
+              <a href="author.html#514">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-05-11 09:40:42 +0200 (Mon, 11 May 2009)
+New Revision: 1730
+
+Modified:
+   trunk/src/target/arm9tdmi.c
+Log:
+switch to jtag_add_callback() - USB performance fix
+
+Modified: trunk/src/target/arm9tdmi.c
+===================================================================
+--- trunk/src/target/arm9tdmi.c	2009-05-11 07:39:36 UTC (rev 1729)
++++ trunk/src/target/arm9tdmi.c	2009-05-11 07:40:42 UTC (rev 1730)
+@@ -202,11 +202,10 @@
+ 
+ 	if (in)
+ 	{
+-		u8 tmp[4];
+-		fields[0].in_value=tmp;
+-		jtag_add_dr_scan_now(3, fields, TAP_INVALID);
++		fields[0].in_value=(u8 *)in;
++		jtag_add_dr_scan(3, fields, TAP_INVALID);
+ 
+-		*in=le_to_h_u32(tmp);
++		jtag_add_callback(arm_le_to_h_u32, (u8 *)in);
+ 	}
+ 	else
+ 	{
+@@ -251,8 +250,7 @@
+ 	fields[0].tap = jtag_info-&gt;tap;
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = NULL;
+-	u8 tmp[4];
+-	fields[0].in_value = tmp;
++	fields[0].in_value = (u8 *)in;
+ 
+ 	fields[1].tap = jtag_info-&gt;tap;
+ 	fields[1].num_bits = 3;
+@@ -264,9 +262,9 @@
+ 	fields[2].out_value = NULL;
+ 	fields[2].in_value = NULL;
+ 
+-	jtag_add_dr_scan_now(3, fields, TAP_INVALID);
++	jtag_add_dr_scan(3, fields, TAP_INVALID);
+ 
+-	*in=le_to_h_u32(tmp);
++	jtag_add_callback(arm_le_to_h_u32, (u8 *)in);
+ 
+ 	jtag_add_runtest(0, TAP_INVALID);
+ 
+@@ -293,6 +291,12 @@
+ 
+ extern void arm_endianness(u8 *tmp, void *in, int size, int be, int flip);
+ 
++static int arm9endianness(u8 *in, jtag_callback_data_t size, jtag_callback_data_t be)
++{
++	arm_endianness(in, in, (int)size, (int)be, 0);
++	return ERROR_OK;
++}
++
+ /* clock the target, and read the databus
+  * the *in pointer points to a buffer where elements of 'size' bytes
+  * are stored in big (be==1) or little (be==0) endianness
+@@ -313,8 +317,7 @@
+ 	fields[0].tap = jtag_info-&gt;tap;
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = NULL;
+-	u8 tmp[4];
+-	fields[0].in_value = tmp;
++	fields[0].in_value = (u8 *)in;
+ 
+ 	fields[1].tap = jtag_info-&gt;tap;
+ 	fields[1].num_bits = 3;
+@@ -326,11 +329,10 @@
+ 	fields[2].out_value = NULL;
+ 	fields[2].in_value = NULL;
+ 
+-	jtag_add_dr_scan_now(3, fields, TAP_INVALID);
++	jtag_add_dr_scan(3, fields, TAP_INVALID);
+ 
+-	arm_endianness(tmp, in, size, be, 0);
++	jtag_add_callback3(arm9endianness, in, (jtag_callback_data_t)size, (jtag_callback_data_t)be);
+ 
+-
+ 	jtag_add_runtest(0, TAP_INVALID);
+ 
+ #ifdef _DEBUG_INSTRUCTION_EXECUTION_
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000513.html">[Openocd-svn] r1729 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="000515.html">[Openocd-svn] r1731 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#514">[ date ]</a>
+              <a href="thread.html#514">[ thread ]</a>
+              <a href="subject.html#514">[ subject ]</a>
+              <a href="author.html#514">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,383 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1294 - in trunk: doc src/helper src/server
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1294%20-%20in%20trunk%3A%20doc%20src/helper%20src/server&In-Reply-To=%3C200901011606.n01G6lCv017024%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000079.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1294 - in trunk: doc src/helper src/server</H1>
+    <B>ntfreak at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1294%20-%20in%20trunk%3A%20doc%20src/helper%20src/server&In-Reply-To=%3C200901011606.n01G6lCv017024%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1294 - in trunk: doc src/helper src/server">ntfreak at mail.berlios.de
+       </A><BR>
+    <I>Thu Jan  1 17:06:47 CET 2009</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000079.html">[Openocd-svn] r1295 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#78">[ date ]</a>
+              <a href="thread.html#78">[ thread ]</a>
+              <a href="subject.html#78">[ subject ]</a>
+              <a href="author.html#78">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: ntfreak
+Date: 2009-01-01 17:06:46 +0100 (Thu, 01 Jan 2009)
+New Revision: 1294
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/helper/options.c
+   trunk/src/helper/replacements.c
+   trunk/src/helper/replacements.h
+   trunk/src/server/gdb_server.c
+   trunk/src/server/server.c
+Log:
+- add gdb pipe support to native win32 (--pipe option)
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2008-12-28 21:40:39 UTC (rev 1293)
++++ trunk/doc/openocd.texi	2009-01-01 16:06:46 UTC (rev 1294)
+@@ -557,7 +557,6 @@
+ target library is in the search path by default.
+ 
+ For details on the @option{-p} option. @xref{Connecting to GDB}.
+-Option @option{-p} is not currently supported under native win32.
+ 
+ Note! OpenOCD will launch the GDB &amp; telnet server even if it can not
+ establish a connection with the target. In general, it is possible for
+
+Modified: trunk/src/helper/options.c
+===================================================================
+--- trunk/src/helper/options.c	2008-12-28 21:40:39 UTC (rev 1293)
++++ trunk/src/helper/options.c	2009-01-01 16:06:46 UTC (rev 1294)
+@@ -149,14 +149,8 @@
+ 				/* pipes unsupported on hosted platforms */
+ 				LOG_WARNING(&quot;pipes not supported on this platform&quot;);
+ #else
+-#ifdef IS_MINGW
+-				/* pipes currently unsupported on win32 */
+-				LOG_WARNING(&quot;pipes currently unsupported on win32&quot;);
+-				exit(1);
+-#else
+ 				server_use_pipes = 1;
+ #endif
+-#endif
+ 				break;
+ 		}
+ 	}
+
+Modified: trunk/src/helper/replacements.c
+===================================================================
+--- trunk/src/helper/replacements.c	2008-12-28 21:40:39 UTC (rev 1293)
++++ trunk/src/helper/replacements.c	2009-01-01 16:06:46 UTC (rev 1294)
+@@ -68,6 +68,10 @@
+ 
+ #include &lt;stdio.h&gt;
+ 
++#ifdef _WIN32
++#include &lt;io.h&gt;
++#endif
++
+ /* replacements for gettimeofday */
+ #ifndef HAVE_GETTIMEOFDAY
+ 
+@@ -137,3 +141,151 @@
+ 	return (char *) memcpy (new, s, len);
+ }
+ #endif
++
++#ifdef _WIN32
++int win_select(int max_fd, fd_set *rfds, fd_set *wfds, fd_set *efds, struct timeval *tv)
++{
++	DWORD ms_total, limit;
++	HANDLE handles[MAXIMUM_WAIT_OBJECTS];
++	int handle_slot_to_fd[MAXIMUM_WAIT_OBJECTS];
++	int n_handles = 0, i;
++	fd_set sock_read, sock_write, sock_except;
++	fd_set aread, awrite, aexcept;
++	int sock_max_fd = -1;
++	struct timeval tvslice;
++	int retcode;
++
++#define SAFE_FD_ISSET(fd, set)	(set != NULL &amp;&amp; FD_ISSET(fd, set))
++
++	/* calculate how long we need to wait in milliseconds */
++	if (tv == NULL) {
++		ms_total = INFINITE;
++	} else {
++		ms_total = tv-&gt;tv_sec * 1000;
++		ms_total += tv-&gt;tv_usec / 1000;
++	}
++
++	FD_ZERO(&amp;sock_read);
++	FD_ZERO(&amp;sock_write);
++	FD_ZERO(&amp;sock_except);
++
++	/* build an array of handles for non-sockets */
++	for (i = 0; i &lt; max_fd; i++) {
++		if (SAFE_FD_ISSET(i, rfds) || SAFE_FD_ISSET(i, wfds) || SAFE_FD_ISSET(i, efds)) {
++			handles[n_handles] = (HANDLE)_get_osfhandle(i);
++			if (handles[n_handles] == INVALID_HANDLE_VALUE) {
++				/* socket */
++				if (SAFE_FD_ISSET(i, rfds)) {
++					FD_SET(i, &amp;sock_read);
++				}
++				if (SAFE_FD_ISSET(i, wfds)) {
++					FD_SET(i, &amp;sock_write);
++				}
++				if (SAFE_FD_ISSET(i, efds)) {
++					FD_SET(i, &amp;sock_except);
++				}
++				if (i &gt; sock_max_fd) {
++					sock_max_fd = i;
++				}
++			} else {
++				handle_slot_to_fd[n_handles] = i;
++				n_handles++;
++			}
++		}
++	}
++
++	if (n_handles == 0) {
++		/* plain sockets only - let winsock handle the whole thing */
++		return select(max_fd, rfds, wfds, efds, tv);
++	}
++
++	/* mixture of handles and sockets; lets multiplex between
++	 * winsock and waiting on the handles */
++
++	FD_ZERO(&amp;aread);
++	FD_ZERO(&amp;awrite);
++	FD_ZERO(&amp;aexcept);
++	
++	limit = GetTickCount() + ms_total;
++	do {
++		retcode = 0;
++	
++		if (sock_max_fd &gt;= 0) {
++			/* overwrite the zero'd sets here; the select call
++			 * will clear those that are not active */
++			aread = sock_read;
++			awrite = sock_write;
++			aexcept = sock_except;
++
++			tvslice.tv_sec = 0;
++			tvslice.tv_usec = 100000;
++
++			retcode = select(sock_max_fd+1, &amp;aread, &amp;awrite, &amp;aexcept, &amp;tvslice);
++		}
++		if (n_handles &gt; 0) {
++			/* check handles */
++			DWORD wret;
++
++			wret = MsgWaitForMultipleObjects(n_handles, handles, FALSE, retcode &gt; 0 ? 0 : 100, QS_ALLEVENTS);
++
++			if (wret == WAIT_TIMEOUT) {
++				/* set retcode to 0; this is the default.
++				 * select() may have set it to something else,
++				 * in which case we leave it alone, so this branch
++				 * does nothing */
++				;
++			} else if (wret == WAIT_FAILED) {
++				if (retcode == 0) {
++					retcode = -1;
++				}
++			} else {
++				if (retcode &lt; 0) {
++					retcode = 0;
++				}
++				for (i = 0; i &lt; n_handles; i++) {
++					if (WAIT_OBJECT_0 == WaitForSingleObject(handles[i], 0)) {
++						if (SAFE_FD_ISSET(handle_slot_to_fd[i], rfds)) {
++							DWORD dwBytes;
++							
++							if (PeekNamedPipe((HANDLE)_get_osfhandle(handle_slot_to_fd[i]), NULL, 0, NULL, &amp;dwBytes, NULL))
++							{
++								/* check to see if gdb pipe has data available */
++								if (dwBytes)
++								{
++									FD_SET(handle_slot_to_fd[i], &amp;aread);
++									retcode++;
++								}
++							}
++							else
++							{
++								FD_SET(handle_slot_to_fd[i], &amp;aread);
++								retcode++;
++							}
++						}
++						if (SAFE_FD_ISSET(handle_slot_to_fd[i], wfds)) {
++							FD_SET(handle_slot_to_fd[i], &amp;awrite);
++							retcode++;
++						}
++						if (SAFE_FD_ISSET(handle_slot_to_fd[i], efds)) {
++							FD_SET(handle_slot_to_fd[i], &amp;aexcept);
++							retcode++;
++						}
++					}
++				}
++			}
++		}
++	} while (retcode == 0 &amp;&amp; (ms_total == INFINITE || GetTickCount() &lt; limit));
++
++	if (rfds) {
++		*rfds = aread;
++	}
++	if (wfds) {
++		*wfds = awrite;
++	}
++	if (efds) {
++		*efds = aexcept;
++	}
++
++	return retcode;
++}
++#endif
+
+Modified: trunk/src/helper/replacements.h
+===================================================================
+--- trunk/src/helper/replacements.h	2008-12-28 21:40:39 UTC (rev 1293)
++++ trunk/src/helper/replacements.h	2009-01-01 16:06:46 UTC (rev 1294)
+@@ -180,6 +180,9 @@
+ }
+ 
+ #endif /* IS_MINGW */
++
++int win_select(int max_fd, fd_set *rfds, fd_set *wfds, fd_set *efds, struct timeval *tv);
++
+ #endif  /* _WIN32 */
+ 
+ /* generic socket functions for Windows and Posix */
+@@ -221,6 +224,15 @@
+ #endif
+ }
+ 
++static __inline int socket_select(int max_fd, fd_set *rfds, fd_set *wfds, fd_set *efds, struct timeval *tv)
++{
++#ifdef _WIN32
++	return win_select(max_fd, rfds, wfds, efds, tv);
++#else
++	return select(max_fd, rfds, wfds, efds, tv);
++#endif
++}
++
+ #ifndef HAVE_ELF_H
+ 
+ typedef struct
+
+Modified: trunk/src/server/gdb_server.c
+===================================================================
+--- trunk/src/server/gdb_server.c	2008-12-28 21:40:39 UTC (rev 1293)
++++ trunk/src/server/gdb_server.c	2009-01-01 16:06:46 UTC (rev 1294)
+@@ -126,7 +126,7 @@
+ 
+ 	tv.tv_sec = timeout_s;
+ 	tv.tv_usec = 0;
+-	if (select(connection-&gt;fd + 1, &amp;read_fds, NULL, NULL, &amp;tv) == 0)
++	if (socket_select(connection-&gt;fd + 1, &amp;read_fds, NULL, NULL, &amp;tv) == 0)
+ 	{
+ 		/* This can typically be because a &quot;monitor&quot; command took too long
+ 		 * before printing any progress messages
+
+Modified: trunk/src/server/server.c
+===================================================================
+--- trunk/src/server/server.c	2008-12-28 21:40:39 UTC (rev 1293)
++++ trunk/src/server/server.c	2009-01-01 16:06:46 UTC (rev 1294)
+@@ -97,12 +97,11 @@
+ 	}
+ 	else if (service-&gt;type == CONNECTION_PIPE)
+ 	{
+-#ifndef _WIN32
+ 		c-&gt;fd = service-&gt;fd;
+ 		
+ 		/* do not check for new connections again on stdin */
+ 		service-&gt;fd = -1;
+-#endif
++		
+ 		LOG_INFO(&quot;accepting '%s' connection from pipe&quot;, service-&gt;name);
+ 		if ((retval = service-&gt;new_connection(c)) != ERROR_OK)
+ 		{
+@@ -223,6 +222,8 @@
+ 			LOG_WARNING(&quot;cannot change stdout mode to binary&quot;);
+ 		if (_setmode(_fileno(stdin), _O_BINARY) &lt; 0)
+ 			LOG_WARNING(&quot;cannot change stdin mode to binary&quot;);
++		if (_setmode(_fileno(stderr), _O_BINARY) &lt; 0)
++			LOG_WARNING(&quot;cannot change stderr mode to binary&quot;);
+ #else
+ 		socket_nonblock(c-&gt;fd);
+ #endif
+@@ -365,7 +366,7 @@
+ 		kept_alive();
+ 		
+ 		/* Only while we're sleeping we'll let others run */
+-		retval = select(fd_max + 1, &amp;read_fds, NULL, NULL, &amp;tv);
++		retval = socket_select(fd_max + 1, &amp;read_fds, NULL, NULL, &amp;tv);
+ 		openocd_sleep_postlude();
+ 
+ 		if (retval == -1)
+@@ -503,7 +504,7 @@
+ 	WORD wVersionRequested;
+ 	WSADATA wsaData;
+ 
+-	wVersionRequested = MAKEWORD( 2, 2 );
++	wVersionRequested = MAKEWORD(2, 2);
+ 
+ 	if (WSAStartup(wVersionRequested, &amp;wsaData) != 0)
+ 	{
+@@ -511,7 +512,16 @@
+ 		exit(-1);
+ 	}
+ 
+-	SetConsoleCtrlHandler( ControlHandler, TRUE );
++	if (server_use_pipes == 0)
++	{
++		/* register ctrl-c handler */
++		SetConsoleCtrlHandler(ControlHandler, TRUE);
++	}
++	else
++	{
++		/* we are using pipes so ignore ctrl-c */
++		SetConsoleCtrlHandler(NULL, TRUE);
++	}
+ 
+ 	signal(SIGINT, sig_handler);
+ 	signal(SIGTERM, sig_handler);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000079.html">[Openocd-svn] r1295 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#78">[ date ]</a>
+              <a href="thread.html#78">[ thread ]</a>
+              <a href="subject.html#78">[ subject ]</a>
+              <a href="author.html#78">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

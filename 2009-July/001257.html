@@ -1,0 +1,653 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2473 - trunk/tools
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2473%20-%20trunk/tools&In-Reply-To=%3C200907061121.n66BLXjL026832%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001256.html">
+   <LINK REL="Next"  HREF="001258.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2473 - trunk/tools</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2473%20-%20trunk/tools&In-Reply-To=%3C200907061121.n66BLXjL026832%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2473 - trunk/tools">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Mon Jul  6 13:21:33 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001256.html">[Openocd-svn] r2472 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="001258.html">[Openocd-svn] r2474 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1257">[ date ]</a>
+              <a href="thread.html#1257">[ thread ]</a>
+              <a href="subject.html#1257">[ subject ]</a>
+              <a href="author.html#1257">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-07-06 13:21:28 +0200 (Mon, 06 Jul 2009)
+New Revision: 2473
+
+Added:
+   trunk/tools/release.sh
+Log:
+Add script to automate most of the release process.
+
+Added: trunk/tools/release.sh
+===================================================================
+--- trunk/tools/release.sh	2009-07-06 10:34:49 UTC (rev 2472)
++++ trunk/tools/release.sh	2009-07-06 11:21:28 UTC (rev 2473)
+@@ -0,0 +1,569 @@
++#!/bin/sh -e
++# release.sh: openocd release process automation
++# Copyright (C) 2009 by Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
++# Release under the GNU GPL v2 (or later versions).
++
++## set these to control the build process
++#CONFIG_OPTS=&quot;&quot;
++#MAKE_OPTS=&quot;&quot;
++
++## DO NOT PERFORM LIVE RELEASES UNLESS YOU ARE THE RELEASE MANAGER!!!
++RELEASE_DRY_RUN=1
++## set this to perform individual steps on past releases
++RELEASE_VERSION=
++
++die() {
++	echo &quot;$@&quot; &gt;&amp;2
++	exit 1
++}
++
++svn_info_get() {
++	svn info | grep &quot;$1&quot; | cut -d':' -f2- | cut -c2-
++}
++
++svn_setup_load() {
++	SVN_ROOT=&quot;$(svn_info_get 'Repository Root')&quot;
++	SVN_URL=&quot;$(svn_info_get 'URL')&quot;
++
++	SVN_TRUNK=&quot;${SVN_ROOT}/trunk&quot;
++
++	SVN_BRANCHES=&quot;${SVN_ROOT}/branches&quot;
++	PACKAGE_BRANCH=&quot;${SVN_BRANCHES}/${PACKAGE_RELEASE}&quot;
++
++	SVN_TAGS=&quot;${SVN_ROOT}/tags&quot;
++	PACKAGE_TAG=&quot;${SVN_TAGS}/${PACKAGE_RELEASE}&quot;
++
++	if [ &quot;${SVN_URL}&quot; = &quot;${SVN_TRUNK}&quot; ]; then
++		RELEASE_TYPE=minor
++	elif [ &quot;${SVN_URL/${SVN_BRANCHES}/}&quot; != &quot;${SVN_URL}&quot; ]; then
++		RELEASE_TYPE=micro
++	else
++		echo &quot;error: bad URL: ${SVN_URL}&quot; &gt;&amp;2
++		die &quot;unable to branch from the current location&quot;
++	fi
++}
++svn_setup_show() {
++	cat &lt;&lt;INFO
++Release Type: ${RELEASE_TYPE}
++  Branch URL: ${PACKAGE_BRANCH}
++     Tag URL: ${PACKAGE_TAG}
++INFO
++}
++
++do_svn_echo_msg() { echo &quot;svn: $1: $3&quot;; }
++do_svn_echo() {
++	case &quot;$1&quot; in
++	commit)
++		do_svn_echo_msg &quot;$@&quot;
++		shift 3
++		[ &quot;$*&quot; ] &amp;&amp; echo &quot;Files: $@&quot;
++		;;
++	copy|move)
++		do_svn_echo_msg &quot;$@&quot;
++		echo &quot;From: ${4:-$2}&quot;
++		echo &quot;  To: ${5:-$3}&quot;
++		;;
++	*)
++		local ACTION=&quot;$1&quot;
++		shift
++		echo &quot;svn: ${ACTION}: $@&quot;
++		;;
++	esac
++}
++do_svn() {
++	do_svn_echo &quot;$@&quot;
++	[ &quot;${RELEASE_DRY_RUN}&quot; ] || svn &quot;$@&quot;
++}
++
++
++package_info_load_name() {
++	grep AC_INIT configure.in | perl -ne 's/^.+\(\[([-\w]*)\],.+$/$1/ and print'
++}
++package_info_load_version() {
++	grep AC_INIT configure.in | perl -ne 's/^.+\[([-\w\.]*)\],$/$1/ and print'
++}
++
++package_info_load() {
++	[ -f &quot;configure.in&quot; ] || \
++		die &quot;package_info_load: configure.in is missing&quot;
++
++	PACKAGE_NAME=&quot;$(package_info_load_name)&quot;
++	# todo: fix this
++	PACKAGE_TARNAME=&quot;${PACKAGE_NAME}&quot;
++
++	PACKAGE_VERSION=&quot;$(package_info_load_version)&quot;
++	[ &quot;${RELEASE_VERSION}&quot; ] || \
++		RELEASE_VERSION=${PACKAGE_VERSION/-in-development/}
++
++	[ &quot;${PACKAGE_NAME}&quot; -a &quot;${PACKAGE_VERSION}&quot; ] || \
++		die &quot;package information is missing from configure script&quot;
++
++	PACKAGE_VERSION_TAGS=
++	[ &quot;${PACKAGE_VERSION/-/}&quot; = &quot;${PACKAGE_VERSION}&quot; ] || \
++		PACKAGE_VERSION_TAGS=&quot;-${PACKAGE_VERSION#*-}&quot;
++	PACKAGE_VERSION_BASE=&quot;${PACKAGE_VERSION%%-*}&quot;
++	PACKAGE_MICRO=&quot;${PACKAGE_VERSION_BASE##*.}&quot;
++	PACKAGE_MAJOR_AND_MINOR=&quot;${PACKAGE_VERSION_BASE%.*}&quot;
++	PACKAGE_MAJOR=&quot;${PACKAGE_MAJOR_AND_MINOR%.*}&quot;
++	PACKAGE_MINOR=&quot;${PACKAGE_MAJOR_AND_MINOR#*.}&quot;
++
++	PACKAGE_STRING=&quot;${PACKAGE_NAME} ${PACKAGE_VERSION}&quot;
++	if [ &quot;${RELEASE_DRY_RUN}&quot; ]; then
++		PACKAGE_RELEASE=&quot;${PACKAGE_TARNAME}-${PACKAGE_VERSION}&quot;
++	else
++		PACKAGE_RELEASE=&quot;${PACKAGE_TARNAME}-${RELEASE_VERSION}&quot;
++	fi
++}
++
++package_info_show() {
++	cat &lt;&lt;INFO
++Name: ${PACKAGE_TARNAME}
++Release: ${RELEASE_VERSION}
++Version: ${PACKAGE_VERSION}
++   Number: ${PACKAGE_VERSION_BASE}
++   Series: ${PACKAGE_MAJOR_AND_MINOR}
++    Major: ${PACKAGE_MAJOR}
++    Minor: ${PACKAGE_MINOR}
++    Micro: ${PACKAGE_MICRO}
++     Tags: ${PACKAGE_VERSION_TAGS}
++ Branch: ${PACKAGE_RELEASE}
++Release: ${PACKAGE_TARNAME}-${PACKAGE_VERSION_BASE}${PACKAGE_VERSION_TAGS}
++INFO
++}
++
++usage() {
++	cat &lt;&lt; USAGE
++usage: $0 &lt;command&gt;
++
++Main Commands:
++  info          Show a summary of the next pending release.
++  release       Release the current tree as an archive.
++  upload        Upload archives to berliOS project site
++
++Build Commands:
++  bootstrap     Prepare the working copy for configuration and building.
++  configure     Configures the package; runs bootstrap, if needed.
++  build         Compiles the project; runs configure, if needed.
++
++Packaging Commands:
++  changelog     Generate a new ChangeLog using svn2cl.
++  package       Produce new distributable source archives.
++  stage         Move archives to staging area for upload.
++
++Repository Commands:
++  commit        Perform branch and tag, as appropriate for the version.
++  branch        Create a release branch from the project trunk.
++  tag           Create a tag for the current release branch.
++
++Other Commands:
++  version ...   Perform version number and tag manipulations.
++  maryslamb     Mary had a little lamb, but no one noticed.
++  clean         Forces regeneration of results.
++  clean_all     Removes all traces of the release process.
++  help          Provides this list of commands.
++  
++For more information about this script, see the Release Processes page
++in the OpenOCD Developer's Manual (doc/manual/release.txt).
++
++WARNING: This script should be used by the Release Manager ONLY.
++USAGE
++	exit 0
++}
++do_usage() { usage; }
++do_help()  { usage; }
++
++do_info_show() {
++	echo &quot;Current Release Analysis:&quot;
++	package_info_show
++	svn_setup_show
++}
++
++do_info() {
++	package_info_load
++	svn_setup_load
++	do_info_show
++}
++
++do_bootstrap() {
++	echo -n &quot;Bootstrapping...&quot;
++	./bootstrap 2&gt;&amp;1 | perl tools/logger.pl &gt; &quot;release-bootstrap.log&quot;
++}
++maybe_bootstrap() { [ -f &quot;configure&quot; ] || do_bootstrap; }
++
++do_configure() {
++	maybe_bootstrap
++	echo -n &quot;Configuring...&quot;
++	./configure ${CONFIG_OPTS} 2&gt;&amp;1 | perl tools/logger.pl &gt; &quot;release-config.log&quot;
++}
++maybe_configure() { [ -f &quot;Makefile&quot; ] || do_configure; }
++
++do_build() {
++	maybe_configure
++	echo -n &quot;Compiling OpenOCD ${PACKAGE_VERSION}&quot;
++	make ${MAKE_OPTS} -C doc stamp-vti 2&gt;&amp;1 \
++		| perl tools/logger.pl &gt; &quot;release-version.log&quot;
++	make ${MAKE_OPTS} 2&gt;&amp;1 \
++		| perl tools/logger.pl &gt; &quot;release-make.log&quot;
++}
++maybe_build() { [ -f &quot;src/openocd&quot; ] || do_build; }
++do_build_clean() { [ -f Makefile ] &amp;&amp; make maintainer-clean &gt;/dev/null; }
++
++maybe_rebuild() {
++	if [ -f &quot;configure&quot; ]; then
++		echo &quot;Re-running autoconf...&quot;
++		autoconf
++		echo &quot;Re-running automake...&quot;
++		automake
++	fi
++	if [ -f &quot;Makefile&quot; ]; then
++		do_configure
++		do_build
++	fi
++}
++
++do_changelog() {
++	echo &quot;Updating working copy to HEAD...&quot;
++	do_svn update
++	echo &quot;Creating ChangeLog...&quot;
++	svn2cl -i --authors AUTHORS.ChangeLog
++}
++maybe_changelog() {
++	if [ -z &quot;${RELEASE_DRY_RUN}&quot; ] \
++		|| [ ! -f ChangeLog ] \
++		|| [ &quot;$(cat ChangeLog | wc -l)&quot; -lt 2 ]
++	then
++		do_changelog
++	fi
++}
++do_changelog_clean() {
++	do_svn revert ChangeLog
++}
++
++do_package() {
++	package_info_load
++	maybe_changelog
++	maybe_build
++	echo &quot;Building distribution packages...&quot;
++	make ${MAKE_OPTS} distcheck 2&gt;&amp;1 | perl tools/logger.pl &gt; &quot;release-pkg.log&quot;
++}
++maybe_package() { [ -f &quot;${PACKAGE_RELEASE}.zip&quot; ] || do_package; }
++do_package_clean() {
++	for EXT in tar.gz tar.bz2 zip; do
++		rm -v -f *.${EXT}
++	done
++}
++
++do_stage() {
++	maybe_package
++	echo &quot;Staging package archives:&quot;
++	mkdir -p archives
++	for EXT in tar.gz tar.bz2 zip; do
++		mv -v &quot;${PACKAGE_RELEASE}.${EXT}&quot; archives/
++	done
++	cp -a NEWS archives/
++	cp -a ChangeLog archives/
++}
++do_stage_clean() { rm -v -f -r archives; }
++
++do_clean() {
++	do_build_clean
++	do_package_clean
++	rm -v -f configure
++
++	svn revert configure.in
++	rm -v -f release-*.log
++}
++do_clean_all() {
++	do_clean
++	do_changelog_clean
++	do_stage_clean
++}
++
++do_version_usage() {
++	cat &lt;&lt; USAGE
++usage: $0 version &lt;command&gt;
++Version Commands:
++  tag {add|remove} &lt;label&gt;     Add or remove the specified tag.
++  bump {major|minor|micro|rc}  Bump the specified version number;
++                               resets less-significant numbers to zero.
++			       All but 'rc' releases drop that tag.
++USAGE
++}
++
++do_version_sed() {
++	local OLD_VERSION=&quot;${PACKAGE_VERSION}&quot;
++	local NEW_VERSION=&quot;$1&quot;
++	local MSG=&quot;$2&quot;
++
++	sed -i -e &quot;/AC_INIT/ s|${OLD_VERSION}|${NEW_VERSION}|&quot; configure.in
++	package_info_load
++	echo &quot;${MSG}: ${OLD_VERSION} -&gt; ${NEW_VERSION}&quot;
++}
++do_version_bump_sed() {
++	local NEW_VERSION=&quot;$1&quot;
++	[ -z &quot;${PACKAGE_VERSION_TAGS}&quot; ] || \
++		NEW_VERSION=&quot;${NEW_VERSION}${PACKAGE_VERSION_TAGS}&quot;
++
++	do_version_sed &quot;${NEW_VERSION}&quot; \
++		&quot;Bump ${CMD} package version number&quot;
++}
++do_version_bump_major() {
++	has_version_tag 'rc\d' do_version_
++	do_version_bump_sed &quot;$((PACKAGE_MAJOR + 1)).0.0&quot;
++}
++do_version_bump_minor() {
++	do_version_bump_sed &quot;${PACKAGE_MAJOR}.$((PACKAGE_MINOR + 1)).0&quot;
++}
++do_version_bump_micro() {
++	do_version_bump_sed &quot;${PACKAGE_MAJOR_AND_MINOR}.$((PACKAGE_MICRO + 1))&quot;
++}
++do_version_bump_rc() {
++	die &quot;patch missing: -rc support is not implemented&quot;
++}
++do_version_bump() {
++	CMD=&quot;$1&quot;
++	shift
++	case &quot;${CMD}&quot; in
++	major|minor|micro|rc)
++		eval &quot;do_version_bump_${CMD}&quot;
++		;;
++	*)
++		do_version_usage
++		;;
++	esac
++}
++
++has_version_tag() {
++	test &quot;${PACKAGE_VERSION/-${TAG}/}&quot; != &quot;${PACKAGE_VERSION}&quot;
++}
++
++do_version_tag_add() {
++	local TAG=&quot;$1&quot;
++	has_version_tag &amp;&amp; die &quot;error: tag '-${TAG}' exists in '${PACKAGE_VERSION}'&quot;
++	do_version_sed &quot;${PACKAGE_VERSION}-${TAG}&quot; \
++		&quot;Add '-${TAG}' version tag&quot;
++}
++do_version_tag_remove() {
++	local TAG=&quot;$1&quot;
++	has_version_tag || die &quot;error: tag '-${TAG}' missing from '${PACKAGE_VERSION}'&quot;
++	do_version_sed &quot;${PACKAGE_VERSION/-${TAG}/}&quot; \
++		&quot;Remove '-${TAG}' version tag&quot;
++}
++do_version_tag() {
++	CMD=&quot;$1&quot;
++	shift
++	case &quot;${CMD}&quot; in
++	add|remove)
++		local i=
++		for i in &quot;$@&quot;; do 
++			eval &quot;do_version_tag_${CMD}&quot; &quot;${i}&quot;
++		done
++		;;
++	*)
++		do_version_usage
++		;;
++	esac
++}
++
++do_version_commit() {
++	[ &quot;$(svn diff configure.in | wc -l)&quot; -gt 0 ] || \
++		die &quot;error: no version changes to commit&quot;
++	do_svn commit -m &quot;$1&quot; configure.in
++}
++
++do_version() {
++	package_info_load
++	CMD=&quot;$1&quot;
++	shift
++	case &quot;${CMD}&quot; in
++	tag|bump)
++		do_version_commit &quot;$(eval &quot;do_version_${CMD}&quot; &quot;$@&quot;)&quot;
++		maybe_rebuild
++		;;
++	commit)
++		local MSG=&quot;$1&quot;
++		[ &quot;${MSG}&quot; ] || die &quot;usage: $0 version commit &lt;message&gt;&quot;
++		do_version_commit &quot;${MSG}&quot;
++		maybe_rebuild
++		;;
++	*)
++		do_version_usage
++		;;
++	esac
++}
++
++
++do_branch() {
++	package_info_load
++	svn_setup_load
++	do_svn copy -m &quot;Branching version ${PACKAGE_VERSION}&quot; \
++		&quot;${SVN_TRUNK}&quot; &quot;${PACKAGE_BRANCH}&quot;
++}
++do_tag() {
++	package_info_load
++	svn_setup_load
++	do_svn copy -m &quot;Tagging version ${PACKAGE_VERSION}&quot; \
++		&quot;${PACKAGE_BRANCH}&quot; &quot;${PACKAGE_TAG}&quot;
++}
++do_commit() {
++	package_info_load
++	svn_setup_load
++
++	[ &quot;${PACKAGE_VERSION/in-development/}&quot; = &quot;${PACKAGE_VERSION}&quot; ] || \
++		die &quot;'${PACKAGE_NAME}-${PACKAGE_VERSION}' cannot be released&quot;
++
++	[ &quot;${PACKAGE_VERSION%.0}&quot; = &quot;${PACKAGE_VERSION}&quot; ] || \
++		do_branch
++	do_tag
++}
++
++
++do_release_step_prep() {
++	do_version tag remove in-development
++	# reset RELEASE_VERSION now to allow release version to be detected
++	export RELEASE_VERSION=
++}
++do_release_step_commit() { do_commit; }
++
++do_release_step_branch_bump() {
++	local TYPE=&quot;$1&quot;
++	echo &quot;Bump ${TYPE} version and add tag:&quot;
++	do_version_bump ${TYPE}
++	do_version_tag_add in-development
++}
++do_release_step_branch() {
++	do_svn switch &quot;${PACKAGE_BRANCH}&quot;
++	package_info_load
++	do_version_commit &quot;$(do_release_step_branch_bump micro)&quot;
++	do_svn switch &quot;${SVN_URL}&quot;
++	package_info_load
++}
++do_release_step_bump() {
++	# major and minor releases require branch version update too
++	[ &quot;${RELEASE_TYPE}&quot; = &quot;micro&quot; ] || do_release_step_branch
++	# bump the current tree version as required.
++	do_version_commit &quot;$(do_release_step_branch_bump &quot;${RELEASE_TYPE}&quot;)&quot;
++
++	# archive NEWS and create new one from template
++	do_svn move &quot;NEWS&quot; &quot;NEWS-${RELEASE_VERSION}&quot;
++
++	[ &quot;${RELEASE_DRY_RUN}&quot; ] || cat &gt;NEWS &lt;&lt;NEWS
++This file should include items worth mentioning in the
++OpenOCD ${PACKAGE_RELEASE} source archive release.
++
++The following areas of OpenOCD functionality changed in this release:
++
++JTAG Layer:
++Target Layer:
++Flash Layer:
++Board, Target, and Interface Configuration Scripts:
++Documentation:
++Build and Release:
++
++For more details about what has changed since the last release,
++see the ChangeLog associated with this source archive.  For older NEWS,
++see the NEWS files associated with each release (i.e. NEWS-&lt;version&gt;).
++
++For more information about contributing test reports, bug fixes, or new
++features and device support, please read the new Developer Manual (or
++the BUGS and PATCHES files in the source archive).
++NEWS
++
++	MSG=&lt;&lt;MSG
++Archive released NEWS file: NEWS -&gt; NEWS-${RELEASE_VERSION}
++Create new NEWS file from relesse script template.
++MSG
++	do_svn commit -m &quot;${MSG}&quot; NEWS NEWS-${RELEASE_VERSION}
++}
++do_release_step_package() {
++	local A=${PACKAGE_TAG}
++	local B=${A/https/http}
++	local PACKAGE_BUILD=${B/${USER}@/}
++	do_svn switch &quot;${PACKAGE_BUILD}&quot;
++	do_stage
++	do_clean
++}
++
++do_release_step_1() { do_release_step_prep; }
++do_release_step_2() { do_release_step_commit; }
++do_release_step_3() { do_release_step_bump; }
++do_release_step_4() { do_release_step_package; }
++
++do_release_check() {
++	echo -n &quot;Are you sure you want to release '${PACKAGE_RELEASE}'?&quot;
++	read ANSWER
++	if [ &quot;${ANSWER}&quot; != 'y' ]; then
++		echo &quot;Live release aborted!&quot;
++		exit 0
++	fi
++}
++do_countdown() {
++	echo -n &quot;$1 in &quot;
++	for i in $(seq 5 -1 1); do
++		echo -n &quot;$i, &quot;
++	done
++	echo &quot;go!&quot;
++}
++
++do_release() {
++	package_info_load
++	package_info_show
++
++	if [ -z &quot;${RELEASE_DRY_RUN}&quot; ]; then
++		do_release_check
++		do_countdown &quot;Starting live release&quot;
++	fi
++
++	local i=
++	for i in $(seq 1 4); do
++		eval &quot;do_release_step_${i}&quot;
++	done
++}
++do_all() { do_release &quot;$@&quot;; }
++
++do_reset() {
++	maybe_bootstrap
++	maybe_configure
++	do_clean_all
++	svn revert configure.in
++}
++
++OPTIONS=$(getopt -o V --long live -n $0 -- &quot;$@&quot;)
++if [ $? != 0 ] ; then echo &quot;Terminating...&quot; &gt;&amp;2 ; exit 1 ; fi
++eval set -- &quot;${OPTIONS}&quot;
++while true; do
++	case &quot;$1&quot; in
++	--live)
++		export RELEASE_DRY_RUN=
++		shift
++		;;
++	-V)
++		exec $0 info
++		;;
++	--)
++		shift
++		break
++		;;
++	*)
++		echo &quot;Internal error&quot;
++		exit 1
++		;;
++	esac
++done
++
++CMD=$1
++[ &quot;${CMD}&quot; ] || usage
++shift
++
++ACTION_CMDS=&quot;bootstrap|configure|build|changelog|package|stage|clean&quot;
++MISC_CMDS=&quot;all|info|version|tag|branch|commit|release|reset|help|usage&quot;
++CLEAN_CMDS=&quot;build_clean|changelog_clean|package_clean|stage_clean|clean_all&quot;
++CMDS=&quot;|${ACTION_CMDS}|${CLEAN_CMDS}|${MISC_CMDS}|&quot;
++is_command() { echo &quot;${CMDS}&quot; | grep &quot;|$1|&quot; &gt;/dev/null; }
++
++if is_command &quot;${CMD}&quot;; then
++	eval &quot;do_${CMD}&quot; &quot;$@&quot;
++else
++	echo &quot;error: unknown command: '${CMD}'&quot;
++	usage
++fi
+
+
+Property changes on: trunk/tools/release.sh
+___________________________________________________________________
+Name: svn:executable
+   + *
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001256.html">[Openocd-svn] r2472 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="001258.html">[Openocd-svn] r2474 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1257">[ date ]</a>
+              <a href="thread.html#1257">[ thread ]</a>
+              <a href="subject.html#1257">[ subject ]</a>
+              <a href="author.html#1257">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

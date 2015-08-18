@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-835-g5e86c51
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-835-g5e86c51&In-Reply-To=%3Cmailman.52.1331736153.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002566.html">
+   <LINK REL="Next"  HREF="002568.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-835-g5e86c51</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-835-g5e86c51&In-Reply-To=%3Cmailman.52.1331736153.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-835-g5e86c51">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Wed Apr  6 06:47:49 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002566.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-834-g719f9ec
+</A></li>
+        <LI>Next message: <A HREF="002568.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-836-gbecfbea
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2567">[ date ]</a>
+              <a href="thread.html#2567">[ thread ]</a>
+              <a href="subject.html#2567">[ subject ]</a>
+              <a href="author.html#2567">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  5e86c5173c234423396d2a0e1e4ad086e1324839 (commit)
+      from  719f9ecde32ab60bcb65913454a9340c5754cee4 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 5e86c5173c234423396d2a0e1e4ad086e1324839
+Author: Michel JAOUEN &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">michel.jaouen at stericsson.com</A>&gt;
+Date:   Tue Apr 5 18:41:32 2011 +0200
+
+    cortex_a : implement jtag console for cortex_a
+
+diff --git a/src/target/cortex_a.c b/src/target/cortex_a.c
+index 55f4fe5..5fad309 100644
+--- a/src/target/cortex_a.c
++++ b/src/target/cortex_a.c
+@@ -1779,28 +1779,6 @@ static int cortex_a8_bulk_write_memory(struct target *target, uint32_t address,
+ 	return cortex_a8_write_memory(target, address, 4, count, buffer);
+ }
+ 
+-static int cortex_a8_dcc_read(struct adiv5_dap *swjdp, uint8_t *value, uint8_t *ctrl)
+-{
+-#if 0
+-	u16 dcrdr;
+-
+-	mem_ap_read_buf_u16(swjdp, (uint8_t*)&amp;dcrdr, 1, DCB_DCRDR);
+-	*ctrl = (uint8_t)dcrdr;
+-	*value = (uint8_t)(dcrdr &gt;&gt; 8);
+-
+-	LOG_DEBUG(&quot;data 0x%x ctrl 0x%x&quot;, *value, *ctrl);
+-
+-	/* write ack back to software dcc register
+-	 * signify we have read data */
+-	if (dcrdr &amp; (1 &lt;&lt; 0))
+-	{
+-		dcrdr = 0;
+-		mem_ap_write_buf_u16(swjdp, (uint8_t*)&amp;dcrdr, 1, DCB_DCRDR);
+-	}
+-#endif
+-	return ERROR_OK;
+-}
+-
+ 
+ static int cortex_a8_handle_target_request(void *priv)
+ {
+@@ -1816,33 +1794,22 @@ static int cortex_a8_handle_target_request(void *priv)
+ 
+ 	if (target-&gt;state == TARGET_RUNNING)
+ 	{
+-		uint8_t data = 0;
+-		uint8_t ctrl = 0;
+-
+-		retval = cortex_a8_dcc_read(swjdp, &amp;data, &amp;ctrl);
+-		if (retval != ERROR_OK)
+-			return retval;
++		uint32_t request;
++		uint32_t dscr;
++		retval = mem_ap_sel_read_atomic_u32(swjdp, swjdp_debugap,
++					armv7a-&gt;debug_base	+ CPUDBG_DSCR, &amp;dscr);
+ 
+ 		/* check if we have data */
+-		if (ctrl &amp; (1 &lt;&lt; 0))
++		while ((dscr &amp; DSCR_DTR_TX_FULL) &amp;&amp; (retval==ERROR_OK))
+ 		{
+-			uint32_t request;
+-
+-			/* we assume target is quick enough */
+-			request = data;
+-			retval = cortex_a8_dcc_read(swjdp, &amp;data, &amp;ctrl);
+-			if (retval != ERROR_OK)
+-				return retval;
+-			request |= (data &lt;&lt; 8);
+-			retval = cortex_a8_dcc_read(swjdp, &amp;data, &amp;ctrl);
+-			if (retval != ERROR_OK)
+-				return retval;
+-			request |= (data &lt;&lt; 16);
+-			retval = cortex_a8_dcc_read(swjdp, &amp;data, &amp;ctrl);
+-			if (retval != ERROR_OK)
+-				return retval;
+-			request |= (data &lt;&lt; 24);
+-			target_request(target, request);
++			retval = mem_ap_sel_read_atomic_u32(swjdp, swjdp_debugap,
++					armv7a-&gt;debug_base+ CPUDBG_DTRTX, &amp;request);
++			if (retval == ERROR_OK)
++			{
++				target_request(target, request);
++				retval = mem_ap_sel_read_atomic_u32(swjdp, swjdp_debugap,
++						armv7a-&gt;debug_base+ CPUDBG_DSCR, &amp;dscr);
++			}
+ 		}
+ 	}
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/cortex_a.c |   59 ++++++++++--------------------------------------
+ 1 files changed, 13 insertions(+), 46 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002566.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-834-g719f9ec
+</A></li>
+	<LI>Next message: <A HREF="002568.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-836-gbecfbea
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2567">[ date ]</a>
+              <a href="thread.html#2567">[ thread ]</a>
+              <a href="subject.html#2567">[ subject ]</a>
+              <a href="author.html#2567">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,198 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-153-g8c6b95e
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-153-g8c6b95e&In-Reply-To=%3Cmailman.230.1331736158.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002744.html">
+   <LINK REL="Next"  HREF="002746.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-153-g8c6b95e</H1>
+    <B>OpenOCD-Gerrit</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-153-g8c6b95e&In-Reply-To=%3Cmailman.230.1331736158.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-153-g8c6b95e">openocd-gerrit at users.sourceforge.net
+       </A><BR>
+    <I>Tue Oct 25 07:14:44 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002744.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-152-gea10093
+</A></li>
+        <LI>Next message: <A HREF="002746.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-154-gf80ec2a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2745">[ date ]</a>
+              <a href="thread.html#2745">[ thread ]</a>
+              <a href="subject.html#2745">[ subject ]</a>
+              <a href="author.html#2745">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  8c6b95ed162ada54b1165ca0c9b46aa92f92975c (commit)
+      from  ea10093422df328bbb33c78d21dc4646a193f8bf (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 8c6b95ed162ada54b1165ca0c9b46aa92f92975c
+Author: Andreas Fritiofson &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">andreas.fritiofson at gmail.com</A>&gt;
+Date:   Tue Oct 25 00:03:42 2011 +0200
+
+    armv7m: improve error handling
+    
+    Propagate errors unchanged.
+    Free allocated working area in the error return path.
+    Remove duplicated cleanup code by rewriting the logic.
+    As a side-effect, fixes a scan-build warning.
+    
+    Change-Id: I80e3c0015be672778f916e998c8c2e4f23d7588c
+    Signed-off-by: Andreas Fritiofson &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">andreas.fritiofson at gmail.com</A>&gt;
+    Reviewed-on: <A HREF="http://openocd.zylin.com/117">http://openocd.zylin.com/117</A>
+    Tested-by: jenkins
+    Reviewed-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvindharboe at gmail.com</A>&gt;
+
+diff --git a/src/target/armv7m.c b/src/target/armv7m.c
+index 39a89b9..d9e63d7 100644
+--- a/src/target/armv7m.c
++++ b/src/target/armv7m.c
+@@ -626,17 +626,16 @@ int armv7m_checksum_memory(struct target *target,
+ 
+ 	uint32_t i;
+ 
+-	if (target_alloc_working_area(target, sizeof(cortex_m3_crc_code), &amp;crc_algorithm) != ERROR_OK)
+-	{
+-		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+-	}
++	retval = target_alloc_working_area(target, sizeof(cortex_m3_crc_code), &amp;crc_algorithm);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	/* convert flash writing code into a buffer in target endianness */
+-	for (i = 0; i &lt; ARRAY_SIZE(cortex_m3_crc_code); i++)
+-		if ((retval = target_write_u16(target, crc_algorithm-&gt;address + i*sizeof(uint16_t), cortex_m3_crc_code[i])) != ERROR_OK)
+-		{
+-			return retval;
+-		}
++	for (i = 0; i &lt; ARRAY_SIZE(cortex_m3_crc_code); i++) {
++		retval = target_write_u16(target, crc_algorithm-&gt;address + i*sizeof(uint16_t), cortex_m3_crc_code[i]);
++		if (retval != ERROR_OK)
++			goto cleanup;
++	}
+ 
+ 	armv7m_info.common_magic = ARMV7M_COMMON_MAGIC;
+ 	armv7m_info.core_mode = ARMV7M_MODE_ANY;
+@@ -649,24 +648,22 @@ int armv7m_checksum_memory(struct target *target,
+ 
+ 	int timeout = 20000 * (1 + (count / (1024 * 1024)));
+ 
+-	if ((retval = target_run_algorithm(target, 0, NULL, 2, reg_params,
+-		crc_algorithm-&gt;address, crc_algorithm-&gt;address + (sizeof(cortex_m3_crc_code)-6), timeout, &amp;armv7m_info)) != ERROR_OK)
+-	{
+-		LOG_ERROR(&quot;error executing cortex_m3 crc algorithm&quot;);
+-		destroy_reg_param(&amp;reg_params[0]);
+-		destroy_reg_param(&amp;reg_params[1]);
+-		target_free_working_area(target, crc_algorithm);
+-		return retval;
+-	}
++	retval = target_run_algorithm(target, 0, NULL, 2, reg_params, crc_algorithm-&gt;address,
++	                              crc_algorithm-&gt;address + (sizeof(cortex_m3_crc_code) - 6),
++	                              timeout, &amp;armv7m_info);
+ 
+-	*checksum = buf_get_u32(reg_params[0].value, 0, 32);
++	if (retval == ERROR_OK)
++		*checksum = buf_get_u32(reg_params[0].value, 0, 32);
++	else
++		LOG_ERROR(&quot;error executing cortex_m3 crc algorithm&quot;);
+ 
+ 	destroy_reg_param(&amp;reg_params[0]);
+ 	destroy_reg_param(&amp;reg_params[1]);
+ 
++cleanup:
+ 	target_free_working_area(target, crc_algorithm);
+ 
+-	return ERROR_OK;
++	return retval;
+ }
+ 
+ /** Checks whether a memory region is zeroed. */
+@@ -711,17 +708,12 @@ int armv7m_blank_check_memory(struct target *target,
+ 	init_reg_param(&amp;reg_params[2], &quot;r2&quot;, 32, PARAM_IN_OUT);
+ 	buf_set_u32(reg_params[2].value, 0, 32, 0xff);
+ 
+-	if ((retval = target_run_algorithm(target, 0, NULL, 3, reg_params,
+-			erase_check_algorithm-&gt;address, erase_check_algorithm-&gt;address + (sizeof(erase_check_code)-2), 10000, &amp;armv7m_info)) != ERROR_OK)
+-	{
+-		destroy_reg_param(&amp;reg_params[0]);
+-		destroy_reg_param(&amp;reg_params[1]);
+-		destroy_reg_param(&amp;reg_params[2]);
+-		target_free_working_area(target, erase_check_algorithm);
+-		return 0;
+-	}
++	retval = target_run_algorithm(target, 0, NULL, 3, reg_params, erase_check_algorithm-&gt;address,
++	                              erase_check_algorithm-&gt;address + (sizeof(erase_check_code) - 2),
++	                              10000, &amp;armv7m_info);
+ 
+-	*blank = buf_get_u32(reg_params[2].value, 0, 32);
++	if (retval == ERROR_OK)
++		*blank = buf_get_u32(reg_params[2].value, 0, 32);
+ 
+ 	destroy_reg_param(&amp;reg_params[0]);
+ 	destroy_reg_param(&amp;reg_params[1]);
+@@ -729,7 +721,7 @@ int armv7m_blank_check_memory(struct target *target,
+ 
+ 	target_free_working_area(target, erase_check_algorithm);
+ 
+-	return ERROR_OK;
++	return retval;
+ }
+ 
+ int armv7m_maybe_skip_bkpt_inst(struct target *target, bool *inst_found)
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/armv7m.c |   54 +++++++++++++++++++++-----------------------------
+ 1 files changed, 23 insertions(+), 31 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002744.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-152-gea10093
+</A></li>
+	<LI>Next message: <A HREF="002746.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-154-gf80ec2a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2745">[ date ]</a>
+              <a href="thread.html#2745">[ thread ]</a>
+              <a href="subject.html#2745">[ subject ]</a>
+              <a href="author.html#2745">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

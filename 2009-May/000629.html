@@ -1,0 +1,151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1845 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1845%20-%20trunk/src/jtag&In-Reply-To=%3C200905200452.n4K4qS6D017488%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000628.html">
+   <LINK REL="Next"  HREF="000630.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1845 - trunk/src/jtag</H1>
+    <B>kc8apf at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1845%20-%20trunk/src/jtag&In-Reply-To=%3C200905200452.n4K4qS6D017488%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1845 - trunk/src/jtag">kc8apf at mail.berlios.de
+       </A><BR>
+    <I>Wed May 20 06:52:28 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000628.html">[Openocd-svn] r1844 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000630.html">[Openocd-svn] r1846 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#629">[ date ]</a>
+              <a href="thread.html#629">[ thread ]</a>
+              <a href="subject.html#629">[ subject ]</a>
+              <a href="author.html#629">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kc8apf
+Date: 2009-05-20 06:52:26 +0200 (Wed, 20 May 2009)
+New Revision: 1845
+
+Modified:
+   trunk/src/jtag/jtag.c
+Log:
+Author: Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mbruck at digenius.de</A>&gt;
+    - simplify code in interface_jtag_add_dr_scan() by adding a local variable 'scan' to hold the scan_command_t
+
+
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-05-20 04:51:46 UTC (rev 1844)
++++ trunk/src/jtag/jtag.c	2009-05-20 04:52:26 UTC (rev 1845)
+@@ -808,20 +808,18 @@
+ 		}
+ 	}
+ 
+-	/* allocate memory for a new list member */
++	jtag_command_t * cmd	= cmd_queue_alloc(sizeof(jtag_command_t));
++	scan_command_t * scan	= cmd_queue_alloc(sizeof(scan_command_t));
+ 	
+-	jtag_command_t * cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+-	
+ 	jtag_queue_command(cmd);
+ 	
+-	cmd-&gt;type = JTAG_SCAN;
++	cmd-&gt;type				= JTAG_SCAN;
++	cmd-&gt;cmd.scan			= scan;
+ 
+-	/* allocate memory for dr scan command */
+-	cmd-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
+-	cmd-&gt;cmd.scan-&gt;ir_scan = false;
+-	cmd-&gt;cmd.scan-&gt;num_fields = in_num_fields + bypass_devices;
+-	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc((in_num_fields + bypass_devices) * sizeof(scan_field_t));
+-	cmd-&gt;cmd.scan-&gt;end_state = state;
++	scan-&gt;ir_scan			= false;
++	scan-&gt;num_fields		= in_num_fields + bypass_devices;
++	scan-&gt;fields			= cmd_queue_alloc((in_num_fields + bypass_devices) * sizeof(scan_field_t));
++	scan-&gt;end_state			= state;
+ 
+ 	tap = NULL;
+ 	nth_tap = -1;
+@@ -832,7 +830,7 @@
+ 			break;
+ 		}
+ 		int found = 0;
+-		cmd-&gt;cmd.scan-&gt;fields[field_count].tap = tap;
++		scan-&gt;fields[field_count].tap = tap;
+ 
+ 		for (j = 0; j &lt; in_num_fields; j++)
+ 		{
+@@ -840,9 +838,9 @@
+ 			{
+ 				found = 1;
+ 				scan_size = in_fields[j].num_bits;
+-				cmd-&gt;cmd.scan-&gt;fields[field_count].num_bits = scan_size;
+-				cmd-&gt;cmd.scan-&gt;fields[field_count].out_value = buf_cpy(in_fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+-				cmd-&gt;cmd.scan-&gt;fields[field_count].in_value = in_fields[j].in_value;
++				scan-&gt;fields[field_count].num_bits	= scan_size;
++				scan-&gt;fields[field_count].out_value	= buf_cpy(in_fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
++				scan-&gt;fields[field_count].in_value	= in_fields[j].in_value;
+ 				field_count++;
+ 			}
+ 		}
+@@ -857,9 +855,9 @@
+ 			}
+ #endif
+ 			/* program the scan field to 1 bit length, and ignore it's value */
+-			cmd-&gt;cmd.scan-&gt;fields[field_count].num_bits = 1;
+-			cmd-&gt;cmd.scan-&gt;fields[field_count].out_value = NULL;
+-			cmd-&gt;cmd.scan-&gt;fields[field_count].in_value = NULL;
++			scan-&gt;fields[field_count].num_bits		= 1;
++			scan-&gt;fields[field_count].out_value		= NULL;
++			scan-&gt;fields[field_count].in_value		= NULL;
+ 			field_count++;
+ 		}
+ 		else
+@@ -876,7 +874,7 @@
+ 	}
+ 
+ 	/* field_count represents the true number of fields setup*/
+-	cmd-&gt;cmd.scan-&gt;num_fields = field_count;
++	scan-&gt;num_fields = field_count;
+ 	return ERROR_OK;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000628.html">[Openocd-svn] r1844 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000630.html">[Openocd-svn] r1846 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#629">[ date ]</a>
+              <a href="thread.html#629">[ thread ]</a>
+              <a href="subject.html#629">[ subject ]</a>
+              <a href="author.html#629">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

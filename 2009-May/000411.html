@@ -1,0 +1,220 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1627 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1627%20-%20trunk/src/target&In-Reply-To=%3C200905070058.n470wftL026937%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000410.html">
+   <LINK REL="Next"  HREF="000412.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1627 - trunk/src/target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1627%20-%20trunk/src/target&In-Reply-To=%3C200905070058.n470wftL026937%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1627 - trunk/src/target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Thu May  7 02:58:41 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000410.html">[Openocd-svn] r1626 - trunk/src/flash
+</A></li>
+        <LI>Next message: <A HREF="000412.html">[Openocd-svn] r1628 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#411">[ date ]</a>
+              <a href="thread.html#411">[ thread ]</a>
+              <a href="subject.html#411">[ subject ]</a>
+              <a href="author.html#411">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-07 02:58:38 +0200 (Thu, 07 May 2009)
+New Revision: 1627
+
+Modified:
+   trunk/src/target/arm_adi_v5.c
+Log:
+Fix pointer cast alignment warnings in arm_adi_v5.c
+
+Modified: trunk/src/target/arm_adi_v5.c
+===================================================================
+--- trunk/src/target/arm_adi_v5.c	2009-05-07 00:21:59 UTC (rev 1626)
++++ trunk/src/target/arm_adi_v5.c	2009-05-07 00:58:38 UTC (rev 1627)
+@@ -45,6 +45,7 @@
+ #include &quot;log.h&quot;
+ #include &quot;time_support.h&quot;
+ #include &lt;stdlib.h&gt;
++#include &lt;string.h&gt;
+ 
+ /*
+  * Transaction Mode:
+@@ -448,7 +449,6 @@
+ *****************************************************************************/
+ int mem_ap_write_buf_u32(swjdp_common_t *swjdp, u8 *buffer, int count, u32 address)
+ {
+-	u32 outvalue;
+ 	int wcount, blocksize, writecount, errorcount = 0, retval = ERROR_OK;
+ 	u32 adr = address;
+ 	u8* pBuffer = buffer;
+@@ -464,7 +464,8 @@
+ 		for (writecount = 0; writecount &lt; count; writecount++)
+ 		{
+ 			int i;
+-			outvalue = *((u32*)pBuffer);
++			u32 outvalue;
++			memcpy(&amp;outvalue, pBuffer, sizeof(u32));
+ 
+ 			for (i = 0; i &lt; 4; i++ )
+ 			{
+@@ -472,7 +473,7 @@
+ 				outvalue &gt;&gt;= 8;
+ 				adr++;
+ 			}
+-			pBuffer += 4;
++			pBuffer += sizeof(u32);
+ 		}
+ 	}
+ 
+@@ -517,7 +518,6 @@
+ 
+ int mem_ap_write_buf_packed_u16(swjdp_common_t *swjdp, u8 *buffer, int count, u32 address)
+ {
+-	u32 outvalue;
+ 	int retval = ERROR_OK;
+ 	int wcount, blocksize, writecount, i;
+ 
+@@ -558,7 +558,8 @@
+ 			}
+ 			else
+ 			{
+-				outvalue = *((u32*)buffer);
++				u32 outvalue;
++				memcpy(&amp;outvalue, buffer, sizeof(u32));
+ 
+ 				for (i = 0; i &lt; nbytes; i++ )
+ 				{
+@@ -567,7 +568,7 @@
+ 					address++;
+ 				}
+ 
+-				outvalue = *((u32*)buffer);
++				memcpy(&amp;outvalue, buffer, sizeof(u32));
+ 				dap_ap_write_reg_u32(swjdp, AP_REG_DRW, outvalue);
+ 				if (swjdp_transaction_endcheck(swjdp) != ERROR_OK)
+ 				{
+@@ -588,7 +589,6 @@
+ 
+ int mem_ap_write_buf_u16(swjdp_common_t *swjdp, u8 *buffer, int count, u32 address)
+ {
+-	u32 outvalue;
+ 	int retval = ERROR_OK;
+ 
+ 	if (count &gt;= 4)
+@@ -599,7 +599,9 @@
+ 	while (count &gt; 0)
+ 	{
+ 		dap_setup_accessport(swjdp, CSW_16BIT | CSW_ADDRINC_SINGLE, address);
+-		outvalue = *((u16*)buffer) &lt;&lt; 8 * (address &amp; 0x3);
++		u16 svalue;
++		memcpy(&amp;svalue, buffer, sizeof(u16));
++		u32 outvalue = (u32)svalue &lt;&lt; 8 * (address &amp; 0x3);
+ 		dap_ap_write_reg_u32(swjdp, AP_REG_DRW, outvalue );
+ 		retval = swjdp_transaction_endcheck(swjdp);
+ 		count -= 2;
+@@ -612,7 +614,6 @@
+ 
+ int mem_ap_write_buf_packed_u8(swjdp_common_t *swjdp, u8 *buffer, int count, u32 address)
+ {
+-	u32 outvalue;
+ 	int retval = ERROR_OK;
+ 	int wcount, blocksize, writecount, i;
+ 
+@@ -649,7 +650,8 @@
+ 			}
+ 			else
+ 			{
+-				outvalue = *((u32*)buffer);
++				u32 outvalue;
++				memcpy(&amp;outvalue, buffer, sizeof(u32));
+ 
+ 				for (i = 0; i &lt; nbytes; i++ )
+ 				{
+@@ -658,7 +660,7 @@
+ 					address++;
+ 				}
+ 
+-				outvalue = *((u32*)buffer);
++				memcpy(&amp;outvalue, buffer, sizeof(u32));
+ 				dap_ap_write_reg_u32(swjdp, AP_REG_DRW, outvalue);
+ 				if (swjdp_transaction_endcheck(swjdp) != ERROR_OK)
+ 				{
+@@ -679,7 +681,6 @@
+ 
+ int mem_ap_write_buf_u8(swjdp_common_t *swjdp, u8 *buffer, int count, u32 address)
+ {
+-	u32 outvalue;
+ 	int retval = ERROR_OK;
+ 
+ 	if (count &gt;= 4)
+@@ -690,7 +691,7 @@
+ 	while (count &gt; 0)
+ 	{
+ 		dap_setup_accessport(swjdp, CSW_8BIT | CSW_ADDRINC_SINGLE, address);
+-		outvalue = *((u8*)buffer) &lt;&lt; 8 * (address &amp; 0x3);
++		u32 outvalue = (u32)*buffer &lt;&lt; 8 * (address &amp; 0x3);
+ 		dap_ap_write_reg_u32(swjdp, AP_REG_DRW, outvalue );
+ 		retval = swjdp_transaction_endcheck(swjdp);
+ 		count--;
+@@ -766,7 +767,8 @@
+ 		for (readcount = 0; readcount &lt; count; readcount++)
+ 		{
+ 			int i;
+-			u32 data = *((u32*)pBuffer);
++			u32 data;
++			memcpy(&amp;data, pBuffer, sizeof(u32));
+ 
+ 			for (i = 0; i &lt; 4; i++ )
+ 			{
+@@ -858,7 +860,8 @@
+ 		}
+ 		else
+ 		{
+-			*((u16*)buffer) = (invalue &gt;&gt; 8 * (address &amp; 0x3));
++			u16 svalue = (invalue &gt;&gt; 8 * (address &amp; 0x3));
++			memcpy(buffer, &amp;svalue, sizeof(u16));
+ 			address += 2;
+ 			buffer += 2;
+ 		}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000410.html">[Openocd-svn] r1626 - trunk/src/flash
+</A></li>
+	<LI>Next message: <A HREF="000412.html">[Openocd-svn] r1628 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#411">[ date ]</a>
+              <a href="thread.html#411">[ thread ]</a>
+              <a href="subject.html#411">[ subject ]</a>
+              <a href="author.html#411">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

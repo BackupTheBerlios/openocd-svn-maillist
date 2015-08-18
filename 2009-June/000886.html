@@ -1,0 +1,293 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2102 - in trunk: . src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2102%20-%20in%20trunk%3A%20.%20src/jtag&In-Reply-To=%3C200906080042.n580gKro021070%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000885.html">
+   <LINK REL="Next"  HREF="000887.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2102 - in trunk: . src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2102%20-%20in%20trunk%3A%20.%20src/jtag&In-Reply-To=%3C200906080042.n580gKro021070%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2102 - in trunk: . src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Mon Jun  8 02:42:20 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000885.html">[Openocd-svn] r2101 - trunk/doc/manual/primer
+</A></li>
+        <LI>Next message: <A HREF="000887.html">[Openocd-svn] r2103 - in trunk/src/jtag: . minidummy
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#886">[ date ]</a>
+              <a href="thread.html#886">[ thread ]</a>
+              <a href="subject.html#886">[ subject ]</a>
+              <a href="author.html#886">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-08 02:42:15 +0200 (Mon, 08 Jun 2009)
+New Revision: 2102
+
+Modified:
+   trunk/configure.in
+   trunk/src/jtag/Makefile.am
+   trunk/src/jtag/jtag.c
+Log:
+Finish off the dummy minidriver integration:
+- Try to disambiguates minidriver options from &quot;standard&quot; driver options.
+  - Make minidummy symbols more explict about being a minidriver.
+  - Move minidummy.c into minidummy directory to put it with its header.
+
+In configure.in:
+- Improve configuration option to allow new minidriver implementations:
+  - Change option from --enable-minidummy to --enable-minidriver-dummy.
+  - Move it to the end of the list of options.
+  - Provides a clear pattern for future minidrivers.
+- Update handling of HAVE_JTAG_MINIDRIVER_H:
+  - Check for external jtag_minidriver.h only with --enable-ecosboard.
+  - Otherwise, define it when --enable-minidriver-dummy is provided.
+- Add check to ensure only one minidriver is enabled.
+- When a minidriver is enabled, warn user that standard drivers are not built.
+- Use proper AC_DEFINE semantics with MINIDRIVER_DUMMY.
+
+In src/jtag/Makefile.am:
+- Restructure handling of minidummy source files.
+- Include minidummy driver header in the distribution.
+
+In src/jtag/jtag.c:
+- Restructure preprocessor logic to include:
+  - only one minidriver, or
+  - all configured standard drivers.
+
+
+Modified: trunk/configure.in
+===================================================================
+--- trunk/configure.in	2009-06-07 23:49:14 UTC (rev 2101)
++++ trunk/configure.in	2009-06-08 00:42:15 UTC (rev 2102)
+@@ -13,7 +13,6 @@
+ AC_CHECK_HEADERS(dirent.h)
+ AC_CHECK_HEADERS(fcntl.h)
+ AC_CHECK_HEADERS(ifaddrs.h)
+-AC_CHECK_HEADERS(jtag_minidriver.h,[build_minidriver=yes],[build_minidriver=no])
+ AC_CHECK_HEADERS(malloc.h)
+ AC_CHECK_HEADERS(netdb.h)
+ AC_CHECK_HEADERS(netinet/in.h)
+@@ -323,10 +322,6 @@
+   AS_HELP_STRING([--enable-ecosboard], [Enable building support for eCosBoard based JTAG debugger]), 
+   [build_ecosboard=$enableval], [build_ecosboard=no])
+ 
+-AC_ARG_ENABLE(minidummy,
+-  AS_HELP_STRING([--enable-minidummy], [Enable building support for minidummy driver]), 
+-  [build_minidummy=$enableval], [build_minidummy=no])
+-
+ AC_ARG_ENABLE(ioutil,
+   AS_HELP_STRING([--enable-ioutil], [Enable ioutil functions - useful for standalone OpenOCD implementations]), 
+   [build_ioutil=$enableval], [build_ioutil=no])
+@@ -388,6 +383,47 @@
+   AS_HELP_STRING([--enable-arm-jtag-ew], [Enable building support for the Olimex ARM-JTAG-EW Programmer]),
+   [build_armjtagew=$enableval], [build_armjtagew=no])
+ 
++AC_ARG_ENABLE(minidriver_dummy,
++  AS_HELP_STRING([--enable-minidriver-dummy], [Enable the dummy minidriver.]),
++  [build_minidriver_dummy=$enableval], [build_minidriver_dummy=no])
++
++
++build_minidriver=no
++AC_MSG_CHECKING([whether to enable ZY1000 minidriver])
++if test $build_ecosboard = yes; then
++  # check for that project's header file in the current header search path
++  AC_CHECK_HEADERS(jtag_minidriver.h, [build_minidriver=yes],
++      AC_MSG_WARN([The --enable-ecosboard option needs the out-of-tree 'jtag_minidriver.h'])
++      AC_MSG_ERROR([The out-of-tree jtag_minidriver.h cannot be found.])
++    )
++  build_minidriver=yes
++  AC_DEFINE(BUILD_MINIDRIVER_DUMMY, 1, [Use the dummy minidriver.])
++fi
++AC_MSG_RESULT($build_ecosboard)
++
++
++AC_MSG_CHECKING([whether to enable dummy minidriver])
++if test $build_minidriver_dummy = yes; then
++  if test $build_minidriver = yes; then
++    AC_MSG_ERROR([Multiple minidriver options have been enabled.])
++  fi
++  build_minidriver=yes
++  AC_DEFINE(BUILD_MINIDRIVER_DUMMY, 1, [Use the dummy minidriver.])
++  AC_DEFINE(HAVE_JTAG_MINIDRIVER_H, 1,
++  		[Define to 1 if you have the &lt;jtag_minidriver.h&gt; header file.])
++fi
++AC_MSG_RESULT($build_minidriver_dummy)
++
++AC_MSG_CHECKING([whether standard drivers can be built])
++if test &quot;$build_minidriver&quot; = yes; then
++  AC_MSG_RESULT([no])
++  AC_MSG_WARN([Using the minidriver disables all other drivers.])
++  sleep 2
++else
++  AC_MSG_RESULT([yes])
++fi
++
++
+ case $host in 
+   *-cygwin*) 
+     is_win32=yes
+@@ -463,12 +499,6 @@
+   AC_DEFINE(BUILD_ECOSBOARD, 0, [0 if you don't want eCosBoard.])
+ fi
+ 
+-if test $build_minidummy = yes; then
+-  AC_DEFINE(BUILD_MINIDUMMY, 1, [1 if you want minidummy.])
+-else
+-  AC_DEFINE(BUILD_MINIDUMMY, 0, [0 if you don't want minidummy.])
+-fi
+-
+ if test $build_ioutil = yes; then
+   AC_DEFINE(BUILD_IOUTIL, 1, [1 if you want ioutils.])
+ else
+@@ -845,7 +875,6 @@
+ AM_CONDITIONAL(GIVEIO, test $parport_use_giveio = yes)
+ AM_CONDITIONAL(EP93XX, test $build_ep93xx = yes)
+ AM_CONDITIONAL(ECOSBOARD, test $build_ecosboard = yes)
+-AM_CONDITIONAL(MINIDUMMY, test $build_minidummy = yes)
+ AM_CONDITIONAL(IOUTIL, test $build_ioutil = yes)
+ AM_CONDITIONAL(HTTPD, test $build_httpd = yes)
+ AM_CONDITIONAL(AT91RM9200, test $build_at91rm9200 = yes)
+@@ -867,7 +896,9 @@
+ AM_CONDITIONAL(IS_WIN32, test $is_win32 = yes)
+ AM_CONDITIONAL(IS_DARWIN, test $is_darwin = yes)
+ AM_CONDITIONAL(BITQ, test $build_bitq = yes)
++
+ AM_CONDITIONAL(MINIDRIVER, test $build_minidriver = yes)
++AM_CONDITIONAL(MINIDRIVER_DUMMY, test $build_minidriver_dummy = yes)
+ 
+ AC_LANG_C
+ AC_PROG_CC
+
+Modified: trunk/src/jtag/Makefile.am
+===================================================================
+--- trunk/src/jtag/Makefile.am	2009-06-07 23:49:14 UTC (rev 2101)
++++ trunk/src/jtag/Makefile.am	2009-06-08 00:42:15 UTC (rev 2102)
+@@ -51,14 +51,15 @@
+ ECOSBOARDFILES =
+ endif
+ 
+-if MINIDUMMY
+-MINIDUMMYFILES = minidummy.c
++if MINIDRIVER_DUMMY
++MINIDUMMYFILES = minidummy.c commands.c
++AM_CPPFLAGS += -I$(srcdir)/minidummy
+ else
+ MINIDUMMYFILES =
+ endif
+ 
+ if MINIDRIVER
+-DRIVERFILES =
++DRIVERFILES = $(MINIDUMMYFILES)
+ else
+ DRIVERFILES = jtag_driver.c commands.c
+ endif
+@@ -137,7 +138,6 @@
+ 	$(PRESTOFILES) \
+ 	$(USBPROGFILES) \
+ 	$(ECOSBOARDFILES) \
+-	$(MINIDUMMYFILES) \
+ 	$(JLINKFILES) \
+ 	$(RLINKFILES) \
+ 	$(VSLLINKFILES) \
+@@ -153,6 +153,7 @@
+ 	rlink/dtc_cmd.h \
+ 	rlink/ep1_cmd.h \
+ 	rlink/rlink.h \
+-	rlink/st7.h
++	rlink/st7.h \
++	minidummy/jtag_minidriver.h
+ 
+ MAINTAINERCLEANFILES = Makefile.in
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-07 23:49:14 UTC (rev 2101)
++++ trunk/src/jtag/jtag.c	2009-06-08 00:42:15 UTC (rev 2102)
+@@ -97,11 +97,9 @@
+ 
+ #if BUILD_ECOSBOARD == 1
+ 	extern jtag_interface_t zy1000_interface;
+-#endif
+-
+-#if BUILD_MINIDUMMY == 1
++#elif defined(BUILD_MINIDRIVER_DUMMY)
+ 	extern jtag_interface_t minidummy_interface;
+-#endif
++#else // standard drivers
+ #if BUILD_PARPORT == 1
+ 	extern jtag_interface_t parport_interface;
+ #endif
+@@ -157,14 +155,21 @@
+ #if BUILD_ARMJTAGEW == 1
+ 	extern jtag_interface_t armjtagew_interface;
+ #endif
++#endif // standard drivers
+ 
++/**
++ * The list of built-in JTAG interfaces, containing entries for those
++ * drivers that were enabled by the @c configure script.
++ *
++ * The list should be defined to contain either one minidriver interface
++ * or some number of standard driver interfaces, never both.
++ */
+ jtag_interface_t *jtag_interfaces[] = {
+ #if BUILD_ECOSBOARD == 1
+ 	&amp;zy1000_interface,
+-#endif
+-#if BUILD_MINIDUMMY == 1
++#elif defined(BUILD_MINIDRIVER_DUMMY)
+ 	&amp;minidummy_interface,
+-#endif
++#else // standard drivers
+ #if BUILD_PARPORT == 1
+ 	&amp;parport_interface,
+ #endif
+@@ -207,6 +212,7 @@
+ #if BUILD_ARMJTAGEW == 1
+ 	&amp;armjtagew_interface,
+ #endif
++#endif // standard drivers
+ 	NULL,
+ };
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000885.html">[Openocd-svn] r2101 - trunk/doc/manual/primer
+</A></li>
+	<LI>Next message: <A HREF="000887.html">[Openocd-svn] r2103 - in trunk/src/jtag: . minidummy
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#886">[ date ]</a>
+              <a href="thread.html#886">[ thread ]</a>
+              <a href="subject.html#886">[ subject ]</a>
+              <a href="author.html#886">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

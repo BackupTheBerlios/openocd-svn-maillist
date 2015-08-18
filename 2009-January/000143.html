@@ -1,0 +1,420 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1359 - trunk/src/svf
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1359%20-%20trunk/src/svf&In-Reply-To=%3C200901230708.n0N78LJG032376%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000142.html">
+   <LINK REL="Next"  HREF="000144.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1359 - trunk/src/svf</H1>
+    <B>kc8apf at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1359%20-%20trunk/src/svf&In-Reply-To=%3C200901230708.n0N78LJG032376%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1359 - trunk/src/svf">kc8apf at mail.berlios.de
+       </A><BR>
+    <I>Fri Jan 23 08:08:21 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000142.html">[Openocd-svn] r1358 - trunk/src/helper
+</A></li>
+        <LI>Next message: <A HREF="000144.html">[Openocd-svn] r1360 - in trunk/src: jtag xsvf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#143">[ date ]</a>
+              <a href="thread.html#143">[ thread ]</a>
+              <a href="subject.html#143">[ subject ]</a>
+              <a href="author.html#143">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kc8apf
+Date: 2009-01-23 08:08:18 +0100 (Fri, 23 Jan 2009)
+New Revision: 1359
+
+Modified:
+   trunk/src/svf/svf.c
+Log:
+Fixes for svf player by Simon Qian &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">simonqian at SimonQian.com</A>&gt;
+
+Modified: trunk/src/svf/svf.c
+===================================================================
+--- trunk/src/svf/svf.c	2009-01-23 07:07:02 UTC (rev 1358)
++++ trunk/src/svf/svf.c	2009-01-23 07:08:18 UTC (rev 1359)
+@@ -37,6 +37,7 @@
+ #include &quot;jtag.h&quot;
+ #include &quot;command.h&quot;
+ #include &quot;log.h&quot;
++#include &quot;time_support.h&quot;
+ 
+ #include &lt;ctype.h&gt;
+ #include &lt;stdlib.h&gt;
+@@ -187,10 +188,12 @@
+ static int svf_line_number = 1;
+ 
+ static jtag_tap_t *tap = NULL;
++static tap_state_t last_state = TAP_RESET;
+ 
+ #define SVF_MAX_BUFFER_SIZE_TO_COMMIT	(4 * 1024)
+ static u8 *svf_tdi_buffer = NULL, *svf_tdo_buffer = NULL, *svf_mask_buffer = NULL;
+ static int svf_buffer_index = 0, svf_buffer_size = 0;
++static int svf_quiet = 0;
+ 
+ 
+ int svf_register_commands(struct command_context_s *cmd_ctx)
+@@ -230,23 +233,47 @@
+ 
+ static int handle_svf_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
++#define SVF_NUM_OF_OPTIONS			1
+ 	int command_num = 0, i;
+ 	int ret = ERROR_OK;
++	long long time_ago;
+ 
+-	if (argc &lt; 1)
++	if ((argc &lt; 1) || (argc &gt; (1 + SVF_NUM_OF_OPTIONS)))
+ 	{
+-		command_print(cmd_ctx, &quot;usage: svf &lt;file&gt;&quot;);
++		command_print(cmd_ctx, &quot;usage: svf &lt;file&gt; [quiet]&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 
++	// parse variant
++	svf_quiet = 0;
++	for (i = 1; i &lt; argc; i++)
++	{
++		if (!strcmp(args[i], &quot;quiet&quot;))
++		{
++			svf_quiet = 1;
++		}
++		else
++		{
++			LOG_ERROR(&quot;unknown variant for svf: %s&quot;, args[i]);
++
++			// no need to free anything now
++			return ERROR_FAIL;
++		}
++	}
++
+ 	if ((svf_fd = open(args[0], O_RDONLY)) &lt; 0)
+ 	{
+ 		command_print(cmd_ctx, &quot;file \&quot;%s\&quot; not found&quot;, args[0]);
++
++		// no need to free anything now
+ 		return ERROR_FAIL;
+ 	}
+ 
+ 	LOG_USER(&quot;svf processing file: \&quot;%s\&quot;&quot;, args[0]);
+ 
++	// get time
++	time_ago = timeval_ms();
++
+ 	// init
+ 	svf_line_number = 1;
+ 	svf_command_buffer_size = 0;
+@@ -315,6 +342,9 @@
+ 		ret = ERROR_FAIL;
+ 	}
+ 
++	// print time
++	command_print(cmd_ctx, &quot;%d ms used&quot;, timeval_ms() - time_ago);
++
+ free_all:
+ 
+ 	close(svf_fd);
+@@ -655,6 +685,22 @@
+ 	return ERROR_OK;
+ }
+ 
++static int svf_execute_tap(void)
++{
++	if (ERROR_OK != jtag_execute_queue())
++	{
++		return ERROR_FAIL;
++	}
++	else if (ERROR_OK != svf_check_tdo())
++	{
++		return ERROR_FAIL;
++	}
++
++	svf_buffer_index = 0;
++
++	return ERROR_OK;
++}
++
+ // not good to use this
+ extern jtag_command_t** jtag_get_last_command_p(void);
+ extern void* cmd_queue_alloc(size_t size);
+@@ -681,7 +727,10 @@
+ 	// for STATE
+ 	tap_state_t *path = NULL, state;
+ 
+-	LOG_DEBUG(&quot;%s&quot;, cmd_str);
++	if (!svf_quiet)
++	{
++		LOG_USER(&quot;%s&quot;, svf_command_buffer);
++	}
+ 
+ 	if (ERROR_OK != svf_parse_cmd_string(cmd_str, strlen(cmd_str), argus, &amp;num_of_argu))
+ 	{
+@@ -736,6 +785,10 @@
+ 				LOG_ERROR(&quot;HZ not found in FREQUENCY command&quot;);
+ 				return ERROR_FAIL;
+ 			}
++			if (ERROR_OK != svf_execute_tap())
++			{
++				return ERROR_FAIL;
++			}
+ 			svf_para.frequency = atof(argus[1]);
+ 			// TODO: set jtag speed to
+ 			if (svf_para.frequency &gt; 0)
+@@ -776,7 +829,7 @@
+ 		xxr_para_tmp-&gt;data_mask = 0;
+ 		for (i = 2; i &lt; num_of_argu; i += 2)
+ 		{
+-			if ((argus[i + 1][0] != '(') || (argus[i + 1][strlen(argus[i + 1]) - 1] != ')'))
++			if ((strlen(argus[i + 1]) &lt; 3) || (argus[i + 1][0] != '(') || (argus[i + 1][strlen(argus[i + 1]) - 1] != ')'))
+ 			{
+ 				LOG_ERROR(&quot;data section error&quot;);
+ 				return ERROR_FAIL;
+@@ -931,6 +984,7 @@
+ 			jtag_add_plain_dr_scan(1, &amp;field, svf_para.dr_end_state);
+ 
+ 			svf_buffer_index += (i + 7) &gt;&gt; 3;
++			last_state = svf_para.dr_end_state;
+ 		}
+ 		else if (SIR == command)
+ 		{
+@@ -1031,6 +1085,7 @@
+ 			jtag_add_plain_ir_scan(1, &amp;field, svf_para.ir_end_state);
+ 
+ 			svf_buffer_index += (i + 7) &gt;&gt; 3;
++			last_state = svf_para.ir_end_state;
+ 		}
+ 		break;
+ 	case PIO:
+@@ -1126,14 +1181,50 @@
+ 		{
+ 			if (run_count &gt; 0)
+ 			{
++				// run_state and end_state is checked to be stable state
+ 				// TODO: do runtest
++#if 1
++				// enter into run_state if necessary
++				if (last_state != svf_para.runtest_run_state)
++				{
++					last_cmd = jtag_get_last_command_p();
++					*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++					last_comand_pointer = &amp;((*last_cmd)-&gt;next);
++					(*last_cmd)-&gt;next = NULL;
++					(*last_cmd)-&gt;type = JTAG_STATEMOVE;
++					(*last_cmd)-&gt;cmd.statemove = cmd_queue_alloc(sizeof(statemove_command_t));
++					(*last_cmd)-&gt;cmd.statemove-&gt;end_state = svf_para.runtest_run_state;
++
++					cmd_queue_end_state = cmd_queue_cur_state = (*last_cmd)-&gt;cmd.statemove-&gt;end_state;
++				}
++
++				// call jtag_add_clocks
++				jtag_add_clocks(run_count);
++
++				if (svf_para.runtest_end_state != svf_para.runtest_run_state)
++				{
++					// move to end_state
++					last_cmd = jtag_get_last_command_p();
++					*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++					last_comand_pointer = &amp;((*last_cmd)-&gt;next);
++					(*last_cmd)-&gt;next = NULL;
++					(*last_cmd)-&gt;type = JTAG_STATEMOVE;
++					(*last_cmd)-&gt;cmd.statemove = cmd_queue_alloc(sizeof(statemove_command_t));
++					(*last_cmd)-&gt;cmd.statemove-&gt;end_state = svf_para.runtest_end_state;
++
++					cmd_queue_end_state = cmd_queue_cur_state = (*last_cmd)-&gt;cmd.statemove-&gt;end_state;
++				}
++				last_state = svf_para.runtest_end_state;
++#else
+ 				if (svf_para.runtest_run_state != TAP_IDLE)
+ 				{
+ 					// RUNTEST can only executed in TAP_IDLE
+ 					LOG_ERROR(&quot;cannot runtest in %s state&quot;, svf_tap_state_name[svf_para.runtest_run_state]);
+ 					return ERROR_FAIL;
+ 				}
++
+ 				jtag_add_runtest(run_count, svf_para.runtest_end_state);
++#endif
+ 			}
+ 		}
+ 		else
+@@ -1158,32 +1249,45 @@
+ 				LOG_ERROR(&quot;not enough memory&quot;);
+ 				return ERROR_FAIL;
+ 			}
+-			for (i = 1; i &lt; num_of_argu; i++)
++			num_of_argu--;		// num of path
++			i_tmp = 1;			// path is from patameter 1
++			for (i = 0; i &lt; num_of_argu; i++)
+ 			{
+-				path[i - 1] = svf_find_string_in_array(argus[i], (char **)svf_tap_state_name, dimof(svf_tap_state_name));
+-				if (!svf_tap_state_is_valid(path[i - 1]))
++				path[i] = svf_find_string_in_array(argus[i_tmp++], (char **)svf_tap_state_name, dimof(svf_tap_state_name));
++				if (!svf_tap_state_is_valid(path[i]))
+ 				{
+-					LOG_ERROR(&quot;%s is not valid state&quot;, svf_tap_state_name[path[i - 1]]);
++					LOG_ERROR(&quot;%s is not valid state&quot;, svf_tap_state_name[path[i]]);
+ 					return ERROR_FAIL;
+ 				}
+-				if (TAP_RESET == path[i - 1])
++				if (TAP_RESET == path[i])
+ 				{
+-					LOG_ERROR(&quot;TAP_RESET is not allowed in pathmove&quot;);
+-					return ERROR_FAIL;
++					if (i &gt; 0)
++					{
++						jtag_add_pathmove(i, path);
++					}
++					jtag_add_tlr();
++					num_of_argu -= i + 1;
++					i = -1;
+ 				}
+ 			}
+-			if (svf_tap_state_is_stable(path[num_of_argu - 1]))
++			if (num_of_argu &gt; 0)
+ 			{
+-				// last state MUST be stable state
+-				// TODO: call path_move
+-				jtag_add_pathmove(num_of_argu - 1, path);
+-				LOG_DEBUG(&quot;\tmove to %s by path_move&quot;, svf_tap_state_name[path[num_of_argu - 1]]);
++				// execute last path if necessary
++				if (svf_tap_state_is_stable(path[num_of_argu - 1]))
++				{
++					// last state MUST be stable state
++					// TODO: call path_move
++					jtag_add_pathmove(num_of_argu, path);
++					last_state = path[num_of_argu - 1];
++					LOG_DEBUG(&quot;\tmove to %s by path_move&quot;, svf_tap_state_name[path[num_of_argu - 1]]);
++				}
++				else
++				{
++					LOG_ERROR(&quot;%s is not valid state&quot;, svf_tap_state_name[path[num_of_argu - 1]]);
++					return ERROR_FAIL;
++				}
+ 			}
+-			else
+-			{
+-				LOG_ERROR(&quot;%s is not valid state&quot;, svf_tap_state_name[path[num_of_argu - 1]]);
+-				return ERROR_FAIL;
+-			}
++			// no need to keep this memory, in jtag_add_pathmove, path will be duplicated
+ 			if (NULL != path)
+ 			{
+ 				free(path);
+@@ -1205,6 +1309,9 @@
+ 				(*last_cmd)-&gt;cmd.statemove = cmd_queue_alloc(sizeof(statemove_command_t));
+ 				(*last_cmd)-&gt;cmd.statemove-&gt;end_state = state;
+ 
++				cmd_queue_end_state = cmd_queue_cur_state = (*last_cmd)-&gt;cmd.statemove-&gt;end_state;
++				last_state = state;
++
+ 				LOG_DEBUG(&quot;\tmove to %s by state_move&quot;, svf_tap_state_name[state]);
+ 			}
+ 			else
+@@ -1223,17 +1330,21 @@
+ 		}
+ 		if (svf_para.trst_mode != TRST_ABSENT)
+ 		{
++			if (ERROR_OK != svf_execute_tap())
++			{
++				return ERROR_FAIL;
++			}
+ 			i_tmp = svf_find_string_in_array(argus[1], (char **)svf_trst_mode_name, dimof(svf_trst_mode_name));
+ 			switch (i_tmp)
+ 			{
+ 			case TRST_ON:
++				last_state = TAP_RESET;
+ 				jtag_add_reset(1, 0);
+ 				break;
++			case TRST_Z:
+ 			case TRST_OFF:
+-				jtag_add_reset(1, 1);
++				jtag_add_reset(0, 0);
+ 				break;
+-			case TRST_Z:
+-				break;
+ 			case TRST_ABSENT:
+ 				break;
+ 			default:
+@@ -1262,22 +1373,17 @@
+ 			(((command != STATE) &amp;&amp; (command != RUNTEST)) || \
+ 			((command == STATE) &amp;&amp; (num_of_argu == 2))))
+ 		{
+-			// there is data to be executed
+-			if (ERROR_OK != jtag_execute_queue())
++			if (ERROR_OK != svf_execute_tap())
+ 			{
+ 				return ERROR_FAIL;
+ 			}
++
+ 			// output debug info
+ 			if ((SIR == command) || (SDR == command))
+ 			{
++				// in debug mode, data is from index 0
+ 				LOG_DEBUG(&quot;\tTDO read = 0x%X&quot;, (*(int*)svf_tdi_buffer) &amp; ((1 &lt;&lt; (svf_check_tdo_para[0].bit_len)) - 1));
+ 			}
+-			if (ERROR_OK != svf_check_tdo())
+-			{
+-				return ERROR_FAIL;
+-			}
+-
+-			svf_buffer_index = 0;
+ 		}
+ 	}
+ 	else
+@@ -1288,16 +1394,7 @@
+ 			(((command != STATE) &amp;&amp; (command != RUNTEST)) || \
+ 			((command == STATE) &amp;&amp; (num_of_argu == 2))))
+ 		{
+-			if (ERROR_OK != jtag_execute_queue())
+-			{
+-				return ERROR_FAIL;
+-			}
+-			else if (ERROR_OK != svf_check_tdo())
+-			{
+-				return ERROR_FAIL;
+-			}
+-
+-			svf_buffer_index = 0;
++			return svf_execute_tap();
+ 		}
+ 	}
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000142.html">[Openocd-svn] r1358 - trunk/src/helper
+</A></li>
+	<LI>Next message: <A HREF="000144.html">[Openocd-svn] r1360 - in trunk/src: jtag xsvf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#143">[ date ]</a>
+              <a href="thread.html#143">[ thread ]</a>
+              <a href="subject.html#143">[ subject ]</a>
+              <a href="author.html#143">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

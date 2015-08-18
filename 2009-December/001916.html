@@ -1,0 +1,452 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-842-gcf2cb0f
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-842-gcf2cb0f&In-Reply-To=%3CE1NGN0a-0004tS-Gi%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001915.html">
+   <LINK REL="Next"  HREF="001917.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-842-gcf2cb0f</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-842-gcf2cb0f&In-Reply-To=%3CE1NGN0a-0004tS-Gi%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-842-gcf2cb0f">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Fri Dec  4 02:30:49 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001915.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-839-g7e2dffb
+</A></li>
+        <LI>Next message: <A HREF="001917.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-844-ged59dfc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1916">[ date ]</a>
+              <a href="thread.html#1916">[ thread ]</a>
+              <a href="subject.html#1916">[ subject ]</a>
+              <a href="author.html#1916">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  cf2cb0fc84d262069282a7363944663c8d2505d3 (commit)
+       via  66985bb30619c412984a2cfa1c0b3c4a324dbe78 (commit)
+       via  9a51b8b0e3d0b629915a8248e2c112a01ffc93dc (commit)
+      from  7e2dffbbff2534ca5afa52aa3d811b3599d2ca77 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit cf2cb0fc84d262069282a7363944663c8d2505d3
+Author: Dean Glazeski &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dnglaze at gmail.com</A>&gt;
+Date:   Mon Nov 16 13:40:46 2009 -0600
+
+    Make ARM NAND I/O operations aware of last op
+    
+    Updates the ARM NAND I/O code to look at and update the op
+    field of arm_nand_data to reflect the last operation performed.
+    It uses this field to copy the correct code to the target in the
+    case where the struct is used for reads and writes.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/flash/arm_nandio.c b/src/flash/arm_nandio.c
+index fdf2109..1b43b5f 100644
+--- a/src/flash/arm_nandio.c
++++ b/src/flash/arm_nandio.c
+@@ -40,7 +40,8 @@
+  * @param area Pointer to a pointer to a working area to copy code to
+  * @return Success or failure of the operation
+  */
+-int arm_code_to_working_area(struct target *target, const uint32_t *code, unsigned code_size,
++int arm_code_to_working_area(struct target *target,
++		const uint32_t *code, unsigned code_size,
+ 		unsigned additional, struct working_area **area)
+ {
+ 	uint8_t code_buf[code_size];
+@@ -48,6 +49,11 @@ int arm_code_to_working_area(struct target *target, const uint32_t *code, unsign
+ 	int retval;
+ 	unsigned size = code_size + additional;
+ 
++	/* REVISIT this assumes size doesn't ever change.
++	 * That's usually correct; but there are boards with
++	 * both large and small page chips, where it won't be...
++	 */
++
+ 	/* make sure we have a working area */
+ 	if (NULL == *area) {
+ 		retval = target_alloc_working_area(target, size, area);
+@@ -109,7 +115,7 @@ int arm_nandwrite(struct arm_nand_data *nand, uint8_t *data, int size)
+ 		0xe1200070,	/* e: bkpt  #0           */
+ 	};
+ 
+-	if (!nand-&gt;copy_area) {
++	if (nand-&gt;op != ARM_NAND_WRITE || !nand-&gt;copy_area) {
+ 		retval = arm_code_to_working_area(target, code, sizeof(code),
+ 				nand-&gt;chunk_size, &amp;nand-&gt;copy_area);
+ 		if (retval != ERROR_OK) {
+@@ -117,6 +123,8 @@ int arm_nandwrite(struct arm_nand_data *nand, uint8_t *data, int size)
+ 		}
+ 	}
+ 
++	nand-&gt;op = ARM_NAND_WRITE;
++
+ 	/* copy data to work area */
+ 	target_buf = nand-&gt;copy_area-&gt;address + sizeof(code);
+ 	retval = target_bulk_write_memory(target, target_buf, size / 4, data);
+@@ -192,7 +200,7 @@ int arm_nandread(struct arm_nand_data *nand, uint8_t *data, uint32_t size)
+ 	};
+ 
+ 	/* create the copy area if not yet available */
+-	if (!nand-&gt;copy_area) {
++	if (nand-&gt;op != ARM_NAND_READ || !nand-&gt;copy_area) {
+ 		retval = arm_code_to_working_area(target, code, sizeof(code),
+ 				nand-&gt;chunk_size, &amp;nand-&gt;copy_area);
+ 		if (retval != ERROR_OK) {
+@@ -200,6 +208,7 @@ int arm_nandread(struct arm_nand_data *nand, uint8_t *data, uint32_t size)
+ 		}
+ 	}
+ 
++	nand-&gt;op = ARM_NAND_READ;
+ 	target_buf = nand-&gt;copy_area-&gt;address + sizeof(code);
+ 
+ 	/* set up algorithm and parameters */
+@@ -223,7 +232,7 @@ int arm_nandread(struct arm_nand_data *nand, uint8_t *data, uint32_t size)
+ 	retval = target_run_algorithm(target, 0, NULL, 3, reg_params,
+ 			nand-&gt;copy_area-&gt;address, exit, 1000, &amp;algo);
+ 	if (retval != ERROR_OK)
+-		LOG_ERROR(&quot;error executing hosted NAND write&quot;);
++		LOG_ERROR(&quot;error executing hosted NAND read&quot;);
+ 
+ 	destroy_reg_param(&amp;reg_params[0]);
+ 	destroy_reg_param(&amp;reg_params[1]);
+
+commit 66985bb30619c412984a2cfa1c0b3c4a324dbe78
+Author: Dean Glazeski &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dnglaze at gmail.com</A>&gt;
+Date:   Mon Nov 16 13:34:24 2009 -0600
+
+    ARM NAND I/O interface update
+    
+    Modify the arm_nand_data struct to better support both read and
+    write operations while using the same struct.  An additional
+    field was added, and initialized, to record the last operation
+    so that the correct code can be loaded to the working area.
+    
+    [<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>: merge init patch, tweak GPL note]
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/flash/arm_nandio.h b/src/flash/arm_nandio.h
+index 27b3ad3..d3504f4 100644
+--- a/src/flash/arm_nandio.h
++++ b/src/flash/arm_nandio.h
+@@ -1,3 +1,21 @@
++/*
++ * Copyright (C) 2009 by David Brownell
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the
++ * Free Software Foundation, Inc.,
++ * 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++ */
+ #ifndef __ARM_NANDIO_H
+ #define __ARM_NANDIO_H
+ 
+@@ -5,21 +23,33 @@
+ #include &lt;helper/binarybuffer.h&gt;
+ 
+ /**
++ * Available operational states the arm_nand_data struct can be in.
++ */
++enum arm_nand_op {
++	ARM_NAND_NONE, /**&lt; No operation performed. */
++	ARM_NAND_READ, /**&lt; Read operation performed. */
++	ARM_NAND_WRITE, /**&lt; Write operation performed. */
++};
++
++/**
+  * The arm_nand_data struct is used for defining NAND I/O operations on an ARM
+  * core.
+  */
+ struct arm_nand_data {
+-	/** target is proxy for some ARM core */
+-	struct target		*target;
++	/** Target is proxy for some ARM core. */
++	struct target *target;
+ 
+-	/** copy_area holds write-to-NAND loop and data to write */
++	/** The copy area holds code loop and data for I/O operations. */
+ 	struct working_area	*copy_area;
+ 
+-	/** chunk_size == page or ECC unit */
+-	unsigned		chunk_size;
++	/** The chunk size is the page size or ECC chunk. */
++	unsigned chunk_size;
++
++	/** Where data is read from or written to. */
++	uint32_t data;
+ 
+-	/** data == where to write the data */
+-	uint32_t		data;
++	/** Last operation executed using this struct. */
++	enum arm_nand_op op;
+ 
+ 	/* currently implicit:  data width == 8 bits (not 16) */
+ };
+diff --git a/src/flash/nand/davinci.c b/src/flash/nand/davinci.c
+index 40be36d..6677073 100644
+--- a/src/flash/nand/davinci.c
++++ b/src/flash/nand/davinci.c
+@@ -710,6 +710,7 @@ NAND_DEVICE_COMMAND_HANDLER(davinci_nand_device_command)
+ 
+ 	info-&gt;io.target = target;
+ 	info-&gt;io.data = info-&gt;data;
++	info-&gt;io.op = ARM_NAND_NONE;
+ 
+ 	/* NOTE:  for now we don't do any error correction on read.
+ 	 * Nothing else in OpenOCD currently corrects read errors,
+diff --git a/src/flash/nand/orion.c b/src/flash/nand/orion.c
+index 436151f..b124dee 100644
+--- a/src/flash/nand/orion.c
++++ b/src/flash/nand/orion.c
+@@ -155,6 +155,7 @@ NAND_DEVICE_COMMAND_HANDLER(orion_nand_device_command)
+ 
+ 	hw-&gt;io.target = hw-&gt;target;
+ 	hw-&gt;io.data = hw-&gt;data;
++	hw-&gt;io.op = ARM_NAND_NONE;
+ 
+ 	return ERROR_OK;
+ }
+
+commit 9a51b8b0e3d0b629915a8248e2c112a01ffc93dc
+Author: Dean Glazeski &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dnglaze at gmail.com</A>&gt;
+Date:   Fri Nov 20 00:19:39 2009 -0600
+
+    NAND page command refactoring.
+    
+    Created a new function that handles sending a command and the address
+    information for pages to a NAND device.
+    
+    [<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>: tweaked line lengths, name 'oob_only']
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/flash/nand.c b/src/flash/nand.c
+index 5bcbea4..2f0f503 100644
+--- a/src/flash/nand.c
++++ b/src/flash/nand.c
+@@ -863,20 +863,19 @@ static int nand_read_page(struct nand_device *nand, uint32_t page, uint8_t *data
+ 		return nand-&gt;controller-&gt;read_page(nand, page, data, data_size, oob, oob_size);
+ }
+ 
+-int nand_read_page_raw(struct nand_device *nand, uint32_t page, uint8_t *data, uint32_t data_size, uint8_t *oob, uint32_t oob_size)
++int nand_page_command(struct nand_device *nand, uint32_t page,
++		uint8_t cmd, bool oob_only)
+ {
+-	uint32_t i;
+-
+ 	if (!nand-&gt;device)
+ 		return ERROR_NAND_DEVICE_NOT_PROBED;
+ 
+-	if (nand-&gt;page_size &lt;= 512)
+-	{
++	if (oob_only &amp;&amp; NAND_CMD_READ0 == cmd &amp;&amp; nand-&gt;page_size &lt;= 512)
++		cmd = NAND_CMD_READOOB;
++
++	nand-&gt;controller-&gt;command(nand, cmd);
++
++	if (nand-&gt;page_size &lt;= 512) {
+ 		/* small page device */
+-		if (data)
+-			nand-&gt;controller-&gt;command(nand, NAND_CMD_READ0);
+-		else
+-			nand-&gt;controller-&gt;command(nand, NAND_CMD_READOOB);
+ 
+ 		/* column (always 0, we start at the beginning of a page/OOB area) */
+ 		nand-&gt;controller-&gt;address(nand, 0x0);
+@@ -892,20 +891,17 @@ int nand_read_page_raw(struct nand_device *nand, uint32_t page, uint8_t *data, u
+ 		/* 5th cycle only on devices with more than 8 GiB */
+ 		if (nand-&gt;address_cycles &gt;= 5)
+ 			nand-&gt;controller-&gt;address(nand, (page &gt;&gt; 24) &amp; 0xff);
+-	}
+-	else
+-	{
++	} else {
+ 		/* large page device */
+-		nand-&gt;controller-&gt;command(nand, NAND_CMD_READ0);
+ 
+ 		/* column (0 when we start at the beginning of a page,
+ 		 * or 2048 for the beginning of OOB area)
+ 		 */
+ 		nand-&gt;controller-&gt;address(nand, 0x0);
+-		if (data)
+-			nand-&gt;controller-&gt;address(nand, 0x0);
+-		else
++		if (oob_only)
+ 			nand-&gt;controller-&gt;address(nand, 0x8);
++		else
++			nand-&gt;controller-&gt;address(nand, 0x0);
+ 
+ 		/* row */
+ 		nand-&gt;controller-&gt;address(nand, page &amp; 0xff);
+@@ -915,8 +911,9 @@ int nand_read_page_raw(struct nand_device *nand, uint32_t page, uint8_t *data, u
+ 		if (nand-&gt;address_cycles &gt;= 5)
+ 			nand-&gt;controller-&gt;address(nand, (page &gt;&gt; 16) &amp; 0xff);
+ 
+-		/* large page devices need a start command */
+-		nand-&gt;controller-&gt;command(nand, NAND_CMD_READSTART);
++		/* large page devices need a start command if reading */
++		if (NAND_CMD_READ0 == cmd)
++			nand-&gt;controller-&gt;command(nand, NAND_CMD_READSTART);
+ 	}
+ 
+ 	if (nand-&gt;controller-&gt;nand_ready) {
+@@ -926,6 +923,20 @@ int nand_read_page_raw(struct nand_device *nand, uint32_t page, uint8_t *data, u
+ 		alive_sleep(1);
+ 	}
+ 
++	return ERROR_OK;
++}
++
++int nand_read_page_raw(struct nand_device *nand, uint32_t page,
++		uint8_t *data, uint32_t data_size,
++		uint8_t *oob, uint32_t oob_size)
++{
++	uint32_t i;
++	int retval;
++
++	retval = nand_page_command(nand, page, NAND_CMD_READ0, !data);
++	if (ERROR_OK != retval)
++		return retval;
++
+ 	if (data)
+ 	{
+ 		if (nand-&gt;controller-&gt;read_block_data != NULL)
+@@ -983,47 +994,9 @@ int nand_write_page_raw(struct nand_device *nand, uint32_t page, uint8_t *data,
+ 	int retval;
+ 	uint8_t status;
+ 
+-	if (!nand-&gt;device)
+-		return ERROR_NAND_DEVICE_NOT_PROBED;
+-
+-	nand-&gt;controller-&gt;command(nand, NAND_CMD_SEQIN);
+-
+-	if (nand-&gt;page_size &lt;= 512)
+-	{
+-		/* column (always 0, we start at the beginning of a page/OOB area) */
+-		nand-&gt;controller-&gt;address(nand, 0x0);
+-
+-		/* row */
+-		nand-&gt;controller-&gt;address(nand, page &amp; 0xff);
+-		nand-&gt;controller-&gt;address(nand, (page &gt;&gt; 8) &amp; 0xff);
+-
+-		/* 4th cycle only on devices with more than 32 MiB */
+-		if (nand-&gt;address_cycles &gt;= 4)
+-			nand-&gt;controller-&gt;address(nand, (page &gt;&gt; 16) &amp; 0xff);
+-
+-		/* 5th cycle only on devices with more than 8 GiB */
+-		if (nand-&gt;address_cycles &gt;= 5)
+-			nand-&gt;controller-&gt;address(nand, (page &gt;&gt; 24) &amp; 0xff);
+-	}
+-	else
+-	{
+-		/* column (0 when we start at the beginning of a page,
+-		 * or 2048 for the beginning of OOB area)
+-		 */
+-		nand-&gt;controller-&gt;address(nand, 0x0);
+-		if (data)
+-			nand-&gt;controller-&gt;address(nand, 0x0);
+-		else
+-			nand-&gt;controller-&gt;address(nand, 0x8);
+-
+-		/* row */
+-		nand-&gt;controller-&gt;address(nand, page &amp; 0xff);
+-		nand-&gt;controller-&gt;address(nand, (page &gt;&gt; 8) &amp; 0xff);
+-
+-		/* 5th cycle only on devices with more than 128 MiB */
+-		if (nand-&gt;address_cycles &gt;= 5)
+-			nand-&gt;controller-&gt;address(nand, (page &gt;&gt; 16) &amp; 0xff);
+-	}
++	retval = nand_page_command(nand, page, NAND_CMD_SEQIN, !data);
++	if (ERROR_OK != retval)
++		return retval;
+ 
+ 	if (data)
+ 	{
+diff --git a/src/flash/nand.h b/src/flash/nand.h
+index d73aee1..230cf50 100644
+--- a/src/flash/nand.h
++++ b/src/flash/nand.h
+@@ -270,6 +270,9 @@ struct nand_device *get_nand_device_by_name(const char *name);
+ 
+ struct nand_device *get_nand_device_by_num(int num);
+ 
++int nand_page_command(struct nand_device *nand, uint32_t page,
++		uint8_t cmd, bool oob_only);
++
+ int nand_read_page_raw(struct nand_device *nand, uint32_t page,
+ 		uint8_t *data, uint32_t data_size, uint8_t *oob, uint32_t oob_size);
+ int nand_write_page_raw(struct nand_device *nand, uint32_t page,
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/arm_nandio.c   |   17 +++++++--
+ src/flash/arm_nandio.h   |   44 +++++++++++++++++++----
+ src/flash/nand.c         |   91 ++++++++++++++++------------------------------
+ src/flash/nand.h         |    3 ++
+ src/flash/nand/davinci.c |    1 +
+ src/flash/nand/orion.c   |    1 +
+ 6 files changed, 87 insertions(+), 70 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001915.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-839-g7e2dffb
+</A></li>
+	<LI>Next message: <A HREF="001917.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-844-ged59dfc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1916">[ date ]</a>
+              <a href="thread.html#1916">[ thread ]</a>
+              <a href="subject.html#1916">[ subject ]</a>
+              <a href="author.html#1916">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

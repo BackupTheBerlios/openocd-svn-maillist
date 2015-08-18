@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1752 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1752%20-%20trunk/src/jtag&In-Reply-To=%3C200905120659.n4C6xMbJ019677%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000535.html">
+   <LINK REL="Next"  HREF="000537.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1752 - trunk/src/jtag</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1752%20-%20trunk/src/jtag&In-Reply-To=%3C200905120659.n4C6xMbJ019677%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1752 - trunk/src/jtag">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Tue May 12 08:59:22 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000535.html">[Openocd-svn] r1751 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000537.html">[Openocd-svn] r1753 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#536">[ date ]</a>
+              <a href="thread.html#536">[ thread ]</a>
+              <a href="subject.html#536">[ subject ]</a>
+              <a href="author.html#536">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-05-12 08:59:21 +0200 (Tue, 12 May 2009)
+New Revision: 1752
+
+Modified:
+   trunk/src/jtag/jtag.c
+   trunk/src/jtag/jtag.h
+Log:
+added jtag_alloc_in_value32 - not used in this commit.
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-05-12 06:17:22 UTC (rev 1751)
++++ trunk/src/jtag/jtag.c	2009-05-12 06:59:21 UTC (rev 1752)
+@@ -718,7 +718,7 @@
+ 			if (fields[i].num_bits&lt;=32)
+ 			{
+ 				/* This is enough space and we're executing this synchronously */
+-				fields[i].in_value=(u8 *)&amp;fields[i].intmp;
++				fields[i].in_value=fields[i].intmp;
+ 			} else
+ 			{
+ 				fields[i].in_value=(u8 *)malloc(CEIL(fields[i].num_bits, 8));
+@@ -3562,4 +3562,12 @@
+ }
+ #endif // _DEBUG_JTAG_IO_
+ 
++#ifndef HAVE_JTAG_MINIDRIVER_H
++void jtag_alloc_in_value32(scan_field_t *field)
++{
++	field-&gt;in_value=(u8 *)cmd_queue_alloc(4);
++}
++#endif
++
++
+ /*-----&lt;/Cable Helper API&gt;--------------------------------------*/
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-05-12 06:17:22 UTC (rev 1751)
++++ trunk/src/jtag/jtag.h	2009-05-12 06:59:21 UTC (rev 1752)
+@@ -277,7 +277,7 @@
+ 	/* internal work space */
+ 	int			allocated;			/* in_value has been allocated for the queue */
+ 	int			modified;			/* did we modify the in_value? */
+-	u32			intmp;				/* temporary storage for checking synchronously */
++	u8			intmp[4];			/* temporary storage for checking synchronously */
+ } scan_field_t;
+ 
+ enum scan_type {
+@@ -565,6 +565,26 @@
+ extern int  interface_jtag_add_ir_scan(int num_fields, scan_field_t* fields, tap_state_t endstate);
+ extern void jtag_add_dr_scan(int num_fields, scan_field_t* fields, tap_state_t endstate);
+ 
++/* set in_value to point to 32 bits of memory to scan into. This function
++ * is a way to handle the case of synchronous and asynchronous
++ * JTAG queues.
++ *
++ * In the event of an asynchronous queue execution the queue buffer
++ * allocation method is used, for the synchronous case the temporary 32 bits come
++ * from the input field itself.
++ */
++
++#ifndef HAVE_JTAG_MINIDRIVER_H
++extern void jtag_alloc_in_value32(scan_field_t *field);
++#else
++static __inline__ void jtag_alloc_in_value32(scan_field_t *field)
++{
++	field-&gt;in_value=field-&gt;intmp;
++}
++#endif
++
++
++
+ /* This version of jtag_add_dr_scan() uses the check_value/mask fields */
+ extern void jtag_add_dr_scan_check(int num_fields, scan_field_t* fields, tap_state_t endstate);
+ extern int  interface_jtag_add_dr_scan(int num_fields, scan_field_t* fields, tap_state_t endstate);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000535.html">[Openocd-svn] r1751 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000537.html">[Openocd-svn] r1753 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#536">[ date ]</a>
+              <a href="thread.html#536">[ thread ]</a>
+              <a href="subject.html#536">[ subject ]</a>
+              <a href="author.html#536">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

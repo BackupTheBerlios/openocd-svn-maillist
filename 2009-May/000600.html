@@ -1,0 +1,153 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1816 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1816%20-%20trunk/src/jtag&In-Reply-To=%3C200905181727.n4IHRW12016696%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000599.html">
+   <LINK REL="Next"  HREF="000601.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1816 - trunk/src/jtag</H1>
+    <B>kc8apf at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1816%20-%20trunk/src/jtag&In-Reply-To=%3C200905181727.n4IHRW12016696%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1816 - trunk/src/jtag">kc8apf at mail.berlios.de
+       </A><BR>
+    <I>Mon May 18 19:27:32 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000599.html">[Openocd-svn] r1815 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000601.html">[Openocd-svn] r1817 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#600">[ date ]</a>
+              <a href="thread.html#600">[ thread ]</a>
+              <a href="subject.html#600">[ subject ]</a>
+              <a href="author.html#600">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kc8apf
+Date: 2009-05-18 19:27:30 +0200 (Mon, 18 May 2009)
+New Revision: 1816
+
+Modified:
+   trunk/src/jtag/jtag.c
+Log:
+Add jtag_queue_command() by Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mbruck at digenius.de</A>&gt; [2/8]
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-05-18 17:27:00 UTC (rev 1815)
++++ trunk/src/jtag/jtag.c	2009-05-18 17:27:30 UTC (rev 1816)
+@@ -590,28 +590,26 @@
+ 
+ int MINIDRIVER(interface_jtag_add_ir_scan)(int num_fields, scan_field_t *fields, tap_state_t state)
+ {
+-	jtag_command_t **last_cmd;
+ 	jtag_tap_t *tap;
+ 	int j;
+ 	int x;
+ 	int nth_tap;
+ 	int scan_size = 0;
+ 
+-	last_cmd = jtag_get_last_command_p();
+-
+ 	/* allocate memory for a new list member */
+-	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+-	(*last_cmd)-&gt;next = NULL;
+-	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+-	(*last_cmd)-&gt;type = JTAG_SCAN;
++	jtag_command_t * cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++	
++	jtag_queue_command(cmd);
++	
++	cmd-&gt;type = JTAG_SCAN;
+ 
+ 	/* allocate memory for ir scan command */
+-	(*last_cmd)-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
+-	(*last_cmd)-&gt;cmd.scan-&gt;ir_scan = true;
++	cmd-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
++	cmd-&gt;cmd.scan-&gt;ir_scan = true;
+ 	x = jtag_NumEnabledTaps();
+-	(*last_cmd)-&gt;cmd.scan-&gt;num_fields = x;	/* one field per device */
+-	(*last_cmd)-&gt;cmd.scan-&gt;fields = cmd_queue_alloc(x  * sizeof(scan_field_t));
+-	(*last_cmd)-&gt;cmd.scan-&gt;end_state = state;
++	cmd-&gt;cmd.scan-&gt;num_fields = x;	/* one field per device */
++	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc(x  * sizeof(scan_field_t));
++	cmd-&gt;cmd.scan-&gt;end_state = state;
+ 
+ 	nth_tap = -1;
+ 	tap = NULL;
+@@ -628,9 +626,9 @@
+ 		assert(nth_tap &lt; x );
+ 
+ 		scan_size = tap-&gt;ir_length;
+-		(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].tap = tap;
+-		(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].num_bits = scan_size;
+-		(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].in_value = NULL; /* do not collect input for tap's in bypass */
++		cmd-&gt;cmd.scan-&gt;fields[nth_tap].tap = tap;
++		cmd-&gt;cmd.scan-&gt;fields[nth_tap].num_bits = scan_size;
++		cmd-&gt;cmd.scan-&gt;fields[nth_tap].in_value = NULL; /* do not collect input for tap's in bypass */
+ 
+ 		/* search the list */
+ 		for (j = 0; j &lt; num_fields; j++)
+@@ -638,8 +636,8 @@
+ 			if (tap == fields[j].tap)
+ 			{
+ 				found = 1;
+-				(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].in_value = fields[j].in_value;
+-				(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].out_value = buf_cpy(fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
++				cmd-&gt;cmd.scan-&gt;fields[nth_tap].in_value = fields[j].in_value;
++				cmd-&gt;cmd.scan-&gt;fields[nth_tap].out_value = buf_cpy(fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+ 
+ 				tap-&gt;bypass = 0;
+ 				break;
+@@ -649,12 +647,12 @@
+ 		if (!found)
+ 		{
+ 			/* if a tap isn't listed, set it to BYPASS */
+-			(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].out_value = buf_set_ones(cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
++			cmd-&gt;cmd.scan-&gt;fields[nth_tap].out_value = buf_set_ones(cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+ 			tap-&gt;bypass = 1;
+ 		}
+ 
+ 		/* update device information */
+-		buf_cpy((*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].out_value, tap-&gt;cur_instr, scan_size);
++		buf_cpy(cmd-&gt;cmd.scan-&gt;fields[nth_tap].out_value, tap-&gt;cur_instr, scan_size);
+ 	}
+ 	assert(nth_tap == (x-1));
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000599.html">[Openocd-svn] r1815 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000601.html">[Openocd-svn] r1817 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#600">[ date ]</a>
+              <a href="thread.html#600">[ thread ]</a>
+              <a href="subject.html#600">[ subject ]</a>
+              <a href="author.html#600">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

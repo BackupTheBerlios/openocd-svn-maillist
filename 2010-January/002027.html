@@ -1,0 +1,137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-99-g3e33393
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-99-g3e33393&In-Reply-To=%3CE1NV1Ba-000182-Ek%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002026.html">
+   <LINK REL="Next"  HREF="002028.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-99-g3e33393</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-99-g3e33393&In-Reply-To=%3CE1NV1Ba-000182-Ek%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-99-g3e33393">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Wed Jan 13 12:14:48 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002026.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-98-g6c75f52
+</A></li>
+        <LI>Next message: <A HREF="002028.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-102-gb8e930e
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2027">[ date ]</a>
+              <a href="thread.html#2027">[ thread ]</a>
+              <a href="subject.html#2027">[ subject ]</a>
+              <a href="author.html#2027">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  3e33393078105f25ebd591b5b76c7c1501ff41d5 (commit)
+      from  6c75f5249cf721aa8b8c2d774cdeeac6f9770e32 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 3e33393078105f25ebd591b5b76c7c1501ff41d5
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Mon Jan 11 09:22:08 2010 +0100
+
+    gdbserver: fix typo that broke read/write watchpoint
+    
+    It looks like a bugfix from normal breakpoints was not
+    copied over.
+    
+    Do not use clever mathematics and assumptions to convert from
+    GDB enum for break/watchpoints to OpenOCD enum.
+    
+    Drop connection upon unknown breakpoint type, this code path
+    was not really considered by the previous code I think.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index f4a99ca..8018e6f 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -1423,7 +1423,7 @@ int gdb_breakpoint_watchpoint_packet(struct connection *connection, struct targe
+ {
+ 	int type;
+ 	enum breakpoint_type bp_type = BKPT_SOFT /* dummy init to avoid warning */;
+-	enum watchpoint_rw wp_type;
++	enum watchpoint_rw wp_type = WPT_READ /* dummy init to avoid warning */;
+ 	uint32_t address;
+ 	uint32_t size;
+ 	char *separator;
+@@ -1443,6 +1443,12 @@ int gdb_breakpoint_watchpoint_packet(struct connection *connection, struct targe
+ 		wp_type = WPT_READ;
+ 	else if (type == 4) /* access watchpoint */
+ 		wp_type = WPT_ACCESS;
++	else
++	{
++		LOG_ERROR(&quot;invalid gdb watch/breakpoint type(%d), dropping connection&quot;, type);
++		return ERROR_SERVER_REMOTE_CLOSED;
++	}
++
+ 
+ 	if (gdb_breakpoint_override &amp;&amp; ((bp_type == BKPT_SOFT)||(bp_type == BKPT_HARD)))
+ 	{
+@@ -1493,7 +1499,7 @@ int gdb_breakpoint_watchpoint_packet(struct connection *connection, struct targe
+ 		{
+ 			if (packet[0] == 'Z')
+ 			{
+-				if ((retval = watchpoint_add(target, address, size, type-2, 0, 0xffffffffu)) != ERROR_OK)
++				if ((retval = watchpoint_add(target, address, size, wp_type, 0, 0xffffffffu)) != ERROR_OK)
+ 				{
+ 					if ((retval = gdb_error(connection, retval)) != ERROR_OK)
+ 						return retval;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/server/gdb_server.c |   10 ++++++++--
+ 1 files changed, 8 insertions(+), 2 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002026.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-98-g6c75f52
+</A></li>
+	<LI>Next message: <A HREF="002028.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-102-gb8e930e
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2027">[ date ]</a>
+              <a href="thread.html#2027">[ thread ]</a>
+              <a href="subject.html#2027">[ subject ]</a>
+              <a href="author.html#2027">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

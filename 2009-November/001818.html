@@ -1,0 +1,536 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-468-gf5093e1
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-468-gf5093e1&In-Reply-To=%3CE1NAtIA-0005lP-5Z%409j8yhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001817.html">
+   <LINK REL="Next"  HREF="001819.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-468-gf5093e1</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-468-gf5093e1&In-Reply-To=%3CE1NAtIA-0005lP-5Z%409j8yhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-468-gf5093e1">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Wed Nov 18 23:46:24 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001817.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-467-g8a6d4ce
+</A></li>
+        <LI>Next message: <A HREF="001819.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-469-g94dba42
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1818">[ date ]</a>
+              <a href="thread.html#1818">[ thread ]</a>
+              <a href="subject.html#1818">[ subject ]</a>
+              <a href="author.html#1818">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  f5093e160534c269b8bc3590f5809ed3baead56f (commit)
+      from  8a6d4ced4c0d17626c3875d5f8819efa3ac0f155 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit f5093e160534c269b8bc3590f5809ed3baead56f
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Wed Nov 18 14:46:14 2009 -0800
+
+    ARM: simplify ARMv7-A register handling
+    
+    ARMv7-A doesn't need to duplicate all the standard ARM code
+    for register handling.
+    
+     - Switch Cortex-A8 to use the standard register code
+     - Remove duplicated infrastructure from ARMv7-A
+     - Have ARMv7-A arch_state() show CPSR, like other ARMs
+    
+    Add comments to show where the Cortex-A8 isn't actually doing
+    the right thing for register reads/writes, unless core happens
+    to be in the right mode to start with.  (Looks like maybe there
+    may be generic confusion between saved/current PSR values in all
+    the ARM code ...)
+    
+    Make related ARMv7-A and Cortex-A8 symbols properly static.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/armv7a.c b/src/target/armv7a.c
+index e13b33b..6aa9d2f 100644
+--- a/src/target/armv7a.c
++++ b/src/target/armv7a.c
+@@ -34,108 +34,12 @@
+ #include &lt;unistd.h&gt;
+ 
+ 
+-char* armv7a_core_reg_list[] =
+-{
+-	&quot;r0&quot;, &quot;r1&quot;, &quot;r2&quot;, &quot;r3&quot;, &quot;r4&quot;, &quot;r5&quot;, &quot;r6&quot;, &quot;r7&quot;,
+-	&quot;r8&quot;, &quot;r9&quot;, &quot;r10&quot;, &quot;r11&quot;, &quot;r12&quot;, &quot;r13_usr&quot;, &quot;lr_usr&quot;, &quot;pc&quot;,
+-	&quot;r8_fiq&quot;, &quot;r9_fiq&quot;, &quot;r10_fiq&quot;, &quot;r11_fiq&quot;, &quot;r12_fiq&quot;, &quot;r13_fiq&quot;, &quot;lr_fiq&quot;,
+-	&quot;r13_irq&quot;, &quot;lr_irq&quot;,
+-	&quot;r13_svc&quot;, &quot;lr_svc&quot;,
+-	&quot;r13_abt&quot;, &quot;lr_abt&quot;,
+-	&quot;r13_und&quot;, &quot;lr_und&quot;,
+-	&quot;cpsr&quot;, &quot;spsr_fiq&quot;, &quot;spsr_irq&quot;, &quot;spsr_svc&quot;, &quot;spsr_abt&quot;, &quot;spsr_und&quot;,
+-	&quot;r13_mon&quot;, &quot;lr_mon&quot;, &quot;spsr_mon&quot;
+-};
+-
+-char* armv7a_state_strings[] =
++static const char *armv7a_state_strings[] =
+ {
+ 	&quot;ARM&quot;, &quot;Thumb&quot;, &quot;Jazelle&quot;, &quot;ThumbEE&quot;
+ };
+ 
+-struct armv7a_core_reg armv7a_core_reg_list_arch_info[] =
+-{
+-	{0, ARMV4_5_MODE_ANY, NULL, NULL},
+-	{1, ARMV4_5_MODE_ANY, NULL, NULL},
+-	{2, ARMV4_5_MODE_ANY, NULL, NULL},
+-	{3, ARMV4_5_MODE_ANY, NULL, NULL},
+-	{4, ARMV4_5_MODE_ANY, NULL, NULL},
+-	{5, ARMV4_5_MODE_ANY, NULL, NULL},
+-	{6, ARMV4_5_MODE_ANY, NULL, NULL},
+-	{7, ARMV4_5_MODE_ANY, NULL, NULL},
+-	{8, ARMV4_5_MODE_ANY, NULL, NULL},
+-	{9, ARMV4_5_MODE_ANY, NULL, NULL},
+-	{10, ARMV4_5_MODE_ANY, NULL, NULL},
+-	{11, ARMV4_5_MODE_ANY, NULL, NULL},
+-	{12, ARMV4_5_MODE_ANY, NULL, NULL},
+-	{13, ARMV4_5_MODE_USR, NULL, NULL},
+-	{14, ARMV4_5_MODE_USR, NULL, NULL},
+-	{15, ARMV4_5_MODE_ANY, NULL, NULL},
+-
+-	{8, ARMV4_5_MODE_FIQ, NULL, NULL},
+-	{9, ARMV4_5_MODE_FIQ, NULL, NULL},
+-	{10, ARMV4_5_MODE_FIQ, NULL, NULL},
+-	{11, ARMV4_5_MODE_FIQ, NULL, NULL},
+-	{12, ARMV4_5_MODE_FIQ, NULL, NULL},
+-	{13, ARMV4_5_MODE_FIQ, NULL, NULL},
+-	{14, ARMV4_5_MODE_FIQ, NULL, NULL},
+-
+-	{13, ARMV4_5_MODE_IRQ, NULL, NULL},
+-	{14, ARMV4_5_MODE_IRQ, NULL, NULL},
+-
+-	{13, ARMV4_5_MODE_SVC, NULL, NULL},
+-	{14, ARMV4_5_MODE_SVC, NULL, NULL},
+-
+-	{13, ARMV4_5_MODE_ABT, NULL, NULL},
+-	{14, ARMV4_5_MODE_ABT, NULL, NULL},
+-
+-	{13, ARMV4_5_MODE_UND, NULL, NULL},
+-	{14, ARMV4_5_MODE_UND, NULL, NULL},
+-
+-	{16, ARMV4_5_MODE_ANY, NULL, NULL},
+-	{16, ARMV4_5_MODE_FIQ, NULL, NULL},
+-	{16, ARMV4_5_MODE_IRQ, NULL, NULL},
+-	{16, ARMV4_5_MODE_SVC, NULL, NULL},
+-	{16, ARMV4_5_MODE_ABT, NULL, NULL},
+-	{16, ARMV4_5_MODE_UND, NULL, NULL},
+-
+-	{13, ARMV7A_MODE_MON, NULL, NULL},
+-	{14, ARMV7A_MODE_MON, NULL, NULL},
+-	{16, ARMV7A_MODE_MON, NULL, NULL}
+-};
+-
+-/* map core mode (USR, FIQ, ...) and register number to indizes into the register cache */
+-int armv7a_core_reg_map[8][17] =
+-{
+-	{	/* USR */
+-		0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 31
+-	},
+-	{	/* FIQ */
+-		0, 1, 2, 3, 4, 5, 6, 7, 16, 17, 18, 19, 20, 21, 22, 15, 32
+-	},
+-	{	/* IRQ */
+-		0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 23, 24, 15, 33
+-	},
+-	{	/* SVC */
+-		0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 25, 26, 15, 34
+-	},
+-	{	/* ABT */
+-		0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 27, 28, 15, 35
+-	},
+-	{	/* UND */
+-		0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 29, 30, 15, 36
+-	},
+-	{	/* SYS */
+-		0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 31
+-	},
+-	{	/* MON */
+-		/* TODO Fix the register mapping for mon, we need r13_mon,
+-		 * r14_mon and spsr_mon
+-		 */
+-		0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 31
+-	}
+-};
+-
+-void armv7a_show_fault_registers(struct target *target)
++static void armv7a_show_fault_registers(struct target *target)
+ {
+ 	uint32_t dfsr, ifsr, dfar, ifar;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+@@ -169,16 +73,14 @@ int armv7a_arch_state(struct target *target)
+ 	}
+ 
+ 	LOG_USER(&quot;target halted in %s state due to %s, current mode: %s\n&quot;
+-			 &quot;%s: 0x%8.8&quot; PRIx32 &quot; pc: 0x%8.8&quot; PRIx32 &quot;\n&quot;
++			 &quot;cpsr: 0x%8.8&quot; PRIx32 &quot; pc: 0x%8.8&quot; PRIx32 &quot;\n&quot;
+ 			 &quot;MMU: %s, D-Cache: %s, I-Cache: %s&quot;,
+ 		 armv7a_state_strings[armv7a-&gt;core_state],
+ 		 Jim_Nvp_value2name_simple(nvp_target_debug_reason,
+ 				target-&gt;debug_reason)-&gt;name,
+ 		 arm_mode_name(armv4_5-&gt;core_mode),
+-		 armv7a_core_reg_list[armv7a_core_reg_map[
+-			armv7a_mode_to_number(armv4_5-&gt;core_mode)][16]],
+-		 buf_get_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
+-				armv4_5-&gt;core_mode, 16).value, 0, 32),
++		 buf_get_u32(armv4_5-&gt;core_cache
++				-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
+ 		 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32),
+ 		 state[armv7a-&gt;armv4_5_mmu.mmu_enabled],
+ 		 state[armv7a-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled],
+diff --git a/src/target/armv7a.h b/src/target/armv7a.h
+index e781e72..b008361 100644
+--- a/src/target/armv7a.h
++++ b/src/target/armv7a.h
+@@ -45,15 +45,6 @@ typedef enum armv7a_state
+ 	ARMV7A_STATE_THUMBEE,
+ } armv7a_state_t;
+ 
+-extern char *armv7a_state_strings[];
+-
+-extern int armv7a_core_reg_map[8][17];
+-
+-#define ARMV7A_CORE_REG_MODE(cache, mode, num) \
+-		cache-&gt;reg_list[armv7a_core_reg_map[armv7a_mode_to_number(mode)][num]]
+-#define ARMV7A_CORE_REG_MODENUM(cache, mode, num) \
+-		cache-&gt;reg_list[armv7a_core_reg_map[mode][num]]
+-
+ enum
+ {
+ 	ARM_PC  = 15,
+@@ -102,9 +93,6 @@ struct armv7a_common
+ 	struct armv4_5_mmu_common armv4_5_mmu;
+ 	struct arm armv4_5_common;
+ 
+-//	int (*full_context)(struct target *target);
+-//	int (*read_core_reg)(struct target *target, int num, enum armv7a_mode mode);
+-//	int (*write_core_reg)(struct target *target, int num, enum armv7a_mode mode, u32 value);
+ 	int (*read_cp15)(struct target *target,
+ 			uint32_t op1, uint32_t op2,
+ 			uint32_t CRn, uint32_t CRm, uint32_t *value);
+@@ -149,44 +137,4 @@ struct reg_cache *armv7a_build_reg_cache(struct target *target,
+ int armv7a_register_commands(struct command_context *cmd_ctx);
+ int armv7a_init_arch_info(struct target *target, struct armv7a_common *armv7a);
+ 
+-/* map psr mode bits to linear number */
+-static inline int armv7a_mode_to_number(enum armv7a_mode mode)
+-{
+-	switch (mode)
+-	{
+-		case ARMV7A_MODE_USR: return 0; break;
+-		case ARMV7A_MODE_FIQ: return 1; break;
+-		case ARMV7A_MODE_IRQ: return 2; break;
+-		case ARMV7A_MODE_SVC: return 3; break;
+-		case ARMV7A_MODE_ABT: return 4; break;
+-		case ARMV7A_MODE_UND: return 5; break;
+-		case ARMV7A_MODE_SYS: return 6; break;
+-		case ARMV7A_MODE_MON: return 7; break;
+-		case ARMV7A_MODE_ANY: return 0; break;	/* map MODE_ANY to user mode */
+-		default:
+-			LOG_ERROR(&quot;invalid mode value encountered, val %d&quot;, mode);
+-			return -1;
+-	}
+-}
+-
+-/* map linear number to mode bits */
+-static inline enum armv7a_mode armv7a_number_to_mode(int number)
+-{
+-	switch(number)
+-	{
+-		case 0: return ARMV7A_MODE_USR; break;
+-		case 1: return ARMV7A_MODE_FIQ; break;
+-		case 2: return ARMV7A_MODE_IRQ; break;
+-		case 3: return ARMV7A_MODE_SVC; break;
+-		case 4: return ARMV7A_MODE_ABT; break;
+-		case 5: return ARMV7A_MODE_UND; break;
+-		case 6: return ARMV7A_MODE_SYS; break;
+-		case 7: return ARMV7A_MODE_MON; break;
+-		default:
+-			LOG_ERROR(&quot;mode index out of bounds&quot;);
+-			return ARMV7A_MODE_ANY;
+-	}
+-};
+-
+-
+ #endif /* ARMV4_5_H */
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index f8ff392..b69f182 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -242,16 +242,18 @@ static int cortex_a8_dap_read_coreregister_u32(struct target *target,
+ 
+ 	if (reg &lt; 15)
+ 	{
+-		/* Rn to DCCTX, MCR p14, 0, Rd, c0, c5, 0,  0xEE000E15 */
++		/* Rn to DCCTX, &quot;MCR p14, 0, Rn, c0, c5, 0&quot;  0xEE00nE15 */
+ 		cortex_a8_exec_opcode(target, ARMV4_5_MCR(14, 0, reg, 0, 5, 0));
+ 	}
+ 	else if (reg == 15)
+ 	{
++		/* &quot;MOV r0, r15&quot;; then move r0 to DCCTX */
+ 		cortex_a8_exec_opcode(target, 0xE1A0000F);
+ 		cortex_a8_exec_opcode(target, ARMV4_5_MCR(14, 0, 0, 0, 5, 0));
+ 	}
+ 	else if (reg == 16)
+ 	{
++		/* &quot;MRS r0, CPSR&quot;; then move r0 to DCCTX */
+ 		cortex_a8_exec_opcode(target, ARMV4_5_MRS(0, 0));
+ 		cortex_a8_exec_opcode(target, ARMV4_5_MCR(14, 0, 0, 0, 5, 0));
+ 	}
+@@ -480,7 +482,7 @@ static int cortex_a8_resume(struct target *target, int current,
+ 
+ 	/* current = 1: continue on current pc, otherwise continue at &lt;address&gt; */
+ 	resume_pc = buf_get_u32(
+-			ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++			ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 				armv4_5-&gt;core_mode, 15).value,
+ 			0, 32);
+ 	if (!current)
+@@ -501,12 +503,12 @@ static int cortex_a8_resume(struct target *target, int current,
+ 		resume_pc |= 0x1;
+ 	}
+ 	LOG_DEBUG(&quot;resume pc = 0x%08&quot; PRIx32, resume_pc);
+-	buf_set_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++	buf_set_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 				armv4_5-&gt;core_mode, 15).value,
+ 			0, 32, resume_pc);
+-	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 			armv4_5-&gt;core_mode, 15).dirty = 1;
+-	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 			armv4_5-&gt;core_mode, 15).valid = 1;
+ 
+ 	cortex_a8_restore_context(target);
+@@ -627,19 +629,23 @@ static int cortex_a8_debug_entry(struct target *target)
+ 
+ 	for (i = 0; i &lt;= ARM_PC; i++)
+ 	{
+-		buf_set_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++		buf_set_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 					armv4_5-&gt;core_mode, i).value,
+ 				0, 32, regfile[i]);
+-		ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++		ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 				armv4_5-&gt;core_mode, i).valid = 1;
+-		ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++		ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 				armv4_5-&gt;core_mode, i).dirty = 0;
+ 	}
+-	buf_set_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++
++	/* FIXME for exception states, this caches CPSR as SPSR!! */
++	buf_set_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 				armv4_5-&gt;core_mode, 16).value,
+ 			0, 32, cpsr);
+-	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 16).valid = 1;
+-	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 16).dirty = 0;
++	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
++			armv4_5-&gt;core_mode, 16).valid = 1;
++	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
++			armv4_5-&gt;core_mode, 16).dirty = 0;
+ 
+ 	/* Fixup PC Resume Address */
+ 	if (armv7a-&gt;core_state == ARMV7A_STATE_THUMB)
+@@ -652,15 +658,15 @@ static int cortex_a8_debug_entry(struct target *target)
+ 		// ARM state
+ 		regfile[ARM_PC] -= 8;
+ 	}
+-	buf_set_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++	buf_set_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 				armv4_5-&gt;core_mode, ARM_PC).value,
+ 			0, 32, regfile[ARM_PC]);
+ 
+-	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 0)
+-		.dirty = ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 0)
++		.dirty = ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 				armv4_5-&gt;core_mode, 0).valid;
+-	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 15)
+-		.dirty = ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 15)
++		.dirty = ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 				armv4_5-&gt;core_mode, 15).valid;
+ 
+ #if 0
+@@ -738,13 +744,13 @@ static int cortex_a8_step(struct target *target, int current, uint32_t address,
+ 	/* current = 1: continue on current pc, otherwise continue at &lt;address&gt; */
+ 	if (!current)
+ 	{
+-		buf_set_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++		buf_set_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 					armv4_5-&gt;core_mode, ARM_PC).value,
+ 				0, 32, address);
+ 	}
+ 	else
+ 	{
+-		address = buf_get_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++		address = buf_get_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 					armv4_5-&gt;core_mode, ARM_PC).value,
+ 				0, 32);
+ 	}
+@@ -756,7 +762,8 @@ static int cortex_a8_step(struct target *target, int current, uint32_t address,
+ 	handle_breakpoints = 1;
+ 	if (handle_breakpoints) {
+ 		breakpoint = breakpoint_find(target,
+-				buf_get_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++				buf_get_u32(ARMV4_5_CORE_REG_MODE(
++					armv4_5-&gt;core_cache,
+ 					armv4_5-&gt;core_mode, 15).value,
+ 			0, 32));
+ 		if (breakpoint)
+@@ -812,10 +819,11 @@ static int cortex_a8_restore_context(struct target *target)
+ 
+ 	for (i = 15; i &gt;= 0; i--)
+ 	{
+-		if (ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++		if (ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 					armv4_5-&gt;core_mode, i).dirty)
+ 		{
+-			value = buf_get_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++			value = buf_get_u32(ARMV4_5_CORE_REG_MODE(
++						armv4_5-&gt;core_cache,
+ 						armv4_5-&gt;core_mode, i).value,
+ 					0, 32);
+ 			/* TODO Check return values */
+@@ -859,13 +867,13 @@ static int cortex_a8_load_core_reg_u32(struct target *target, int num,
+ 
+ 	/* Register other than r0 - r14 uses r0 for access */
+ 	if (num &gt; 14)
+-		ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++		ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 				armv4_5-&gt;core_mode, 0).dirty =
+-			ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++			ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 				armv4_5-&gt;core_mode, 0).valid;
+-	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 				armv4_5-&gt;core_mode, 15).dirty =
+-			ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++			ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 				armv4_5-&gt;core_mode, 15).valid;
+ 
+ 	return ERROR_OK;
+@@ -895,9 +903,9 @@ static int cortex_a8_store_core_reg_u32(struct target *target, int num,
+ 		if (retval != ERROR_OK)
+ 		{
+ 			LOG_ERROR(&quot;JTAG failure %i&quot;, retval);
+-			ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++			ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 					armv4_5-&gt;core_mode, num).dirty =
+-				ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++				ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 					armv4_5-&gt;core_mode, num).valid;
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -920,6 +928,8 @@ static int cortex_a8_read_core_reg(struct target *target, int num,
+ 	int retval;
+ 	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
+ 
++	/* FIXME cortex may not be in &quot;mode&quot; ... */
++
+ 	cortex_a8_dap_read_coreregister_u32(target, &amp;value, num);
+ 
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+@@ -927,28 +937,30 @@ static int cortex_a8_read_core_reg(struct target *target, int num,
+ 		return retval;
+ 	}
+ 
+-	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).valid = 1;
+-	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).dirty = 0;
+-	buf_set_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).valid = 1;
++	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).dirty = 0;
++	buf_set_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 			mode, num).value, 0, 32, value);
+ 
+ 	return ERROR_OK;
+ }
+ 
+-int cortex_a8_write_core_reg(struct target *target, int num,
++static int cortex_a8_write_core_reg(struct target *target, int num,
+ 		enum armv4_5_mode mode, uint32_t value)
+ {
+ 	int retval;
+ 	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
+ 
++	/* FIXME cortex may not be in &quot;mode&quot; ... */
++
+ 	cortex_a8_dap_write_coreregister_u32(target, value, num);
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 
+-	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).valid = 1;
+-	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).dirty = 0;
++	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).valid = 1;
++	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).dirty = 0;
+ 
+ 	return ERROR_OK;
+ }
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/armv7a.c    |  108 ++---------------------------------------------
+ src/target/armv7a.h    |   52 -----------------------
+ src/target/cortex_a8.c |   78 ++++++++++++++++++++---------------
+ 3 files changed, 50 insertions(+), 188 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001817.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-467-g8a6d4ce
+</A></li>
+	<LI>Next message: <A HREF="001819.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-469-g94dba42
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1818">[ date ]</a>
+              <a href="thread.html#1818">[ thread ]</a>
+              <a href="subject.html#1818">[ subject ]</a>
+              <a href="author.html#1818">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

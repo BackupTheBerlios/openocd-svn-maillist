@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2089 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2089%20-%20trunk/src/jtag&In-Reply-To=%3C200906070524.n575OGLZ012171%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000872.html">
+   <LINK REL="Next"  HREF="000874.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2089 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2089%20-%20trunk/src/jtag&In-Reply-To=%3C200906070524.n575OGLZ012171%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2089 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Sun Jun  7 07:24:16 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000872.html">[Openocd-svn] r2088 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000874.html">[Openocd-svn] r2090 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#873">[ date ]</a>
+              <a href="thread.html#873">[ thread ]</a>
+              <a href="subject.html#873">[ subject ]</a>
+              <a href="author.html#873">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-07 07:24:12 +0200 (Sun, 07 Jun 2009)
+New Revision: 2089
+
+Modified:
+   trunk/src/jtag/jtag.c
+Log:
+Factoring of jtag_examine_chain for maintainability:
+- Factor TAP ID matching into new helper function.
+- Simplifies the main jtag_examine_chain loop logic considerably.
+
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-07 05:24:03 UTC (rev 2088)
++++ trunk/src/jtag/jtag.c	2009-06-07 05:24:12 UTC (rev 2089)
+@@ -1021,6 +1021,45 @@
+ 	}
+ }
+ 
++static bool jtag_examine_chain_match_tap(const struct jtag_tap_s *tap)
++{
++	if (0 == tap-&gt;expected_ids_cnt)
++	{
++		/// @todo Enable LOG_INFO to ask for reports about unknown TAP IDs.
++#if 0
++		LOG_INFO(&quot;Uknown JTAG TAP ID: 0x%08x&quot;, tap-&gt;idcode)
++		LOG_INFO(&quot;Please report the chip name and reported ID code to the openocd project&quot;);
++#endif
++		return true;
++	}
++
++	/* Loop over the expected identification codes and test for a match */
++	u8 ii;
++	for (ii = 0; ii &lt; tap-&gt;expected_ids_cnt; ii++)
++	{
++		if (tap-&gt;idcode == tap-&gt;expected_ids[ii])
++			break;
++	}
++
++	/* If none of the expected ids matched, log an error */
++	if (ii != tap-&gt;expected_ids_cnt)
++	{
++		LOG_INFO(&quot;JTAG Tap/device matched&quot;);
++		return true;
++	}
++	jtag_examine_chain_display(LOG_LVL_ERROR, &quot;got&quot;,
++			tap-&gt;dotted_name, tap-&gt;idcode);
++	for (ii = 0; ii &lt; tap-&gt;expected_ids_cnt; ii++)
++	{
++		char msg[32];
++		snprintf(msg, sizeof(msg), &quot;expected %hhu of %hhu&quot;,
++				ii + 1, tap-&gt;expected_ids_cnt);
++		jtag_examine_chain_display(LOG_LVL_ERROR, msg,
++				tap-&gt;dotted_name, tap-&gt;expected_ids[ii]);
++	}
++	return false;
++}
++
+ /* Try to examine chain layout according to IEEE 1149.1 &#167;12
+  */
+ static int jtag_examine_chain(void)
+@@ -1080,42 +1119,11 @@
+ 
+ 		tap-&gt;idcode = idcode;
+ 
+-		if (0 == tap-&gt;expected_ids_cnt)
+-		{
+-			/// @todo Enable LOG_INFO to ask for reports about unknown TAP IDs.
+-#if 0
+-			LOG_INFO(&quot;Uknown JTAG TAP ID: 0x%08x&quot;, tap-&gt;idcode)
+-			LOG_INFO(&quot;Please report the chip name and reported ID code to the openocd project&quot;);
+-#endif
+-			tap = jtag_tap_next_enabled(tap);
+-			continue;
+-		}
+-		/* Loop over the expected identification codes and test for a match */
+-		u8 ii;
+-		for (ii = 0; ii &lt; tap-&gt;expected_ids_cnt; ii++)
+-		{
+-			if (tap-&gt;idcode == tap-&gt;expected_ids[ii])
+-				break;
+-		}
++		// ensure the TAP ID does matches what was expected
++ 		if (!jtag_examine_chain_match_tap(tap))
++			return ERROR_JTAG_INIT_FAILED;
+ 
+-		/* If none of the expected ids matched, log an error */
+-		if (ii != tap-&gt;expected_ids_cnt)
+-		{
+-			LOG_INFO(&quot;JTAG Tap/device matched&quot;);
+-			tap = jtag_tap_next_enabled(tap);
+-			continue;
+-		}
+-		jtag_examine_chain_display(LOG_LVL_ERROR, &quot;got&quot;,
+-				tap-&gt;dotted_name, tap-&gt;idcode);
+-		for (ii = 0; ii &lt; tap-&gt;expected_ids_cnt; ii++)
+-		{
+-			char msg[20];
+-			snprintf(msg, 20, &quot;expected %hhu of %hhu&quot;,
+-					ii + 1, tap-&gt;expected_ids_cnt);
+-			jtag_examine_chain_display(LOG_LVL_ERROR, msg,
+-					tap-&gt;dotted_name, tap-&gt;expected_ids[ii]);
+-		}
+-		return ERROR_JTAG_INIT_FAILED;
++		tap = jtag_tap_next_enabled(tap);
+ 	}
+ 
+ 	/* see if number of discovered devices matches configuration */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000872.html">[Openocd-svn] r2088 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000874.html">[Openocd-svn] r2090 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#873">[ date ]</a>
+              <a href="thread.html#873">[ thread ]</a>
+              <a href="subject.html#873">[ subject ]</a>
+              <a href="author.html#873">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

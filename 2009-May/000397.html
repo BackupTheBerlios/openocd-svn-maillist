@@ -1,0 +1,555 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1613 - trunk/src/jtag zy1000/trunk/build	zy1000/trunk/build/menu zy1000/trunk/build/tcl
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1613%20-%20trunk/src/jtag%20zy1000/trunk/build%0A%09zy1000/trunk/build/menu%20zy1000/trunk/build/tcl&In-Reply-To=%3C200905061122.n46BMWYr023612%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000396.html">
+   <LINK REL="Next"  HREF="000398.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1613 - trunk/src/jtag zy1000/trunk/build	zy1000/trunk/build/menu zy1000/trunk/build/tcl</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1613%20-%20trunk/src/jtag%20zy1000/trunk/build%0A%09zy1000/trunk/build/menu%20zy1000/trunk/build/tcl&In-Reply-To=%3C200905061122.n46BMWYr023612%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1613 - trunk/src/jtag zy1000/trunk/build	zy1000/trunk/build/menu zy1000/trunk/build/tcl">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Wed May  6 13:22:32 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000396.html">[Openocd-svn] r1612 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000398.html">[Openocd-svn] r1614 - trunk/src/xsvf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#397">[ date ]</a>
+              <a href="thread.html#397">[ thread ]</a>
+              <a href="subject.html#397">[ subject ]</a>
+              <a href="author.html#397">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-05-06 13:22:30 +0200 (Wed, 06 May 2009)
+New Revision: 1613
+
+Modified:
+   trunk/src/jtag/zy1000.c
+   zy1000/trunk/build/menu/zy1000menu.xml
+   zy1000/trunk/build/menu/zy1000menu.xsl
+   zy1000/trunk/build/tcl/browsemem.tcl
+   zy1000/trunk/build/tcl/downloadmem.tcl
+   zy1000/trunk/build/tcl/editconfigs.tcl
+   zy1000/trunk/build/tcl/editfile.tcl
+   zy1000/trunk/build/tcl/erase.tcl
+   zy1000/trunk/build/tcl/flash.tcl
+   zy1000/trunk/build/tcl/flashinfo.tcl
+   zy1000/trunk/build/tcl/guiupload.tcl
+   zy1000/trunk/build/tcl/index.tcl
+   zy1000/trunk/build/tcl/log.tcl
+   zy1000/trunk/build/tcl/openocd.tcl
+   zy1000/trunk/build/tcl/preconfig.tcl
+   zy1000/trunk/build/tcl/production.tcl
+   zy1000/trunk/build/tcl/reload.tcl
+   zy1000/trunk/build/tcl/run.tcl
+   zy1000/trunk/build/tcl/support.tcl
+   zy1000/trunk/build/tcl/targets.tcl
+   zy1000/trunk/build/tcl/terminal.tcl
+   zy1000/trunk/build/tcl/upgrade.tcl
+   zy1000/trunk/build/tcl/zy1000.tcl
+   zy1000/trunk/build/testhttpd.tcl
+Log:
+log noise reduction
+
+Modified: trunk/src/jtag/zy1000.c
+===================================================================
+--- trunk/src/jtag/zy1000.c	2009-05-06 08:30:50 UTC (rev 1612)
++++ trunk/src/jtag/zy1000.c	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -285,37 +285,43 @@
+ 
+ 
+ /* Give TELNET a way to find out what version this is */
+-int handle_zy1000_version_command(struct command_context_s *cmd_ctx, char *cmd,
+-		char **args, int argc)
++static int jim_zy1000_version(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+-	if (argc &gt; 1)
++	if ((argc &lt; 1) || (argc &gt; 2))
++		return JIM_ERR;
++	char buff[128];
++	const char *version_str=NULL;
++
++	if (argc == 1)
+ 	{
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-	}
+-	if (argc == 0)
++		version_str=ZYLIN_OPENOCD_VERSION;
++	} else
+ 	{
+-		command_print(cmd_ctx, ZYLIN_OPENOCD_VERSION);
++		const char *str = Jim_GetString(argv[1], NULL);
++		if (strcmp(&quot;openocd&quot;, str) == 0)
++		{
++			int revision;
++			revision = atol(ZYLIN_OPENOCD+strlen(&quot;XRevision: &quot;));
++			sprintf(buff, &quot;%d&quot;, revision);
++			version_str=buff;
++		}
++		else if (strcmp(&quot;zy1000&quot;, str) == 0)
++		{
++			version_str=ZYLIN_VERSION;
++		}
++		else if (strcmp(&quot;date&quot;, str) == 0)
++		{
++			version_str=ZYLIN_DATE;
++		}
++		else
++		{
++			return JIM_ERR;
++		}
+ 	}
+-	else if (strcmp(&quot;openocd&quot;, args[0]) == 0)
+-	{
+-		int revision;
+-		revision = atol(ZYLIN_OPENOCD+strlen(&quot;XRevision: &quot;));
+-		command_print(cmd_ctx, &quot;%d&quot;, revision);
+-	}
+-	else if (strcmp(&quot;zy1000&quot;, args[0]) == 0)
+-	{
+-		command_print(cmd_ctx, &quot;%s&quot;, ZYLIN_VERSION);
+-	}
+-	else if (strcmp(&quot;date&quot;, args[0]) == 0)
+-	{
+-		command_print(cmd_ctx, &quot;%s&quot;, ZYLIN_DATE);
+-	}
+-	else
+-	{
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-	}
+ 
+-	return ERROR_OK;
++	Jim_SetResult(interp, Jim_NewStringObj(interp, version_str, -1));
++
++	return JIM_OK;
+ }
+ 
+ 
+@@ -342,9 +348,10 @@
+ {
+ 	register_command(cmd_ctx, NULL, &quot;power&quot;, handle_power_command, COMMAND_ANY,
+ 			&quot;power &lt;on/off&gt; - turn power switch to target on/off. No arguments - print status.&quot;);
+-	register_command(cmd_ctx, NULL, &quot;zy1000_version&quot;, handle_zy1000_version_command,
+-			COMMAND_EXEC, &quot;show zy1000 version numbers&quot;);
+ 
++	Jim_CreateCommand(interp, &quot;zy1000_version&quot;, jim_zy1000_version, NULL, NULL);
++
++
+ 	Jim_CreateCommand(interp, &quot;powerstatus&quot;, zylinjtag_Jim_Command_powerstatus, NULL, NULL);
+ 
+ 	return ERROR_OK;
+
+Modified: zy1000/trunk/build/menu/zy1000menu.xml
+===================================================================
+--- zy1000/trunk/build/menu/zy1000menu.xml	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/menu/zy1000menu.xml	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -62,9 +62,9 @@
+ 							append buffer [ocd_jtag_khz]
+ 						&lt;/tcl&gt;
+ 						&lt;br&gt;
+-						&lt;tcl&gt;append buffer [capture {zy1000_version zy1000}]&lt;/tcl&gt;&lt;br&gt;
+-						&lt;tcl&gt;append buffer [capture {zy1000_version openocd}]&lt;/tcl&gt;&lt;br&gt;
+-						&lt;tcl&gt;append buffer [capture {zy1000_version date}]&lt;/tcl&gt;&lt;br&gt;
++						&lt;tcl&gt;append buffer [zy1000_version zy1000]&lt;/tcl&gt;&lt;br&gt;
++						&lt;tcl&gt;append buffer [zy1000_version openocd]&lt;/tcl&gt;&lt;br&gt;
++						&lt;tcl&gt;append buffer [zy1000_version date]&lt;/tcl&gt;&lt;br&gt;
+ 						&lt;tcl&gt;append buffer [ip]&lt;/tcl&gt;&lt;br&gt;
+ 						&lt;tcl&gt;append buffer [ocd_gdb_port]&lt;/tcl&gt;
+ 					&lt;/td&gt;
+@@ -1556,9 +1556,9 @@
+ 			set form_config [load_config &quot;[load_target]&quot;]
+ 			set support_id [string range [rand] 0 7]
+ 			set form_log &quot;&quot;
+-			append form_log &quot;Version: [capture &quot;zy1000_version zy1000&quot;]&quot;
+-			append form_log &quot;OpenOCD version: [capture &quot;zy1000_version openocd&quot;]&quot;
+-			append form_log &quot;Version date: [capture &quot;zy1000_version date&quot;]&quot;
++			append form_log &quot;Version: [zy1000_version zy1000]&quot;
++			append form_log &quot;OpenOCD version: [zy1000_version openocd]&quot;
++			append form_log &quot;Version date: [zy1000_version date]&quot;
+ 			append form_log [log]
+ 			&lt;/tcl&gt;
+ 
+
+Modified: zy1000/trunk/build/menu/zy1000menu.xsl
+===================================================================
+--- zy1000/trunk/build/menu/zy1000menu.xsl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/menu/zy1000menu.xsl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -36,7 +36,7 @@
+ 					&lt;/div&gt;
+ 					&lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ 						&lt;div class=&quot;textlight&quot; style=&quot;position:relative;left:15px;top:4px;&quot;&gt;
+-							&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++							&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ 						&lt;/div&gt;
+ 					&lt;/div&gt;
+ 				&lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/browsemem.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/browsemem.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/browsemem.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -54,7 +54,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/downloadmem.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/downloadmem.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/downloadmem.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -59,7 +59,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/editconfigs.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/editconfigs.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/editconfigs.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -27,7 +27,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/editfile.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/editfile.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/editfile.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -75,7 +75,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/erase.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/erase.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/erase.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -48,7 +48,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/flash.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/flash.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/flash.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -39,7 +39,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/flashinfo.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/flashinfo.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/flashinfo.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -37,7 +37,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/guiupload.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/guiupload.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/guiupload.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -69,7 +69,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/index.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/index.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/index.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -21,7 +21,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+@@ -164,9 +164,9 @@
+ 							append buffer [ocd_jtag_khz]
+ 						&lt;/tcl&gt;
+ 						&lt;br&gt;
+-						&lt;tcl&gt;append buffer [capture {zy1000_version zy1000}]&lt;/tcl&gt;&lt;br&gt;
+-						&lt;tcl&gt;append buffer [capture {zy1000_version openocd}]&lt;/tcl&gt;&lt;br&gt;
+-						&lt;tcl&gt;append buffer [capture {zy1000_version date}]&lt;/tcl&gt;&lt;br&gt;
++						&lt;tcl&gt;append buffer [zy1000_version zy1000]&lt;/tcl&gt;&lt;br&gt;
++						&lt;tcl&gt;append buffer [zy1000_version openocd]&lt;/tcl&gt;&lt;br&gt;
++						&lt;tcl&gt;append buffer [zy1000_version date]&lt;/tcl&gt;&lt;br&gt;
+ 						&lt;tcl&gt;append buffer [ip]&lt;/tcl&gt;&lt;br&gt;
+ 						&lt;tcl&gt;append buffer [ocd_gdb_port]&lt;/tcl&gt;
+ 					&lt;/td&gt;
+
+Modified: zy1000/trunk/build/tcl/log.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/log.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/log.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -66,7 +66,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/openocd.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/openocd.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/openocd.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -63,7 +63,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/preconfig.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/preconfig.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/preconfig.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -24,7 +24,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/production.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/production.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/production.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -44,7 +44,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/reload.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/reload.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/reload.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -34,7 +34,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/run.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/run.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/run.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -51,7 +51,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/support.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/support.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/support.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -85,7 +85,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+@@ -202,9 +202,9 @@
+ 			set form_config [load_config &quot;[load_target]&quot;]
+ 			set support_id [string range [rand] 0 7]
+ 			set form_log &quot;&quot;
+-			append form_log &quot;Version: [capture &quot;zy1000_version zy1000&quot;]&quot;
+-			append form_log &quot;OpenOCD version: [capture &quot;zy1000_version openocd&quot;]&quot;
+-			append form_log &quot;Version date: [capture &quot;zy1000_version date&quot;]&quot;
++			append form_log &quot;Version: [zy1000_version zy1000]&quot;
++			append form_log &quot;OpenOCD version: [zy1000_version openocd]&quot;
++			append form_log &quot;Version date: [zy1000_version date]&quot;
+ 			append form_log [log]
+ 			&lt;/tcl&gt;
+ 
+
+Modified: zy1000/trunk/build/tcl/targets.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/targets.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/targets.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -30,7 +30,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+@@ -325,7 +325,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/terminal.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/terminal.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/terminal.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -89,7 +89,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/upgrade.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/upgrade.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/upgrade.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -72,7 +72,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/tcl/zy1000.tcl
+===================================================================
+--- zy1000/trunk/build/tcl/zy1000.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/tcl/zy1000.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -82,7 +82,7 @@
+ &lt;/div&gt;
+ &lt;div style=&quot;float:left;position:relative;height:26px; width:278px;left:122px;background-image:url('/rom/menu_cuts/top_right.png');&quot;&gt;
+ &lt;div style=&quot;position:relative;left:15px;top:4px;&quot; class=&quot;textlight&quot;&gt;
+-&lt;tcl&gt;append buffer [capture zy1000_version]&lt;/tcl&gt;
++&lt;tcl&gt;append buffer [zy1000_version]&lt;/tcl&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/div&gt;
+
+Modified: zy1000/trunk/build/testhttpd.tcl
+===================================================================
+--- zy1000/trunk/build/testhttpd.tcl	2009-05-06 08:30:50 UTC (rev 1612)
++++ zy1000/trunk/build/testhttpd.tcl	2009-05-06 11:22:30 UTC (rev 1613)
+@@ -1,8 +1,5 @@
+ # some dummy proc's to get things going for test purposes
+ 
+-proc zy1000_version {args} {
+-return abc
+-}
+ 
+ script ../zy1000/linux_zy1000/build/tcl/openocd.cfg 
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000396.html">[Openocd-svn] r1612 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000398.html">[Openocd-svn] r1614 - trunk/src/xsvf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#397">[ date ]</a>
+              <a href="thread.html#397">[ thread ]</a>
+              <a href="subject.html#397">[ subject ]</a>
+              <a href="author.html#397">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,168 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2164 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2164%20-%20trunk/src/jtag&In-Reply-To=%3C200906090841.n598f46B020768%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000947.html">
+   <LINK REL="Next"  HREF="000949.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2164 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2164%20-%20trunk/src/jtag&In-Reply-To=%3C200906090841.n598f46B020768%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2164 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun  9 10:41:04 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000947.html">[Openocd-svn] r2163 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000949.html">[Openocd-svn] r2165 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#948">[ date ]</a>
+              <a href="thread.html#948">[ thread ]</a>
+              <a href="subject.html#948">[ subject ]</a>
+              <a href="author.html#948">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-09 10:41:00 +0200 (Tue, 09 Jun 2009)
+New Revision: 2164
+
+Modified:
+   trunk/src/jtag/core.c
+   trunk/src/jtag/jtag.h
+   trunk/src/jtag/tcl.c
+Log:
+Cleanup and encapsulate IR Capture verification:
+- Add accessors for setting the jtag_verify_capture_ir flag.
+- Use them in handle_verify_ircapture_cpmmand
+- Change variable type to bool; make it static.
+
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-06-09 08:40:54 UTC (rev 2163)
++++ trunk/src/jtag/core.c	2009-06-09 08:41:00 UTC (rev 2164)
+@@ -87,7 +87,7 @@
+ static tap_state_t cmd_queue_end_state = TAP_RESET;
+ tap_state_t cmd_queue_cur_state = TAP_RESET;
+ 
+-int jtag_verify_capture_ir = 1;
++static bool jtag_verify_capture_ir = true;
+ static int jtag_verify = 1;
+ 
+ /* how long the OpenOCD should wait before attempting JTAG communication after reset lines deasserted (in ms) */
+@@ -1201,7 +1201,16 @@
+ 	return jtag_verify;
+ }
+ 
++void jtag_set_verify_capture_ir(bool enable)
++{
++	jtag_verify_capture_ir = enable;
++}
+ 
++bool jtag_will_verify_capture_ir()
++{
++	return jtag_verify_capture_ir;
++}
++
+ int jtag_power_dropout(int *dropout)
+ {
+ 	return jtag-&gt;power_dropout(dropout);
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-06-09 08:40:54 UTC (rev 2163)
++++ trunk/src/jtag/jtag.h	2009-06-09 08:41:00 UTC (rev 2164)
+@@ -611,8 +611,6 @@
+ extern int jtag_call_event_callbacks(enum jtag_event event);
+ extern int jtag_register_event_callback(int (* callback)(enum jtag_event event, void* priv), void* priv);
+ 
+-extern int jtag_verify_capture_ir;
+-
+ void jtag_tap_handle_event(jtag_tap_t* tap, enum jtag_tap_event e);
+ 
+ /*
+@@ -708,4 +706,7 @@
+ void jtag_set_verify(bool enable);
+ bool jtag_will_verify(void);
+ 
++void jtag_set_verify_capture_ir(bool enable);
++bool jtag_will_verify_capture_ir(void);
++
+ #endif /* JTAG_H */
+
+Modified: trunk/src/jtag/tcl.c
+===================================================================
+--- trunk/src/jtag/tcl.c	2009-06-09 08:40:54 UTC (rev 2163)
++++ trunk/src/jtag/tcl.c	2009-06-09 08:41:00 UTC (rev 2164)
+@@ -1304,25 +1304,21 @@
+ 
+ static int handle_verify_ircapture_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
++	if (argc &gt; 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
+ 	if (argc == 1)
+ 	{
+ 		if (strcmp(args[0], &quot;enable&quot;) == 0)
+-		{
+-			jtag_verify_capture_ir = 1;
+-		}
++			jtag_set_verify_capture_ir(true);
+ 		else if (strcmp(args[0], &quot;disable&quot;) == 0)
+-		{
+-			jtag_verify_capture_ir = 0;
+-		} else
+-		{
++			jtag_set_verify_capture_ir(false);
++		else
+ 			return ERROR_COMMAND_SYNTAX_ERROR;
+-		}
+-	} else if (argc != 0)
+-	{
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	command_print(cmd_ctx, &quot;verify Capture-IR is %s&quot;, (jtag_verify_capture_ir) ? &quot;enabled&quot;: &quot;disabled&quot;);
++	const char *status = jtag_will_verify_capture_ir() ? &quot;enabled&quot;: &quot;disabled&quot;;
++	command_print(cmd_ctx, &quot;verify Capture-IR is %s&quot;, status);
+ 
+ 	return ERROR_OK;
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000947.html">[Openocd-svn] r2163 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000949.html">[Openocd-svn] r2165 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#948">[ date ]</a>
+              <a href="thread.html#948">[ thread ]</a>
+              <a href="subject.html#948">[ subject ]</a>
+              <a href="author.html#948">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

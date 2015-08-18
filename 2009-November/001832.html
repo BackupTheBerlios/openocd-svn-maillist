@@ -1,0 +1,1033 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-508-g7a67aae
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-508-g7a67aae&In-Reply-To=%3CE1NBcel-00078q-I1%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001831.html">
+   <LINK REL="Next"  HREF="001833.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-508-g7a67aae</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-508-g7a67aae&In-Reply-To=%3CE1NBcel-00078q-I1%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-508-g7a67aae">zwelch at users.sourceforge.net
+       </A><BR>
+    <I>Sat Nov 21 00:12:45 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001831.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-500-g7b77b3c
+</A></li>
+        <LI>Next message: <A HREF="001833.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-510-g69c7519
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1832">[ date ]</a>
+              <a href="thread.html#1832">[ thread ]</a>
+              <a href="subject.html#1832">[ subject ]</a>
+              <a href="author.html#1832">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  7a67aae93c7de1e72baaba65635af0461ad8d040 (commit)
+       via  a19aaf913688424dbd6384028854c178c9eb5bf2 (commit)
+       via  e5b0a69ba99f58991ebb5d07ad947592f09728f1 (commit)
+       via  5458fef43ca7072312440301a9469c686ca641e2 (commit)
+       via  82449e2d60fbbb5ce8a6285b6e6d60e5767ee429 (commit)
+       via  9e9633c6b98cc9243ae78cd12ab657d041eaa73e (commit)
+       via  73c6e3bb18326050acc8908b561443a7b37549bb (commit)
+       via  67c29d9935b023a85056149e2f73288434c25995 (commit)
+      from  7b77b3c5d1a20793cc2057a96e67d8f7ca20e4cb (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 7a67aae93c7de1e72baaba65635af0461ad8d040
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Fri Nov 20 10:16:46 2009 -0800
+
+    maintain command lists in sorted order
+    
+    Use insertion sort to the command link lists.  The only practical effect
+    of this is to order the output of the new 'help' command.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index d8b7875..f6c6b2d 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -177,7 +177,8 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 
+ /**
+  * Find a command by name from a list of commands.
+- * @returns The named command if found, or NULL.
++ * @returns Returns the named command if it exists in the list.
++ * Returns NULL otherwise.
+  */
+ static struct command *command_find(struct command *head, const char *name)
+ {
+@@ -190,9 +191,10 @@ static struct command *command_find(struct command *head, const char *name)
+ }
+ 
+ /**
+- * Add the command to the end of linked list.
+- * @returns Returns false if the named command already exists in the list.
+- * Returns true otherwise.
++ * Add the command into the linked list, sorted by name.
++ * @param head Address to head of command list pointer, which may be
++ * updated if @c c gets inserted at the beginning of the list.
++ * @param c The command to add to the list pointed to by @c head.
+  */
+ static void command_add_child(struct command **head, struct command *c)
+ {
+@@ -202,9 +204,17 @@ static void command_add_child(struct command **head, struct command *c)
+ 		*head = c;
+ 		return;
+ 	}
+-	struct command *cc = *head;
+-	while (cc-&gt;next) cc = cc-&gt;next;
+-	cc-&gt;next = c;
++
++	while ((*head)-&gt;next &amp;&amp; (strcmp(c-&gt;name, (*head)-&gt;name) &gt; 0))
++		head = &amp;(*head)-&gt;next;
++
++	if (strcmp(c-&gt;name, (*head)-&gt;name) &gt; 0) {
++		c-&gt;next = (*head)-&gt;next;
++		(*head)-&gt;next = c;
++	} else {
++		c-&gt;next = *head;
++		*head = c;
++	}
+ }
+ 
+ static struct command **command_list_for_parent(
+
+commit a19aaf913688424dbd6384028854c178c9eb5bf2
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 19 07:23:25 2009 -0800
+
+    add add_help_text command handler
+    
+    Rewrite means for scripts to register help text for commands.  These
+    cause the new commands to be stored in the command heirarchy, with
+    built-in commands; however, they will never be invoked there because
+    they do not receive a command handler.  The same trick is used for
+    the Jim commands.
+    
+    Remove the old helpers that were used to register commands.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 0958147..d8b7875 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -172,32 +172,6 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	return (retval == ERROR_OK)?JIM_OK:JIM_ERR;
+ }
+ 
+-static Jim_Obj *command_name_list(struct command *c)
+-{
+-	Jim_Obj *cmd_list = c-&gt;parent ?
+-			command_name_list(c-&gt;parent) :
+-			Jim_NewListObj(interp, NULL, 0);
+-	Jim_ListAppendElement(interp, cmd_list,
+-			Jim_NewStringObj(interp, c-&gt;name, -1));
+-
+-	return cmd_list;
+-}
+-
+-static void command_helptext_add(Jim_Obj *cmd_list, const char *help)
+-{
+-	Jim_Obj *cmd_entry = Jim_NewListObj(interp, NULL, 0);
+-	Jim_ListAppendElement(interp, cmd_entry, cmd_list);
+-	Jim_ListAppendElement(interp, cmd_entry,
+-			Jim_NewStringObj(interp, help ? : &quot;&quot;, -1));
+-
+-	/* accumulate help text in Tcl helptext list.  */
+-	Jim_Obj *helptext = Jim_GetGlobalVariableStr(interp,
+-			&quot;ocd_helptext&quot;, JIM_ERRMSG);
+-	if (Jim_IsShared(helptext))
+-		helptext = Jim_DuplicateObj(interp, helptext);
+-	Jim_ListAppendElement(interp, helptext, cmd_entry);
+-}
+-
+ /* nice short description of source file */
+ #define __THIS__FILE__ &quot;command.c&quot;
+ 
+@@ -258,8 +232,6 @@ static struct command *command_new(struct command_context *cmd_ctx,
+ 
+ 	command_add_child(command_list_for_parent(cmd_ctx, parent), c);
+ 
+-	command_helptext_add(command_name_list(c), help);
+-
+ 	return c;
+ }
+ static void command_free(struct command *c)
+@@ -771,6 +743,66 @@ COMMAND_HANDLER(handle_help_command)
+ 	return CALL_COMMAND_HANDLER(command_help_show, c, 0);
+ }
+ 
++
++int help_add_command(struct command_context *cmd_ctx, struct command *parent,
++		const char *cmd_name, const char *help_text)
++{
++	struct command **head = command_list_for_parent(cmd_ctx, parent);
++	struct command *nc = command_find(*head, cmd_name);
++	if (NULL == nc)
++	{
++		// add a new command with help text
++		nc = register_command(cmd_ctx, parent, cmd_name,
++				NULL, COMMAND_ANY, help_text);
++		if (NULL == nc)
++		{
++			LOG_ERROR(&quot;failed to add '%s' help text&quot;, cmd_name);
++			return ERROR_FAIL;
++		}
++		LOG_DEBUG(&quot;added '%s' help text&quot;, cmd_name);
++	}
++	else
++	{
++		bool replaced = false;
++		if (nc-&gt;help)
++		{
++			free((void *)nc-&gt;help);
++			replaced = true;
++		}
++		nc-&gt;help = strdup(help_text);
++
++		if (replaced)
++			LOG_INFO(&quot;replaced existing '%s' help&quot;, cmd_name);
++		else
++			LOG_DEBUG(&quot;added '%s' help text&quot;, cmd_name);
++	}
++	return ERROR_OK;
++}
++
++COMMAND_HANDLER(handle_help_add_command)
++{
++	if (CMD_ARGC &lt; 2)
++	{
++		LOG_ERROR(&quot;%s: insufficient arguments&quot;, CMD_NAME);
++		return ERROR_INVALID_ARGUMENTS;
++	}
++
++	// save help text and remove it from argument list
++	const char *help_text = CMD_ARGV[--CMD_ARGC];
++	// likewise for the leaf command name
++	const char *cmd_name = CMD_ARGV[--CMD_ARGC];
++
++	struct command *c = NULL;
++	if (CMD_ARGC &gt; 0)
++	{
++		c = CMD_CTX-&gt;commands;
++		int retval = CALL_COMMAND_HANDLER(command_help_find, c, &amp;c);
++		if (ERROR_OK != retval)
++			return retval;
++	}
++	return help_add_command(CMD_CTX, c, cmd_name, help_text);
++}
++
+ /* sleep command sleeps for &lt;n&gt; miliseconds
+  * this is useful in target startup scripts
+  */
+@@ -866,6 +898,11 @@ struct command_context* command_init(const char *startup_tcl)
+ 	interp-&gt;cb_fflush = openocd_jim_fflush;
+ 	interp-&gt;cb_fgets = openocd_jim_fgets;
+ 
++	register_command(context, NULL, &quot;add_help_text&quot;,
++			handle_help_add_command, COMMAND_ANY,
++			&quot;&lt;command&gt; [...] &lt;help_text&gt;] - &quot;
++			&quot;add new command help text&quot;);
++
+ #if !BUILD_ECOSBOARD
+ 	Jim_EventLoopOnLoad(interp);
+ #endif
+@@ -922,7 +959,7 @@ void register_jim(struct command_context *cmd_ctx, const char *name,
+ 	Jim_ListAppendElement(interp, cmd_list,
+ 			Jim_NewStringObj(interp, name, -1));
+ 
+-	command_helptext_add(cmd_list, help);
++	help_add_command(cmd_ctx, NULL, name, help);
+ }
+ 
+ #define DEFINE_PARSE_NUM_TYPE(name, type, func, min, max) \
+diff --git a/src/helper/startup.tcl b/src/helper/startup.tcl
+index ddfef1d..fc84943 100644
+--- a/src/helper/startup.tcl
++++ b/src/helper/startup.tcl
+@@ -3,21 +3,6 @@
+ # Embedded into OpenOCD executable
+ #
+ 
+-# Help text list. A list of command + help text pairs.
+-#
+-# Commands can be more than one word and they are stored
+-# as &quot;flash banks&quot; &quot;help text x x x&quot;
+-
+-proc add_help_text {cmd cmd_help} {
+-	global ocd_helptext
+-	lappend ocd_helptext [list $cmd $cmd_help]
+-}
+-
+-proc get_help_text {} {
+-	global ocd_helptext
+-	return $ocd_helptext
+-}
+-
+ 
+ # We need to explicitly redirect this to the OpenOCD command
+ # as Tcl defines the exit proc
+@@ -25,6 +10,7 @@ proc exit {} {
+ 	ocd_throw exit
+ }
+ 
++# Help text list. A list of command + help text pairs.
+ proc cmd_help {cmdname h indent} {
+ 	set indent [expr $indent * 2]
+ 
+
+commit e5b0a69ba99f58991ebb5d07ad947592f09728f1
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Fri Nov 20 09:11:39 2009 -0800
+
+    provide command context during cmd_init
+    
+    For the startup.tcl code to use built-in commands, the context must be
+    associated with the interpreter temporarily.  This will be required to
+    add help text.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index f135bb0..0958147 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -869,12 +869,14 @@ struct command_context* command_init(const char *startup_tcl)
+ #if !BUILD_ECOSBOARD
+ 	Jim_EventLoopOnLoad(interp);
+ #endif
++	Jim_SetAssocData(interp, &quot;context&quot;, NULL, context);
+ 	if (Jim_Eval_Named(interp, startup_tcl, &quot;embedded:startup.tcl&quot;,1) == JIM_ERR)
+ 	{
+ 		LOG_ERROR(&quot;Failed to run startup.tcl (embedded into OpenOCD)&quot;);
+ 		Jim_PrintErrorMessage(interp);
+ 		exit(-1);
+ 	}
++	Jim_DeleteAssocData(interp, &quot;context&quot;);
+ 
+ 	register_command(context, NULL, &quot;sleep&quot;,
+ 			handle_sleep_command, COMMAND_ANY,
+
+commit 5458fef43ca7072312440301a9469c686ca641e2
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 19 06:48:37 2009 -0800
+
+    improve 'help' command
+    
+    Rewrites 'help' command in C, using new 'cmd_help' for display.  Adds the
+    built-in 'help' COMMAND_HANDLER to provide better output than the
+    TCL-based script command (e.g. heirarchical listing of commands).
+    
+    The help string is stored in the command structure, though it conitnues
+    to be pushed into the Jim environment.  The current idiomatic usage
+    suggests the addition of a usage field as well, to provide two levels
+    of detail for users to consume (i.e. terse usage list, or verbose help).
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 87a898f..f135bb0 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -250,6 +250,8 @@ static struct command *command_new(struct command_context *cmd_ctx,
+ 	memset(c, 0, sizeof(struct command));
+ 
+ 	c-&gt;name = strdup(name);
++	if (help)
++		c-&gt;help = strdup(help);
+ 	c-&gt;parent = parent;
+ 	c-&gt;handler = handler;
+ 	c-&gt;mode = mode;
+@@ -273,6 +275,8 @@ static void command_free(struct command *c)
+ 
+ 	if (c-&gt;name)
+ 		free(c-&gt;name);
++	if (c-&gt;help)
++		free((void*)c-&gt;help);
+ 	free(c);
+ }
+ 
+@@ -721,6 +725,52 @@ static int jim_capture(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	return retcode;
+ }
+ 
++static COMMAND_HELPER(command_help_find, struct command *head,
++		struct command **out)
++{
++	if (0 == CMD_ARGC)
++		return ERROR_INVALID_ARGUMENTS;
++	*out = command_find(head, CMD_ARGV[0]);
++	if (NULL == *out)
++		return ERROR_INVALID_ARGUMENTS;
++	if (--CMD_ARGC == 0)
++		return ERROR_OK;
++	CMD_ARGV++;
++	return CALL_COMMAND_HANDLER(command_help_find, (*out)-&gt;children, out);
++}
++
++static COMMAND_HELPER(command_help_show, struct command *c, unsigned n);
++
++static COMMAND_HELPER(command_help_show_list, struct command *head, unsigned n)
++{
++	for (struct command *c = head; NULL != c; c = c-&gt;next)
++		CALL_COMMAND_HANDLER(command_help_show, c, n);
++	return ERROR_OK;
++}
++static COMMAND_HELPER(command_help_show, struct command *c, unsigned n)
++{
++	command_run_linef(CMD_CTX, &quot;cmd_help {%s} {%s} %d&quot;, command_name(c, ' '),
++			c-&gt;help ? : &quot;no help available&quot;, n);
++
++	if (++n &gt;= 2)
++		return ERROR_OK;
++
++	return CALL_COMMAND_HANDLER(command_help_show_list, c-&gt;children, n);
++}
++COMMAND_HANDLER(handle_help_command)
++{
++	struct command *c = CMD_CTX-&gt;commands;
++
++	if (0 == CMD_ARGC)
++		return CALL_COMMAND_HANDLER(command_help_show_list, c, 0);
++
++	int retval = CALL_COMMAND_HANDLER(command_help_find, c, &amp;c);
++	if (ERROR_OK != retval)
++		return retval;
++
++	return CALL_COMMAND_HANDLER(command_help_show, c, 0);
++}
++
+ /* sleep command sleeps for &lt;n&gt; miliseconds
+  * this is useful in target startup scripts
+  */
+@@ -831,6 +881,10 @@ struct command_context* command_init(const char *startup_tcl)
+ 			&quot;&lt;n&gt; [busy] - sleep for n milliseconds. &quot;
+ 			&quot;\&quot;busy\&quot; means busy wait&quot;);
+ 
++	register_command(context, NULL, &quot;help&quot;,
++			&amp;handle_help_command, COMMAND_ANY,
++			&quot;[&lt;command_name&gt; ...] - show built-in command help&quot;);
++
+ 	return context;
+ }
+ 
+@@ -977,5 +1031,3 @@ COMMAND_HELPER(handle_command_parse_bool, bool *out, const char *label)
+ 	}
+ 	return ERROR_OK;
+ }
+-
+-
+diff --git a/src/helper/command.h b/src/helper/command.h
+index a7b422a..837b4bd 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -159,6 +159,7 @@ typedef __COMMAND_HANDLER((*command_handler_t));
+ struct command
+ {
+ 	char *name;
++	const char *help;
+ 	struct command *parent;
+ 	struct command *children;
+ 	command_handler_t handler;
+diff --git a/src/helper/startup.tcl b/src/helper/startup.tcl
+index 30dc184..ddfef1d 100644
+--- a/src/helper/startup.tcl
++++ b/src/helper/startup.tcl
+@@ -58,24 +58,6 @@ proc cmd_help {cmdname h indent} {
+ 	}
+ }
+ 
+-#Print help text for a command. Word wrap
+-#help text that is too wide inside column.
+-proc help {args} {
+-	global ocd_helptext
+-	set cmd $args
+-	foreach a [lsort $ocd_helptext] {
+-		if {[string length $cmd] == 0 || \
+-			[string first $cmd $a] != -1 || \
+-			[string first $cmd [lindex $a 1]] != -1} \
+-		{
+-			cmd_help [lindex $a 0] [lindex $a 1] 0
+-		}
+-	}
+-}
+-
+-add_help_text help &quot;Tcl implementation of help command&quot;
+-
+-
+ # If a fn is unknown to Tcl, we try to execute it as an OpenOCD command
+ #
+ # We also support two level commands. &quot;flash banks&quot; is translated to
+
+commit 82449e2d60fbbb5ce8a6285b6e6d60e5767ee429
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 19 06:44:58 2009 -0800
+
+    factor help script command into parts
+    
+    Creates a helper function, cmd_help, which displays the help string
+    for a single command.  Presently, it is called from the loop in help.
+    
+    The routine has been extended to allow indentation of command groups,
+    so an improved help command can improve the display of information.
+
+diff --git a/src/helper/startup.tcl b/src/helper/startup.tcl
+index eefb690..30dc184 100644
+--- a/src/helper/startup.tcl
++++ b/src/helper/startup.tcl
+@@ -25,6 +25,39 @@ proc exit {} {
+ 	ocd_throw exit
+ }
+ 
++proc cmd_help {cmdname h indent} {
++	set indent [expr $indent * 2]
++
++	set fmt_str [format &quot;%%%ds%%-%ds %%s&quot; $indent [expr 25 - $indent]]
++	set w [expr 50 - $indent]
++	set n 0
++
++	while 1 {
++		if {$n &gt; [string length $h]} {break}
++
++		set next_a [expr $n + $w]
++		if {[string length $h] &gt; $n + $w} \
++		{
++			set xxxx [string range $h $n [expr $n + $w]]
++			for {set lastpos [expr [string length $xxxx] - 1]} \
++				{$lastpos &gt;= 0 &amp;&amp; [string compare \
++					[string range $xxxx $lastpos $lastpos] &quot; &quot;] != 0} \
++				{set lastpos [expr $lastpos - 1]} \
++			{
++			}
++			#set next_a -1
++			if {$lastpos != -1} {
++				set next_a [expr $lastpos + $n + 1]
++			}
++		}
++
++		puts [format $fmt_str &quot;&quot; $cmdname \
++				[string range $h $n [expr $next_a - 1]] ]
++		set cmdname &quot;&quot;
++		set n [expr $next_a]
++	}
++}
++
+ #Print help text for a command. Word wrap
+ #help text that is too wide inside column.
+ proc help {args} {
+@@ -35,34 +68,7 @@ proc help {args} {
+ 			[string first $cmd $a] != -1 || \
+ 			[string first $cmd [lindex $a 1]] != -1} \
+ 		{
+-			set w 50
+-			set cmdname [lindex $a 0]
+-			set h [lindex $a 1]
+-			set n 0
+-			while 1 {
+-				if {$n &gt; [string length $h]} {break}
+-
+-				set next_a [expr $n + $w]
+-				if {[string length $h] &gt; $n + $w} \
+-				{
+-					set xxxx [string range $h $n [expr $n + $w]]
+-					for {set lastpos [expr [string length $xxxx] - 1]} \
+-						{$lastpos &gt;= 0 &amp;&amp; [string compare \
+-							[string range $xxxx $lastpos $lastpos] &quot; &quot;] != 0} \
+-						{set lastpos [expr $lastpos - 1]} \
+-					{
+-					}
+-					#set next_a -1
+-					if {$lastpos != -1} {
+-						set next_a [expr $lastpos + $n + 1]
+-					}
+-				}
+-
+-				puts [format &quot;%-25s %s&quot; $cmdname \
+-						[string range $h $n [expr $next_a-1]] ]
+-				set cmdname &quot;&quot;
+-				set n [expr $next_a]
+-			}
++			cmd_help [lindex $a 0] [lindex $a 1] 0
+ 		}
+ 	}
+ }
+
+commit 9e9633c6b98cc9243ae78cd12ab657d041eaa73e
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 19 08:38:17 2009 -0800
+
+    refactor command registration
+    
+    Refactors the command registration to use helpers to simplify the code.
+    The unregistration routines were made more flexible by allowing them
+    to operate on a single command, such that one can remove all of a
+    commands children in one step (perhaps before adding back a 'config'
+    subcommand that allows getting the others back).  Eliminates a bit
+    of duplicated code and adds full API documentation for these routines.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 538c07b..87a898f 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -233,33 +233,69 @@ static void command_add_child(struct command **head, struct command *c)
+ 	cc-&gt;next = c;
+ }
+ 
+-struct command* register_command(struct command_context *context,
+-		struct command *parent, char *name, command_handler_t handler,
+-		enum command_mode mode, char *help)
++static struct command **command_list_for_parent(
++		struct command_context *cmd_ctx, struct command *parent)
+ {
+-	if (!context || !name)
+-		return NULL;
++	return parent ? &amp;parent-&gt;children : &amp;cmd_ctx-&gt;commands;
++}
+ 
+-	struct command **head = parent ? &amp;parent-&gt;children : &amp;context-&gt;commands;
+-	struct command *c = command_find(*head, name);
+-	if (NULL != c)
+-		return c;
++static struct command *command_new(struct command_context *cmd_ctx,
++		struct command *parent, const char *name,
++		command_handler_t handler, enum command_mode mode,
++		const char *help)
++{
++	assert(name);
+ 
+-	c = malloc(sizeof(struct command));
++	struct command *c = malloc(sizeof(struct command));
++	memset(c, 0, sizeof(struct command));
+ 
+ 	c-&gt;name = strdup(name);
+ 	c-&gt;parent = parent;
+-	c-&gt;children = NULL;
+ 	c-&gt;handler = handler;
+ 	c-&gt;mode = mode;
+-	c-&gt;next = NULL;
+ 
+-	command_add_child(head, c);
++	command_add_child(command_list_for_parent(cmd_ctx, parent), c);
+ 
+ 	command_helptext_add(command_name_list(c), help);
+ 
+-	/* just a placeholder, no handler */
+-	if (c-&gt;handler == NULL)
++	return c;
++}
++static void command_free(struct command *c)
++{
++	/// @todo if command has a handler, unregister its jim command!
++
++	while (NULL != c-&gt;children)
++	{
++		struct command *tmp = c-&gt;children;
++		c-&gt;children = tmp-&gt;next;
++		command_free(tmp);
++	}
++
++	if (c-&gt;name)
++		free(c-&gt;name);
++	free(c);
++}
++
++struct command* register_command(struct command_context *context,
++		struct command *parent, const char *name,
++		command_handler_t handler, enum command_mode mode,
++		const char *help)
++{
++	if (!context || !name)
++		return NULL;
++
++	struct command **head = command_list_for_parent(context, parent);
++	struct command *c = command_find(*head, name);
++	if (NULL != c)
++	{
++		LOG_ERROR(&quot;command '%s' is already registered in '%s' context&quot;,
++				name, parent ? parent-&gt;name : &quot;&lt;global&gt;&quot;);
++		return c;
++	}
++
++	c = command_new(context, parent, name, handler, mode, help);
++	/* if allocation failed or it is a placeholder (no handler), we're done */
++	if (NULL == c || NULL == c-&gt;handler)
+ 		return c;
+ 
+ 	const char *full_name = command_name(c, '_');
+@@ -281,85 +317,43 @@ struct command* register_command(struct command_context *context,
+ 	return c;
+ }
+ 
+-int unregister_all_commands(struct command_context *context)
++int unregister_all_commands(struct command_context *context,
++		struct command *parent)
+ {
+-	struct command *c, *c2;
+-
+ 	if (context == NULL)
+ 		return ERROR_OK;
+ 
+-	while (NULL != context-&gt;commands)
++	struct command **head = command_list_for_parent(context, parent);
++	while (NULL != *head)
+ 	{
+-		c = context-&gt;commands;
+-
+-		while (NULL != c-&gt;children)
+-		{
+-			c2 = c-&gt;children;
+-			c-&gt;children = c-&gt;children-&gt;next;
+-			free(c2-&gt;name);
+-			c2-&gt;name = NULL;
+-			free(c2);
+-			c2 = NULL;
+-		}
+-
+-		context-&gt;commands = context-&gt;commands-&gt;next;
+-
+-		free(c-&gt;name);
+-		c-&gt;name = NULL;
+-		free(c);
+-		c = NULL;
++		struct command *tmp = *head;
++		*head = tmp-&gt;next;
++		command_free(tmp);
+ 	}
+ 
+ 	return ERROR_OK;
+ }
+ 
+-int unregister_command(struct command_context *context, char *name)
++int unregister_command(struct command_context *context,
++		struct command *parent, const char *name)
+ {
+-	struct command *c, *p = NULL, *c2;
+-
+ 	if ((!context) || (!name))
+ 		return ERROR_INVALID_ARGUMENTS;
+ 
+-	/* find command */
+-	c = context-&gt;commands;
+-
+-	while (NULL != c)
++	struct command *p = NULL;
++	struct command **head = command_list_for_parent(context, parent);
++	for (struct command *c = *head; NULL != c; p = c, c = c-&gt;next)
+ 	{
+-		if (strcmp(name, c-&gt;name) == 0)
+-		{
+-			/* unlink command */
+-			if (p)
+-			{
+-				p-&gt;next = c-&gt;next;
+-			}
+-			else
+-			{
+-				/* first element in command list */
+-				context-&gt;commands = c-&gt;next;
+-			}
++		if (strcmp(name, c-&gt;name) != 0)
++			continue;
+ 
+-			/* unregister children */
+-			while (NULL != c-&gt;children)
+-			{
+-				c2 = c-&gt;children;
+-				c-&gt;children = c-&gt;children-&gt;next;
+-				free(c2-&gt;name);
+-				c2-&gt;name = NULL;
+-				free(c2);
+-				c2 = NULL;
+-			}
+-
+-			/* delete command */
+-			free(c-&gt;name);
+-			c-&gt;name = NULL;
+-			free(c);
+-			c = NULL;
+-			return ERROR_OK;
+-		}
++		if (p)
++			p-&gt;next = c-&gt;next;
++		else
++			*head = c-&gt;next;
+ 
+-		/* remember the last command for unlinking */
+-		p = c;
+-		c = c-&gt;next;
++		command_free(c);
++		return ERROR_OK;
+ 	}
+ 
+ 	return ERROR_OK;
+diff --git a/src/helper/command.h b/src/helper/command.h
+index def0935..a7b422a 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -176,12 +176,53 @@ struct command
+  */
+ char *command_name(struct command *c, char delim);
+ 
+-struct command* register_command(struct command_context *context,
+-		struct command *parent, char *name, command_handler_t handler,
+-		enum command_mode mode, char *help);
++/**
++ * Register a command @c handler that can be called from scripts during
++ * the execution @c mode specified.
++ *
++ * If @c parent is non-NULL, the new command will be registered as a
++ * sub-command under it; otherwise, it will be available as a top-level
++ * command.
++ *
++ * A conventioal format should be used for help strings, to provide both
++ * usage and basic information:
++ * @code
++ * &quot;@&lt;options@&gt; ... - some explanation text&quot;
++ * @endcode
++ *
++ * @param cmd_ctx The command_context in which to register the command.
++ * @param parent Register this command as a child of this, or NULL to
++ * register a top-level command.
++ * @param name The name of the command to register, which must not have
++ * been registered previously.
++ * @param handler The callback function that will be called.  If NULL,
++ * then the command serves as a placeholder for its children or a script.
++ * @param mode The command mode(s) in which this command may be run.
++ * @param help The help text that will be displayed to the user.
++ * @returns The new command, if successful; otherwise, NULL.
++ */
++struct command* register_command(struct command_context *cmd_ctx,
++		struct command *parent, const char *name,
++		command_handler_t handler, enum command_mode mode,
++		const char *help);
+ 
+-int unregister_command(struct command_context *context, char *name);
+-int unregister_all_commands(struct command_context *context);
++/**
++ * Unregisters command @c name from the given context, @c cmd_ctx.
++ * @param cmd_ctx The context of the registered command.
++ * @param parent The parent of the given command, or NULL.
++ * @param name The name of the command to unregister.
++ * @returns ERROR_OK on success, or an error code.
++ */
++int unregister_command(struct command_context *cmd_ctx,
++		struct command *parent, const char *name);
++/**
++ * Unregisters all commands from the specfied context.
++ * @param cmd_ctx The context that will be cleared of registered commands.
++ * @param parent If given, only clear commands from under this one command.
++ * @returns ERROR_OK on success, or an error code.
++ */
++int unregister_all_commands(struct command_context *cmd_ctx,
++		struct command *parent);
+ 
+ void command_set_output_handler(struct command_context* context,
+ 		command_output_handler_t output_handler, void *priv);
+diff --git a/src/openocd.c b/src/openocd.c
+index b7781a6..8e8ceac 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -278,7 +278,7 @@ int openocd_main(int argc, char *argv[])
+ 	httpd_stop();
+ #endif
+ 
+-	unregister_all_commands(cmd_ctx);
++	unregister_all_commands(cmd_ctx, NULL);
+ 
+ 	/* free commandline interface */
+ 	command_done(cmd_ctx);
+
+commit 73c6e3bb18326050acc8908b561443a7b37549bb
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 19 07:26:28 2009 -0800
+
+    change command_find helper interface
+    
+    Avoid requiring double pointers where a single would suffice.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index ba28784..538c07b 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -205,10 +205,9 @@ static void command_helptext_add(Jim_Obj *cmd_list, const char *help)
+  * Find a command by name from a list of commands.
+  * @returns The named command if found, or NULL.
+  */
+-static struct command *command_find(struct command **head, const char *name)
++static struct command *command_find(struct command *head, const char *name)
+ {
+-	assert(head);
+-	for (struct command *cc = *head; cc; cc = cc-&gt;next)
++	for (struct command *cc = head; cc; cc = cc-&gt;next)
+ 	{
+ 		if (strcmp(cc-&gt;name, name) == 0)
+ 			return cc;
+@@ -242,7 +241,7 @@ struct command* register_command(struct command_context *context,
+ 		return NULL;
+ 
+ 	struct command **head = parent ? &amp;parent-&gt;children : &amp;context-&gt;commands;
+-	struct command *c = command_find(head, name);
++	struct command *c = command_find(*head, name);
+ 	if (NULL != c)
+ 		return c;
+ 
+
+commit 67c29d9935b023a85056149e2f73288434c25995
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Wed Nov 18 16:34:34 2009 -0800
+
+    factor script_command argv allocation
+    
+    Splits argument allocation out from script command, reusing free() code.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index ba689b0..ba28784 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -75,15 +75,45 @@ void script_debug(Jim_Interp *interp, const char *name,
+ 	}
+ }
+ 
++static void script_command_args_free(const char **words, unsigned nwords)
++{
++	for (unsigned i = 0; i &lt; nwords; i++)
++		free((void *)words[i]);
++	free(words);
++}
++static const char **script_command_args_alloc(
++		unsigned argc, Jim_Obj *const *argv, unsigned *nwords)
++{
++	const char **words = malloc(argc * sizeof(char *));
++	if (NULL == words)
++		return NULL;
++
++	unsigned i;
++	for (i = 0; i &lt; argc; i++)
++	{
++		int len;
++		const char *w = Jim_GetString(argv[i], &amp;len);
++		/* a comment may end the line early */
++		if (*w == '#')
++			break;
++
++		words[i] = strdup(w);
++		if (words[i] == NULL)
++		{
++			script_command_args_free(words, i);
++			return NULL;
++		}
++	}
++	*nwords = i;
++	return words;
++}
++
+ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+ 	/* the private data is stashed in the interp structure */
+ 	struct command *c;
+ 	struct command_context *context;
+ 	int retval;
+-	int i;
+-	int nwords;
+-	char **words;
+ 
+ 	/* DANGER!!!! be careful what we invoke here, since interp-&gt;cmdPrivData might
+ 	 * get overwritten by running other Jim commands! Treat it as an
+@@ -101,27 +131,10 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 
+ 	script_debug(interp, c-&gt;name, argc, argv);
+ 
+-	words = malloc(argc * sizeof(char *));
+-	for (i = 0; i &lt; argc; i++)
+-	{
+-		int len;
+-		const char *w = Jim_GetString(argv[i], &amp;len);
+-		if (*w=='#')
+-		{
+-			/* hit an end of line comment */
+-			break;
+-		}
+-		words[i] = strdup(w);
+-		if (words[i] == NULL)
+-		{
+-			int j;
+-			for (j = 0; j &lt; i; j++)
+-				free(words[j]);
+-			free(words);
+-			return JIM_ERR;
+-		}
+-	}
+-	nwords = i;
++	unsigned nwords;
++	const char **words = script_command_args_alloc(argc, argv, &amp;nwords);
++	if (NULL == words)
++		return JIM_ERR;
+ 
+ 	/* grab the command context from the associated data */
+ 	context = Jim_GetAssocData(interp, &quot;context&quot;);
+@@ -148,9 +161,7 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	Jim_SetResult(interp, tclOutput);
+ 	Jim_DecrRefCount(interp, tclOutput);
+ 
+-	for (i = 0; i &lt; nwords; i++)
+-		free(words[i]);
+-	free(words);
++	script_command_args_free(words, nwords);
+ 
+ 	int *return_retval = Jim_GetAssocData(interp, &quot;retval&quot;);
+ 	if (return_retval != NULL)
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/helper/command.c   |  393 ++++++++++++++++++++++++++++++------------------
+ src/helper/command.h   |   52 ++++++-
+ src/helper/startup.tcl |   80 ++++-------
+ src/openocd.c          |    2 +-
+ 4 files changed, 324 insertions(+), 203 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001831.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-500-g7b77b3c
+</A></li>
+	<LI>Next message: <A HREF="001833.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-510-g69c7519
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1832">[ date ]</a>
+              <a href="thread.html#1832">[ thread ]</a>
+              <a href="subject.html#1832">[ subject ]</a>
+              <a href="author.html#1832">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

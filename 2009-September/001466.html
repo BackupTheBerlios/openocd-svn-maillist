@@ -1,0 +1,1569 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2683 - in trunk/tcl: board target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2683%20-%20in%20trunk/tcl%3A%20board%20target&In-Reply-To=%3C200909100806.n8A86Nfi008468%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001465.html">
+   <LINK REL="Next"  HREF="001467.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2683 - in trunk/tcl: board target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2683%20-%20in%20trunk/tcl%3A%20board%20target&In-Reply-To=%3C200909100806.n8A86Nfi008468%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2683 - in trunk/tcl: board target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Thu Sep 10 10:06:23 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001465.html">[Openocd-svn] r2682 - trunk/src/flash
+</A></li>
+        <LI>Next message: <A HREF="001467.html">[Openocd-svn] r2684 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1466">[ date ]</a>
+              <a href="thread.html#1466">[ thread ]</a>
+              <a href="subject.html#1466">[ subject ]</a>
+              <a href="author.html#1466">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-09-10 10:06:22 +0200 (Thu, 10 Sep 2009)
+New Revision: 2683
+
+Added:
+   trunk/tcl/board/telo.cfg
+   trunk/tcl/target/c100config.tcl
+   trunk/tcl/target/c100helper.tcl
+   trunk/tcl/target/c100regs.tcl
+Modified:
+   trunk/tcl/target/c100.cfg
+Log:
+michal smulski &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">michal.smulski at ooma.com</A>&gt; telo target/board scripts
+
+Added: trunk/tcl/board/telo.cfg
+===================================================================
+--- trunk/tcl/board/telo.cfg	2009-09-09 16:11:33 UTC (rev 2682)
++++ trunk/tcl/board/telo.cfg	2009-09-10 08:06:22 UTC (rev 2683)
+@@ -0,0 +1,54 @@
++source [find target/c100.cfg]
++# basic register defintion for C100
++source [find target/c100regs.tcl]
++# board-config info
++source [find target/c100config.tcl]
++# C100 helper functions
++source [find target/c100helper.tcl]
++
++
++# Telo board &amp; C100 support trst and srst
++# however openocd does not support 
++# 1. setting srst reset pulse width
++# 2. setting delay between srst pulse and JTAG access
++# This really makes the srst useless for now.
++reset_config trst_and_srst separate
++
++
++
++# issue telnet: reset init
++# issue gdb: monitor reset init
++$_TARGETNAME configure -event reset-init {
++	jtag_khz 100
++	# setup GPIO used as control signals for C100
++	setupGPIO
++	# This will allow acces to lower 8MB or NOR
++	lowGPIO5 
++	# setup NOR size,timing,etc.
++	setupNOR
++	# setup internals + PLL + DDR2
++	initC100
++	#turn up the JTAG speed
++	jtag_khz 3000
++	puts &quot;JTAG speek now 3MHz&quot;
++	puts &quot;type helpC100 to get help on C100&quot;
++}
++
++$_TARGETNAME configure -event reset-deassert-post {
++	# Force target into ARM state.
++#	soft_reset_halt # not implemented on ARM11
++	puts &quot;Detected SRSRT asserted on C100.CPU&quot;
++	
++}
++
++proc power_restore {} { puts &quot;Sensed power restore. No action.&quot; } 
++proc srst_deasserted {} { puts &quot;Sensed nSRST deasserted. No action.&quot; }
++
++
++# boots from NOR on CS0:  8 MBytes CFI flash, 16-bit bus
++# it's really 16MB but the upper 8mb is controller via gpio
++# openocd does not support 'complex reads/writes' to NOR
++flash bank cfi 0x20000000 0x01000000 2 2 $_TARGETNAME
++
++# writing data to memory does not work without this
++memwrite burst disable
+\ No newline at end of file
+
+
+Property changes on: trunk/tcl/board/telo.cfg
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/tcl/target/c100.cfg
+===================================================================
+--- trunk/tcl/target/c100.cfg	2009-09-09 16:11:33 UTC (rev 2682)
++++ trunk/tcl/target/c100.cfg	2009-09-10 08:06:22 UTC (rev 2683)
+@@ -1,11 +1,10 @@
+-# c100 config
+-#
+-#jtag_nsrst_delay 5000
+-#jtag_ntrst_delay 3000
+-#reset_config none
+-reset_config trst_and_srst separate
+-#reset_config srst_only srst_pulls_trst
++# c100 config.
++# This is ARM1136 dual core
++# this script only configures one core (that is used to run Linux)
+ 
++# assume no PLL lock, start slowly
++jtag_khz 100
++
+ if { [info exists CHIPNAME] } {	
+    set  _CHIPNAME $CHIPNAME    
+ } else {	 
+@@ -36,30 +35,8 @@
+ # Per ARM: DDI0211J_arm1136_r1p5_trm.pdf - the ARM 1136 as a 5 bit IR register
+ jtag newtap $_CHIPNAME cpu -irlen 5 -ircapture 0x1 -irmask 0x1f -expected-id $_CPUTAPID
+ 
+-set _TARGETNAME $_CHIPNAME.cpu
++set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
+ target create $_TARGETNAME arm11 -endian $_ENDIAN -chain-position $_TARGETNAME
+ 
+ # C100's ARAM 64k SRAM
+ $_TARGETNAME configure -work-area-phys 0x0a000000 -work-area-size 0x10000 -work-area-backup 0
+-
+-
+-proc power_restore {} { puts &quot;Sensed power restore. No action.&quot; } 
+-proc srst_deasserted {} { puts &quot;Sensed nSRST deasserted. No action.&quot; }
+-
+-
+-# issue telnet: reset init
+-# issue gdb: monitor reset init
+-$_TARGETNAME configure -event reset-init {
+-	# Force target into ARM state.
+-#	soft_reset_halt # not implemented on ARM11
+-	puts &quot;Halting C100.CPU&quot;
+-	halt
+-}
+-
+-$_TARGETNAME configure -event reset-deassert-post {
+-	# Force target into ARM state.
+-#	soft_reset_halt # not implemented on ARM11
+-	puts &quot;Detected SRSRT asserted on C100.CPU&quot;
+-	
+-}
+-# Valid events: old-gdb_program_config, old-pre_resume, early-halted, halted, resumed, resume-start, resume-end, gdb-start, gdb-end, reset-start, reset-assert-pre, reset-assert-post, reset-deassert-pre, reset-deassert-post, reset-halt-pre, reset-halt-post, reset-wait-pre, reset-wait-post, reset-init, reset-end, examine-start, examine-end, debug-halted, debug-resumed, gdb-attach, gdb-detach, gdb-flash-write-start, gdb-flash-write-end, gdb-flash-erase-start, gdb-flash-erase-end, resume-start, resume-ok, or resume-end
+
+Added: trunk/tcl/target/c100config.tcl
+===================================================================
+--- trunk/tcl/target/c100config.tcl	2009-09-09 16:11:33 UTC (rev 2682)
++++ trunk/tcl/target/c100config.tcl	2009-09-10 08:06:22 UTC (rev 2683)
+@@ -0,0 +1,324 @@
++
++# board(-config) specfic parameters file.
++
++# set CFG_REFCLKFREQ [configC100 CFG_REFCLKFREQ]
++proc config {label} {
++    return [dict get [configC100] $label ]	
++}
++
++# show the value for the param. with label
++proc showconfig {label} {
++    puts [format &quot;0x%x&quot; [dict get [configC100] $label ]]
++}
++
++# Telo board config
++# when there are more then one board config
++# use soft links to c100board-config.tcl
++# so that only the right board-config gets
++# included (just like include/configs/board-configs.h 
++# in u-boot.
++proc configC100 {} {
++    # xtal freq. 24MHz
++    dict set configC100 CFG_REFCLKFREQ	         24000000
++
++    # Amba Clk 165MHz
++    dict set configC100 CONFIG_SYS_HZ_CLOCK      165000000
++    dict set configC100 w_amba 1
++    dict set configC100 x_amba 1
++    # y = amba_clk * (w+1)*(x+1)*2/xtal_clk
++    dict set configC100 y_amba [expr ([dict get $configC100 CONFIG_SYS_HZ_CLOCK] * ( ([dict get $configC100 w_amba]+1 ) * ([dict get $configC100 x_amba]+1 ) *2 ) / [dict get $configC100 CFG_REFCLKFREQ]) ]
++
++    # Arm Clk 450MHz, must be a multiple of 25 MHz 
++    dict set configC100 CFG_ARM_CLOCK      450000000
++    dict set configC100 w_arm 0
++    dict set configC100 x_arm 1
++    # y = arm_clk * (w+1)*(x+1)*2/xtal_clk
++    dict set configC100 y_arm [expr ([dict get $configC100 CFG_ARM_CLOCK] * ( ([dict get $configC100 w_arm]+1 ) * ([dict get $configC100 x_arm]+1 ) *2 ) / [dict get $configC100 CFG_REFCLKFREQ]) ]
++
++
++}
++
++proc setupNOR {} {
++    puts &quot;Setting up NOR: 16MB, 16-bit wide bus, CS0&quot;
++    # this is taken from u-boot/boards/mindspeed/ooma-darwin/board.c:nor_hw_init()
++    set EX_CSEN_REG	    [regs EX_CSEN_REG ]	
++    set EX_CS0_SEG_REG	    [regs EX_CS0_SEG_REG ]	
++    set EX_CS0_CFG_REG	    [regs EX_CS0_CFG_REG ]	
++    set EX_CS0_TMG1_REG	    [regs EX_CS0_TMG1_REG ]	
++    set EX_CS0_TMG2_REG	    [regs EX_CS0_TMG2_REG ]	
++    set EX_CS0_TMG3_REG	    [regs EX_CS0_TMG3_REG ]	
++    set EX_CLOCK_DIV_REG    [regs EX_CLOCK_DIV_REG ]
++    set EX_MFSM_REG	    [regs EX_MFSM_REG ]	
++    set EX_CSFSM_REG	    [regs EX_CSFSM_REG ]	
++    set EX_WRFSM_REG	    [regs EX_WRFSM_REG ]	
++    set EX_RDFSM_REG	    [regs EX_RDFSM_REG ]	
++
++    # enable Expansion Bus Clock + CS0 (NOR)
++    mww $EX_CSEN_REG 0x3
++    # set the address space for CS0=16MB
++    mww $EX_CS0_SEG_REG 0x7ff
++    # set the CS0 bus width to 16-bit
++    mww $EX_CS0_CFG_REG 0x202
++    # set timings to NOR
++    mww $EX_CS0_TMG1_REG 0x03034006
++    mww $EX_CS0_TMG2_REG 0x04040002
++    #mww $EX_CS0_TMG3_REG 
++    # set EBUS clock 165/5=33MHz
++    mww $EX_CLOCK_DIV_REG 0x5
++    # everthing else is OK with default
++}
++
++proc bootNOR {} {
++    set EXP_CS0_BASEADDR       [regs EXP_CS0_BASEADDR]
++    set BLOCK_RESET_REG	       [regs BLOCK_RESET_REG]
++    set DDR_RST		       [regs DDR_RST]
++ 
++    # put DDR controller in reset (so that it comes reset in u-boot)
++    mmw $BLOCK_RESET_REG 0x0 $DDR_RST
++    # setup CS0 controller for NOR
++    setupNOR
++    # make sure we are accessing the lower part of NOR
++    lowGPIO5
++    # set PC to start of NOR (at boot 0x20000000 = 0x0)
++    reg pc $EXP_CS0_BASEADDR
++    # run
++    resume
++}
++proc setupGPIO {} {
++    puts &quot;Setting up GPIO block for Telo&quot;
++    # This is current setup for Telo (see sch. for details):
++    #GPIO0 reset for FXS-FXO IC, leave as input, the IC has internal pullup
++    #GPIO1 irq line for FXS-FXO
++    #GPIO5 addr22 for NOR flash (access to upper 8MB)
++    #GPIO17 reset for DECT module.
++    #GPIO29 CS_n for NAND
++
++    set GPIO_OUTPUT_REG		    [regs GPIO_OUTPUT_REG]	
++    set GPIO_OE_REG		    [regs GPIO_OE_REG]	
++
++    # set GPIO29=GPIO17=1, GPIO5=0
++    mww $GPIO_OUTPUT_REG [expr 1&lt;&lt;29 | 1&lt;&lt;17]
++    # enable [as output] GPIO29,GPIO17,GPIO5
++    mww $GPIO_OE_REG [expr  1&lt;&lt;29 | 1&lt;&lt;17 | 1&lt;&lt;5]
++}
++
++proc highGPIO5 {} {
++    puts &quot;GPIO5 high&quot;
++    set GPIO_OUTPUT_REG		    [regs GPIO_OUTPUT_REG]	
++    # set GPIO5=1
++    mmw $GPIO_OUTPUT_REG [expr 1 &lt;&lt; 5] 0x0
++}
++
++proc lowGPIO5 {} {
++    puts &quot;GPIO5 low&quot;
++    set GPIO_OUTPUT_REG		    [regs GPIO_OUTPUT_REG]	
++    # set GPIO5=0
++    mmw $GPIO_OUTPUT_REG 0x0 [expr 1 &lt;&lt; 5]
++}
++
++proc boardID {id} {
++    # so far built:
++    # 4'b1111
++    dict set boardID 15 name &quot;EVT1&quot;		
++    dict set boardID 15 ddr2size 128M
++    # dict set boardID 15 nandsize 1G
++    # dict set boardID 15 norsize 16M
++    # 4'b0000
++    dict set boardID 0 name &quot;EVT2&quot;		
++    dict set boardID 0 ddr2size 128M
++    # 4'b0001
++    dict set boardID 1 name &quot;EVT3&quot;		
++    dict set boardID 1 ddr2size 256M
++    # 4'b1110
++    dict set boardID 14 name &quot;EVT3_old&quot;
++    dict set boardID 14 ddr2size 128M
++    # 4'b0010
++    dict set boardID 2 name &quot;EVT4&quot;		
++    dict set boardID 2 ddr2size 256M
++
++    return $boardID
++}
++
++# converted from u-boot/boards/mindspeed/ooma-darwin/board.c:ooma_board_detect()
++# figure out what board revision this is, uses BOOTSTRAP register to read stuffed resistors 
++proc ooma_board_detect {} {
++    set GPIO_BOOTSTRAP_REG	[regs GPIO_BOOTSTRAP_REG]
++    
++    # read the current value of the BOOTSRAP pins
++    set tmp [mrw $GPIO_BOOTSTRAP_REG]
++    puts [format &quot;GPIO_BOOTSTRAP_REG  (0x%x): 0x%x&quot; $GPIO_BOOTSTRAP_REG $tmp]
++    # extract the GPBP bits
++    set gpbt [expr ($tmp &amp;0x1C00) &gt;&gt; 10 | ($tmp &amp; 0x40) &gt;&gt;3]
++
++    # display board ID
++    puts [format &quot;This is %s (0x%x)&quot; [dict get [boardID $gpbt] $gpbt name] $gpbt]
++    # return the ddr2 size, used to configure DDR2 on a given board.
++    return [dict get [boardID $gpbt] $gpbt ddr2size]
++}
++
++proc configureDDR2regs_256M {} {
++    puts &quot;ConfigureDDR2regs_256M TBD&quot;
++}
++
++# converted from u-boot/cpu/arm1136/comcerto/bsp100.c:config_board99()
++# The values are computed based on Mindspeed and Nanya datasheets
++proc configureDDR2regs_128M {} {
++
++    set DENALI_CTL_00_DATA    [regs DENALI_CTL_00_DATA]
++    set DENALI_CTL_01_DATA    [regs DENALI_CTL_01_DATA]
++    set DENALI_CTL_02_DATA    [regs DENALI_CTL_02_DATA]
++    set DENALI_CTL_03_DATA    [regs DENALI_CTL_03_DATA]
++    set DENALI_CTL_04_DATA    [regs DENALI_CTL_04_DATA]
++    set DENALI_CTL_05_DATA    [regs DENALI_CTL_05_DATA]
++    set DENALI_CTL_06_DATA    [regs DENALI_CTL_06_DATA]
++    set DENALI_CTL_07_DATA    [regs DENALI_CTL_07_DATA]
++    set DENALI_CTL_08_DATA    [regs DENALI_CTL_08_DATA]
++    set DENALI_CTL_09_DATA    [regs DENALI_CTL_09_DATA]
++    set DENALI_CTL_10_DATA    [regs DENALI_CTL_10_DATA]
++    set DENALI_CTL_11_DATA    [regs DENALI_CTL_11_DATA]
++    set DENALI_CTL_12_DATA    [regs DENALI_CTL_12_DATA]
++    set DENALI_CTL_13_DATA    [regs DENALI_CTL_13_DATA]
++    set DENALI_CTL_14_DATA    [regs DENALI_CTL_14_DATA]
++    set DENALI_CTL_15_DATA    [regs DENALI_CTL_15_DATA]
++    set DENALI_CTL_16_DATA    [regs DENALI_CTL_16_DATA]
++    set DENALI_CTL_17_DATA    [regs DENALI_CTL_17_DATA]
++    set DENALI_CTL_18_DATA    [regs DENALI_CTL_18_DATA]
++    set DENALI_CTL_19_DATA    [regs DENALI_CTL_19_DATA]
++    set DENALI_CTL_20_DATA    [regs DENALI_CTL_20_DATA]
++
++
++    set DENALI_CTL_02_VAL 0x0100010000010100 
++    set DENALI_CTL_11_VAL 0x433A42124A650A37
++    # set some default values     
++    mw64bit $DENALI_CTL_00_DATA  0x0100000101010101
++    mw64bit $DENALI_CTL_01_DATA  0x0100000100000101
++    mw64bit $DENALI_CTL_02_DATA  $DENALI_CTL_02_VAL
++    mw64bit $DENALI_CTL_03_DATA  0x0102020202020201
++    mw64bit $DENALI_CTL_04_DATA  0x0201010100000201
++    mw64bit $DENALI_CTL_05_DATA  0x0203010300010101
++    mw64bit $DENALI_CTL_06_DATA  0x050A020200020202
++    mw64bit $DENALI_CTL_07_DATA  0x000000030E0B0205
++    mw64bit $DENALI_CTL_08_DATA  0x6427003F3F0A0209
++    mw64bit $DENALI_CTL_09_DATA  0x1A00002F00001A00
++    mw64bit $DENALI_CTL_10_DATA  0x01202020201A1A1A
++    mw64bit $DENALI_CTL_11_DATA  $DENALI_CTL_11_VAL
++    mw64bit $DENALI_CTL_12_DATA  0x0000080000000800
++    mw64bit $DENALI_CTL_13_DATA  0x0010002000100040
++    mw64bit $DENALI_CTL_14_DATA  0x0010004000100040
++    mw64bit $DENALI_CTL_15_DATA  0x0508000000000000
++    mw64bit $DENALI_CTL_16_DATA  0x000020472D200000
++    mw64bit $DENALI_CTL_17_DATA  0x0000000008000000
++    mw64bit $DENALI_CTL_18_DATA  0x0302000000000000
++    mw64bit $DENALI_CTL_19_DATA  0x00001400C8030604
++    mw64bit $DENALI_CTL_20_DATA  0x00000000823600C8
++
++    set wr_dqs_shift 0x40
++    # start DDRC
++    mw64bit $DENALI_CTL_02_DATA [expr $DENALI_CTL_02_VAL | (1 &lt;&lt; 32)]
++    # wait int_status[2] (DRAM init complete)
++    puts -nonewline &quot;Waiting for DDR2 controller to init...&quot;
++    set tmp [mrw [expr $DENALI_CTL_08_DATA + 4]]
++    while { [expr $tmp &amp; 0x040000] == 0 } { 
++	sleep 1
++	set tmp [mrw [expr $DENALI_CTL_08_DATA + 4]]
++    }
++   mw64bit $DENALI_CTL_11_DATA [expr ($DENALI_CTL_11_VAL  &amp; ~0x00007F0000000000) | ($wr_dqs_shift &lt;&lt; 40) ]
++    puts &quot;done.&quot;
++
++    # do ddr2 training sequence
++    # TBD (for now, if you need it, run trainDDR command)
++}
++
++
++
++proc setupUART0 {} {
++    # configure UART0 to 115200, 8N1
++    set GPIO_LOCK_REG      [regs GPIO_LOCK_REG]
++    set GPIO_IOCTRL_REG    [regs GPIO_IOCTRL_REG]
++    set GPIO_IOCTRL_VAL    [regs GPIO_IOCTRL_VAL]
++    set GPIO_IOCTRL_UART0  [regs GPIO_IOCTRL_UART0]
++    set UART0_LCR	            [regs UART0_LCR]	
++    set LCR_DLAB		    [regs LCR_DLAB]	
++    set UART0_DLL		    [regs UART0_DLL]		
++    set UART0_DLH		    [regs UART0_DLH]	
++    set UART0_IIR		    [regs UART0_IIR]	
++    set UART0_IER		    [regs UART0_IER]	
++    set LCR_ONE_STOP		    [regs LCR_ONE_STOP]		
++    set LCR_CHAR_LEN_8		    [regs LCR_CHAR_LEN_8]		
++    set FCR_XMITRES		    [regs FCR_XMITRES]
++    set FCR_RCVRRES		    [regs FCR_RCVRRES]	
++    set FCR_FIFOEN		    [regs FCR_FIFOEN]	
++    set IER_UUE			    [regs IER_UUE]		
++
++    # unlock writing to IOCTRL register
++    mww $GPIO_LOCK_REG $GPIO_IOCTRL_VAL
++    # enable UART0
++    mmw $GPIO_IOCTRL_REG $GPIO_IOCTRL_UART0 0x0
++    # baudrate  115200
++    # This should really be amba_clk/(16*115200) but amba_clk=165MHz
++    set tmp 89
++    # Enable Divisor Latch access
++    mmw  $UART0_LCR $LCR_DLAB 0x0
++    # set the divisor to $tmp
++    mww $UART0_DLL [expr $tmp &amp; 0xff]
++    mww $UART0_DLH [expr $tmp &gt;&gt; 8]
++    # Disable Divisor Latch access
++    mmw  $UART0_LCR 0x0 $LCR_DLAB
++    # set the UART to 8N1
++    mmw  $UART0_LCR [expr $LCR_ONE_STOP | $LCR_CHAR_LEN_8 ] 0x0
++    # reset FIFO
++    mmw  $UART0_IIR [expr $FCR_XMITRES  | $FCR_RCVRRES | $FCR_FIFOEN ] 0x0
++    #  enable FFUART
++    mww $UART0_IER $IER_UUE
++}
++
++proc putcUART0 {char} {
++
++    set UART0_LSR	    [regs UART0_LSR]	
++    set UART0_THR	    [regs UART0_THR]
++    set LSR_TEMT	    [regs LSR_TEMT]
++
++    # convert the 'char' to digit
++    set tmp [ scan $char %c ]
++    # /* wait for room in the tx FIFO on FFUART */
++    while {[expr [mrw $UART0_LSR] &amp; $LSR_TEMT] == 0} { sleep 1 }
++    mww $UART0_THR $tmp
++    if { $char == &quot;\n&quot; } { putcUART0 \r }
++}
++
++proc putsUART0 {str} {
++    set index 0
++    set len [string length $str]
++    while { $index &lt; $len } {
++	putcUART0 [string index $str $index]
++	set index [expr $index + 1]
++    }
++}
++
++
++proc trainDDR2 {} {
++    set ARAM_BASEADDR	[regs ARAM_BASEADDR]
++
++    # you must have run 'reset init' or u-boot
++    # load the training code to ARAM
++    load_image ./images/ddr2train.bin $ARAM_BASEADDR bin
++    # set PC to start of NOR (at boot 0x20000000 = 0x0)
++    reg pc $ARAM_BASEADDR
++    # run
++    resume
++}
++
++proc flashUBOOT {} {
++    # this will update uboot on NOR partition
++    set EXP_CS0_BASEADDR       [regs EXP_CS0_BASEADDR]
++    
++    # setup CS0 controller for NOR
++    setupNOR
++    # make sure we are accessing the lower part of NOR
++    lowGPIO5
++    flash probe 0
++    puts &quot;Erasing sectors 0-3 for uboot&quot;
++    flash erase_sector 0 0 3
++    puts &quot;Programming u-boot, takes about 4-5 min for 256kb&quot;
++    flash write_image ./images/u-boot.bin $EXP_CS0_BASEADDR
++}
+\ No newline at end of file
+
+
+Property changes on: trunk/tcl/target/c100config.tcl
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/tcl/target/c100helper.tcl
+===================================================================
+--- trunk/tcl/target/c100helper.tcl	2009-09-09 16:11:33 UTC (rev 2682)
++++ trunk/tcl/target/c100helper.tcl	2009-09-10 08:06:22 UTC (rev 2683)
+@@ -0,0 +1,518 @@
++
++proc helpC100 {} {
++    puts &quot;List of useful functions for C100 processor:&quot;
++    puts &quot;1)  reset init:        will set up your Telo board&quot;
++    puts &quot;2)  setupNOR:          will setup NOR access&quot;
++    puts &quot;3)  showNOR:           will show current NOR config registers for 16-bit, 16MB NOR&quot;
++    puts &quot;4)  setupGPIO:         will setup GPIOs for Telo board&quot;
++    puts &quot;5)  showGPIO:          will show current GPIO config registers&quot;
++    puts &quot;6)  highGPIO5:         will set GPIO5=NOR_addr22=1 to access upper 8MB&quot;
++    puts &quot;7)  lowGPIO5:          will set GPIO5=NOR_addr22=0 to access lower 8MB&quot;
++    puts &quot;8)  showAmbaClk:       will show current config registers for Amba Bus Clock&quot;
++    puts &quot;9)  setupAmbaClk:      will setup Amba Bus Clock=165MHz&quot;
++    puts &quot;10) showArmClk:        will show current config registers for Arm Bus Clock&quot;
++    puts &quot;11) setupArmClk:       will setup Amba Bus Clock=450MHz&quot;
++    puts &quot;12) ooma_board_detect: will show which version of Telo you have&quot;
++    puts &quot;13) setupDDR2:         will configure DDR2 controller, you must have PLLs configureg&quot;
++    puts &quot;14) showDDR2:          will show DDR2 config registers&quot;
++    puts &quot;15) showWatchdog:      will show current regster config for watchdog&quot;
++    puts &quot;16) reboot:            will trigger watchdog and reboot Telo (hw reset)&quot;
++    puts &quot;17) bootNOR:           will boot Telo from NOR&quot;
++    puts &quot;18) setupUART0:        will configure UART0 for 115200 8N1, PLLs have to be confiured&quot;
++    puts &quot;19) putcUART0:         will print a character on UART0&quot;
++    puts &quot;20) putsUART0:         will print a string on UART0&quot;
++    puts &quot;21) trainDDR2:          will run DDR2 training program&quot;
++    puts &quot;22) flashUBOOT:        will prgram NOR sectors 0-3 with u-boot.bin&quot;
++}
++
++# mrw,mmw from davinci.cfg
++# mrw: &quot;memory read word&quot;, returns value of $reg
++proc mrw {reg} {
++    set value &quot;&quot;
++    ocd_mem2array value 32 $reg 1
++    return $value(0)
++}
++
++# read a 64-bit register (memory mapped)
++proc mr64bit {reg} {
++    set value &quot;&quot;
++    ocd_mem2array value 32 $reg 2
++    return $value
++}
++
++
++# write a 64-bit register (memory mapped)
++proc mw64bit {reg value} {
++    set high [expr $value &gt;&gt; 32]
++    set low  [expr $value &amp; 0xffffffff]
++    #puts [format &quot;mw64bit(0x%x): 0x%08x%08x&quot; $reg $high $low]
++    mww $reg $low
++    mww [expr $reg+4] $high
++}
++
++# mmw: &quot;memory modify word&quot;, updates value of $reg
++#	$reg &lt;== ((value &amp; ~$clearbits) | $setbits)
++proc mmw {reg setbits clearbits} {
++    set old [mrw $reg]
++    set new [expr ($old &amp; ~$clearbits) | $setbits]
++    mww $reg $new
++}
++
++
++proc showNOR {} {
++    puts &quot;This is the current NOR setup&quot;
++    set EX_CSEN_REG	    [regs EX_CSEN_REG ]	
++    set EX_CS0_SEG_REG	    [regs EX_CS0_SEG_REG ]	
++    set EX_CS0_CFG_REG	    [regs EX_CS0_CFG_REG ]	
++    set EX_CS0_TMG1_REG	    [regs EX_CS0_TMG1_REG ]	
++    set EX_CS0_TMG2_REG	    [regs EX_CS0_TMG2_REG ]	
++    set EX_CS0_TMG3_REG	    [regs EX_CS0_TMG3_REG ]	
++    set EX_CLOCK_DIV_REG    [regs EX_CLOCK_DIV_REG ]
++    set EX_MFSM_REG	    [regs EX_MFSM_REG ]	
++    set EX_CSFSM_REG	    [regs EX_CSFSM_REG ]	
++    set EX_WRFSM_REG	    [regs EX_WRFSM_REG ]	
++    set EX_RDFSM_REG	    [regs EX_RDFSM_REG ]	
++
++    puts [format &quot;EX_CSEN_REG      (0x%x): 0x%x&quot; $EX_CSEN_REG [mrw $EX_CSEN_REG]]
++    puts [format &quot;EX_CS0_SEG_REG   (0x%x): 0x%x&quot; $EX_CS0_SEG_REG [mrw $EX_CS0_SEG_REG]]
++    puts [format &quot;EX_CS0_CFG_REG   (0x%x): 0x%x&quot; $EX_CS0_CFG_REG [mrw $EX_CS0_CFG_REG]]
++    puts [format &quot;EX_CS0_TMG1_REG  (0x%x): 0x%x&quot; $EX_CS0_TMG1_REG [mrw $EX_CS0_TMG1_REG]]
++    puts [format &quot;EX_CS0_TMG2_REG  (0x%x): 0x%x&quot; $EX_CS0_TMG2_REG [mrw $EX_CS0_TMG2_REG]]
++    puts [format &quot;EX_CS0_TMG3_REG  (0x%x): 0x%x&quot; $EX_CS0_TMG3_REG [mrw $EX_CS0_TMG3_REG]]
++    puts [format &quot;EX_CLOCK_DIV_REG (0x%x): 0x%x&quot; $EX_CLOCK_DIV_REG [mrw $EX_CLOCK_DIV_REG]]
++    puts [format &quot;EX_MFSM_REG      (0x%x): 0x%x&quot; $EX_MFSM_REG [mrw $EX_MFSM_REG]]
++    puts [format &quot;EX_CSFSM_REG     (0x%x): 0x%x&quot; $EX_CSFSM_REG [mrw $EX_CSFSM_REG]]
++    puts [format &quot;EX_WRFSM_REG     (0x%x): 0x%x&quot; $EX_WRFSM_REG [mrw $EX_WRFSM_REG]]
++    puts [format &quot;EX_RDFSM_REG     (0x%x): 0x%x&quot; $EX_RDFSM_REG [mrw $EX_RDFSM_REG]]
++}
++
++
++
++proc showGPIO {} {
++    puts &quot;This is the current GPIO register setup&quot;
++    # GPIO outputs register
++    set GPIO_OUTPUT_REG		    [regs GPIO_OUTPUT_REG]		
++    # GPIO Output Enable register
++    set GPIO_OE_REG		    [regs GPIO_OE_REG]		
++    set GPIO_HI_INT_ENABLE_REG	    [regs GPIO_HI_INT_ENABLE_REG]	
++    set GPIO_LO_INT_ENABLE_REG	    [regs GPIO_LO_INT_ENABLE_REG]	
++    # GPIO input register
++    set GPIO_INPUT_REG		    [regs GPIO_INPUT_REG]		
++    set APB_ACCESS_WS_REG	    [regs APB_ACCESS_WS_REG]	
++    set MUX_CONF_REG		    [regs MUX_CONF_REG]		
++    set SYSCONF_REG		    [regs SYSCONF_REG]		
++    set GPIO_ARM_ID_REG		    [regs GPIO_ARM_ID_REG]		
++    set GPIO_BOOTSTRAP_REG	    [regs GPIO_BOOTSTRAP_REG]	
++    set GPIO_LOCK_REG		    [regs GPIO_LOCK_REG]		
++    set GPIO_IOCTRL_REG		    [regs GPIO_IOCTRL_REG]		
++    set GPIO_DEVID_REG		    [regs GPIO_DEVID_REG]		
++
++    puts [format &quot;GPIO_OUTPUT_REG       (0x%x): 0x%x&quot; $GPIO_OUTPUT_REG [mrw $GPIO_OUTPUT_REG]]
++    puts [format &quot;GPIO_OE_REG           (0x%x): 0x%x&quot; $GPIO_OE_REG [mrw $GPIO_OE_REG]]
++    puts [format &quot;GPIO_HI_INT_ENABLE_REG(0x%x): 0x%x&quot; $GPIO_HI_INT_ENABLE_REG [mrw $GPIO_HI_INT_ENABLE_REG]]
++    puts [format &quot;GPIO_LO_INT_ENABLE_REG(0x%x): 0x%x&quot; $GPIO_LO_INT_ENABLE_REG [mrw $GPIO_LO_INT_ENABLE_REG]]
++    puts [format &quot;GPIO_INPUT_REG        (0x%x): 0x%x&quot; $GPIO_INPUT_REG [mrw $GPIO_INPUT_REG]]
++    puts [format &quot;APB_ACCESS_WS_REG     (0x%x): 0x%x&quot; $APB_ACCESS_WS_REG [mrw $APB_ACCESS_WS_REG]]
++    puts [format &quot;MUX_CONF_REG          (0x%x): 0x%x&quot; $MUX_CONF_REG [mrw $MUX_CONF_REG]]
++    puts [format &quot;SYSCONF_REG           (0x%x): 0x%x&quot; $SYSCONF_REG [mrw $SYSCONF_REG]]
++    puts [format &quot;GPIO_ARM_ID_REG       (0x%x): 0x%x&quot; $GPIO_ARM_ID_REG [mrw $GPIO_ARM_ID_REG]]
++    puts [format &quot;GPIO_BOOTSTRAP_REG    (0x%x): 0x%x&quot; $GPIO_BOOTSTRAP_REG [mrw $GPIO_BOOTSTRAP_REG]]
++    puts [format &quot;GPIO_LOCK_REG         (0x%x): 0x%x&quot; $GPIO_LOCK_REG [mrw $GPIO_LOCK_REG]]
++    puts [format &quot;GPIO_IOCTRL_REG       (0x%x): 0x%x&quot; $GPIO_IOCTRL_REG [mrw $GPIO_IOCTRL_REG]]
++    puts [format &quot;GPIO_DEVID_REG        (0x%x): 0x%x&quot; $GPIO_DEVID_REG [mrw $GPIO_DEVID_REG]]
++}
++
++
++
++# converted from u-boot/cpu/arm1136/comcerto/bsp100.c (HAL_get_amba_clk())
++proc showAmbaClk {} {
++    set CFG_REFCLKFREQ		     [config CFG_REFCLKFREQ]
++    set CLKCORE_AHB_CLK_CNTRL	     [regs CLKCORE_AHB_CLK_CNTRL]
++    set PLL_CLK_BYPASS	             [regs PLL_CLK_BYPASS]
++    
++    puts [format &quot;CLKCORE_AHB_CLK_CNTRL       (0x%x): 0x%x&quot; $CLKCORE_AHB_CLK_CNTRL [mrw $CLKCORE_AHB_CLK_CNTRL]]
++    ocd_mem2array value 32 $CLKCORE_AHB_CLK_CNTRL 1
++    # see if the PLL is in bypass mode
++    set bypass [expr ($value(0) &amp; $PLL_CLK_BYPASS) &gt;&gt; 24 ]
++    puts [format &quot;PLL bypass bit: %d&quot; $bypass]
++    if {$bypass == 1} {
++	puts [format &quot;Amba Clk is set to REFCLK: %d (MHz)&quot; [expr $CFG_REFCLKFREQ/1000000]]
++    } else {
++	# nope, extract x,y,w and compute the PLL output freq.
++	set x [expr ($value(0) &amp; 0x0001F0000) &gt;&gt; 16]
++	puts [format &quot;x: %d&quot; $x]
++	set y [expr ($value(0) &amp; 0x00000007F)]
++	puts [format &quot;y: %d&quot; $y]
++	set w [expr ($value(0) &amp; 0x000000300) &gt;&gt; 8]
++	puts [format &quot;w: %d&quot; $w]
++	puts [format &quot;Amba PLL Clk: %d (MHz)&quot; [expr ($CFG_REFCLKFREQ * $y / (($w + 1) * ($x + 1) * 2))/1000000]]
++    }
++}
++
++
++# converted from u-boot/cpu/arm1136/comcerto/bsp100.c (HAL_set_amba_clk())
++# this clock is useb by all peripherals (DDR2, ethernet, ebus, etc)
++proc setupAmbaClk {} {
++    set CLKCORE_PLL_STATUS           [regs CLKCORE_PLL_STATUS]       
++    set CLKCORE_AHB_CLK_CNTRL	     [regs CLKCORE_AHB_CLK_CNTRL]
++    set ARM_PLL_BY_CTRL	    [regs ARM_PLL_BY_CTRL]
++    set ARM_AHB_BYP	    [regs ARM_AHB_BYP]
++    set PLL_DISABLE	    [regs PLL_DISABLE]
++    set PLL_CLK_BYPASS	    [regs PLL_CLK_BYPASS]	
++    set AHB_PLL_BY_CTRL	    [regs AHB_PLL_BY_CTRL]	
++    set DIV_BYPASS	    [regs DIV_BYPASS]
++    set AHBCLK_PLL_LOCK	    [regs AHBCLK_PLL_LOCK]
++    set CFG_REFCLKFREQ		 [config CFG_REFCLKFREQ]
++    set CONFIG_SYS_HZ_CLOCK      [config CONFIG_SYS_HZ_CLOCK]
++    set w    [config w_amba]
++    set x    [config x_amba]
++    set y    [config y_amba]
++
++    puts [format &quot;Setting Amba PLL to lock to %d MHz&quot; [expr $CONFIG_SYS_HZ_CLOCK/1000000]]
++    #puts [format &quot;setupAmbaClk: w= %d&quot; $w]
++    #puts [format &quot;setupAmbaClk: x= %d&quot; $x]
++    #puts [format &quot;setupAmbaClk: y= %d&quot; $y]
++    # set PLL into BYPASS mode using MUX
++    mmw $CLKCORE_AHB_CLK_CNTRL $PLL_CLK_BYPASS 0x0
++    # do an internal PLL bypass
++    mmw $CLKCORE_AHB_CLK_CNTRL $AHB_PLL_BY_CTRL 0x0
++    # wait 500us (ARM running @24Mhz -&gt; 12000 cycles =&gt; 500us)
++    # openocd smallest resolution is 1ms so, wait 1ms
++    sleep 1
++    # disable the PLL
++    mmw $CLKCORE_AHB_CLK_CNTRL $PLL_DISABLE 0x0
++    # wait 1ms
++    sleep 1
++    # enable the PLL
++    mmw $CLKCORE_AHB_CLK_CNTRL 0x0 $PLL_DISABLE
++    sleep 1
++    # set X, W and X
++    mmw $CLKCORE_AHB_CLK_CNTRL 0x0 0xFFFFFF
++    mmw $CLKCORE_AHB_CLK_CNTRL [expr (($x &lt;&lt; 16) + ($w &lt;&lt; 8) + $y)] 0x0
++    # wait for PLL to lock
++    puts &quot;Wating for Amba PLL to lock&quot;
++    while {[expr [mrw $CLKCORE_PLL_STATUS] &amp; $AHBCLK_PLL_LOCK] == 0} { sleep 1 }
++    # remove the internal PLL bypass
++    mmw $CLKCORE_AHB_CLK_CNTRL 0x0 $AHB_PLL_BY_CTRL
++    # remove PLL from BYPASS mode using MUX
++    mmw $CLKCORE_AHB_CLK_CNTRL 0x0 $PLL_CLK_BYPASS
++}
++
++
++# converted from u-boot/cpu/arm1136/comcerto/bsp100.c (HAL_get_arm_clk())
++proc showArmClk {} {
++    set CFG_REFCLKFREQ		[config CFG_REFCLKFREQ]
++    set CLKCORE_ARM_CLK_CNTRL	[regs CLKCORE_ARM_CLK_CNTRL]
++    set PLL_CLK_BYPASS	        [regs PLL_CLK_BYPASS]
++    
++    puts [format &quot;CLKCORE_ARM_CLK_CNTRL       (0x%x): 0x%x&quot; $CLKCORE_ARM_CLK_CNTRL [mrw $CLKCORE_ARM_CLK_CNTRL]]
++    ocd_mem2array value 32 $CLKCORE_ARM_CLK_CNTRL 1
++    # see if the PLL is in bypass mode
++    set bypass [expr ($value(0) &amp; $PLL_CLK_BYPASS) &gt;&gt; 24 ]
++    puts [format &quot;PLL bypass bit: %d&quot; $bypass]
++    if {$bypass == 1} {
++	puts [format &quot;Amba Clk is set to REFCLK: %d (MHz)&quot; [expr $CFG_REFCLKFREQ/1000000]]
++    } else {
++	# nope, extract x,y,w and compute the PLL output freq.
++	set x [expr ($value(0) &amp; 0x0001F0000) &gt;&gt; 16]
++	puts [format &quot;x: %d&quot; $x]
++	set y [expr ($value(0) &amp; 0x00000007F)]
++	puts [format &quot;y: %d&quot; $y]
++	set w [expr ($value(0) &amp; 0x000000300) &gt;&gt; 8]
++	puts [format &quot;w: %d&quot; $w]
++	puts [format &quot;Arm PLL Clk: %d (MHz)&quot; [expr ($CFG_REFCLKFREQ * $y / (($w + 1) * ($x + 1) * 2))/1000000]]
++    }
++}
++
++# converted from u-boot/cpu/arm1136/comcerto/bsp100.c (HAL_set_arm_clk())
++# Arm Clock is used by two ARM1136 cores
++proc setupArmClk {} {
++    set CLKCORE_PLL_STATUS        [regs CLKCORE_PLL_STATUS]
++    set CLKCORE_ARM_CLK_CNTRL	  [regs CLKCORE_ARM_CLK_CNTRL]
++    set ARM_PLL_BY_CTRL	          [regs ARM_PLL_BY_CTRL]
++    set ARM_AHB_BYP	          [regs ARM_AHB_BYP]
++    set PLL_DISABLE	          [regs PLL_DISABLE]
++    set PLL_CLK_BYPASS	          [regs PLL_CLK_BYPASS]	
++    set AHB_PLL_BY_CTRL	          [regs AHB_PLL_BY_CTRL]	
++    set DIV_BYPASS	          [regs DIV_BYPASS]
++    set FCLK_PLL_LOCK	          [regs FCLK_PLL_LOCK]
++    set CFG_REFCLKFREQ		[config CFG_REFCLKFREQ]
++    set CFG_ARM_CLOCK		[config CFG_ARM_CLOCK]
++    set w    [config w_arm]
++    set x    [config x_arm]
++    set y    [config y_arm]
++
++    puts [format &quot;Setting Arm PLL to lock to %d MHz&quot; [expr $CFG_ARM_CLOCK/1000000]]
++    #puts [format &quot;setupArmClk: w= %d&quot; $w]
++    #puts [format &quot;setupArmaClk: x= %d&quot; $x]
++    #puts [format &quot;setupArmaClk: y= %d&quot; $y]
++    # set PLL into BYPASS mode using MUX
++    mmw $CLKCORE_ARM_CLK_CNTRL $PLL_CLK_BYPASS 0x0
++    # do an internal PLL bypass
++    mmw $CLKCORE_ARM_CLK_CNTRL $ARM_PLL_BY_CTRL 0x0
++    # wait 500us (ARM running @24Mhz -&gt; 12000 cycles =&gt; 500us)
++    # openocd smallest resolution is 1ms so, wait 1ms
++    sleep 1
++    # disable the PLL
++    mmw $CLKCORE_ARM_CLK_CNTRL $PLL_DISABLE 0x0
++    # wait 1ms
++    sleep 1
++    # enable the PLL
++    mmw $CLKCORE_ARM_CLK_CNTRL 0x0 $PLL_DISABLE
++    sleep 1
++    # set X, W and X
++    mmw $CLKCORE_ARM_CLK_CNTRL 0x0 0xFFFFFF
++    mmw $CLKCORE_ARM_CLK_CNTRL [expr (($x &lt;&lt; 16) + ($w &lt;&lt; 8) + $y)] 0x0
++    # wait for PLL to lock
++    puts &quot;Wating for Amba PLL to lock&quot;
++    while {[expr [mrw $CLKCORE_PLL_STATUS] &amp; $FCLK_PLL_LOCK] == 0} { sleep 1 }
++    # remove the internal PLL bypass
++    mmw $CLKCORE_ARM_CLK_CNTRL 0x0 $ARM_PLL_BY_CTRL
++    # remove PLL from BYPASS mode using MUX
++    mmw $CLKCORE_ARM_CLK_CNTRL 0x0 $PLL_CLK_BYPASS
++}
++
++
++
++proc setupPLL {} {
++    puts &quot;PLLs setup&quot;
++    setupAmbaClk
++    setupArmClk
++}
++
++# converted from u-boot/cpu/arm1136/bsp100.c:SoC_mem_init()
++proc setupDDR2 {} {
++    puts &quot;Configuring DDR2&quot;
++    
++    set MEMORY_BASE_ADDR	    [regs  MEMORY_BASE_ADDR]
++    set MEMORY_MAX_ADDR	            [regs  MEMORY_MAX_ADDR]        
++    set MEMORY_CR 		    [regs  MEMORY_CR]
++    set BLOCK_RESET_REG		    [regs  BLOCK_RESET_REG]		
++    set DDR_RST		            [regs  DDR_RST]        
++
++    # put DDR controller in reset (so that it is reset and correctly configured)
++    # this is only necessary if DDR was previously confiured
++    # and not reset.
++    mmw $BLOCK_RESET_REG 0x0 $DDR_RST
++
++    set M [expr 1024 * 1024]
++    set DDR_SZ_1024M	[expr 1024 * $M]
++    set DDR_SZ_256M	[expr 256 * $M]
++    set DDR_SZ_128M	[expr 128 * $M]
++    set DDR_SZ_64M	[expr 64 * $M]
++    # ooma_board_detect returns DDR2 memory size
++    set tmp [ooma_board_detect]
++    if {$tmp == &quot;128M&quot;} {
++	puts &quot;DDR2 size 128MB&quot;
++	set ddr_size $DDR_SZ_128M
++    } elseif {$tmp == &quot;256M&quot;} {
++	puts &quot;DDR2 size 256MB&quot;
++	set ddr_size $DDR_SZ_256M
++    } else {
++	puts &quot;Don't know how to handle this DDR2 size?&quot;
++    }
++
++    # Memory setup register
++    mww $MEMORY_MAX_ADDR  [expr ($ddr_size - 1) + $MEMORY_BASE_ADDR]
++    # disbale ROM remap
++    mww $MEMORY_CR 0x0
++    # Take DDR controller out of reset
++    mmw $BLOCK_RESET_REG $DDR_RST 0x0
++    # min. 20 ops delay
++    sleep 1
++
++    # This will setup Denali DDR2 controller
++    if {$tmp == &quot;128M&quot;} {
++	configureDDR2regs_128M
++    } elseif {$tmp == &quot;256M&quot;} {
++	configureDDR2regs_256B
++    } else {
++	puts &quot;Don't know how to configure DDR2 setup?&quot;
++}
++
++
++
++proc showDDR2 {} {
++ 
++    set DENALI_CTL_00_DATA    [regs DENALI_CTL_00_DATA]
++    set DENALI_CTL_01_DATA    [regs DENALI_CTL_01_DATA]
++    set DENALI_CTL_02_DATA    [regs DENALI_CTL_02_DATA]
++    set DENALI_CTL_03_DATA    [regs DENALI_CTL_03_DATA]
++    set DENALI_CTL_04_DATA    [regs DENALI_CTL_04_DATA]
++    set DENALI_CTL_05_DATA    [regs DENALI_CTL_05_DATA]
++    set DENALI_CTL_06_DATA    [regs DENALI_CTL_06_DATA]
++    set DENALI_CTL_07_DATA    [regs DENALI_CTL_07_DATA]
++    set DENALI_CTL_08_DATA    [regs DENALI_CTL_08_DATA]
++    set DENALI_CTL_09_DATA    [regs DENALI_CTL_09_DATA]
++    set DENALI_CTL_10_DATA    [regs DENALI_CTL_10_DATA]
++    set DENALI_CTL_11_DATA    [regs DENALI_CTL_11_DATA]
++    set DENALI_CTL_12_DATA    [regs DENALI_CTL_12_DATA]
++    set DENALI_CTL_13_DATA    [regs DENALI_CTL_13_DATA]
++    set DENALI_CTL_14_DATA    [regs DENALI_CTL_14_DATA]
++    set DENALI_CTL_15_DATA    [regs DENALI_CTL_15_DATA]
++    set DENALI_CTL_16_DATA    [regs DENALI_CTL_16_DATA]
++    set DENALI_CTL_17_DATA    [regs DENALI_CTL_17_DATA]
++    set DENALI_CTL_18_DATA    [regs DENALI_CTL_18_DATA]
++    set DENALI_CTL_19_DATA    [regs DENALI_CTL_19_DATA]
++    set DENALI_CTL_20_DATA    [regs DENALI_CTL_20_DATA]
++
++    set tmp [mr64bit $DENALI_CTL_00_DATA]
++    puts [format &quot;DENALI_CTL_00_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_00_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_01_DATA]
++    puts [format &quot;DENALI_CTL_01_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_01_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_02_DATA]
++    puts [format &quot;DENALI_CTL_02_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_02_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_03_DATA]
++    puts [format &quot;DENALI_CTL_03_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_03_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_04_DATA]
++    puts [format &quot;DENALI_CTL_04_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_04_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_05_DATA]
++    puts [format &quot;DENALI_CTL_05_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_05_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_06_DATA]
++    puts [format &quot;DENALI_CTL_06_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_06_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_07_DATA]
++    puts [format &quot;DENALI_CTL_07_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_07_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_08_DATA]
++    puts [format &quot;DENALI_CTL_08_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_08_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_09_DATA]
++    puts [format &quot;DENALI_CTL_09_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_09_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_10_DATA]
++    puts [format &quot;DENALI_CTL_10_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_10_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_11_DATA]
++    puts [format &quot;DENALI_CTL_11_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_11_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_12_DATA]
++    puts [format &quot;DENALI_CTL_12_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_12_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_13_DATA]
++    puts [format &quot;DENALI_CTL_13_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_13_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_14_DATA]
++    puts [format &quot;DENALI_CTL_14_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_14_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_15_DATA]
++    puts [format &quot;DENALI_CTL_15_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_15_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_16_DATA]
++    puts [format &quot;DENALI_CTL_16_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_16_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_17_DATA]
++    puts [format &quot;DENALI_CTL_17_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_17_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_18_DATA]
++    puts [format &quot;DENALI_CTL_18_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_18_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_19_DATA]
++    puts [format &quot;DENALI_CTL_19_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_19_DATA $tmp(1) $tmp(0)]
++    set tmp [mr64bit $DENALI_CTL_20_DATA]
++    puts [format &quot;DENALI_CTL_20_DATA   (0x%x): 0x%08x%08x&quot; $DENALI_CTL_20_DATA $tmp(1) $tmp(0)]
++    
++}
++
++proc initC100 {} {
++    # this follows u-boot/cpu/arm1136/start.S 
++    set GPIO_LOCK_REG		    [regs GPIO_LOCK_REG]		
++    set GPIO_IOCTRL_REG		    [regs GPIO_IOCTRL_REG]		
++    set GPIO_IOCTRL_VAL	            [regs GPIO_IOCTRL_VAL]	
++    set APB_ACCESS_WS_REG           [regs APB_ACCESS_WS_REG]
++    set ASA_ARAM_BASEADDR	    [regs ASA_ARAM_BASEADDR]
++    set ASA_ARAM_TC_CR_REG	    [regs ASA_ARAM_TC_CR_REG]	
++    set ASA_EBUS_BASEADDR	    [regs ASA_EBUS_BASEADDR]
++    set ASA_EBUS_TC_CR_REG	    [regs ASA_EBUS_TC_CR_REG]	
++    set ASA_TC_REQIDMAEN	    [regs ASA_TC_REQIDMAEN]
++    set ASA_TC_REQTDMEN	            [regs ASA_TC_REQTDMEN]        
++    set ASA_TC_REQIPSECUSBEN        [regs ASA_TC_REQIPSECUSBEN]    
++    set ASA_TC_REQARM0EN	    [regs ASA_TC_REQARM0EN]
++    set ASA_TC_REQARM1EN	    [regs ASA_TC_REQARM1EN]
++    set ASA_TC_REQMDMAEN	    [regs ASA_TC_REQMDMAEN]
++    set INTC_ARM1_CONTROL_REG       [regs INTC_ARM1_CONTROL_REG]
++
++
++    # unlock writing to IOCTRL register
++    mww $GPIO_LOCK_REG $GPIO_IOCTRL_VAL
++    # enable address lines A15-A21
++    mmw $GPIO_IOCTRL_REG 0xf 0x0
++    # set ARM into supervisor mode (SVC32)
++    # disable IRQ, FIQ
++    # Do I need this in JTAG mode?
++    # it really should be done as 'and ~0x1f | 0xd3 but 
++    # openocd does not support this yet
++    reg cpsr 0xd3
++    #	/*
++    #	 * flush v4 I/D caches
++    #	 */
++    #	mov	r0, #0
++    #	mcr	p15, 0, r0, c7, c7, 0	/* flush v3/v4 cache */
++    arm11 mcr c100.cpu 15 0 7 7 0 0x0
++    #	mcr	p15, 0, r0, c8, c7, 0	/* flush v4 TLB */
++    arm11 mcr c100.cpu 15 0 8 7 0 0x0
++
++    #	/*
++    #	 * disable MMU stuff and caches
++    #	 */
++    #	mrc	p15, 0, r0, c1, c0, 0
++    arm11 mrc c100.cpu 15 0 1 0 0  
++    #	bic	r0, r0, #0x00002300	@ clear bits 13, 9:8 (--V- --RS)
++    #	bic	r0, r0, #0x00000087	@ clear bits 7, 2:0 (B--- -CAM)
++    #	orr	r0, r0, #0x00000002	@ set bit 2 (A) Align
++    #	orr	r0, r0, #0x00001000	@ set bit 12 (I) I-Cache
++    #	orr	r0, r0, #0x00400000	@ set bit 22 (U) 
++    #	mcr	p15, 0, r0, c1, c0, 0
++    arm11 mcr c100.cpu 15 0 1 0 0 0x401002
++    # This is from bsp_init() in u-boot/boards/mindspeed/ooma-darwin/board.c
++    # APB init
++    #    	// Setting APB Bus Wait states to 1, set post write
++    #	(*(volatile u32*)(APB_ACCESS_WS_REG)) = 0x40;
++    mww [expr $APB_ACCESS_WS_REG] 0x40
++    # AHB init
++    #	// enable all 6 masters for ARAM
++    mmw $ASA_ARAM_TC_CR_REG [expr $ASA_TC_REQIDMAEN | $ASA_TC_REQTDMEN | $ASA_TC_REQIPSECUSBEN | $ASA_TC_REQARM0EN | $ASA_TC_REQARM1EN | $ASA_TC_REQMDMAEN] 0x0
++    #	// enable all 6 masters for EBUS
++    mmw $ASA_EBUS_TC_CR_REG [expr $ASA_TC_REQIDMAEN | $ASA_TC_REQTDMEN | $ASA_TC_REQIPSECUSBEN | $ASA_TC_REQARM0EN | $ASA_TC_REQARM1EN | $ASA_TC_REQMDMAEN] 0x0
++
++    # ARAM init
++    #	// disable pipeline mode in ARAM 
++    # I don't think this is documented anywhere?
++    mww $INTC_ARM1_CONTROL_REG 0x1
++    # configure clocks 
++    setupPLL
++    # enable cache
++    # ? (u-boot does nothing here)
++    # DDR2 memory init
++    setupDDR2
++    setupUART0
++    putsUART0 &quot;C100 initialization complete.\n&quot;
++    puts &quot;C100 initialization complete.&quot;
++}
++
++# show current state of watchdog timer
++proc showWatchdog {} {
++    set TIMER_WDT_HIGH_BOUND	[regs TIMER_WDT_HIGH_BOUND]
++    set TIMER_WDT_CONTROL	[regs TIMER_WDT_CONTROL]	
++    set TIMER_WDT_CURRENT_COUNT	[regs TIMER_WDT_CURRENT_COUNT]
++    
++    puts [format &quot;TIMER_WDT_HIGH_BOUND    (0x%x): 0x%x&quot; $TIMER_WDT_HIGH_BOUND [mrw $TIMER_WDT_HIGH_BOUND]]
++    puts [format &quot;TIMER_WDT_CONTROL       (0x%x): 0x%x&quot; $TIMER_WDT_CONTROL [mrw $TIMER_WDT_CONTROL]]
++    puts [format &quot;TIMER_WDT_CURRENT_COUNT (0x%x): 0x%x&quot; $TIMER_WDT_CURRENT_COUNT [mrw $TIMER_WDT_CURRENT_COUNT]]
++}
++
++# converted from u-boot/cpu/arm1136/comcerto/intrrupts.c:void reset_cpu (ulong ignored)
++# this will trigger watchdog reset
++# the sw. reset does not work on C100
++# watchdog reset effectively works as hw. reset
++proc reboot {} {
++    set TIMER_WDT_HIGH_BOUND	[regs TIMER_WDT_HIGH_BOUND]
++    set TIMER_WDT_CONTROL	[regs TIMER_WDT_CONTROL]	
++    set TIMER_WDT_CURRENT_COUNT	[regs TIMER_WDT_CURRENT_COUNT]
++
++    # allow the counter to count to high value  before triggering
++    # this is because regsiter writes are slow over JTAG and
++    # I don't want to miss the high_bound==curr_count condition
++    mww $TIMER_WDT_HIGH_BOUND  0xffffff
++    mww $TIMER_WDT_CURRENT_COUNT 0x0
++    puts &quot;JTAG speed lowered to 100kHz&quot;
++    jtag_khz 100
++    mww $TIMER_WDT_CONTROL 0x1
++    # wait until the reset
++    puts -nonewline &quot;Wating for watchdog to trigger...&quot;
++    #while {[mrw $TIMER_WDT_CONTROL] == 1} { 
++    #    puts [format &quot;TIMER_WDT_CURRENT_COUNT (0x%x): 0x%x&quot; $TIMER_WDT_CURRENT_COUNT [mrw $TIMER_WDT_CURRENT_COUNT]]	    
++    #    sleep 1 
++    #    
++    #}
++    while {[c100.cpu curstate] != &quot;running&quot;} { sleep 1}
++    puts &quot;done.&quot;
++    puts [format &quot;Note that C100 is in %s state, type halt to stop&quot; [c100.cpu curstate]]
++}
+
+
+Property changes on: trunk/tcl/target/c100helper.tcl
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/tcl/target/c100regs.tcl
+===================================================================
+--- trunk/tcl/target/c100regs.tcl	2009-09-09 16:11:33 UTC (rev 2682)
++++ trunk/tcl/target/c100regs.tcl	2009-09-10 08:06:22 UTC (rev 2683)
+@@ -0,0 +1,493 @@
++# Note that I basically converted
++# u-boot/include/asm-arm/arch/comcerto_100.h
++# defines
++
++# this is a work-around for 'global' not working under Linux
++# access registers by calling this routine.
++# For example:
++# set EX_CS_TMG1_REG [regs EX_CS0_TMG1_REG]
++proc regs {reg} {
++    return [dict get [regsC100] $reg ]	
++}
++
++proc showreg {reg} {
++    puts [format &quot;0x%x&quot; [dict get [regsC100] $reg ]]
++}
++
++proc regsC100 {} {
++#/* memcore */
++#/* device memory base addresses */
++#// device memory sizes
++#/* ARAM SIZE=64K */
++dict set regsC100 ARAM_SIZE		0x00010000 
++dict set regsC100 ARAM_BASEADDR	0x0A000000
++
++#/* Hardware Interface Units */
++dict set regsC100 APB_BASEADDR	0x10000000
++#/* APB_SIZE=16M address range */
++dict set regsC100 APB_SIZE		0x01000000 
++
++dict set regsC100 EXP_CS0_BASEADDR       0x20000000
++dict set regsC100 EXP_CS1_BASEADDR       0x24000000
++dict set regsC100 EXP_CS2_BASEADDR       0x28000000
++dict set regsC100 EXP_CS3_BASEADDR       0x2C000000
++dict set regsC100 EXP_CS4_BASEADDR       0x30000000
++
++dict set regsC100 DDR_BASEADDR           0x80000000
++
++dict set regsC100 TDM_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x000000]
++dict set regsC100 PHI_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x010000]
++dict set regsC100 TDMA_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x020000]
++dict set regsC100 ASA_DDR_BASEADDR	        [expr [dict get $regsC100 APB_BASEADDR ] + 0x040000]
++dict set regsC100 ASA_ARAM_BASEADDR	        [expr [dict get $regsC100 APB_BASEADDR ] + 0x048000]
++dict set regsC100 TIMER_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x050000]
++dict set regsC100 ASD_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x060000]
++dict set regsC100 GPIO_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x070000]
++dict set regsC100 UART0_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x090000]
++dict set regsC100 UART1_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x094000]
++dict set regsC100 SPI_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x098000]
++dict set regsC100 I2C_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x09C000]
++dict set regsC100 INTC_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x0A0000]
++dict set regsC100 CLKCORE_BASEADDR	        [expr [dict get $regsC100 APB_BASEADDR ] + 0x0B0000]
++dict set regsC100 PUI_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x0B0000]
++dict set regsC100 GEMAC_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x0D0000]
++dict set regsC100 IDMA_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x0E0000]
++dict set regsC100 MEMCORE_BASEADDR	        [expr [dict get $regsC100 APB_BASEADDR ] + 0x0F0000]
++dict set regsC100 ASA_EBUS_BASEADDR	        [expr [dict get $regsC100 APB_BASEADDR ] + 0x100000]
++dict set regsC100 ASA_AAB_BASEADDR	        [expr [dict get $regsC100 APB_BASEADDR ] + 0x108000]
++dict set regsC100 GEMAC1_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x190000]
++dict set regsC100 EBUS_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x1A0000]
++dict set regsC100 MDMA_BASEADDR		[expr [dict get $regsC100 APB_BASEADDR ] + 0x1E0000]
++
++
++#////////////////////////////////////////////////////////////
++#//	AHB block											    //
++#////////////////////////////////////////////////////////////
++dict set regsC100 ASA_ARAM_PRI_REG	[expr [dict get $regsC100 ASA_ARAM_BASEADDR ] + 0x00]
++dict set regsC100 ASA_ARAM_TC_REG	[expr [dict get $regsC100 ASA_ARAM_BASEADDR ] + 0x04]
++dict set regsC100 ASA_ARAM_TC_CR_REG	[expr [dict get $regsC100 ASA_ARAM_BASEADDR ] + 0x08]
++dict set regsC100 ASA_ARAM_STAT_REG	[expr [dict get $regsC100 ASA_ARAM_BASEADDR ] + 0x0C]
++
++dict set regsC100 ASA_EBUS_PRI_REG	[expr [dict get $regsC100 ASA_EBUS_BASEADDR ] + 0x00]
++dict set regsC100 ASA_EBUS_TC_REG	[expr [dict get $regsC100 ASA_EBUS_BASEADDR ] + 0x04]
++dict set regsC100 ASA_EBUS_TC_CR_REG	[expr [dict get $regsC100 ASA_EBUS_BASEADDR ] + 0x08]
++dict set regsC100 ASA_EBUS_STAT_REG	[expr [dict get $regsC100 ASA_EBUS_BASEADDR ] + 0x0C]
++
++dict set regsC100 IDMA_MASTER		0
++dict set regsC100 TDMA_MASTER		1
++dict set regsC100 USBIPSEC_MASTER	2
++dict set regsC100 ARM0_MASTER		3
++dict set regsC100 ARM1_MASTER		4
++dict set regsC100 MDMA_MASTER		5
++
++#define IDMA_PRIORITY(level) (level)
++#define TDM_PRIORITY(level) (level &lt;&lt; 4)
++#define USBIPSEC_PRIORITY(level) (level &lt;&lt; 8)
++#define ARM0_PRIORITY(level) (level &lt;&lt; 12)
++#define ARM1_PRIORITY(level) (level &lt;&lt; 16)
++#define MDMA_PRIORITY(level) (level &lt;&lt; 20)
++
++dict set regsC100 ASA_TC_REQIDMAEN	 [expr 1&lt;&lt;18]
++dict set regsC100 ASA_TC_REQTDMEN	 [expr 1&lt;&lt;19]
++dict set regsC100 ASA_TC_REQIPSECUSBEN [expr 1&lt;&lt;20]
++dict set regsC100 ASA_TC_REQARM0EN	 [expr 1&lt;&lt;21]
++dict set regsC100 ASA_TC_REQARM1EN	 [expr 1&lt;&lt;22]
++dict set regsC100 ASA_TC_REQMDMAEN	 [expr 1&lt;&lt;23]
++
++dict set regsC100 MEMORY_BASE_ADDR	0x80000000
++dict set regsC100 MEMORY_MAX_ADDR	[expr [dict get $regsC100 ASD_BASEADDR ] + 0x10]
++dict set regsC100 MEMORY_CR 		[expr [dict get $regsC100 ASD_BASEADDR ] + 0x14]
++dict set regsC100 ROM_REMAP_EN	0x1
++
++#define HAL_asb_priority(level) \
++#*(volatile unsigned *)ASA_PRI_REG = level
++
++#define HAL_aram_priority(level) \
++#*(volatile unsigned *)ASA_ARAM_PRI_REG = level
++
++#define HAL_aram_arbitration(arbitration_mask) \
++#*(volatile unsigned *)ASA_ARAM_TC_CR_REG |= arbitration_mask
++
++#define HAL_aram_defmaster(mask) \
++#*(volatile unsigned *)ASA_ARAM_TC_CR_REG = (*(volatile unsigned *)ASA_TC_CR_REG &amp; 0xFFFF) | (mask &lt;&lt; 24)
++
++#////////////////////////////////////////////////////////////
++#// INTC block						  //
++#////////////////////////////////////////////////////////////
++
++dict set regsC100 INTC_ARM1_CONTROL_REG	[expr [dict get $regsC100 INTC_BASEADDR ] + 0x18]
++
++#////////////////////////////////////////////////////////////
++#// TIMER block						  //
++#////////////////////////////////////////////////////////////
++
++dict set regsC100 TIMER0_CNTR_REG	[expr [dict get $regsC100 TIMER_BASEADDR ] + 0x00]
++dict set regsC100 TIMER0_CURR_COUNT	[expr [dict get $regsC100 TIMER_BASEADDR ] + 0x04]
++dict set regsC100 TIMER1_CNTR_REG	[expr [dict get $regsC100 TIMER_BASEADDR ] + 0x08]
++dict set regsC100 TIMER1_CURR_COUNT	[expr [dict get $regsC100 TIMER_BASEADDR ] + 0x0C]
++
++dict set regsC100 TIMER2_CNTR_REG	[expr [dict get $regsC100 TIMER_BASEADDR ] + 0x18]
++dict set regsC100 TIMER2_LBOUND_REG	[expr [dict get $regsC100 TIMER_BASEADDR ] + 0x10]
++dict set regsC100 TIMER2_HBOUND_REG	[expr [dict get $regsC100 TIMER_BASEADDR ] + 0x14]
++dict set regsC100 TIMER2_CURR_COUNT	[expr [dict get $regsC100 TIMER_BASEADDR ] + 0x1C]
++
++dict set regsC100 TIMER3_LOBND	[expr [dict get $regsC100 TIMER_BASEADDR ] + 0x20]
++dict set regsC100 TIMER3_HIBND	[expr [dict get $regsC100 TIMER_BASEADDR ] + 0x24]
++dict set regsC100 TIMER3_CTRL		[expr [dict get $regsC100 TIMER_BASEADDR ] + 0x28]
++dict set regsC100 TIMER3_CURR_COUNT	[expr [dict get $regsC100 TIMER_BASEADDR ] + 0x2C]
++
++dict set regsC100 TIMER_MASK		[expr [dict get $regsC100 TIMER_BASEADDR ] + 0x40]
++dict set regsC100 TIMER_STATUS	[expr [dict get $regsC100 TIMER_BASEADDR ] + 0x50]
++dict set regsC100 TIMER_ACK		[expr [dict get $regsC100 TIMER_BASEADDR ] + 0x50]
++dict set regsC100 TIMER_WDT_HIGH_BOUND [expr [dict get $regsC100 TIMER_BASEADDR ] + 0xD0]
++dict set regsC100 TIMER_WDT_CONTROL	[expr [dict get $regsC100 TIMER_BASEADDR ] + 0xD4]
++dict set regsC100 TIMER_WDT_CURRENT_COUNT [expr [dict get $regsC100 TIMER_BASEADDR ] + 0xD8]
++
++
++
++#////////////////////////////////////////////////////////////
++#//  EBUS block
++#////////////////////////////////////////////////////////////
++
++dict set regsC100 EX_SWRST_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x00]
++dict set regsC100 EX_CSEN_REG		        [expr [dict get $regsC100 EBUS_BASEADDR ] + 0x04]
++dict set regsC100 EX_CS0_SEG_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x08]
++dict set regsC100 EX_CS1_SEG_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x0C]
++dict set regsC100 EX_CS2_SEG_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x10]
++dict set regsC100 EX_CS3_SEG_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x14]
++dict set regsC100 EX_CS4_SEG_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x18]
++dict set regsC100 EX_CS0_CFG_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x1C]
++dict set regsC100 EX_CS1_CFG_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x20]
++dict set regsC100 EX_CS2_CFG_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x24]
++dict set regsC100 EX_CS3_CFG_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x28]
++dict set regsC100 EX_CS4_CFG_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x2C]
++dict set regsC100 EX_CS0_TMG1_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x30]
++dict set regsC100 EX_CS1_TMG1_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x34]
++dict set regsC100 EX_CS2_TMG1_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x38]
++dict set regsC100 EX_CS3_TMG1_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x3C]
++dict set regsC100 EX_CS4_TMG1_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x40]
++dict set regsC100 EX_CS0_TMG2_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x44]
++dict set regsC100 EX_CS1_TMG2_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x48]
++dict set regsC100 EX_CS2_TMG2_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x4C]
++dict set regsC100 EX_CS3_TMG2_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x50]
++dict set regsC100 EX_CS4_TMG2_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x54]
++dict set regsC100 EX_CS0_TMG3_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x58]
++dict set regsC100 EX_CS1_TMG3_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x5C]
++dict set regsC100 EX_CS2_TMG3_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x60]
++dict set regsC100 EX_CS3_TMG3_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x64]
++dict set regsC100 EX_CS4_TMG3_REG		[expr [dict get $regsC100 EBUS_BASEADDR ] + 0x68]
++dict set regsC100 EX_CLOCK_DIV_REG	        [expr [dict get $regsC100 EBUS_BASEADDR ] + 0x6C]
++
++dict set regsC100 EX_MFSM_REG		[expr [dict get $regsC100 EBUS_BASEADDR] + 0x100]
++dict set regsC100 EX_MFSM_REG		[expr [dict get $regsC100 EBUS_BASEADDR] + 0x100]
++dict set regsC100 EX_CSFSM_REG		[expr [dict get $regsC100 EBUS_BASEADDR] + 0x104]
++dict set regsC100 EX_WRFSM_REG		[expr [dict get $regsC100 EBUS_BASEADDR] + 0x108]
++dict set regsC100 EX_RDFSM_REG		[expr [dict get $regsC100 EBUS_BASEADDR] + 0x10C]
++
++
++dict set regsC100 EX_CLK_EN		0x00000001
++dict set regsC100 EX_CSBOOT_EN	0x00000002
++dict set regsC100 EX_CS0_EN		0x00000002
++dict set regsC100 EX_CS1_EN		0x00000004
++dict set regsC100 EX_CS2_EN		0x00000008
++dict set regsC100 EX_CS3_EN		0x00000010
++dict set regsC100 EX_CS4_EN		0x00000020
++
++dict set regsC100 EX_MEM_BUS_8	0x00000000
++dict set regsC100 EX_MEM_BUS_16       0x00000002
++dict set regsC100 EX_MEM_BUS_32	0x00000004
++dict set regsC100 EX_CS_HIGH		0x00000008
++dict set regsC100 EX_WE_HIGH		0x00000010
++dict set regsC100 EX_RE_HIGH		0x00000020
++dict set regsC100 EX_ALE_MODE		0x00000040
++dict set regsC100 EX_STRB_MODE	0x00000080
++dict set regsC100 EX_DM_MODE		0x00000100
++dict set regsC100 EX_NAND_MODE	0x00000200
++dict set regsC100 EX_RDY_EN		0x00000400
++dict set regsC100 EX_RDY_EDGE		0x00000800
++
++#////////////////////////////////////////////////////////////
++#//  GPIO block
++#////////////////////////////////////////////////////////////
++
++# GPIO outputs register
++dict set regsC100 GPIO_OUTPUT_REG		[expr [dict get $regsC100 GPIO_BASEADDR ] + 0x00]
++# GPIO Output Enable register	
++dict set regsC100 GPIO_OE_REG		        [expr [dict get $regsC100 GPIO_BASEADDR ] + 0x04]
++dict set regsC100 GPIO_HI_INT_ENABLE_REG	[expr [dict get $regsC100 GPIO_BASEADDR ] + 0x08]
++dict set regsC100 GPIO_LO_INT_ENABLE_REG	[expr [dict get $regsC100 GPIO_BASEADDR ] + 0x0C]
++# GPIO input register
++dict set regsC100 GPIO_INPUT_REG		[expr [dict get $regsC100 GPIO_BASEADDR ] + 0x10]
++dict set regsC100 APB_ACCESS_WS_REG	        [expr [dict get $regsC100 GPIO_BASEADDR ] + 0x14]
++dict set regsC100 MUX_CONF_REG		[expr [dict get $regsC100 GPIO_BASEADDR ] + 0x18]
++dict set regsC100 SYSCONF_REG		        [expr [dict get $regsC100 GPIO_BASEADDR ] + 0x1C]
++dict set regsC100 GPIO_ARM_ID_REG		[expr [dict get $regsC100 GPIO_BASEADDR ] + 0x30]
++dict set regsC100 GPIO_BOOTSTRAP_REG	        [expr [dict get $regsC100 GPIO_BASEADDR ] + 0x40]
++dict set regsC100 GPIO_LOCK_REG		[expr [dict get $regsC100 GPIO_BASEADDR ] + 0x38]
++dict set regsC100 GPIO_IOCTRL_REG		[expr [dict get $regsC100 GPIO_BASEADDR ] + 0x44]
++dict set regsC100 GPIO_DEVID_REG		[expr [dict get $regsC100 GPIO_BASEADDR ] + 0x50]
++
++dict set regsC100 GPIO_IOCTRL_A15A16	0x00000001
++dict set regsC100 GPIO_IOCTRL_A17A18	0x00000002
++dict set regsC100 GPIO_IOCTRL_A19A21	0x00000004
++dict set regsC100 GPIO_IOCTRL_TMREVT0	0x00000008
++dict set regsC100 GPIO_IOCTRL_TMREVT1	0x00000010
++dict set regsC100 GPIO_IOCTRL_GPBT3	0x00000020
++dict set regsC100 GPIO_IOCTRL_I2C	0x00000040
++dict set regsC100 GPIO_IOCTRL_UART0	0x00000080
++dict set regsC100 GPIO_IOCTRL_UART1	0x00000100
++dict set regsC100 GPIO_IOCTRL_SPI	0x00000200
++dict set regsC100 GPIO_IOCTRL_HBMODE	0x00000400
++
++dict set regsC100 GPIO_IOCTRL_VAL	0x55555555
++
++dict set regsC100 GPIO_0			0x01
++dict set regsC100 GPIO_1			0x02
++dict set regsC100 GPIO_2			0x04
++dict set regsC100 GPIO_3			0x08
++dict set regsC100 GPIO_4			0x10
++dict set regsC100 GPIO_5			0x20
++dict set regsC100 GPIO_6			0x40
++dict set regsC100 GPIO_7			0x80
++
++dict set regsC100 GPIO_RISING_EDGE	1
++dict set regsC100 GPIO_FALLING_EDGE	2
++dict set regsC100 GPIO_BOTH_EDGES	3
++
++#////////////////////////////////////////////////////////////
++#// UART
++#////////////////////////////////////////////////////////////
++
++dict set regsC100 UART0_RBR		[expr [dict get $regsC100 UART0_BASEADDR ] + 0x00]
++dict set regsC100 UART0_THR		[expr [dict get $regsC100 UART0_BASEADDR ] + 0x00]
++dict set regsC100 UART0_DLL		[expr [dict get $regsC100 UART0_BASEADDR ] + 0x00]
++dict set regsC100 UART0_IER		[expr [dict get $regsC100 UART0_BASEADDR ] + 0x04]
++dict set regsC100 UART0_DLH		[expr [dict get $regsC100 UART0_BASEADDR ] + 0x04]
++dict set regsC100 UART0_IIR		[expr [dict get $regsC100 UART0_BASEADDR ] + 0x08]
++dict set regsC100 UART0_FCR		[expr [dict get $regsC100 UART0_BASEADDR ] + 0x08]
++dict set regsC100 UART0_LCR		[expr [dict get $regsC100 UART0_BASEADDR ] + 0x0C]
++dict set regsC100 UART0_MCR		[expr [dict get $regsC100 UART0_BASEADDR ] + 0x10]
++dict set regsC100 UART0_LSR		[expr [dict get $regsC100 UART0_BASEADDR ] + 0x14]
++dict set regsC100 UART0_MSR		[expr [dict get $regsC100 UART0_BASEADDR ] + 0x18]
++dict set regsC100 UART0_SCR		[expr [dict get $regsC100 UART0_BASEADDR ] + 0x1C]
++
++dict set regsC100 UART1_RBR		[expr [dict get $regsC100 UART1_BASEADDR ] + 0x00]
++dict set regsC100 UART1_THR		[expr [dict get $regsC100 UART1_BASEADDR ] + 0x00]
++dict set regsC100 UART1_DLL		[expr [dict get $regsC100 UART1_BASEADDR ] + 0x00]
++dict set regsC100 UART1_IER		[expr [dict get $regsC100 UART1_BASEADDR ] + 0x04]
++dict set regsC100 UART1_DLH		[expr [dict get $regsC100 UART1_BASEADDR ] + 0x04]
++dict set regsC100 UART1_IIR		[expr [dict get $regsC100 UART1_BASEADDR ] + 0x08]
++dict set regsC100 UART1_FCR		[expr [dict get $regsC100 UART1_BASEADDR ] + 0x08]
++dict set regsC100 UART1_LCR		[expr [dict get $regsC100 UART1_BASEADDR ] + 0x0C]
++dict set regsC100 UART1_MCR		[expr [dict get $regsC100 UART1_BASEADDR ] + 0x10]
++dict set regsC100 UART1_LSR		[expr [dict get $regsC100 UART1_BASEADDR ] + 0x14]
++dict set regsC100 UART1_MSR		[expr [dict get $regsC100 UART1_BASEADDR ] + 0x18]
++dict set regsC100 UART1_SCR		[expr [dict get $regsC100 UART1_BASEADDR ] + 0x1C]
++
++# /* default */
++dict set regsC100 LCR_CHAR_LEN_5		0x00	  
++dict set regsC100 LCR_CHAR_LEN_6		0x01
++dict set regsC100 LCR_CHAR_LEN_7		0x02
++dict set regsC100 LCR_CHAR_LEN_8		0x03
++#/* One stop bit! - default */
++dict set regsC100 LCR_ONE_STOP		0x00
++#/* Two stop bit! */	  
++dict set regsC100 LCR_TWO_STOP		0x04	  
++#/* Parity Enable */
++dict set regsC100 LCR_PEN			0x08	  
++dict set regsC100 LCR_PARITY_NONE		0x00
++#/* Even Parity Select */
++dict set regsC100 LCR_EPS			0x10	  
++#/* Enable Parity  Stuff */
++dict set regsC100 LCR_PS			0x20	  
++#/* Start Break */
++dict set regsC100 LCR_SBRK		        0x40  
++#/* Parity Stuff Bit */
++dict set regsC100 LCR_PSB			0x80	  
++#/* UART 16550 Divisor Latch Assess */
++dict set regsC100 LCR_DLAB		        0x80  
++
++#/* FIFO Error Status */
++dict set regsC100 LSR_FIFOE		[expr 1 &lt;&lt; 7]	
++#/* Transmitter Empty */
++dict set regsC100 LSR_TEMT		[expr 1 &lt;&lt; 6]
++#/* Transmit Data Request */
++dict set regsC100 LSR_TDRQ		[expr 1 &lt;&lt; 5]	
++#/* Break Interrupt */
++dict set regsC100 LSR_BI			[expr 1 &lt;&lt; 4]	
++#/* Framing Error */
++dict set regsC100 LSR_FE			[expr 1 &lt;&lt; 3]	
++#/* Parity Error */
++dict set regsC100 LSR_PE			[expr 1 &lt;&lt; 2]	
++#/* Overrun Error */
++dict set regsC100 LSR_OE			[expr 1 &lt;&lt; 1]	
++#/* Data Ready */
++dict set regsC100 LSR_DR			[expr 1 &lt;&lt; 0]	
++
++#/* DMA Requests Enable */
++dict set regsC100 IER_DMAE		        [expr 1 &lt;&lt; 7]	
++#/* UART Unit Enable */
++dict set regsC100 IER_UUE			[expr 1 &lt;&lt; 6]	
++#/* NRZ coding Enable */
++dict set regsC100 IER_NRZE		        [expr 1 &lt;&lt; 5]	
++#/* Receiver Time Out Interrupt Enable */
++dict set regsC100 IER_RTIOE		        [expr 1 &lt;&lt; 4]	
++#/* Modem Interrupt Enable */
++dict set regsC100 IER_MIE			[expr 1 &lt;&lt; 3]	
++#/* Receiver Line Status Interrupt Enable */
++dict set regsC100 IER_RLSE		        [expr 1 &lt;&lt; 2]	
++#/* Transmit Data request Interrupt Enable */
++dict set regsC100 IER_TIE			[expr 1 &lt;&lt; 1]	
++#/* Receiver Data Available Interrupt Enable */
++dict set regsC100 IER_RAVIE		        [expr 1 &lt;&lt; 0]	
++
++#/* FIFO Mode Enable Status */
++dict set regsC100 IIR_FIFOES1		        [expr 1 &lt;&lt; 7]	
++#/* FIFO Mode Enable Status */
++dict set regsC100 IIR_FIFOES0		        [expr 1 &lt;&lt; 6]	
++#/* Time Out Detected */
++dict set regsC100 IIR_TOD			[expr 1 &lt;&lt; 3]	
++#/* Interrupt Source Encoded */
++dict set regsC100 IIR_IID2		        [expr 1 &lt;&lt; 2]	
++#/* Interrupt Source Encoded */
++dict set regsC100 IIR_IID1		        [expr 1 &lt;&lt; 1]	
++#/* Interrupt Pending (active low) */
++dict set regsC100 IIR_IP			[expr 1 &lt;&lt; 0]	
++
++#/* UART 16550 FIFO Control Register */
++dict set regsC100 FCR_FIFOEN		0x01
++dict set regsC100 FCR_RCVRRES		0x02
++dict set regsC100 FCR_XMITRES		0x04
++
++#/* Interrupt Enable Register */
++#// UART 16550
++#// Enable Received Data Available Interrupt
++dict set regsC100 IER_RXTH		0x01	
++#// Enable Transmitter Empty Interrupt
++dict set regsC100 IER_TXTH		0x02	
++
++
++
++#////////////////////////////////////////////////////////////
++#// CLK  + RESET block 
++#////////////////////////////////////////////////////////////
++
++dict set regsC100 CLKCORE_ARM_CLK_CNTRL	[expr [dict get $regsC100 CLKCORE_BASEADDR ] + 0x00]
++dict set regsC100 CLKCORE_AHB_CLK_CNTRL	[expr [dict get $regsC100 CLKCORE_BASEADDR ] + 0x04]
++dict set regsC100 CLKCORE_PLL_STATUS	        [expr [dict get $regsC100 CLKCORE_BASEADDR ] + 0x08]
++dict set regsC100 CLKCORE_CLKDIV_CNTRL	[expr [dict get $regsC100 CLKCORE_BASEADDR ] + 0x0C]
++dict set regsC100 CLKCORE_TDM_CLK_CNTRL	[expr [dict get $regsC100 CLKCORE_BASEADDR ] + 0x10]
++dict set regsC100 CLKCORE_FSYNC_CNTRL	        [expr [dict get $regsC100 CLKCORE_BASEADDR ] + 0x14]
++dict set regsC100 CLKCORE_CLK_PWR_DWN	        [expr [dict get $regsC100 CLKCORE_BASEADDR ] + 0x18]
++dict set regsC100 CLKCORE_RNG_CNTRL	        [expr [dict get $regsC100 CLKCORE_BASEADDR ] + 0x1C]
++dict set regsC100 CLKCORE_RNG_STATUS	        [expr [dict get $regsC100 CLKCORE_BASEADDR ] + 0x20]
++dict set regsC100 CLKCORE_ARM_CLK_CNTRL2	[expr [dict get $regsC100 CLKCORE_BASEADDR ] + 0x24]
++dict set regsC100 CLKCORE_TDM_REF_DIV_RST	[expr [dict get $regsC100 CLKCORE_BASEADDR ] + 0x40]
++
++dict set regsC100 ARM_PLL_BY_CTRL	0x80000000
++dict set regsC100 ARM_AHB_BYP		0x04000000
++dict set regsC100 PLL_DISABLE		0x02000000
++dict set regsC100 PLL_CLK_BYPASS	0x01000000
++
++dict set regsC100 AHB_PLL_BY_CTRL	0x80000000
++dict set regsC100 DIV_BYPASS		0x40000000
++dict set regsC100 SYNC_MODE		0x20000000
++
++dict set regsC100 EPHY_CLKDIV_BYPASS	0x00200000
++dict set regsC100 EPHY_CLKDIV_RATIO_SHIFT	16
++dict set regsC100 PUI_CLKDIV_BYPASS	0x00004000
++dict set regsC100 PUI_CLKDIV_SRCCLK	0x00002000
++dict set regsC100 PUI_CLKDIV_RATIO_SHIFT	8
++dict set regsC100 PCI_CLKDIV_BYPASS	0x00000020
++dict set regsC100 PCI_CLKDIV_RATIO_SHIFT	0
++
++dict set regsC100 ARM0_CLK_PD		0x00200000
++dict set regsC100 ARM1_CLK_PD		0x00100000
++dict set regsC100 EPHY_CLK_PD		0x00080000
++dict set regsC100 TDM_CLK_PD		0x00040000
++dict set regsC100 PUI_CLK_PD		0x00020000
++dict set regsC100 PCI_CLK_PD		0x00010000
++dict set regsC100 MDMA_AHBCLK_PD	0x00000400
++dict set regsC100 I2CSPI_AHBCLK_PD	0x00000200
++dict set regsC100 UART_AHBCLK_PD	0x00000100
++dict set regsC100 IPSEC_AHBCLK_PD	0x00000080
++dict set regsC100 TDM_AHBCLK_PD	0x00000040
++dict set regsC100 USB1_AHBCLK_PD	0x00000020
++dict set regsC100 USB0_AHBCLK_PD	0x00000010
++dict set regsC100 GEMAC1_AHBCLK_PD	0x00000008
++dict set regsC100 GEMAC0_AHBCLK_PD	0x00000004
++dict set regsC100 PUI_AHBCLK_PD	0x00000002
++dict set regsC100 HIF_AHBCLK_PD	0x00000001
++
++dict set regsC100 ARM1_DIV_BP		0x00001000
++dict set regsC100 ARM1_DIV_VAL_SHIFT	8
++dict set regsC100 ARM0_DIV_BP		0x00000010
++dict set regsC100 ARM0_DIV_VAL_SHIFT	0
++
++dict set regsC100 AHBCLK_PLL_LOCK	0x00000002
++dict set regsC100 FCLK_PLL_LOCK	0x00000001
++
++
++#// reset block
++dict set regsC100 BLOCK_RESET_REG		[expr [dict get $regsC100 CLKCORE_BASEADDR ] + 0x100]
++dict set regsC100 CSP_RESET_REG		[expr [dict get $regsC100 CLKCORE_BASEADDR ] + 0x104]
++
++dict set regsC100 RNG_RST		0x1000
++dict set regsC100 IPSEC_RST		0x0800
++dict set regsC100 DDR_RST		0x0400
++dict set regsC100 USB1_PHY_RST	0x0200
++dict set regsC100 USB0_PHY_RST	0x0100
++dict set regsC100 USB1_RST		0x0080
++dict set regsC100 USB0_RST		0x0040
++dict set regsC100 GEMAC1_RST		0x0020
++dict set regsC100 GEMAC0_RST		0x0010
++dict set regsC100 TDM_RST		0x0008
++dict set regsC100 PUI_RST		0x0004
++dict set regsC100 HIF_RST		0x0002
++dict set regsC100 PCI_RST		0x0001
++
++#////////////////////////////////////////////////////////////////
++#//	DDR  CONTROLLER block
++#////////////////////////////////////////////////////////////////
++
++dict set regsC100 DDR_CONFIG_BASEADDR	0x0D000000
++dict set regsC100 DENALI_CTL_00_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x00]
++dict set regsC100 DENALI_CTL_01_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x08]
++dict set regsC100 DENALI_CTL_02_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x10]
++dict set regsC100 DENALI_CTL_03_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x18]
++dict set regsC100 DENALI_CTL_04_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x20]
++dict set regsC100 DENALI_CTL_05_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x28]
++dict set regsC100 DENALI_CTL_06_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x30]
++dict set regsC100 DENALI_CTL_07_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x38]
++dict set regsC100 DENALI_CTL_08_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x40]
++dict set regsC100 DENALI_CTL_09_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x48]
++dict set regsC100 DENALI_CTL_10_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x50]
++dict set regsC100 DENALI_CTL_11_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x58]
++dict set regsC100 DENALI_CTL_12_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x60]
++dict set regsC100 DENALI_CTL_13_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x68]
++dict set regsC100 DENALI_CTL_14_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x70]
++dict set regsC100 DENALI_CTL_15_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x78]
++dict set regsC100 DENALI_CTL_16_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x80]
++dict set regsC100 DENALI_CTL_17_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x88]
++dict set regsC100 DENALI_CTL_18_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x90]
++dict set regsC100 DENALI_CTL_19_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x98]
++dict set regsC100 DENALI_CTL_20_DATA	[expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0xA0]
++
++# 32-bit value
++dict set regsC100 DENALI_READY_CHECK         [expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x44]
++# 8-bit
++dict set regsC100 DENALI_WR_DQS              [expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x5D]
++# 8-bit
++dict set regsC100 DENALI_DQS_OUT             [expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x5A]
++# 8-bit
++dict set regsC100 DENALI_DQS_DELAY0          [expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] + 0x4F]
++# 8-bit
++dict set regsC100 DENALI_DQS_DELAY1          [expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] +0x50]
++# 8-bit
++dict set regsC100 DENALI_DQS_DELAY2          [expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] +0x51]
++# 8-bit
++dict set regsC100 DENALI_DQS_DELAY3          [expr [dict get $regsC100 DDR_CONFIG_BASEADDR ] +0x52]
++
++
++# end of proc regsC100
++}
+
+
+Property changes on: trunk/tcl/target/c100regs.tcl
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001465.html">[Openocd-svn] r2682 - trunk/src/flash
+</A></li>
+	<LI>Next message: <A HREF="001467.html">[Openocd-svn] r2684 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1466">[ date ]</a>
+              <a href="thread.html#1466">[ thread ]</a>
+              <a href="subject.html#1466">[ subject ]</a>
+              <a href="author.html#1466">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

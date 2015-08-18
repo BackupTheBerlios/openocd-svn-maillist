@@ -1,0 +1,467 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2413 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2413%20-%20trunk/src/jtag&In-Reply-To=%3C200906290001.n5T015mR027530%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001196.html">
+   <LINK REL="Next"  HREF="001198.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2413 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2413%20-%20trunk/src/jtag&In-Reply-To=%3C200906290001.n5T015mR027530%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2413 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Mon Jun 29 02:01:05 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001196.html">[Openocd-svn] r2412 - trunk/doc
+</A></li>
+        <LI>Next message: <A HREF="001198.html">[Openocd-svn] r2414 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1197">[ date ]</a>
+              <a href="thread.html#1197">[ thread ]</a>
+              <a href="subject.html#1197">[ subject ]</a>
+              <a href="author.html#1197">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-29 02:00:50 +0200 (Mon, 29 Jun 2009)
+New Revision: 2413
+
+Added:
+   trunk/src/jtag/interfaces.c
+   trunk/src/jtag/interfaces.h
+Modified:
+   trunk/src/jtag/Makefile.am
+   trunk/src/jtag/tcl.c
+Log:
+Move JTAG interface list to new files.
+- Adds new source files to encapsulate static/dynamic module handling.
+- Further work should implement the jtag_interface_modules_load routine,
+  to populate the jtag_interfaces list from shared libraries in a path.
+
+
+Modified: trunk/src/jtag/Makefile.am
+===================================================================
+--- trunk/src/jtag/Makefile.am	2009-06-28 18:46:51 UTC (rev 2412)
++++ trunk/src/jtag/Makefile.am	2009-06-29 00:00:50 UTC (rev 2413)
+@@ -75,12 +75,14 @@
+ 
+ libjtag_la_SOURCES = \
+ 	core.c \
++	interface.c \
++	interfaces.c \
+ 	tcl.c \
+-	interface.c \
+ 	$(DRIVERFILES)
+ 
+ noinst_HEADERS = \
+ 	interface.h \
++	interfaces.h \
+ 	commands.h \
+ 	minidriver.h \
+ 	bitbang.h \
+
+Added: trunk/src/jtag/interfaces.c
+===================================================================
+--- trunk/src/jtag/interfaces.c	2009-06-28 18:46:51 UTC (rev 2412)
++++ trunk/src/jtag/interfaces.c	2009-06-29 00:00:50 UTC (rev 2413)
+@@ -0,0 +1,155 @@
++/***************************************************************************
++ *   Copyright (C) 2005 by Dominic Rath                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
++ *                                                                         *
++ *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
++ *                                                                         *
++ *   Copyright (C) 2009 SoftPLC Corporation                                *
++ *       <A HREF="http://softplc.com">http://softplc.com</A>                                                *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dick at softplc.com</A>                                                      *
++ *                                                                         *
++ *   Copyright (C) 2009 Zachary T Welch                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>                                                  *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;interfaces.h&quot;
++
++/**
++ * @file This file includes declarations for all built-in jtag interfaces,
++ *  which are then listed in the jtag_interfaces array.
++ *
++ *  Dynamic loading can be implemented be searching for shared libraries
++ *  that contain a jtag_interface structure that can added to this list.
++ */
++
++#if BUILD_ZY1000 == 1
++extern jtag_interface_t zy1000_interface;
++#elif defined(BUILD_MINIDRIVER_DUMMY)
++extern jtag_interface_t minidummy_interface;
++#else // standard drivers
++#if BUILD_PARPORT == 1
++extern jtag_interface_t parport_interface;
++#endif
++#if BUILD_DUMMY == 1
++extern jtag_interface_t dummy_interface;
++#endif
++#if BUILD_FT2232_FTD2XX == 1
++extern jtag_interface_t ft2232_interface;
++#endif
++#if BUILD_FT2232_LIBFTDI == 1
++extern jtag_interface_t ft2232_interface;
++#endif
++#if BUILD_AMTJTAGACCEL == 1
++extern jtag_interface_t amt_jtagaccel_interface;
++#endif
++#if BUILD_EP93XX == 1
++extern jtag_interface_t ep93xx_interface;
++#endif
++#if BUILD_AT91RM9200 == 1
++extern jtag_interface_t at91rm9200_interface;
++#endif
++#if BUILD_GW16012 == 1
++extern jtag_interface_t gw16012_interface;
++#endif
++#if BUILD_PRESTO_LIBFTDI == 1 || BUILD_PRESTO_FTD2XX == 1
++extern jtag_interface_t presto_interface;
++#endif
++#if BUILD_USBPROG == 1
++extern jtag_interface_t usbprog_interface;
++#endif
++#if BUILD_JLINK == 1
++extern jtag_interface_t jlink_interface;
++#endif
++#if BUILD_VSLLINK == 1
++extern jtag_interface_t vsllink_interface;
++#endif
++#if BUILD_RLINK == 1
++extern jtag_interface_t rlink_interface;
++#endif
++#if BUILD_ARMJTAGEW == 1
++extern jtag_interface_t armjtagew_interface;
++#endif
++#endif // standard drivers
++
++/**
++ * The list of built-in JTAG interfaces, containing entries for those
++ * drivers that were enabled by the @c configure script.
++ *
++ * The list should be defined to contain either one minidriver interface
++ * or some number of standard driver interfaces, never both.
++ */
++jtag_interface_t *jtag_interfaces[] = {
++#if BUILD_ZY1000 == 1
++		&amp;zy1000_interface,
++#elif defined(BUILD_MINIDRIVER_DUMMY)
++		&amp;minidummy_interface,
++#else // standard drivers
++#if BUILD_PARPORT == 1
++		&amp;parport_interface,
++#endif
++#if BUILD_DUMMY == 1
++		&amp;dummy_interface,
++#endif
++#if BUILD_FT2232_FTD2XX == 1
++		&amp;ft2232_interface,
++#endif
++#if BUILD_FT2232_LIBFTDI == 1
++		&amp;ft2232_interface,
++#endif
++#if BUILD_AMTJTAGACCEL == 1
++		&amp;amt_jtagaccel_interface,
++#endif
++#if BUILD_EP93XX == 1
++		&amp;ep93xx_interface,
++#endif
++#if BUILD_AT91RM9200 == 1
++		&amp;at91rm9200_interface,
++#endif
++#if BUILD_GW16012 == 1
++		&amp;gw16012_interface,
++#endif
++#if BUILD_PRESTO_LIBFTDI == 1 || BUILD_PRESTO_FTD2XX == 1
++		&amp;presto_interface,
++#endif
++#if BUILD_USBPROG == 1
++		&amp;usbprog_interface,
++#endif
++#if BUILD_JLINK == 1
++		&amp;jlink_interface,
++#endif
++#if BUILD_VSLLINK == 1
++		&amp;vsllink_interface,
++#endif
++#if BUILD_RLINK == 1
++		&amp;rlink_interface,
++#endif
++#if BUILD_ARMJTAGEW == 1
++		&amp;armjtagew_interface,
++#endif
++#endif // standard drivers
++		NULL,
++	};
++
++void jtag_interface_modules_load(const char *path)
++{
++	// @todo: implement dynamic module loading for JTAG interface drivers
++}
+
+
+Property changes on: trunk/src/jtag/interfaces.c
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/src/jtag/interfaces.h
+===================================================================
+--- trunk/src/jtag/interfaces.h	2009-06-28 18:46:51 UTC (rev 2412)
++++ trunk/src/jtag/interfaces.h	2009-06-29 00:00:50 UTC (rev 2413)
+@@ -0,0 +1,45 @@
++/***************************************************************************
++ *   Copyright (C) 2005 by Dominic Rath                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
++ *                                                                         *
++ *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
++ *                                                                         *
++ *   Copyright (C) 2009 SoftPLC Corporation                                *
++ *       <A HREF="http://softplc.com">http://softplc.com</A>                                                *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dick at softplc.com</A>                                                      *
++ *                                                                         *
++ *   Copyright (C) 2009 Zachary T Welch                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>                                                  *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifndef OPENOCD_JTAG_INTERFACES_H
++#define OPENOCD_JTAG_INTERFACES_H
++
++/**
++ * @file Exports the list of JTAG interface drivers, along with routines
++ * for loading and unloading them dynamically from shared libraries.
++ */
++
++#include &quot;interface.h&quot;
++
++/// Dynamically load all JTAG interface modules from specified directory.
++void jtag_interface_modules_load(const char *path);
++
++extern jtag_interface_t *jtag_interfaces[];
++
++#endif // OPENOCD_JTAG_INTERFACES_H
+
+
+Property changes on: trunk/src/jtag/interfaces.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/src/jtag/tcl.c
+===================================================================
+--- trunk/src/jtag/tcl.c	2009-06-28 18:46:51 UTC (rev 2412)
++++ trunk/src/jtag/tcl.c	2009-06-29 00:00:50 UTC (rev 2413)
+@@ -34,6 +34,7 @@
+ #include &quot;jtag.h&quot;
+ #include &quot;minidriver.h&quot;
+ #include &quot;interface.h&quot;
++#include &quot;interfaces.h&quot;
+ 
+ #ifdef HAVE_STRINGS_H
+ #include &lt;strings.h&gt;
+@@ -46,130 +47,6 @@
+ 	{ .name = NULL, .value = -1 }
+ };
+ 
+-/* jtag interfaces (parport, FTDI-USB, TI-USB, ...)
+- */
+-
+-#if BUILD_ZY1000 == 1
+-	extern jtag_interface_t zy1000_interface;
+-#elif defined(BUILD_MINIDRIVER_DUMMY)
+-	extern jtag_interface_t minidummy_interface;
+-#else // standard drivers
+-#if BUILD_PARPORT == 1
+-	extern jtag_interface_t parport_interface;
+-#endif
+-
+-#if BUILD_DUMMY == 1
+-	extern jtag_interface_t dummy_interface;
+-#endif
+-
+-#if BUILD_FT2232_FTD2XX == 1
+-	extern jtag_interface_t ft2232_interface;
+-#endif
+-
+-#if BUILD_FT2232_LIBFTDI == 1
+-	extern jtag_interface_t ft2232_interface;
+-#endif
+-
+-#if BUILD_AMTJTAGACCEL == 1
+-	extern jtag_interface_t amt_jtagaccel_interface;
+-#endif
+-
+-#if BUILD_EP93XX == 1
+-	extern jtag_interface_t ep93xx_interface;
+-#endif
+-
+-#if BUILD_AT91RM9200 == 1
+-	extern jtag_interface_t at91rm9200_interface;
+-#endif
+-
+-#if BUILD_GW16012 == 1
+-	extern jtag_interface_t gw16012_interface;
+-#endif
+-
+-#if BUILD_PRESTO_LIBFTDI == 1 || BUILD_PRESTO_FTD2XX == 1
+-	extern jtag_interface_t presto_interface;
+-#endif
+-
+-#if BUILD_USBPROG == 1
+-	extern jtag_interface_t usbprog_interface;
+-#endif
+-
+-#if BUILD_JLINK == 1
+-	extern jtag_interface_t jlink_interface;
+-#endif
+-
+-#if BUILD_VSLLINK == 1
+-	extern jtag_interface_t vsllink_interface;
+-#endif
+-
+-#if BUILD_RLINK == 1
+-	extern jtag_interface_t rlink_interface;
+-#endif
+-
+-#if BUILD_ARMJTAGEW == 1
+-	extern jtag_interface_t armjtagew_interface;
+-#endif
+-#endif // standard drivers
+-
+-/**
+- * The list of built-in JTAG interfaces, containing entries for those
+- * drivers that were enabled by the @c configure script.
+- *
+- * The list should be defined to contain either one minidriver interface
+- * or some number of standard driver interfaces, never both.
+- */
+-jtag_interface_t *jtag_interfaces[] = {
+-#if BUILD_ZY1000 == 1
+-	&amp;zy1000_interface,
+-#elif defined(BUILD_MINIDRIVER_DUMMY)
+-	&amp;minidummy_interface,
+-#else // standard drivers
+-#if BUILD_PARPORT == 1
+-	&amp;parport_interface,
+-#endif
+-#if BUILD_DUMMY == 1
+-	&amp;dummy_interface,
+-#endif
+-#if BUILD_FT2232_FTD2XX == 1
+-	&amp;ft2232_interface,
+-#endif
+-#if BUILD_FT2232_LIBFTDI == 1
+-	&amp;ft2232_interface,
+-#endif
+-#if BUILD_AMTJTAGACCEL == 1
+-	&amp;amt_jtagaccel_interface,
+-#endif
+-#if BUILD_EP93XX == 1
+-	&amp;ep93xx_interface,
+-#endif
+-#if BUILD_AT91RM9200 == 1
+-	&amp;at91rm9200_interface,
+-#endif
+-#if BUILD_GW16012 == 1
+-	&amp;gw16012_interface,
+-#endif
+-#if BUILD_PRESTO_LIBFTDI == 1 || BUILD_PRESTO_FTD2XX == 1
+-	&amp;presto_interface,
+-#endif
+-#if BUILD_USBPROG == 1
+-	&amp;usbprog_interface,
+-#endif
+-#if BUILD_JLINK == 1
+-	&amp;jlink_interface,
+-#endif
+-#if BUILD_VSLLINK == 1
+-	&amp;vsllink_interface,
+-#endif
+-#if BUILD_RLINK == 1
+-	&amp;rlink_interface,
+-#endif
+-#if BUILD_ARMJTAGEW == 1
+-	&amp;armjtagew_interface,
+-#endif
+-#endif // standard drivers
+-	NULL,
+-};
+-
+ extern jtag_interface_t *jtag_interface;
+ 
+ /* jtag commands */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001196.html">[Openocd-svn] r2412 - trunk/doc
+</A></li>
+	<LI>Next message: <A HREF="001198.html">[Openocd-svn] r2414 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1197">[ date ]</a>
+              <a href="thread.html#1197">[ thread ]</a>
+              <a href="subject.html#1197">[ subject ]</a>
+              <a href="author.html#1197">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

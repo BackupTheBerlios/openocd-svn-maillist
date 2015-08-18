@@ -1,0 +1,213 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1966 - in trunk/src: server target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1966%20-%20in%20trunk/src%3A%20server%20target&In-Reply-To=%3C200905311131.n4VBVZhV012667%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000749.html">
+   <LINK REL="Next"  HREF="000751.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1966 - in trunk/src: server target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1966%20-%20in%20trunk/src%3A%20server%20target&In-Reply-To=%3C200905311131.n4VBVZhV012667%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1966 - in trunk/src: server target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Sun May 31 13:31:36 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000749.html">[Openocd-svn] r1965 - in trunk/src: server target
+</A></li>
+        <LI>Next message: <A HREF="000751.html">[Openocd-svn] r1967 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#750">[ date ]</a>
+              <a href="thread.html#750">[ thread ]</a>
+              <a href="subject.html#750">[ subject ]</a>
+              <a href="author.html#750">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-31 13:31:27 +0200 (Sun, 31 May 2009)
+New Revision: 1966
+
+Modified:
+   trunk/src/server/gdb_server.c
+   trunk/src/target/arm11.c
+   trunk/src/target/embeddedice.c
+   trunk/src/target/target.c
+   trunk/src/target/target.h
+Log:
+Add target_get_name wrapper:
+- replaces all accesses to target-&gt;type-&gt;name.
+- add documentation in target_s to warn not to access field directly.
+
+
+Modified: trunk/src/server/gdb_server.c
+===================================================================
+--- trunk/src/server/gdb_server.c	2009-05-31 11:31:11 UTC (rev 1965)
++++ trunk/src/server/gdb_server.c	2009-05-31 11:31:27 UTC (rev 1966)
+@@ -2211,7 +2211,8 @@
+ 
+ 		add_service(&quot;gdb&quot;, CONNECTION_PIPE, 0, 1, gdb_new_connection, gdb_input, gdb_connection_closed, gdb_service);
+ 
+-		LOG_DEBUG(&quot;gdb service for target %s using pipes&quot;, target-&gt;type-&gt;name);
++		LOG_DEBUG(&quot;gdb service for target %s using pipes&quot;,
++				target_get_name(target));
+ 	}
+ 	else
+ 	{
+@@ -2222,7 +2223,9 @@
+ 
+ 			add_service(&quot;gdb&quot;, CONNECTION_TCP, gdb_port + target-&gt;target_number, 1, gdb_new_connection, gdb_input, gdb_connection_closed, gdb_service);
+ 
+-			LOG_DEBUG(&quot;gdb service for target %s at port %i&quot;, target-&gt;type-&gt;name, gdb_port + target-&gt;target_number);
++			LOG_DEBUG(&quot;gdb service for target %s at port %i&quot;,
++					target_get_name(target),
++					gdb_port + target-&gt;target_number);
+ 			target = target-&gt;next;
+ 		}
+ 	}
+
+Modified: trunk/src/target/arm11.c
+===================================================================
+--- trunk/src/target/arm11.c	2009-05-31 11:31:11 UTC (rev 1965)
++++ trunk/src/target/arm11.c	2009-05-31 11:31:27 UTC (rev 1966)
+@@ -1847,7 +1847,7 @@
+ 			continue;
+ 
+ 		/* if (t-&gt;type == arm11_target) */
+-		if (0 == strcmp(t-&gt;type-&gt;name, &quot;arm11&quot;))
++		if (0 == strcmp(target_get_name(t), &quot;arm11&quot;))
+ 			return t-&gt;arch_info;
+ 	}
+ 
+
+Modified: trunk/src/target/embeddedice.c
+===================================================================
+--- trunk/src/target/embeddedice.c	2009-05-31 11:31:11 UTC (rev 1965)
++++ trunk/src/target/embeddedice.c	2009-05-31 11:31:27 UTC (rev 1966)
+@@ -184,7 +184,7 @@
+ 			 * in some unusual bits.  Let feroceon.c validate it
+ 			 * and do the appropriate setup itself.
+ 			 */
+-			if (strcmp(target-&gt;type-&gt;name, &quot;feroceon&quot;) == 0)
++			if (strcmp(target_get_name(target), &quot;feroceon&quot;) == 0)
+ 				break;
+ 			LOG_ERROR(&quot;unknown EmbeddedICE version (comms ctrl: 0x%8.8x)&quot;, buf_get_u32(reg_list[EICE_COMMS_CTRL].value, 0, 32));
+ 	}
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-05-31 11:31:11 UTC (rev 1965)
++++ trunk/src/target/target.c	2009-05-31 11:31:27 UTC (rev 1966)
+@@ -484,6 +484,10 @@
+ 	}
+ 	return retval;
+ }
++const char *target_get_name(struct target_s *target)
++{
++	return target-&gt;type-&gt;name;
++}
+ 
+ static int target_write_memory_imp(struct target_s *target, u32 address, u32 size, u32 count, u8 *buffer)
+ {
+@@ -598,7 +602,7 @@
+ 
+ 		if ((retval = target-&gt;type-&gt;init_target(cmd_ctx, target)) != ERROR_OK)
+ 		{
+-			LOG_ERROR(&quot;target '%s' init failed&quot;, target-&gt;type-&gt;name);
++			LOG_ERROR(&quot;target '%s' init failed&quot;, target_get_name(target));
+ 			return retval;
+ 		}
+ 
+@@ -1451,7 +1455,7 @@
+ 		command_print(cmd_ctx, &quot;%2d: %-10s %-10s %-10s %10d %14s %s&quot;,
+ 					  target-&gt;target_number,
+ 					  target-&gt;cmd_name,
+-					  target-&gt;type-&gt;name,
++					  target_get_name(target),
+ 					  Jim_Nvp_value2name_simple( nvp_target_endian, target-&gt;endianness )-&gt;name,
+ 					  target-&gt;tap-&gt;abs_chain_position,
+ 					  target-&gt;tap-&gt;dotted_name,
+@@ -3131,7 +3135,7 @@
+ 			LOG_DEBUG( &quot;target: (%d) %s (%s) event: %d (%s) action: %s\n&quot;,
+ 					   target-&gt;target_number,
+ 					   target-&gt;cmd_name,
+-					   target-&gt;type-&gt;name,
++					   target_get_name(target),
+ 					   e,
+ 					   Jim_Nvp_value2name_simple( nvp_target_event, e )-&gt;name,
+ 					   Jim_GetString( teap-&gt;body, NULL ) );
+@@ -3220,7 +3224,7 @@
+ 					return JIM_ERR;
+ 				}
+ 			}
+-			Jim_SetResultString( goi-&gt;interp, target-&gt;type-&gt;name, -1 );
++			Jim_SetResultString( goi-&gt;interp, target_get_name(target), -1 );
+ 			/* loop for more */
+ 			break;
+ 		case TCFG_EVENT:
+
+Modified: trunk/src/target/target.h
+===================================================================
+--- trunk/src/target/target.h	2009-05-31 11:31:11 UTC (rev 1965)
++++ trunk/src/target/target.h	2009-05-31 11:31:27 UTC (rev 1966)
+@@ -107,6 +107,10 @@
+ 
+ typedef struct target_type_s
+ {
++	/**
++	 * Name of the target.  Do @b not access this field directly, use
++	 * target_get_name() instead.
++	 */
+ 	char *name;
+ 
+ 	/**
+@@ -395,6 +399,13 @@
+ extern int get_num_by_target(target_t *query_target);
+ extern target_t *get_target(const char *id);
+ 
++/**
++ * Get the target name.
++ *
++ * This routine is a wrapper for the target-&gt;type-&gt;name field.
++ */
++extern const char *target_get_name(struct target_s *target);
++
+ /// @returns @c true if the target has been examined.
+ extern bool target_was_examined(struct target_s *target);
+ /// Sets the @c examined flag for the given target.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000749.html">[Openocd-svn] r1965 - in trunk/src: server target
+</A></li>
+	<LI>Next message: <A HREF="000751.html">[Openocd-svn] r1967 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#750">[ date ]</a>
+              <a href="thread.html#750">[ thread ]</a>
+              <a href="subject.html#750">[ subject ]</a>
+              <a href="author.html#750">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

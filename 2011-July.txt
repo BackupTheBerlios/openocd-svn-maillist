@@ -1,0 +1,4298 @@
+From gowinex at users.sourceforge.net  Sat Jul  2 00:14:08 2011
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Fri,  1 Jul 2011 22:14:08 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-946-gbad3ee8
+Message-ID: <mailman.120.1331736155.7625.openocd-svn@lists.berlios.de>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  bad3ee87ac170150a9a8a72c731aa631a1ad8cf5 (commit)
+      from  f6026a8295faf158e500a7acb9884f9fd4c30ad1 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit bad3ee87ac170150a9a8a72c731aa631a1ad8cf5
+Author: Drasko DRASKOVIC <drasko.draskovic at gmail.com>
+Date:   Fri Jul 1 21:12:54 2011 +0200
+
+    mips_m4k : Fix soft breakpoint endianess handling
+    
+    In order to compare data read from the target with some marcros or data
+    defined on the host, we must transform this read data from target
+    endianess to host endianess.
+    target_read_memory() gets bytes from target to the host, but keeps them in _target_
+    endianess. This is OK if we just want to temporary keep this data on the
+    host, like keeping breakpoint->orig_instr. But if we want to use this
+    data for any ispections and comparisons on the host side, we must
+    transform it to _host_ endianess, by using target_buffer_get_u32()
+    function.
+    Currently this transformation is missing, and check current_instr ==
+    MIPS32_SDBBP will never pass if target and host endianess differ,
+    because current_instr will be kept in _target_ endianess and
+    MIPS32_SDBBP will be kept in _host_ endianess,
+    
+    The patch fix this issue by using target_buffer_get_u32() to transform current_instr to
+    _host_ endianess before comparison.
+
+diff --git a/src/target/mips_m4k.c b/src/target/mips_m4k.c
+index 9b4e1a4..b84783b 100644
+--- a/src/target/mips_m4k.c
++++ b/src/target/mips_m4k.c
+@@ -616,6 +616,14 @@ static int mips_m4k_unset_breakpoint(struct target *target,
+ 			{
+ 				return retval;
+ 			}
++
++			/**
++			 * target_read_memory() gets us data in _target_ endianess.
++			 * If we want to use this data on the host for comparisons with some macros
++			 * we must first transform it to _host_ endianess using target_buffer_get_u32().
++			 */
++			current_instr = target_buffer_get_u32(target, (uint8_t *)&current_instr);
++
+ 			if (current_instr == MIPS32_SDBBP)
+ 			{
+ 				if ((retval = target_write_memory(target, breakpoint->address, 4, 1,
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/mips_m4k.c |    8 ++++++++
+ 1 files changed, 8 insertions(+), 0 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From ntfreak at users.sourceforge.net  Mon Jul  4 12:40:14 2011
+From: ntfreak at users.sourceforge.net (Spencer Oliver)
+Date: Mon,  4 Jul 2011 10:40:14 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-948-gd4cd6f0
+Message-ID: <mailman.121.1331736155.7625.openocd-svn@lists.berlios.de>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  d4cd6f032015552f00bf4b5a90f25f5f958e9d9e (commit)
+       via  89fa8ce2d8c58707f3dfda397138f8ee336e1a47 (commit)
+      from  bad3ee87ac170150a9a8a72c731aa631a1ad8cf5 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit d4cd6f032015552f00bf4b5a90f25f5f958e9d9e
+Author: Peter Horn <peter.horn at bluewin.ch>
+Date:   Mon Jul 4 11:25:26 2011 +0100
+
+    cortex_m3: add auto maskisr
+    
+    This patch extends the cortex_m3 maskisr command by a new option 'auto'.
+    The 'auto' option handles interrupts during stepping in a way they are
+    processed but don't disturb the program flow during debugging.
+    
+    Before one had to choose to either enable or disable interrupts. The former
+    steps into interrupt handlers when they trigger. This disturbs the flow during
+    debugging, making it hard to follow some piece of code when interrupts occur
+    often.
+    
+    When interrupts are disabled, the flow isn't disturbed but code relying on
+    interrupt handlers to be processed will stop working. For example a delay
+    function counting the number of timer interrupts will never complete, RTOS
+    task switching will not occur and output I/O queues of interrupt driven
+    I/O will stall or overflow.
+    
+    Using the 'maskisr' command also typically requires gdb hooks to be supplied
+    by the user to switch interrupts off during the step and to enable them again
+    afterward.
+    
+    The new 'auto' option of the 'maskisr' command solves the above problems. When
+    set, the step command allows pending interrupt handlers to be executed before
+    the step, then the step is taken with interrupts disabled and finally interrupts
+    are enabled again. This way interrupt processing stays in the background without
+    disturbing the flow of debugging. No gdb hooks are required. The 'auto'
+    option is the default, since it's believed that handling interrupts in this
+    way is suitable for most users.
+    
+    The principle used for interrupt handling could probably be used for other
+    targets too.
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index 892661f..fd92d51 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -6720,8 +6720,21 @@ If @var{value} is defined, first assigns that.
+ @subsection Cortex-M3 specific commands
+ @cindex Cortex-M3
+ 
+- at deffn Command {cortex_m3 maskisr} (@option{on}|@option{off})
++ at deffn Command {cortex_m3 maskisr} (@option{auto}|@option{on}|@option{off})
+ Control masking (disabling) interrupts during target step/resume.
++
++The @option{auto} option handles interrupts during stepping a way they get
++served but don't disturb the program flow. The step command first allows
++pending interrupt handlers to execute, then disables interrupts and steps over
++the next instruction where the core was halted. After the step interrupts
++are enabled again. If the interrupt handlers don't complete within 500ms,
++the step command leaves with the core running.
++
++Note that a free breakpoint is required for the @option{auto} option. If no
++breakpoint is available at the time of the step, then the step is taken
++with interrupts enabled, i.e. the same way the @option{off} option does.
++
++Default is @option{auto}.
+ @end deffn
+ 
+ @deffn Command {cortex_m3 vector_catch} [@option{all}|@option{none}|list]
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index 9c3d2d9..98a775c 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -39,6 +39,7 @@
+ #include "register.h"
+ #include "arm_opcodes.h"
+ #include "arm_semihosting.h"
++#include <helper/time_support.h>
+ 
+ /* NOTE:  most of this should work fine for the Cortex-M1 and
+  * Cortex-M0 cores too, although they're ARMv6-M not ARMv7-M.
+@@ -858,6 +859,8 @@ static int cortex_m3_step(struct target *target, int current,
+ 	struct breakpoint *breakpoint = NULL;
+ 	struct reg *pc = armv7m->arm.pc;
+ 	bool bkpt_inst_found = false;
++	int retval;
++	bool isr_timed_out = false;
+ 
+ 	if (target->state != TARGET_HALTED)
+ 	{
+@@ -891,11 +894,79 @@ static int cortex_m3_step(struct target *target, int current,
+ 	 * instruction - as such simulate a step */
+ 	if (bkpt_inst_found == false)
+ 	{
+-		/* set step and clear halt */
+-		cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
++		/* Automatic ISR masking mode off: Just step over the next instruction */
++		if ((cortex_m3->isrmasking_mode != CORTEX_M3_ISRMASK_AUTO))
++		{
++			cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
++		}
++		else
++		{
++			/* Process interrupts during stepping in a way they don't interfere
++			 * debugging.
++			 *
++			 * Principle:
++			 *
++			 * Set a temporary break point at the current pc and let the core run
++			 * with interrupts enabled. Pending interrupts get served and we run
++			 * into the breakpoint again afterwards. Then we step over the next
++			 * instruction with interrupts disabled.
++			 *
++			 * If the pending interrupts don't complete within time, we leave the
++			 * core running. This may happen if the interrupts trigger faster
++			 * than the core can process them or the handler doesn't return.
++			 *
++			 * If no more breakpoints are available we simply do a step with
++			 * interrupts enabled.
++			 *
++			 */
++
++			/* Set a temporary break point */
++			retval = breakpoint_add(target, pc_value , 2, BKPT_TYPE_BY_ADDR(pc_value));
++			bool tmp_bp_set = (retval == ERROR_OK);
++
++			/* No more breakpoints left, just do a step */
++			if (!tmp_bp_set)
++			{
++				cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
++			}
++			else
++			{
++				/* Start the core */
++				LOG_DEBUG("Starting core to serve pending interrupts");
++				int64_t t_start = timeval_ms();
++				cortex_m3_write_debug_halt_mask(target, 0, C_HALT | C_STEP);
++
++				/* Wait for pending handlers to complete or timeout */
++				do {
++					retval = mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &cortex_m3->dcb_dhcsr);
++					if (retval != ERROR_OK)
++					{
++						target->state = TARGET_UNKNOWN;
++						return retval;
++					}
++					isr_timed_out = ((timeval_ms() - t_start) > 500);
++				} while (!((cortex_m3->dcb_dhcsr & S_HALT) || isr_timed_out));
++
++				/* Remove the temporary breakpoint */
++				breakpoint_remove(target, pc_value);
++
++				if (isr_timed_out)
++				{
++					LOG_DEBUG("Interrupt handlers didn't complete within time, "
++							"leaving target running");
++				}
++				else
++				{
++					/* Step over next instruction with interrupts disabled */
++					cortex_m3_write_debug_halt_mask(target, C_HALT | C_MASKINTS, 0);
++					cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
++					/* Re-enable interrupts */
++					cortex_m3_write_debug_halt_mask(target, C_HALT, C_MASKINTS);
++				}
++			}
++		}
+ 	}
+ 
+-	int retval;
+ 	retval = mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &cortex_m3->dcb_dhcsr);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -906,6 +977,13 @@ static int cortex_m3_step(struct target *target, int current,
+ 	if (breakpoint)
+ 		cortex_m3_set_breakpoint(target, breakpoint);
+ 
++	if (isr_timed_out) {
++		/* Leave the core running. The user has to stop execution manually. */
++		target->debug_reason = DBG_REASON_NOTHALTED;
++		target->state = TARGET_RUNNING;
++		return ERROR_OK;
++	}
++
+ 	LOG_DEBUG("target stepped dcb_dhcsr = 0x%" PRIx32
+ 			" nvic_icsr = 0x%" PRIx32,
+ 			cortex_m3->dcb_dhcsr, cortex_m3->nvic_icsr);
+@@ -2104,6 +2182,15 @@ COMMAND_HANDLER(handle_cortex_m3_mask_interrupts_command)
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+ 	int retval;
+ 
++	static const Jim_Nvp nvp_maskisr_modes[] = {
++		{ .name = "auto", .value = CORTEX_M3_ISRMASK_AUTO },
++		{ .name = "off" , .value = CORTEX_M3_ISRMASK_OFF },
++		{ .name = "on"  , .value = CORTEX_M3_ISRMASK_ON },
++		{ .name = NULL  , .value = -1 },
++	};
++	const Jim_Nvp *n;
++
++
+ 	retval = cortex_m3_verify_pointer(CMD_CTX, cortex_m3);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -2116,15 +2203,26 @@ COMMAND_HANDLER(handle_cortex_m3_mask_interrupts_command)
+ 
+ 	if (CMD_ARGC > 0)
+ 	{
+-		bool enable;
+-		COMMAND_PARSE_ON_OFF(CMD_ARGV[0], enable);
+-		uint32_t mask_on = C_HALT | (enable ? C_MASKINTS : 0);
+-		uint32_t mask_off = enable ? 0 : C_MASKINTS;
+-		cortex_m3_write_debug_halt_mask(target, mask_on, mask_off);
++		n = Jim_Nvp_name2value_simple(nvp_maskisr_modes, CMD_ARGV[0]);
++		if (n->name == NULL)
++		{
++			return ERROR_COMMAND_SYNTAX_ERROR;
++		}
++		cortex_m3->isrmasking_mode = n->value;
++
++
++		if(cortex_m3->isrmasking_mode == CORTEX_M3_ISRMASK_ON)
++		{
++			cortex_m3_write_debug_halt_mask(target, C_HALT | C_MASKINTS, 0);
++		}
++		else
++		{
++			cortex_m3_write_debug_halt_mask(target, C_HALT, C_MASKINTS);
++		}
+ 	}
+ 
+-	command_print(CMD_CTX, "cortex_m3 interrupt mask %s",
+-			(cortex_m3->dcb_dhcsr & C_MASKINTS) ? "on" : "off");
++	n = Jim_Nvp_value2name_simple(nvp_maskisr_modes, cortex_m3->isrmasking_mode);
++	command_print(CMD_CTX, "cortex_m3 interrupt mask %s", n->name);
+ 
+ 	return ERROR_OK;
+ }
+@@ -2174,7 +2272,7 @@ static const struct command_registration cortex_m3_exec_command_handlers[] = {
+ 		.handler = handle_cortex_m3_mask_interrupts_command,
+ 		.mode = COMMAND_EXEC,
+ 		.help = "mask cortex_m3 interrupts",
+-		.usage = "['on'|'off']",
++		.usage = "['auto'|'on'|'off']",
+ 	},
+ 	{
+ 		.name = "vector_catch",
+diff --git a/src/target/cortex_m3.h b/src/target/cortex_m3.h
+index e1f8ef8..e16aa89 100644
+--- a/src/target/cortex_m3.h
++++ b/src/target/cortex_m3.h
+@@ -140,6 +140,13 @@ enum cortex_m3_soft_reset_config
+ 	CORTEX_M3_RESET_VECTRESET,
+ };
+ 
++enum cortex_m3_isrmasking_mode
++{
++	CORTEX_M3_ISRMASK_AUTO,
++	CORTEX_M3_ISRMASK_OFF,
++	CORTEX_M3_ISRMASK_ON,
++};
++
+ struct cortex_m3_common
+ {
+ 	int common_magic;
+@@ -166,6 +173,8 @@ struct cortex_m3_common
+ 
+ 	enum cortex_m3_soft_reset_config soft_reset_config;
+ 
++	enum cortex_m3_isrmasking_mode isrmasking_mode;
++
+ 	struct armv7m_common armv7m;
+ };
+ 
+
+commit 89fa8ce2d8c58707f3dfda397138f8ee336e1a47
+Author: Spencer Oliver <ntfreak at users.sourceforge.net>
+Date:   Mon Jul 4 11:19:19 2011 +0100
+
+    Revert "cortex_m3: add auto maskisr"
+    
+    This reverts commit ff640f197a9a343b2f3ed10e9174e35282334e8c.
+    
+    Original patch reverted as Author's name was incorrectly set.
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index fd92d51..892661f 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -6720,21 +6720,8 @@ If @var{value} is defined, first assigns that.
+ @subsection Cortex-M3 specific commands
+ @cindex Cortex-M3
+ 
+- at deffn Command {cortex_m3 maskisr} (@option{auto}|@option{on}|@option{off})
++ at deffn Command {cortex_m3 maskisr} (@option{on}|@option{off})
+ Control masking (disabling) interrupts during target step/resume.
+-
+-The @option{auto} option handles interrupts during stepping a way they get
+-served but don't disturb the program flow. The step command first allows
+-pending interrupt handlers to execute, then disables interrupts and steps over
+-the next instruction where the core was halted. After the step interrupts
+-are enabled again. If the interrupt handlers don't complete within 500ms,
+-the step command leaves with the core running.
+-
+-Note that a free breakpoint is required for the @option{auto} option. If no
+-breakpoint is available at the time of the step, then the step is taken
+-with interrupts enabled, i.e. the same way the @option{off} option does.
+-
+-Default is @option{auto}.
+ @end deffn
+ 
+ @deffn Command {cortex_m3 vector_catch} [@option{all}|@option{none}|list]
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index 98a775c..9c3d2d9 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -39,7 +39,6 @@
+ #include "register.h"
+ #include "arm_opcodes.h"
+ #include "arm_semihosting.h"
+-#include <helper/time_support.h>
+ 
+ /* NOTE:  most of this should work fine for the Cortex-M1 and
+  * Cortex-M0 cores too, although they're ARMv6-M not ARMv7-M.
+@@ -859,8 +858,6 @@ static int cortex_m3_step(struct target *target, int current,
+ 	struct breakpoint *breakpoint = NULL;
+ 	struct reg *pc = armv7m->arm.pc;
+ 	bool bkpt_inst_found = false;
+-	int retval;
+-	bool isr_timed_out = false;
+ 
+ 	if (target->state != TARGET_HALTED)
+ 	{
+@@ -894,79 +891,11 @@ static int cortex_m3_step(struct target *target, int current,
+ 	 * instruction - as such simulate a step */
+ 	if (bkpt_inst_found == false)
+ 	{
+-		/* Automatic ISR masking mode off: Just step over the next instruction */
+-		if ((cortex_m3->isrmasking_mode != CORTEX_M3_ISRMASK_AUTO))
+-		{
+-			cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
+-		}
+-		else
+-		{
+-			/* Process interrupts during stepping in a way they don't interfere
+-			 * debugging.
+-			 *
+-			 * Principle:
+-			 *
+-			 * Set a temporary break point at the current pc and let the core run
+-			 * with interrupts enabled. Pending interrupts get served and we run
+-			 * into the breakpoint again afterwards. Then we step over the next
+-			 * instruction with interrupts disabled.
+-			 *
+-			 * If the pending interrupts don't complete within time, we leave the
+-			 * core running. This may happen if the interrupts trigger faster
+-			 * than the core can process them or the handler doesn't return.
+-			 *
+-			 * If no more breakpoints are available we simply do a step with
+-			 * interrupts enabled.
+-			 *
+-			 */
+-
+-			/* Set a temporary break point */
+-			retval = breakpoint_add(target, pc_value , 2, BKPT_TYPE_BY_ADDR(pc_value));
+-			bool tmp_bp_set = (retval == ERROR_OK);
+-
+-			/* No more breakpoints left, just do a step */
+-			if (!tmp_bp_set)
+-			{
+-				cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
+-			}
+-			else
+-			{
+-				/* Start the core */
+-				LOG_DEBUG("Starting core to serve pending interrupts");
+-				int64_t t_start = timeval_ms();
+-				cortex_m3_write_debug_halt_mask(target, 0, C_HALT | C_STEP);
+-
+-				/* Wait for pending handlers to complete or timeout */
+-				do {
+-					retval = mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &cortex_m3->dcb_dhcsr);
+-					if (retval != ERROR_OK)
+-					{
+-						target->state = TARGET_UNKNOWN;
+-						return retval;
+-					}
+-					isr_timed_out = ((timeval_ms() - t_start) > 500);
+-				} while (!((cortex_m3->dcb_dhcsr & S_HALT) || isr_timed_out));
+-
+-				/* Remove the temporary breakpoint */
+-				breakpoint_remove(target, pc_value);
+-
+-				if (isr_timed_out)
+-				{
+-					LOG_DEBUG("Interrupt handlers didn't complete within time, "
+-							"leaving target running");
+-				}
+-				else
+-				{
+-					/* Step over next instruction with interrupts disabled */
+-					cortex_m3_write_debug_halt_mask(target, C_HALT | C_MASKINTS, 0);
+-					cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
+-					/* Re-enable interrupts */
+-					cortex_m3_write_debug_halt_mask(target, C_HALT, C_MASKINTS);
+-				}
+-			}
+-		}
++		/* set step and clear halt */
++		cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
+ 	}
+ 
++	int retval;
+ 	retval = mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &cortex_m3->dcb_dhcsr);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -977,13 +906,6 @@ static int cortex_m3_step(struct target *target, int current,
+ 	if (breakpoint)
+ 		cortex_m3_set_breakpoint(target, breakpoint);
+ 
+-	if (isr_timed_out) {
+-		/* Leave the core running. The user has to stop execution manually. */
+-		target->debug_reason = DBG_REASON_NOTHALTED;
+-		target->state = TARGET_RUNNING;
+-		return ERROR_OK;
+-	}
+-
+ 	LOG_DEBUG("target stepped dcb_dhcsr = 0x%" PRIx32
+ 			" nvic_icsr = 0x%" PRIx32,
+ 			cortex_m3->dcb_dhcsr, cortex_m3->nvic_icsr);
+@@ -2182,15 +2104,6 @@ COMMAND_HANDLER(handle_cortex_m3_mask_interrupts_command)
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+ 	int retval;
+ 
+-	static const Jim_Nvp nvp_maskisr_modes[] = {
+-		{ .name = "auto", .value = CORTEX_M3_ISRMASK_AUTO },
+-		{ .name = "off" , .value = CORTEX_M3_ISRMASK_OFF },
+-		{ .name = "on"  , .value = CORTEX_M3_ISRMASK_ON },
+-		{ .name = NULL  , .value = -1 },
+-	};
+-	const Jim_Nvp *n;
+-
+-
+ 	retval = cortex_m3_verify_pointer(CMD_CTX, cortex_m3);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -2203,26 +2116,15 @@ COMMAND_HANDLER(handle_cortex_m3_mask_interrupts_command)
+ 
+ 	if (CMD_ARGC > 0)
+ 	{
+-		n = Jim_Nvp_name2value_simple(nvp_maskisr_modes, CMD_ARGV[0]);
+-		if (n->name == NULL)
+-		{
+-			return ERROR_COMMAND_SYNTAX_ERROR;
+-		}
+-		cortex_m3->isrmasking_mode = n->value;
+-
+-
+-		if(cortex_m3->isrmasking_mode == CORTEX_M3_ISRMASK_ON)
+-		{
+-			cortex_m3_write_debug_halt_mask(target, C_HALT | C_MASKINTS, 0);
+-		}
+-		else
+-		{
+-			cortex_m3_write_debug_halt_mask(target, C_HALT, C_MASKINTS);
+-		}
++		bool enable;
++		COMMAND_PARSE_ON_OFF(CMD_ARGV[0], enable);
++		uint32_t mask_on = C_HALT | (enable ? C_MASKINTS : 0);
++		uint32_t mask_off = enable ? 0 : C_MASKINTS;
++		cortex_m3_write_debug_halt_mask(target, mask_on, mask_off);
+ 	}
+ 
+-	n = Jim_Nvp_value2name_simple(nvp_maskisr_modes, cortex_m3->isrmasking_mode);
+-	command_print(CMD_CTX, "cortex_m3 interrupt mask %s", n->name);
++	command_print(CMD_CTX, "cortex_m3 interrupt mask %s",
++			(cortex_m3->dcb_dhcsr & C_MASKINTS) ? "on" : "off");
+ 
+ 	return ERROR_OK;
+ }
+@@ -2272,7 +2174,7 @@ static const struct command_registration cortex_m3_exec_command_handlers[] = {
+ 		.handler = handle_cortex_m3_mask_interrupts_command,
+ 		.mode = COMMAND_EXEC,
+ 		.help = "mask cortex_m3 interrupts",
+-		.usage = "['auto'|'on'|'off']",
++		.usage = "['on'|'off']",
+ 	},
+ 	{
+ 		.name = "vector_catch",
+diff --git a/src/target/cortex_m3.h b/src/target/cortex_m3.h
+index e16aa89..e1f8ef8 100644
+--- a/src/target/cortex_m3.h
++++ b/src/target/cortex_m3.h
+@@ -140,13 +140,6 @@ enum cortex_m3_soft_reset_config
+ 	CORTEX_M3_RESET_VECTRESET,
+ };
+ 
+-enum cortex_m3_isrmasking_mode
+-{
+-	CORTEX_M3_ISRMASK_AUTO,
+-	CORTEX_M3_ISRMASK_OFF,
+-	CORTEX_M3_ISRMASK_ON,
+-};
+-
+ struct cortex_m3_common
+ {
+ 	int common_magic;
+@@ -173,8 +166,6 @@ struct cortex_m3_common
+ 
+ 	enum cortex_m3_soft_reset_config soft_reset_config;
+ 
+-	enum cortex_m3_isrmasking_mode isrmasking_mode;
+-
+ 	struct armv7m_common armv7m;
+ };
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From plagnioj at users.sourceforge.net  Mon Jul  4 15:53:55 2011
+From: plagnioj at users.sourceforge.net (plagnioj)
+Date: Mon,  4 Jul 2011 13:53:55 +0000
+Subject: [openocd-svn] Main OpenOCD repository annotated tag, v0.5.0-rc1,
+	created. v0.5.0-rc1
+Message-ID: <mailman.122.1331736155.7625.openocd-svn@lists.berlios.de>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The annotated tag, v0.5.0-rc1 has been created
+        at  9f8cc12599b5beec900e4d50a82f594d3e22357b (tag)
+   tagging  2b1ba3a563bf0ab37a05133d631ffaace954691c (commit)
+  replaces  v0.4.0
+ tagged by  Jean-Christophe PLAGNIOL-VILLARD
+        on  Wed Jun 29 00:23:17 2011 +0800
+
+- Log -----------------------------------------------------------------
+v0.5.0-rc1
+
+Aaron Carroll (11):
+      openocd.texi: minor fixes in Reset Configuration
+      Add cscope to .gitignore
+      Add '-coreid' target option to support multiple cores per TAP.
+      arm_dpm: add some SCR/RCR macros
+      cortex_a9: add source files for Cortex A9 support.
+      TCL configs for OMAP4430 and Pandaboard
+      cortex_m3: allow scripts to override reset
+      omap4430: fix reset sequence
+      cortex_a9: fix dap_ap_select() usage
+      omap4430: force hardware breakpoints for GDB
+      omap4430: add Blaze config
+
+Alexander Stein (1):
+      Remove duplicated initialization
+
+Alexandre Pereira da Silva (6):
+      Add Micron 2GiB nand
+      Clarify LPC32XX address cycles message
+      Add the REV A tap id to the LPC3250 configuration
+      Make the LPC32xx slc nand driver the default
+      Make the LPC32xx nand driver support up to 5 address cycles. This will only work in the SLC driver.
+      Fix non cfi x16 nor flash connected to x8 bus. The ids in the table should be masked before comparison.
+
+Ali Lown (2):
+      Add support for LED to USB Blaster code.
+      Buffering for up to 64 bytes in USB Blaster.
+
+Andreas Fritiofson (5):
+      stm32x: allow flash probe on a running target
+      don't add confusing source info to Jim
+      reverse order of Jim stack trace output
+      arm-jtag-ew: -Wshadow fix
+      fix segfault from stack corruption in ahbap_debugport_init
+
+Andrew Leech (2):
+      lpc3131: target definition
+      svf: various improvements
+
+Andrew Lyon (1):
+      bugfix for step <address> mips_m4k
+
+Andrew MacIsaac (1):
+      Compilation Warnings on OS X 10.5
+
+Anton Fedotov (1):
+      cortex-a8: more MMU support
+
+Antonio Borneo (129):
+      CFI: review print of Voltage values
+      cfi: simplify and clearify code
+      CFI CORE: bug-fix protect single sector
+      server: review scope of functions and data
+      server: review unused symbols
+      telnet_server: review scope of functions
+      telnet_server: review unused symbols
+      TCL scripts: update to current "flash bank" syntax
+      NOR TCL: fix usage message
+      ARMv7M: review scope of functions
+      TARGET: review scope of functions
+      TARGET: review unused symbols
+      EMBEDDEDICE: review scope of functions
+      ARMV4_5: review scope of data
+      ARMV4_5_MMU: review unused symbols
+      ARM_SIMULATOR: review scope of functions
+      ARM_JTAG: review scope of functions
+      ARM920T: review scope of functions
+      ADI_V5_JTAG: review scope of data
+      PLD: review scope of functions
+      HELLO: review unused symbols
+      TIME_SUPPORT: review unused symbols
+      TCL: review scope of functions
+      STR9XPEC: review scope of functions
+      NOR/DRIVERS: review scope of functions
+      NOR/CORE: review scope of data
+      NOR/AVRF: review scope of data
+      NOR/ADUC702X: review scope of data
+      NAND/MX3: review scope of data
+      NAND/CORE: review scope of functions
+      NAND/ARM_IO: review scope of functions
+      MFLASH: review scope of functions
+      NAND/TCL: review scope of functions
+      NOR/STR7X: review scope of data
+      BINARYBUFFER: review scope of data and functions
+      JTAG/COMMANDS: review scope of functions
+      OPENOCD: review scope of functions
+      TARGET/DSP563XX_ONCE: review scope of functions
+      NOR/CFI: review scope of functions
+      TARGET/MIPS_EJTAG: review scope of functions
+      HELPER/LOG: review unused symbols
+      TARGET/MIPS32_DMAACC: review scope of functions
+      TARGET/MIPS32_PRACC: review scope of functions
+      TARGET/MIPS32: review scope of functions
+      NOR/TMS470: review scope of symbols
+      TARGET/ARM7_9_COMMON: review scope of symbols
+      TCL SCRIPTS: fix command name
+      NOR/CFI: fix order of arguments check
+      NOR/CFI: remove redundant code
+      NOR/CFI: check "flash bank" command arguments
+      NOR/CFI: simplify bufferwsize computation
+      NOR/CFI: identify memory accesses not using "bus_width".
+      NOR/CFI: use bus_width for memory access on flash ID.
+      NOR/CFI: use bus_width for memory access in cfi_write()
+      NOR/CFI: remove use of cfi_add_byte()
+      NOR: fix comment for Doxygen
+      NOR/TCL: fix typo in error message
+      NOR: add read() callback to struct flash_driver
+      NOR/CFI: add cfi_read() implementation
+      NOR/CFI: minor code cleanup
+      NOR/CFI: fix memory leak; check malloc return value
+      TARGET/ARM920T: fix compile warning
+      TARGET/ARM920T: fix return value
+      TARGET: fix handling return code of MMU translation
+      TARGET: removed unsed parameter
+      TARGET: removed unused parameters
+      nor/at91sam3: replace helper membuf
+      helper: remove helper membuf
+      vsllink: fix -Wshadow warning
+      jlink: fix -Wshadow warning
+      helper/jim: review scope of symbols
+      helper/jim: review unused symbols
+      target/dsp563xx: review scope of symbols
+      target/dsp563xx: review unused symbols
+      helper/jim-eventloop: review scope of symbols
+      helper/jim-eventloop: review unused symbols
+      helper/jim-eventloop.h: review unused definitions
+      target/mips_m4k: review scope of symbols
+      target/feroceon: review scope of symbols
+      target/avr: review scope of symbols
+      target/avrt: review unused symbols
+      nor/virtual: review scope of symbols
+      openocd.c: review scope of symbols
+      nor/str7x: review scope of symbols
+      nand/mx2: review scope of symbols
+      error number: review
+      TCL scripts: collect duplicated procedures
+      TCL scripts: fix ocd_mem2array/mem2array
+      TARGET: fix segfault in handle_dump_image_command()
+      TARGET: review handle_load_image_command()
+      TCL scripts: add support for ST SPEAr310
+      JIM: Add "-n" option to "echo"
+      JIM: document "echo" command
+      TCL scripts: replace "puts" with "echo"
+      NOR/SPEAr: Add support for Serial NOR
+      TCL/SPEAr: Added Serial flash in board file
+      NOR/SPEARSMI: Add comments about SPI
+      FLASH/NOR: Remove useless file spearsmi.h
+      FLASH/NOR: Remove useless file at91sam3.h
+      FLASH/NOR: Remove useless file at91sam7.h
+      FLASH/NOR: Remove useless file avrf.h
+      FLASH/NOR: Remove useless file lpc2000.h
+      FLASH/NOR: Remove useless file lpc288x.h
+      FLASH/NOR: Remove useless file pic32mx.h
+      FLASH/NOR: Remove useless file stellaris.h
+      FLASH/NOR: Remove useless file stm32x.h
+      FLASH/NOR: Remove useless file str7x.h
+      FLASH/NOR: Remove useless file str9x.h
+      FLASH/NOR: Remove useless file str9xpec.h
+      FLASH/NOR: Remove useless file tms470.h
+      Documentation: fix typo
+      NOR/SPEARSMI: fix segfault
+      STR750: Add SMI interface support
+      FLASH/NOR: rename from spearsmi to stmsmi
+      FLASH/NOR: Rename spearsmi.c to stmsmi.c
+      TCL: fix non TCL comments
+      flash/nand: review NAND driver interface
+      NAND/CORE: Replace decimal dot in messages
+      NAND/CORE: Comment use of alive_sleep()
+      NAND/TCL: fix segfault on syntax error
+      NAND/TCL: prepare for common "target" reference
+      NAND/AT91SAM9: remove private "target" copy
+      NAND/DAVINCI: remove private "target" copy
+      NAND/LPC3180: remove private "target" copy
+      NAND/MX2: remove private "target" copy
+      NAND/MX3: remove private "target" copy
+      NAND/NUC910: remove private "target" copy
+      NAND/ORION: remove private "target" copy
+      NAND/S3CXXXX: remove private "target" copy
+
+Ben Gardiner (1):
+      cfg: add omapl138 support and da850evm preliminary support
+
+Bjarne Steinsbo (1):
+      lpc32xx: Flash driver
+
+Bradey Honsinger (1):
+      image loading: fix problem with offsets > 0x80000000
+
+Broadcom Corporation (Evan Hunter) (1):
+      RTOS Thread awareness support wip
+
+Catalin Patulea (2):
+      Fix typo in documentation of usb_blaster_vid_pid command
+      Fix typo in usb_blaster_vid_pid error message
+
+Damjan Marion (1):
+      buspirate: fix building on some OSes
+
+Daniel B??der (1):
+      change %x and %d to PRIx32 and PRId32 where needed for cygwin
+
+David Brownell (76):
+      Open the merge window for the 0.5.0 release cycle.
+      ARMv7-M: start using "struct arm"
+      ARM11: per-core options should not be global
+      ARM DPM: support adding/removing HW breakpoints
+      ARM: keep a handle to the PC
+      ADIv5 clean up AP selection and register caching
+      ADIv5 clean up AP fault handling
+      ARM: ADIv5 code shrinkage, cleanup
+      ARM: ADIv5, deadcode cleanup
+      ADIv5: remove ATOMIC/COMPOSITE interface mode
+      ADIv5: relocate memacess_tck cycles
+      Developer's Guide: refresh release procedures
+      ft2232 table init cleanup
+      ARM ADIv5: rename more JTAG-specific routines
+      ARM ADIv5 doxygen and cleanup
+      interface: define TMS sequence command
+      ft2232: implement TMS sequence command
+      ADIv5 DAP ops switching to JTAG or SWD modes
+      new "stellaris recover" command
+      arm_semihosting buildfix
+      ADIv5: use right ID for Cortex-M3 ETM
+      LPC1768 updates, IAR board support
+      target_resume() doxygen
+      ARM: start abstracting ADIv5 transports (JTAG/SWD)
+      ADIv5: use new dap_run() operation
+      ADIv5: use new DAP ops for DP read/write
+      ADIv5: use new DAP ops for AP read/write
+      NOR: stellaris message tweaks
+      NOR: invalidate cached state on target resume
+      NOR: trim range in flash_driver_protect()
+      rename "swjdp_common" as "adiv5_dap"
+      ADIv5 share DAP command support
+      README: update libftdi version
+      doc: not all debug adapters are "dongles"
+      move a constant table to .rodata section
+      split "interface" commands from "jtag" ones
+      versaloon cleanup patch
+      FT2232: lookup and save layout just once
+      rename jtag_interface_{init,quit}()
+      rename jtag_khz as adapter_khz
+      rename jtag_nsrst_delay as adapter_nsrst_delay
+      rename jtag_nsrst_assert_width as adapter_nsrst_assert_width
+      move "reset_config" out of JTAG command group
+      ADIv5 transport support moves to separate files
+      remove more duplication
+      Merge branch 'master' of ssh://dbrownell at openocd.git.sourceforge.net/gitroot/openocd/openocd
+      ADI_v5 - it's not always an "SWJ-DP"
+      FT2232 comment tweaks
+      ft2232 init mess cleanup
+      FT2232 Messaaging fix
+      jtag/tcl.c cleanup -- split out "adapter.c"
+      buildfix
+      simplify and unconfuse target_run_algorithm()
+      target: are we running algorithm code?
+      Restore deleted '!' character
+      NOR/core bugfix: restore invariants
+      initial "transport" framework
+      Fix minor openocd.texi bug
+      transport selection tweaks
+      ARM ADI-V5: PIDs and CIDs are 8 bits
+      ARM ADI-V5: cleanup CID/PID addressing
+      lm3s811-ek uses generic stellaris target config
+      comments for Luminary ICDI layout
+      more careful luminary init
+      "transport select" returns Jim value
+      stellaris flash comment update
+      Luminary-icdi comment update
+      at32ap7000 config file
+      Update comments for some Stellaris EK boards.
+      two NEWS updates
+      update more Stellaris EK board comments
+      bitq: unshadow pause()
+      add JLINK protocol doc ref
+      swj-dp.tcl (SWD infrastructure #1)
+      initial SWD transport (SWD infrastructure #2)
+      present CM3 Trace agenda
+
+Drasko DRASKOVIC (3):
+      Added correct endianess treatment for big endian targets. Now it is possible to use mips_m4k_write_memory() and mips_m4k_read_memory() to correctly set-up SDRAM, as well as bulk data write, which already handled endianess well. Also added correct endianess manipulation in case of fallback from erroneus bulk write to simple write (to avoid byte swapping two times).
+      Corrected waiting on PrAcc in wait_for_pracc_rw(). Added necessary check that PrAcc is "1" before FASTDATA access.
+      Added mips_ejtag_drscan_32_out() for optimization.
+
+Edgar Grimberg (4):
+      flash: fix shadow issues on Mac
+      target: Fix shadow issues on Mac
+      xsvf: Fix shadow issues on Mac
+      gitmodules: use http protocol for git2cl module
+
+Eric Wetzel (3):
+      nit: do not add \n at end of LOG_ERROR
+      nit: more LOG_* \n fixes
+      stellaris: automatically generate and update device IDs
+
+Erik Bot?? (1):
+      Flash driver for em357
+
+Flemming Futtrup (1):
+      cfi: add sst39vf6401b
+
+Freddie Chopin (14):
+      LPC23xx and LPC24xx after reset run on internal 4MHz RC oscillator, so "flash bank" parameter should be 4000 (not 12000)
+      Update "flash bank" helper comments for LPC2xxx chips
+      add correct CPUTAPID value for LPC2129
+      All LPC2xxx chips are little endian and that cannot be changed - update config scripts
+      There are no variants of arm7tdmi target
+      mingw32: -Wshadow fixes
+      rlink: -Wshadows fixes
+      mingw32: -Wshadow fixes in rlink.c
+      mingw32: -Wshadow fixes in arm-jtag-ew.c
+      Add comments and tiny improvements to STM32 flash loader algorithm
+      rename some target scripts to be consistent with the rest
+      remove srst_pulls_trst from LPC2xxx target scripts
+      Add common LPC2xxx setup procedure, use in all LPC2xxx files.
+      Add another level of procedures to LPC2xxx initialization - procedures for specific targets (setup_lpc<number>) take core clock and adapter clock as parameters. This way "constant" parameters (flash size and type, CPUTAPID, etc.) do not need to be copied if one wishes to change the "variable" parameters - like the core clock or adapter clock - in a board config file or somewhere else.
+
+Fredrik Hederstierna (1):
+      str9x: faster flash erase of entire chip
+
+Gary Carlson (2):
+      target: slow targets could cause GDB to time out
+      reset: fix reset halt bug
+
+Hans Peter Mortensn (1):
+      AVR flash: handle AT90CAN128 chips
+
+Jean-Christophe PLAGNIOL-VILLARD (27):
+      jlink: set the speed at JLINK_MAX_SPEED when an exceeded speed is requested
+      add at91rm9200-ek board support
+      jlink: add new PID and VID
+      jlink: harmonise the device name to J-Link
+      jlink: switch commands to subcommands
+      jlink: add jlink_pid to specify the pid to use
+      at91sam9: factorise cpu support
+      at91: add at91sam9261 support
+      at91: add at91sam9263 support
+      at91sam9260: update sram information
+      at91: add at91sam9g10 support
+      at91: add at91sam9g45 support
+      jlink: add capability dumper and command
+      jlink: use tap buffer as 2k
+      jlink: add detect hw type
+      jlink: add Emulator configuration support
+      jlink: jlink_debug_buffer use inline function when _DEBUG_USB_COMMS_ not define
+      at91: add at91sam9261 chip register definition
+      add at91sam9261-ek support
+      add at91sam9263-ek support
+      at91: add chip register definition and generic init support
+      at91: add at91sam9263 chip register definition
+      at91sam9_init: use cpu type to known the pio bank for the sram
+      at91: add at91sam9260 chip register definition
+      at91sam9260-ek: rename config to at91sam9260-ek.cfg to more consistent with other at91
+      Revert "adapter speed: require init script setting and centralize activation from drivers to core.c"
+      tmp
+
+John Devereux (1):
+      Fix for compilation failure amt_jtagaccel.c
+
+John and Tina Peterson (1):
+      SYS_WRITE0 fix
+
+Jon Povey (9):
+      NAND: fix off-by-one error in erase command argument range
+      NAND: fix first and last handling in nand_build_bbt
+      Change kb/s to KiB/s in messages about kibibytes
+      NAND: catch read errors when building BBT
+      NAND/davinci: Fix segfault for hwecc4_infix reads
+      board: dm355evm.cfg SDTIMR0/1 minor naming fix
+      etm: print something when trace buffer empty
+      svf: fix USAGE and related error reporting
+      svf: implement sleep for RUNTEST min_time
+
+Jonas H??rberg (1):
+      adapter speed: require init script setting and centralize activation from drivers to core.c
+
+Jonathan Dumaresq (2):
+      Add the contrib file for the armv7m arch
+      Add the support for the armv7m arch.
+
+Jun Ma (3):
+      fix instruction refilling bug when using software breakpoints on a big-endian arm926ej-s system
+      missing pointer's declaration when enable macro -D_DEBUG_GDB_IO_.
+      comments on doc/manual/primer/jtag.txt
+
+Karl Kurbjun (2):
+      Fujitsu MBM29SL800TE flash support
+      AM/DM37x: Unify configuration scripts and add support for TI Beagleboard xM.
+
+Luca Bruno (1):
+      Update ep93xx and at91rm9200 drivers
+
+Luca Ellero (15):
+      cortex_a8/a9: fix some comments
+      omap4430: Add JRC TAPID for PandaBoard REV EA1 (PEAP platforms)
+      cortex_a9: implement read/write memory through APB-AP
+      cortex_a9: trivial fixes
+      cortex_a9: check target halted on APB read/write memory
+      cortex_a9: check if MMU is enabled on APB read/write memory
+      arm_adi_v5: add transfer functions prototypes with selection of ap
+      arm_adi_v5: add wrapping transfer functions with selection of ap
+      cortex_a9: move dap_ap_select to arm_avi_v5
+      arm_adi_v5: add/move apsel member in struct adiv5_dap
+      stm32: add ID for medium density device Rev Z
+      cortex_a8: remove dap_ap_sel calls
+      Add preliminary support for Freescale iMX53
+      Add opcodes for load/store registers words immediate post-indexed
+      Replace byte-access to memory with faster word-access
+
+Marc Pignat (6):
+      documentation typo
+      Documentation : arm920t implements armv4
+      Documentation: consistency in GDB command name
+      at91rm9200 : reset_config should go to the board config file
+      ft2232: cleanup ft2232_write
+      ft2232: simplify ft2232_read_scan
+
+Marek Vasut (8):
+      Add VPACLink interface definition
+      Add Voipac PXA270 module support
+      ADIv5: Introduce function to detect ROM Table location
+      ADIv5: Implement function to lookup CoreSight component
+      CortexA8: Implement debug base autodetection
+      CortexA8: Introduce Freescale i.MX51 variant
+      Add EfikaMX smarttop board support
+      CORTEX A8: Fix broken CPU identification
+
+Mariano Alvira (4):
+      ft2232: add a mechanism to specify channel in layout structs
+      Add target/mc13224v.cfg
+      add board/redbee-econotag.cfg and JTAG support
+      Add board/redbee-usb.cfg
+
+Mathias K (18):
+      add basic TI xds100v2 support
+      - add xds100v2 configuaration file
+      add cortex-r4 etm id to dap info
+      24bit buffer support
+      more changes to dsp563xx code
+      buf_set_buf around 30% speed increase
+      dsp563xx: add x, y and p memory access
+      performance: committed wrong version of buf_set_buf optimization
+      ft2232: add functions for ft2232 set data bits high/low byte command
+      - add bulk memory write function - execute jtag queue at the end of the memory transfer
+      - add parameter flush to the once api to signalize if the jtag queue need to be flushed after the command
+      - remove pipeline context, use once register instead - fix wrong register write in resume and step function - add more conditional branch handling
+      dsp563xx_once: Correct wrong return value on jtag communication errors
+      dsp563xx: minor fixes, code cleanup
+      dsp563xx: rudimentary gdb support
+      ft2232: fix possible read buffer overflow
+      ft2232: fix log message and change log output to debug
+      target: allow targets to override memory alignment
+
+Matthias Bode (1):
+      Fixed bug in tcl-server
+
+Michael Schwingen (4):
+      update IXP42x target / XBA board config
+      non-CFI flash code uses data from CFI structures. Make sure that timeouts are filled in on non-CFI flashes, and print CFI information in all cases, nut just on CFI flashes.
+      cfi_protect is not implemented on Spansion flashes (many do not even have protection bits). Demote from error to warning, so that common board code can use "flash write_image erase unlock" regardless of the flash type.
+      actux3.cfg: add function to setup for u-boot debugging
+
+Michael Trensch (1):
+      Add support for Hilscher netX controllers
+
+Michal Demin (5):
+      Add support for Bus Pirate as a JTAG adapter.
+      Buspirate: fix shadow
+      buspirate: Serial port was not correctly closed.
+      buspirate: change handling of communication speed setting + create serial port open function
+      buspirate: Fix command parsing, fix errors to have more sense.
+
+Michel JAOUEN (5):
+      cortex_a: fix gaffe in first implementation of -dbgbase
+      cortex_a : implement jtag console for cortex_a
+      cortex_a : use dap ref from armv4_5common
+      cortex_a : multiple target on the same dap
+      cortex_a :apb mem read/write working with mmu_on
+
+Michel Jaouen (5):
+      rtos : compilation error on amd64
+      smp : infra for smp minimum support
+      cortex_a : smp support
+      gdb_server : 'R' command replied by OK
+      u8500.cfg : ste u8500 support
+
+Mike Dunn (14):
+      fix xscale icache and dcache commands
+      Fix underlying problem with xscale icache and dcache commands
+      fix software breakpoints on xscale
+      xscale: fix trace buffer functionality when resuming from a breakpoint
+      xscale: fix analyze_trace for trace data collected in wrap mode
+      xscale: add support for length arg to wp command
+      xscale documentation: vector table handling
+      xscale: mark xscale registers invalid on debug entry
+      propagate return status of set_breakpoint() up call chain
+      xscale: fix sw breakpoints for thumb; set bp immediately
+      xscale: bp/wp: additional LOG_ERROR on failure
+      xscale: check that wp length does not exceed address
+      xscale: some wp detail added to user manual
+      xscale: trace buffer remains enabled until explicitly disabled
+
+Olaf L??ke (1):
+      at91sam3s* support
+
+Oleksandr Tymoshenko (2):
+      avr32: work-in-progress
+      avr32: basic target script
+
+Olivier Schonken (1):
+      at91sam3: Modified cidr comparisson to ignore version bits
+
+Oyvind Harboe (1):
+      gdb-server: fix -Wshadow warning
+
+Paul Richards (2):
+      Fix for segmentation fault from freed memory access in jtag_unregister_event_callback()
+      Fix for segfault in handle_nand_dump_command.
+
+Peter Stuge (4):
+      Remove srst_pulls_trst from LPC2148 target
+      Support NGX Technologies product NGX ARM USB JTAG
+      Remove srst_pulls_trst from LPC1768 target
+      Make systesetreq typos read sysresetreq instead
+
+Phil (1):
+      Added s19 to (fast_)load_image documentation to match the online help.
+
+Phil Fong (1):
+      dsp563xx_once: Correct definition of JTAG_INSTR_CLAMP
+
+Piotr Esden-Tempski (6):
+      Added support for Lisa/L builtin JTAG interface.
+      Added Lisa/L script as a target board.
+      Added support for the Lisa/L jtag LEDs.
+      Updated Floss-JTAG config file to support v0.3 and newer. Also added noeeprom version of the config file for older versions of Floss-JTAG.
+      Added support for the blinking leds on Floss-JTAG v0.3 and newer.
+      Some cosmetic fixes to the Lisa/L layout support functions.
+
+Rolf Meeser (7):
+      LPC2900: Avoid false positive reprobing if first probing fails
+      lpc2900.c: Add support for new device LPC2926
+      lpc2900.c: Improve debug output for device probing
+      Fix sector layout for 504-KiB LPC2000 devices
+      Fix flash name in Hitex LPC2929 board config
+      Add board config for Embedded Artists LPC2478-32
+      lpc2478 target config: CCLK as (mandatory) parameter
+
+Santeri Salko (1):
+      str9xpec: Find flash controller from the chain.
+
+SimonQian (3):
+      fix compile error under MinGW
+      remove read of flash_size in STM32F2
+      add STM32F2 revY
+
+Spencer Oliver (112):
+      ARMv7M: use software breakpoints for algorithms
+      MIPS: add mips algorithm support
+      ARMv7M: add arm cmd group
+      CortexM3: move disassemble cmd to arm cmd group
+      semihosting: move semihosting cmd to arm cmd group
+      semihosting: add armv7m semihosting support
+      FT2232: add missing enum when using ftd2xx library
+      stellaris: recover_command use usleep rather than sleep
+      cm3-ftest: change to use arm disassemble
+      armv4_5: remove core_type check in mcr/mrc cmd
+      STM32: Add Value Line Flash Programming Support
+      ADUC702x: flash loader cleanup
+      STR9: flash loader cleanup
+      STR7: flash loader cleanup
+      STM32: flash loader cleanup
+      PIC32: add flash algorithm support
+      JLINK: user info message cleanup
+      MIPS: make fixed code arrays static const
+      PIC32MX: update cfg script
+      FT2232: bulidfix
+      PIC32: add Microchip Explorer16 cfg
+      PARPORT: add PARPORTADDR tcl variable
+      MIPS: remove ejtag_srst variant
+      PIC32: add software reset support
+      SCRIPT: add add_script_search_dir cmd
+      MIPS: remove unused arg from mips_ejtag_set_instr
+      PIC32MX: add unlock cmd
+      DOCS: update flash bank examples
+      str71x: fix previous commit
+      server: incorrectly display socket port number
+      cfg: add stm32eval board configs
+      cfi: add Numonyx M29W128G reset workaround
+      armv7m: 20 second timeout/megabyte for CRC check
+      mips32: 20 second timeout/megabyte for CRC check
+      flash: add flash bank name support
+      flash: require unique flash bank name
+      scripts: update flash bank names
+      gdbserver: gdb cmds returning failure on success
+      arm_adi_v5: correct ahbap_debugport_init mem-ap id (bug #23)
+      cfg: update stm32 performance stick config
+      flash: add virtual flash bank driver
+      cfg: add pic32 virtual banks
+      nor: add get_flash_bank_by_name autoprobe
+      flash: virtual driver update for get_flash_bank_by_name_noprobe
+      nor: fix memory leaks during probe
+      NEWS: updates
+      ft2232: bugfix from previous commit
+      ft2232: revert ft2232_read_scan changes
+      transport: fix bug/typo in transport_register cmd
+      adapter.c: missing space in handle_interface_command
+      docs: fix transport typo
+      arm9: revert change arm9tdmi cmd group name to arm9
+      jtag: fix shadow issues in adapter_init
+      cfg: add Avalue RSC-W910 config
+      flash: use bkpt for str9 flash algo algorithm
+      docs: missing parameter from nand check_bad_blocks
+      cfg: update rsc-w910 script
+      nand: nand probe also outputs manufacturer
+      flash: add nuc910 nand driver
+      cfg: add Amontec JTAGkey2p interface config (Issue #26)
+      armv4_5: add algorithms instruction breakpoint support
+      armv7m: exit_point optional for armv7m_run_algorithm
+      mips32: exit_point optional for mips32_run_algorithm
+      flash: remove algorithm exit_point address for supported targets
+      docs: removed unused cmd 'fast'
+      cfg: update Luminary config files
+      flash: increase stellaris flash loader buffer
+      cortex m3: add cortex_m3 reset_config cmd
+      server: fix server pipe windows support
+      gdbserver: fix gdb_port memory leak
+      gdbderver: fix gdb pipe startup overflow
+      build: remove warn_unused_result errors
+      contrib: add ram loader src code
+      src: add loader src description
+      build: add common.mk
+      build: add autobuild jimtcl to configure scripts
+      build: prepend --with-jim-ext=nvp to jimtcl configure
+      build: update bootstrap comments
+      build: fix subconfigure parameter issue
+      build: disable jimtcl lineedit
+      build: remove AC_CONFIG_AUX_DIR macro
+      build: correct configure help message
+      build: fix make install with jimtcl
+      config: fix luminary jtag config
+      cortex_m3: change cortec_m3 reset_config behaviour
+      luminary: remove unused config cmds.
+      stm32: set default soft reset config
+      build: fix build from previous commit
+      cfi: whitespace and long line cleanup
+      cfi: add time format to cfi query output
+      cfi: prefix string hex output
+      cfi: calculate correct timeouts
+      cfi: allow optional buffer write support
+      cfi: disable buffer writes for M29W128G
+      stm32: add STM32E-EVAL external memory config script
+      contrib: make sure loaders use correct arch
+      contrib: add source to the cfi flash loaders
+      contrib: change stm32 flash loader extension
+      stm32: add dual flash bank support
+      stm32: add stm32 xl family flash support
+      stm32: update option bytes for stm32xl family
+      stm32: fix reversed option byte write
+      flash: print flash bank name on flash info cmd
+      stm32x : always use valid flash base address
+      target: change working area free data type
+      mips32: add fastdata loader working area
+      loader: update loader src for armv7-m arch
+      cfi: use safer arch detection
+      cfi: fix release build warnings
+      buikd: fix cygwin -mno-cygwin build error
+      build: correctly use AC_LANG_PROGRAM
+      pic32: update pic32mx flash driver
+
+Stacey Sheldon (1):
+      transport: fix segfault in setup_command_handler()
+
+Tak??cs ??ron (1):
+      board scripts: Marvell PXA270M processor has a new TAPID: 0x89265013
+
+Thomas Koeller (6):
+      jtag: added mising header
+      DM36x: pll & clock setup
+      DM36x: Use enable bit for PLL pre-divider
+      DM36x: Disable unused SYSCLKs
+      DM36x: Set OSCDIV divider
+      jtag: fix handling of 'tap enable' error
+
+Thomas Schmid (1):
+      Fixed small mistakes in at91sam3 info command
+
+Tobias Ringstr??m (1):
+      STM32 flash erase timeout fix
+
+Tormod Volden (3):
+      tcl/board: Fix ST URLs in stm32* eval board configuration files
+      tcl/board: Clean up STM32 EVAL boards configurations
+      tcl/interface/flashlink.cfg: Fix broken ST URL
+
+Uwe Hermann (1):
+      Fix a bunch of typos.
+
+Wookey (1):
+      Numonyx M29W160ET patch
+
+Zachary T Welch (1):
+      Fix omap3_dbginit to write to physical memory.
+
+ddraskovic (1):
+      arm964e: Add support for ARM946E target.
+
+gcembed (2):
+      nand : Add Freescale iMX27 nand flash controller support
+      stm32 : change returned value of mass_erase function
+
+michal smulski (4):
+      docs: improve load_image docs
+      adapter: allow adjusting srst assert with
+      telo: update configuration scripts to matched master branch
+      arm1136 scripts
+
+richard vegh (1):
+      lpc3180: LPC3180(LPC3250) SLC driver implemented
+
+sb-sf (1):
+      gdbserver: incorrect memory map for multiple targets (bug #24)
+
+simon qian (3):
+      New JTAG driver for Versaloon
+      transport: fix LOG_DEBUG gaffe
+      transport: fix transport command args gaffe
+
+??yvind Harboe (297):
+      zy1000: jtag_add_dr_scan() performance improvement
+      arm11: allow minidrivers to implement inner loop of memory writes
+      arm11: improve performance using minidriver hook
+      jtag: the post TAP state is now passed to the drivers
+      zy1000: add jtag_add_tms_seq support
+      zy1000: arm11 load is now faster
+      zy1000: faster jtag_add_ir_scan()
+      minidriver: fix arm11 compilation problem
+      jtag: retire tap field
+      jtag: jtag_add_ir_scan() now takes a single field
+      jtag: simplify jtag_add_plain_ir/dr_scan
+      zy1000: embedded ice dcc tweak
+      bitbang: add jtag_add_tms_seq support
+      arm7/9: remove unused post_restore_context
+      zy1000: tweak the DCC inner loop a tiny bit
+      gdb_server: improved gdb load performance
+      target: mdX/mwX on target were badly broken
+      target: faster mww operations
+      gdb: long running "monitor mww" now works w/gdb
+      mips: fix warning
+      linker error: fix problem with duplicate fn
+      jtag: cut down on usage of unintended modification of global end state
+      oops: committed and pushed two temp files....
+      jtag: retire one instance of jtag_get_end_state() usage
+      jtag: remove jtag_get_end_state()'s that should be unecessary
+      jtag: remove unecessary usage of jtag_get_end_state().
+      jtag: get rid of unecessary jtag_get_end_state()
+      jtag: remove jtag_get_end_state() usage
+      jtag: retire jtag_get/set_end_state()
+      zy1000: fix bug in end state of DCC writes
+      zy1000: clean up jtag_add_xx_scan fn's
+      jtag: move towards making out_value const
+      jtag: make out_value const
+      arm breakpoints: amended fix comment
+      bitq: fix warning now that out_value is const
+      zy1000: fix optimisaion bug in dcc writes
+      zy1000: allow it to build on linux host for testing purposes
+      target: fix poll off
+      zy1000: dev tool
+      doc: gdb-attach can fix gdb connect issues
+      nor: remove bogus output about padding sections
+      flash: write_image will now pad erase to nearest sector
+      flash: write_image would fail for certain images
+      zy1000: it has a CFI chip, no need for the ecosflash driver
+      cfi: made som info output debug output
+      zy1000: wait for srst to deassert
+      target: clean up target memory allocation error messages
+      str7x: fix bogus error messages
+      flash: less bogus errors
+      docs: now builds again
+      str7x: improve error handling
+      flash: more flash write_image bugfixes
+      command context: fix errors when running certain commands on startup
+      zy1000: fix keep_alive() bug
+      gdb: connect will now fail if flash autoprobe fails
+      zy1000: fix tcl command to read power dropout status
+      cfi: fix error handling for protect fn
+      flash: erase_address now has an unlock option
+      flash: stop caching protection state
+      zy1000.cfg: gdb connect will fail first time without gdb-attach
+      zy1000: fix false positive warning about unitialized local variable
+      jim: fix bug in tcl "puts"
+      at91sam9260: use RCLK
+      jtag: rename JTAG_MOVESTATE to JTAG_TLR_RESET
+      gdb-server: fix error reporting bugs
+      verify: display up to 128 diff's
+      cfi: fix GDB keep alive bug
+      zy1000: added watchdog server
+      zy1000: fix optimisation gaffe
+      flash: flash erase_address takes unsigned arguments
+      flash: add error message if image is too big for flash
+      cfi: fix error propagation
+      arm mmu: error propagation added for address translation
+      flash: add error handling to get_flash_by_addr/name
+      target: fix retval gaffe in mwX commands
+      cfi: fix gaffe introduced in previous version
+      helper: fix -Wshadow warning in number parsing
+      flash: fix bug in error propagation of flash write_image
+      cfi: add LOG_ERROR() in case of unsupported intel erase algorithm
+      -Wshadow fixes
+      jim: -Wshadow fixes
+      jim: more jim -Wshadow fixes that should be straightforward
+      jim: -Wshadow warning fix
+      fileio: -Wshadow warning fix
+      zy1000: -Wshadow warning fix
+      breakpoint: -Wshadow warning fix
+      target: -Wshdaow warning fix
+      arm_dpm: -Wshadow warning fix
+      arm_simulator: -Wshadow warning fixes
+      arm_adi: -Wshadow warning fix
+      adi_v5_jtag: -Wshadow warning fixes
+      arm720t: -Wshadow warning fix
+      arm920t: -Wshadow warning fixes
+      arm926ejs: -Wshadow warning fix
+      arm11_dbgtap: -Wshadow warning fixes
+      cortex_a8: -Wshadow warning fixes
+      mips32: -Wshadow warning fixes
+      mips_m4k: -Wshadow warning fixes
+      mips32_pracc: -Wshadow warning fixes
+      mips_ejtag: -Wshadow warning fixes
+      flash: -Wshadow warning fix
+      at91sam7: -Wshadow warning fixes
+      ecos flash: -Wshadow warning fixes
+      lpc2000: -Wshadow warning fixes
+      lpc2900: -Wshadow warning fixes
+      stellaris: -Wshadow warning fixes
+      stm32x: -Wshadow warning fixes
+      str7x: -Wshadow warning fixes
+      oops... backup file snuck in, remove it.
+      str9x: -Wshadow warning fixes
+      str9xpec: -Wshadow warning fixes
+      tms470: -Wshadow warning fixes
+      nand: when verify failed, it didn't return an error
+      arm_io: -Wshadow warning fix
+      mflash: -Wshadow warning fix
+      svf: -Wshadow warning fixes
+      xsvf: -Wshadow warning fixes
+      gdb: clean up error handling in step/continue
+      gdb: -Wshadow warning fixes
+      build: enable -Wshadow by default
+      zy1000: fix arm11 optimisation
+      cortex a8: fix segfault for unexamined targets
+      cortex a8: add missing error handling
+      adi_v5_jtag: add missing error handling
+      jtag: do not use jtag_get_error()
+      jtag: retire jtag_get_error()
+      arm_adi_v5: error propagation fixes
+      cortex a8: add error propagation for mem_ap_read/write_atomic_u32
+      cortex a8: add timeouts waiting for restart, prepare and halt
+      cortex a8: add error propagation for poll/resume
+      cortex a8: print message that locking debug access succeeded on second try
+      gitignore: start list of emacs temp files to ignore
+      board: add alpha am3517evm ti board config file
+      target: mwX on target object now supporst phys argument
+      target: $_TARGET mdw now has a phys option
+      cortex a8: only physical read/write's are available when target is running
+      am3517 evm: use physical write to memory while target is running
+      arm11: fix gaffe in no-ack transfers
+      openocd: setup_command_handler() must not be static
+      transport: fix bug/typo in interface_transports command
+      transport: fix segfault in transport select
+      debug feature: jtagtcpip, improved performance
+      debug feature: jtagtcpip, improve performance
+      debug-feature: jtagtcpip, reduce performance impact of ping times
+      fix warnings
+      debug-feature: jtagtcpip, improve jtag performance
+      spelling fixes in comments
+      cortex a8: add missing error handling for mem_ap_read_atomic_u32()
+      cortex a8: add missing error handling for mem_ap_atomic_write_u32()
+      cortex a8: add missing error handling from cortex_a8_exec_opcode()
+      cortex a8: add missing error handling for cortex_a8_dap_write/read_coreregister_u32()
+      cortex a8: mem_ap_read_buf_u32() error handling
+      cortex a8: lots of error propagation fixes
+      arm: add error propagation to generic get_ttb fn
+      arm: add error propagation for enable/disable mmu caches
+      cortex a8: added timeout handling
+      debug: debug entry error propagation
+      arm_adi_v5: add error propagation for dap_setup_accessport
+      mem_ap_read_u32 error propagation
+      arm_adi_v5: error propagation of mem_ap_read_atomic_u32 failure
+      arm_adi_v5: mem_ap_write error propagation
+      arm_adi_v5: dap_run() error propagation
+      arm: error propagation of arm_jtag_set_instr
+      adi_jtag_ error propagation
+      arm_dpm: error propagation fixes
+      arm_jtag_scann error propagation fixes
+      arm11 error propagation fixes
+      lpc7168: make flash available upon reset init
+      util: ms command to calculate length of operations
+      jtag: add jtag_flush_queue_sleep debug command
+      jtag: measure_clk debug proc
+      ioutil: fix internal fn names
+      lpc1768: even if rclk "works", it isn't necessarily the correct clk
+      zy1000: print out khz correctly in response to setting JTAG speed
+      zy1000: use correct base clock when calculating speed divisor
+      verify_image: print out a statement that there are no further errors
+      target: if polling fails, back off
+      arm7/9: fix "reset run + halt"
+      config scripts: remove useless reference to OpenOCD docs
+      arm: add missing error reporting
+      debug: use assert's when approperiate
+      board: added at91cap7a stk w/sdram config scripts
+      tcl: remove silly ocd_ prefix to array2mem and mem2array
+      at91cap7a-stk-sdram.cfg: faster reset
+      lpc1768: turn down the jtag clock
+      mcb1700: Keil MCB1700 w/1768 config script
+      imx35pdk: fix clock and reset delays
+      jtag: fix regression with dummy driver and when starting OpenOCD with target powered down
+      warning: fix silly -O3 warning
+      cfi: tighten up type usage a bit
+      cfi: random crash in cfi_probe() fixed
+      command: capture command now handles both types commands
+      version command: make it scriptable
+      jim: fix crash when using Jim_ListInsertElements
+      helper: add stacktrace command that returns error stacktrace
+      breakpoints: fix error handling
+      tcl: remove incomplete unused tcl file
+      zy1000: remove obsolete debug code
+      zy1000: split out configure option for eCos and JTAG master
+      warnings: fix alignment warnings
+      jtag: build jtag first because it generates header files
+      zy1000: add support for Linux host
+      logging: turn of stdout/stderr buffering
+      tcl_server: switch to ctrl-z
+      helper: fix flaky capture command
+      startup: removed capture_catch
+      embeddedice: fix error handling
+      flash: fix error handling
+      jtagdp: remove #if 0'd kludges and explain why the code is correct
+      gdb: fix blank line at top
+      zy1000: fix non-JTAG master build
+      image: fix spelling mistake
+      flash: fix error handling
+      fileio: refactor struct fileio to be an opaque structure
+      fileio: fileio_size() can now fail
+      log: remove hack to redirect logs when pipes are in use
+      server: rely on ctrl-c to stop openocd
+      server: split file descriptors in in/out fd's
+      server: read/write now goes through connection fn's
+      server: specify port as a string
+      server: add support for pipes
+      pipes: add documentation for pipes
+      zy1000: add : port number syntax for tftp filing system
+      help: help now works on configuration commands
+      imx31pdk: use rclk w/1MHz fallback
+      jim tests: use installed
+      jimtcl: 0.63 release
+      bootstrap: add quick start build instructions
+      stm32: sharpen error handling for timeouts
+      stm32: add error propagation on writes
+      stm32: return error when failing to read
+      stm32: return early upon block write failure
+      target: document that target_poll() will report and clear sticky errors
+      cortex_m3: report detected error condition in poll
+      gdb: improve error message when gdb connect fails
+      gdb: fix occasional crash when flash probe failed
+      httpd: retire this server
+      flash: fix bug with multiple back-to-back flash chips
+      fastload: fix error handling upon running out of memory
+      flash: iterating over an address range now handles multiple banks
+      profile: use 100Hz as a default sampling frequency
+      jtag: getting the JTAG speed can fail
+      flash: clarify protect documentation
+      stm32: fix unprotect
+      openocd doc: update the comments about Jim Tcl a bit
+      script: support only Tcl comments
+      server: remove error value from LOG_INFO
+      bootstrap: by default the submodules are initialized
+      config: add init_targets proc that is executed just before init
+      lpc2148: redo to the new target configuration scheme
+      target: do not expose error numbers to users
+      warnings: use more 'const' for char *
+      warning: fix warning where GCC didn't catch a doubly declared global structure
+      error handling: the error number is not part of the user interface
+      nit: do not add \n at end of LOG_ERROR
+      cfi: use ARM32 machine code on all CPUs but Cortex M3
+      error: remove debug output when reporting errors
+      stm32x: add support for STM32F20x
+      jtag: add wait_srst_deassert command
+      log: debug level is between silent and debug output levels
+      svf: add nil option that just runs through the svf file
+      zy1000: reduce memory usage for fw upgrade fn
+      jtag: clean up jtag_sleep, handle short sleeps correctly via usleep
+      zy1000: fix incorrect usage of jtag_sleep()
+      zy1000: fix JTAG over TCP/IP performance problem
+      zy1000: switch to pthread
+      dsp563xx: fix bug in x buffer handling
+      dsp563xx: fix alignment warnings
+      zy1000: add code to check that SRST asserts
+      dsp563xx_once: fix warning and potential bug
+      zy1000: removed JTAG master TCP/IP server
+      zy1000: fix bug in ir scan handling
+      omap4430: cortex a9 and a8 are now merged again
+      cortex a9: merge cortex a9 and a8 code
+      omap4430: tried to add in workaround for broken dbgbase query
+      cortex_a: rename cortex_a8.c/h to cortex_a.c/h
+      command: fix leak when executing commands
+      docs: add HACKING file to help users get started with patches
+      target: add -dbgbase option to target configuration
+      cortex-a: use -dbgbase option
+      xscale: fix gaffe in phys write
+      mips: fix error handling for jtag_execute_queue()
+      mips: fix mips_ejtag_set_instr error handling
+      mips: mips_ejtag_get_impcode error propagation added
+      mips: mips32_pracc_exec error propagation fixes
+      startup: fix bugs in cleanup upon errors during startup
+      mips: delete kludgy code that modifies data sent to write_memory()
+      types: write memory now uses const
+      mips: illustrates how to improve performance
+      cortex_a: remove broken dbgbase patchup code
+      mips: fix gaffe in previous commit
+      Merge remote branch 'origin/master' into HEAD
+      cortex_a: delete dbgbase hack vestiges
+      pandaboard: use new -dbgbase option to workaround broken ROM table
+      jtag: clarify jtag->init() and jtag->quit() definitions
+      cfi: leave check on whether target is running to target_write_memory()
+      ecos: add 64 bit types for sprintf/sscanf
+
+-----------------------------------------------------------------------
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From plagnioj at users.sourceforge.net  Mon Jul  4 15:58:01 2011
+From: plagnioj at users.sourceforge.net (plagnioj)
+Date: Mon,  4 Jul 2011 13:58:01 +0000
+Subject: [openocd-svn] Main OpenOCD repository tag, v0.5.0-rc1,
+	updated. v0.4.0-941-gff640f1
+Message-ID: <mailman.123.1331736155.7625.openocd-svn@lists.berlios.de>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The tag, v0.5.0-rc1 has been updated
+        to  ff640f197a9a343b2f3ed10e9174e35282334e8c (commit)
+      from  9f8cc12599b5beec900e4d50a82f594d3e22357b
+
+- Log -----------------------------------------------------------------
+commit ff640f197a9a343b2f3ed10e9174e35282334e8c
+Author: Spencer Oliver <ntfreak at users.sourceforge.net>
+Date:   Tue Jun 28 14:16:48 2011 +0100
+
+    cortex_m3: add auto maskisr
+    
+    This patch extends the cortex_m3 maskisr command by a new option 'auto'.
+    The 'auto' option handles interrupts during stepping in a way they are
+    processed but don't disturb the program flow during debugging.
+    
+    Before one had to choose to either enable or disable interrupts. The former
+    steps into interrupt handlers when they trigger. This disturbs the flow during
+    debugging, making it hard to follow some piece of code when interrupts occur
+    often.
+    
+    When interrupts are disabled, the flow isn't disturbed but code relying on
+    interrupt handlers to be processed will stop working. For example a delay
+    function counting the number of timer interrupts will never complete, RTOS
+    task switching will not occur and output I/O queues of interrupt driven
+    I/O will stall or overflow.
+    
+    Using the 'maskisr' command also typically requires gdb hooks to be supplied
+    by the user to switch interrupts off during the step and to enable them again
+    afterward.
+    
+    The new 'auto' option of the 'maskisr' command solves the above problems. When
+    set, the step command allows pending interrupt handlers to be executed before
+    the step, then the step is taken with interrupts disabled and finally interrupts
+    are enabled again. This way interrupt processing stays in the background without
+    disturbing the flow of debugging. No gdb hooks are required. The 'auto'
+    option is the default, since it's believed that handling interrupts in this
+    way is suitable for most users.
+    
+    The principle used for interrupt handling could probably be used for other
+    targets too.
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+-----------------------------------------------------------------------
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From gowinex at users.sourceforge.net  Mon Jul  4 18:17:16 2011
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Mon,  4 Jul 2011 16:17:16 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-949-gac43d7a
+Message-ID: <mailman.124.1331736155.7625.openocd-svn@lists.berlios.de>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  ac43d7a69fca52df1ad287b51c44013653ad2f61 (commit)
+      from  d4cd6f032015552f00bf4b5a90f25f5f958e9d9e (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit ac43d7a69fca52df1ad287b51c44013653ad2f61
+Author: Drasko DRASKOVIC <drasko.draskovic at gmail.com>
+Date:   Mon Jul 4 12:55:00 2011 +0200
+
+    mips_m4k and arm7_9 : Fix soft bkpt endianess for 16-bit instructions
+    
+    The patch fix comparison of target data on the host by using
+    target_buffer_get_u16() to transform current_instr to
+    _host_ endianess before comparison.
+
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index 611d5d4..6287891 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -392,6 +392,7 @@ static int arm7_9_unset_breakpoint(struct target *target, struct breakpoint *bre
+ 			{
+ 				return retval;
+ 			}
++			current_instr = target_buffer_get_u16(target, (uint8_t *)&current_instr);
+ 			if (current_instr == arm7_9->thumb_bkpt)
+ 				if ((retval = target_write_memory(target, breakpoint->address, 2, 1, breakpoint->orig_instr)) != ERROR_OK)
+ 				{
+diff --git a/src/target/mips_m4k.c b/src/target/mips_m4k.c
+index b84783b..822d0c8 100644
+--- a/src/target/mips_m4k.c
++++ b/src/target/mips_m4k.c
+@@ -643,7 +643,7 @@ static int mips_m4k_unset_breakpoint(struct target *target,
+ 			{
+ 				return retval;
+ 			}
+-
++			current_instr = target_buffer_get_u16(target, (uint8_t *)&current_instr);
+ 			if (current_instr == MIPS16_SDBBP)
+ 			{
+ 				if ((retval = target_write_memory(target, breakpoint->address, 2, 1,
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm7_9_common.c |    1 +
+ src/target/mips_m4k.c      |    2 +-
+ 2 files changed, 2 insertions(+), 1 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From gowinex at users.sourceforge.net  Sun Jul 10 17:02:05 2011
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Sun, 10 Jul 2011 15:02:05 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-950-g898dd3a
+Message-ID: <mailman.125.1331736155.7625.openocd-svn@lists.berlios.de>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  898dd3af46e76fb195c6894f54e9bc9272375ffb (commit)
+      from  ac43d7a69fca52df1ad287b51c44013653ad2f61 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 898dd3af46e76fb195c6894f54e9bc9272375ffb
+Author: Luca Bruno <lucab at debian.org>
+Date:   Sun Jul 10 16:58:31 2011 +0200
+
+    Fix typo in command output
+    
+    Fix a bunch of minor typo in user facing output.
+    
+    Signed-off-by: Luca Bruno <lucab at debian.org>
+
+diff --git a/src/flash/nand/lpc3180.c b/src/flash/nand/lpc3180.c
+index 4cd4c6f..f196af7 100644
+--- a/src/flash/nand/lpc3180.c
++++ b/src/flash/nand/lpc3180.c
+@@ -1317,7 +1317,7 @@ COMMAND_HANDLER(handle_lpc3180_select_command)
+       if (lpc3180_info->selected_controller == LPC3180_MLC_CONTROLLER)
+ 	command_print(CMD_CTX, "%s controller selected", selected[lpc3180_info->selected_controller]);
+       else{
+-            command_print(CMD_CTX, lpc3180_info->is_bulk?"%s controller selected bulk mode is avaliable":"%s controller selected bulk mode is not avaliable", selected[lpc3180_info->selected_controller]);
++            command_print(CMD_CTX, lpc3180_info->is_bulk?"%s controller selected bulk mode is available":"%s controller selected bulk mode is not available", selected[lpc3180_info->selected_controller]);
+       }
+  
+ 
+diff --git a/src/flash/nor/stellaris.c b/src/flash/nor/stellaris.c
+index e57943c..89cc8ef 100644
+--- a/src/flash/nor/stellaris.c
++++ b/src/flash/nor/stellaris.c
+@@ -783,7 +783,7 @@ static int stellaris_protect(struct flash_bank *bank, int set, int first, int la
+ 
+ 	if (!set)
+ 	{
+-		LOG_ERROR("Hardware doesn't suppport page-level unprotect. "
++		LOG_ERROR("Hardware doesn't support page-level unprotect. "
+ 			"Try the 'recover' command.");
+ 		return ERROR_INVALID_ARGUMENTS;
+ 	}
+diff --git a/src/rtos/FreeRTOS.c b/src/rtos/FreeRTOS.c
+index 2aa4565..40da925 100644
+--- a/src/rtos/FreeRTOS.c
++++ b/src/rtos/FreeRTOS.c
+@@ -472,7 +472,7 @@ static int FreeRTOS_create( struct target* target )
+ 	}
+ 	if ( i >= FREERTOS_NUM_PARAMS )
+ 	{
+-		LOG_OUTPUT("Could not find target in FreeRTOS compatability list\r\n");
++		LOG_OUTPUT("Could not find target in FreeRTOS compatibility list\r\n");
+ 		return -1;
+ 	}
+ 
+diff --git a/src/rtos/ThreadX.c b/src/rtos/ThreadX.c
+index 8dc4640..1ce47a2 100644
+--- a/src/rtos/ThreadX.c
++++ b/src/rtos/ThreadX.c
+@@ -525,7 +525,7 @@ static int ThreadX_create( struct target* target )
+ 	}
+ 	if ( i >= THREADX_NUM_PARAMS )
+ 	{
+-		LOG_OUTPUT("Could not find target in ThreadX compatability list\r\n");
++		LOG_OUTPUT("Could not find target in ThreadX compatibility list\r\n");
+ 		return -1;
+ 	}
+ 
+diff --git a/src/rtos/eCos.c b/src/rtos/eCos.c
+index c26b66a..f301a35 100644
+--- a/src/rtos/eCos.c
++++ b/src/rtos/eCos.c
+@@ -416,7 +416,7 @@ static int eCos_create( struct target* target )
+ 	}
+ 	if ( i >= ECOS_NUM_PARAMS )
+ 	{
+-		LOG_OUTPUT("Could not find target in eCos compatability list\r\n");
++		LOG_OUTPUT("Could not find target in eCos compatibility list\r\n");
+ 		return -1;
+ 	}
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nand/lpc3180.c  |    2 +-
+ src/flash/nor/stellaris.c |    2 +-
+ src/rtos/FreeRTOS.c       |    2 +-
+ src/rtos/ThreadX.c        |    2 +-
+ src/rtos/eCos.c           |    2 +-
+ 5 files changed, 5 insertions(+), 5 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From plagnioj at users.sourceforge.net  Mon Jul 11 08:46:18 2011
+From: plagnioj at users.sourceforge.net (plagnioj)
+Date: Mon, 11 Jul 2011 06:46:18 +0000
+Subject: [openocd-svn] Main OpenOCD repository tag, v0.5.0-rc2,
+	created. v0.4.0-948-gd4cd6f0
+Message-ID: <mailman.126.1331736155.7625.openocd-svn@lists.berlios.de>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The tag, v0.5.0-rc2 has been created
+        at  d4cd6f032015552f00bf4b5a90f25f5f958e9d9e (commit)
+
+- Log -----------------------------------------------------------------
+commit d4cd6f032015552f00bf4b5a90f25f5f958e9d9e
+Author: Peter Horn <peter.horn at bluewin.ch>
+Date:   Mon Jul 4 11:25:26 2011 +0100
+
+    cortex_m3: add auto maskisr
+    
+    This patch extends the cortex_m3 maskisr command by a new option 'auto'.
+    The 'auto' option handles interrupts during stepping in a way they are
+    processed but don't disturb the program flow during debugging.
+    
+    Before one had to choose to either enable or disable interrupts. The former
+    steps into interrupt handlers when they trigger. This disturbs the flow during
+    debugging, making it hard to follow some piece of code when interrupts occur
+    often.
+    
+    When interrupts are disabled, the flow isn't disturbed but code relying on
+    interrupt handlers to be processed will stop working. For example a delay
+    function counting the number of timer interrupts will never complete, RTOS
+    task switching will not occur and output I/O queues of interrupt driven
+    I/O will stall or overflow.
+    
+    Using the 'maskisr' command also typically requires gdb hooks to be supplied
+    by the user to switch interrupts off during the step and to enable them again
+    afterward.
+    
+    The new 'auto' option of the 'maskisr' command solves the above problems. When
+    set, the step command allows pending interrupt handlers to be executed before
+    the step, then the step is taken with interrupts disabled and finally interrupts
+    are enabled again. This way interrupt processing stays in the background without
+    disturbing the flow of debugging. No gdb hooks are required. The 'auto'
+    option is the default, since it's believed that handling interrupts in this
+    way is suitable for most users.
+    
+    The principle used for interrupt handling could probably be used for other
+    targets too.
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+-----------------------------------------------------------------------
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From ntfreak at users.sourceforge.net  Wed Jul 13 12:23:23 2011
+From: ntfreak at users.sourceforge.net (Spencer Oliver)
+Date: Wed, 13 Jul 2011 10:23:23 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-954-g0ea76bc
+Message-ID: <mailman.127.1331736155.7625.openocd-svn@lists.berlios.de>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  0ea76bc778a1c5c33bf43e2afbcbbfc819764778 (commit)
+       via  b765688be6fa363117fbc3750ae15fe1fe69c984 (commit)
+       via  b238735f896cd6b25518557e4fdaac3b291a34d8 (commit)
+       via  107ddb38b7450f46bd812f52208e43c073e71af6 (commit)
+      from  898dd3af46e76fb195c6894f54e9bc9272375ffb (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 0ea76bc778a1c5c33bf43e2afbcbbfc819764778
+Author: Spencer Oliver <ntfreak at users.sourceforge.net>
+Date:   Tue Jul 12 15:51:18 2011 +0100
+
+    ftd2xx: handle FT_GetLatencyTimer bug in v1.04
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+index 2b64e87..3168f99 100644
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -2260,8 +2260,20 @@ static int ft2232_init_ftd2xx(uint16_t vid, uint16_t pid, int more, int* try_mor
+ 
+ 	if ((status = FT_GetLatencyTimer(ftdih, &latency_timer)) != FT_OK)
+ 	{
++		/* ftd2xx 1.04 (linux) has a bug when calling FT_GetLatencyTimer
++		 * so ignore errors if using this driver version */
++		DWORD dw_version;
++		
++		status = FT_GetDriverVersion(ftdih, &dw_version);
+ 		LOG_ERROR("unable to get latency timer: %" PRIu32, status);
+-		return ERROR_JTAG_INIT_FAILED;
++		
++		if ((status == FT_OK) && (dw_version == 0x10004)) {
++			LOG_ERROR("ftd2xx 1.04 detected - this has known issues " \
++					"with FT_GetLatencyTimer, upgrade to a newer version");
++		}
++		else {
++			return ERROR_JTAG_INIT_FAILED;
++		}
+ 	}
+ 	else
+ 	{
+
+commit b765688be6fa363117fbc3750ae15fe1fe69c984
+Author: Spencer Oliver <ntfreak at users.sourceforge.net>
+Date:   Tue Jul 12 14:40:19 2011 +0100
+
+    busblaster: Fix warnings when building against D2XX
+    
+    The default is -Werror, so warnings become errors.
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/src/jtag/drivers/usb_blaster.c b/src/jtag/drivers/usb_blaster.c
+index b046b71..382240f 100644
+--- a/src/jtag/drivers/usb_blaster.c
++++ b/src/jtag/drivers/usb_blaster.c
+@@ -135,7 +135,7 @@ static int usb_blaster_buf_write(
+ 	if (status != FT_OK)
+ 	{
+ 		*bytes_written = dw_bytes_written;
+-		LOG_ERROR("FT_Write returned: %lu", status);
++		LOG_ERROR("FT_Write returned: %" PRIu32, status);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 	*bytes_written = dw_bytes_written;
+@@ -168,11 +168,11 @@ usb_blaster_buf_read(uint8_t *buf, unsigned size, uint32_t *bytes_read)
+ 	if (status != FT_OK)
+ 	{
+ 		*bytes_read = dw_bytes_read;
+-		LOG_ERROR("FT_Read returned: %lu", status);
++		LOG_ERROR("FT_Read returned: %" PRIu32, status);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ #ifdef _DEBUG_JTAG_IO_
+-	LOG_DEBUG("usb_blaster_buf_read %02X (%lu)", buf[0], dw_bytes_read);
++	LOG_DEBUG("usb_blaster_buf_read %02X (%" PRIu32 ")", buf[0], dw_bytes_read);
+ #endif
+ 	*bytes_read = dw_bytes_read;
+ 	return ERROR_OK;
+@@ -384,7 +384,7 @@ static int usb_blaster_init(void)
+ 	{
+ 		DWORD num_devices;
+ 
+-		LOG_ERROR("unable to open ftdi device: %lu", status);
++		LOG_ERROR("unable to open ftdi device: %" PRIu32, status);
+ 		status = FT_ListDevices(&num_devices, NULL,
+ 				FT_LIST_NUMBER_ONLY);
+ 		if (status == FT_OK)
+@@ -402,7 +402,7 @@ static int usb_blaster_init(void)
+ 
+ 			if (status == FT_OK)
+ 			{
+-				LOG_ERROR("ListDevices: %lu", num_devices);
++				LOG_ERROR("ListDevices: %" PRIu32, num_devices);
+ 				for (i = 0; i < num_devices; i++)
+ 					LOG_ERROR("%i: %s", i, desc_array[i]);
+ 			}
+@@ -421,14 +421,14 @@ static int usb_blaster_init(void)
+ 	status = FT_SetLatencyTimer(ftdih, 2);
+ 	if (status != FT_OK)
+ 	{
+-		LOG_ERROR("unable to set latency timer: %lu", status);
++		LOG_ERROR("unable to set latency timer: %" PRIu32, status);
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
+ 	status = FT_GetLatencyTimer(ftdih, &latency_timer);
+ 	if (status != FT_OK)
+ 	{
+-		LOG_ERROR("unable to get latency timer: %lu", status);
++		LOG_ERROR("unable to get latency timer: %" PRIu32, status);
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 	LOG_DEBUG("current latency timer: %i", latency_timer);
+@@ -436,7 +436,7 @@ static int usb_blaster_init(void)
+ 	status = FT_SetBitMode(ftdih, 0x00, 0);
+ 	if (status != FT_OK)
+ 	{
+-		LOG_ERROR("unable to disable bit i/o mode: %lu", status);
++		LOG_ERROR("unable to disable bit i/o mode: %" PRIu32, status);
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ #elif BUILD_USB_BLASTER_LIBFTDI == 1
+
+commit b238735f896cd6b25518557e4fdaac3b291a34d8
+Author: Steve Bennett <steveb at workware.net.au>
+Date:   Tue Jul 12 12:56:21 2011 +0100
+
+    ft2232: Fix warnings when building against D2XX
+    
+    The default is -Werror, so warnings become errors
+    
+    Signed-off-by: Steve Bennett <steveb at workware.net.au>
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+index 38ead56..2b64e87 100644
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -515,7 +515,7 @@ static int ft2232_write(uint8_t* buf, int size, uint32_t* bytes_written)
+ 	if ((status = FT_Write(ftdih, buf, size, &dw_bytes_written)) != FT_OK)
+ 	{
+ 		*bytes_written = dw_bytes_written;
+-		LOG_ERROR("FT_Write returned: %lu", status);
++		LOG_ERROR("FT_Write returned: %" PRIu32, status);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 	else
+@@ -558,7 +558,7 @@ static int ft2232_read(uint8_t* buf, uint32_t size, uint32_t* bytes_read)
+ 					  *bytes_read, &dw_bytes_read)) != FT_OK)
+ 		{
+ 			*bytes_read = 0;
+-			LOG_ERROR("FT_Read returned: %lu", status);
++			LOG_ERROR("FT_Read returned: %" PRIu32, status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+ 		*bytes_read += dw_bytes_read;
+@@ -2215,11 +2215,11 @@ static int ft2232_init_ftd2xx(uint16_t vid, uint16_t pid, int more, int* try_mor
+ 
+ 		if (more)
+ 		{
+-			LOG_WARNING("unable to open ftdi device (trying more): %lu", status);
++			LOG_WARNING("unable to open ftdi device (trying more): %" PRIu32, status);
+ 			*try_more = 1;
+ 			return ERROR_JTAG_INIT_FAILED;
+ 		}
+-		LOG_ERROR("unable to open ftdi device: %lu", status);
++		LOG_ERROR("unable to open ftdi device: %" PRIu32, status);
+ 		status = FT_ListDevices(&num_devices, NULL, FT_LIST_NUMBER_ONLY);
+ 		if (status == FT_OK)
+ 		{
+@@ -2235,7 +2235,7 @@ static int ft2232_init_ftd2xx(uint16_t vid, uint16_t pid, int more, int* try_mor
+ 
+ 			if (status == FT_OK)
+ 			{
+-				LOG_ERROR("ListDevices: %lu", num_devices);
++				LOG_ERROR("ListDevices: %" PRIu32, num_devices);
+ 				for (i = 0; i < num_devices; i++)
+ 					LOG_ERROR("%" PRIu32 ": \"%s\"", i, desc_array[i]);
+ 			}
+@@ -2254,13 +2254,13 @@ static int ft2232_init_ftd2xx(uint16_t vid, uint16_t pid, int more, int* try_mor
+ 
+ 	if ((status = FT_SetLatencyTimer(ftdih, ft2232_latency)) != FT_OK)
+ 	{
+-		LOG_ERROR("unable to set latency timer: %lu", status);
++		LOG_ERROR("unable to set latency timer: %" PRIu32, status);
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
+ 	if ((status = FT_GetLatencyTimer(ftdih, &latency_timer)) != FT_OK)
+ 	{
+-		LOG_ERROR("unable to get latency timer: %lu", status);
++		LOG_ERROR("unable to get latency timer: %" PRIu32, status);
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 	else
+@@ -2270,19 +2270,19 @@ static int ft2232_init_ftd2xx(uint16_t vid, uint16_t pid, int more, int* try_mor
+ 
+ 	if ((status = FT_SetTimeouts(ftdih, 5000, 5000)) != FT_OK)
+ 	{
+-		LOG_ERROR("unable to set timeouts: %lu", status);
++		LOG_ERROR("unable to set timeouts: %" PRIu32, status);
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
+ 	if ((status = FT_SetBitMode(ftdih, 0x0b, 2)) != FT_OK)
+ 	{
+-		LOG_ERROR("unable to enable bit i/o mode: %lu", status);
++		LOG_ERROR("unable to enable bit i/o mode: %" PRIu32, status);
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
+ 	if ((status = FT_GetDeviceInfo(ftdih, &ftdi_device, &deviceID, SerialNumber, Description, NULL)) != FT_OK)
+ 	{
+-		LOG_ERROR("unable to get FT_GetDeviceInfo: %lu", status);
++		LOG_ERROR("unable to get FT_GetDeviceInfo: %" PRIu32, status);
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 	else
+@@ -2292,8 +2292,8 @@ static int ft2232_init_ftd2xx(uint16_t vid, uint16_t pid, int more, int* try_mor
+ 		unsigned no_of_known_types = ARRAY_SIZE(type_str) - 1;
+ 		unsigned type_index = ((unsigned)ftdi_device <= no_of_known_types)
+ 			? ftdi_device : FT_DEVICE_UNKNOWN;
+-		LOG_INFO("device: %lu \"%s\"", ftdi_device, type_str[type_index]);
+-		LOG_INFO("deviceID: %lu", deviceID);
++		LOG_INFO("device: %" PRIu32 " \"%s\"", ftdi_device, type_str[type_index]);
++		LOG_INFO("deviceID: %" PRIu32, deviceID);
+ 		LOG_INFO("SerialNumber: %s", SerialNumber);
+ 		LOG_INFO("Description: %s", Description);
+ 	}
+@@ -2307,7 +2307,7 @@ static int ft2232_purge_ftd2xx(void)
+ 
+ 	if ((status = FT_Purge(ftdih, FT_PURGE_RX | FT_PURGE_TX)) != FT_OK)
+ 	{
+-		LOG_ERROR("error purging ftd2xx device: %lu", status);
++		LOG_ERROR("error purging ftd2xx device: %" PRIu32, status);
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
+@@ -3628,7 +3628,7 @@ static int signalyzer_h_led_set(unsigned char channel, unsigned char led,
+ 	if ((status = signalyzer_h_ctrl_write(SIGNALYZER_DATA_BUFFER_ADDR,
+ 			((uint32_t)(channel << 8) | led))) != FT_OK)
+ 	{
+-		LOG_ERROR("signalyzer_h_ctrl_write  returned: %lu", status);
++		LOG_ERROR("signalyzer_h_ctrl_write  returned: %" PRIu32, status);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+@@ -3636,7 +3636,7 @@ static int signalyzer_h_led_set(unsigned char channel, unsigned char led,
+ 			(SIGNALYZER_DATA_BUFFER_ADDR + 1),
+ 			((uint32_t)(on_time << 8) | off_time))) != FT_OK)
+ 	{
+-		LOG_ERROR("signalyzer_h_ctrl_write  returned: %lu", status);
++		LOG_ERROR("signalyzer_h_ctrl_write  returned: %" PRIu32, status);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+@@ -3644,14 +3644,14 @@ static int signalyzer_h_led_set(unsigned char channel, unsigned char led,
+ 			(SIGNALYZER_DATA_BUFFER_ADDR + 2),
+ 			((uint32_t)cycles))) != FT_OK)
+ 	{
+-		LOG_ERROR("signalyzer_h_ctrl_write  returned: %lu", status);
++		LOG_ERROR("signalyzer_h_ctrl_write  returned: %" PRIu32, status);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+ 	if ((status = signalyzer_h_ctrl_write(SIGNALYZER_COMMAND_ADDR,
+ 			SIGNALYZER_COMMAND_LED_SET)) != FT_OK)
+ 	{
+-		LOG_ERROR("signalyzer_h_ctrl_write  returned: %lu", status);
++		LOG_ERROR("signalyzer_h_ctrl_write  returned: %" PRIu32, status);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+@@ -3740,7 +3740,7 @@ static int signalyzer_h_init(void)
+ 	if ((status = signalyzer_h_ctrl_write(SIGNALYZER_COMMAND_ADDR,
+ 			SIGNALYZER_COMMAND_VERSION)) != FT_OK)
+ 	{
+-		LOG_ERROR("signalyzer_h_ctrl_write returned: %lu", status);
++		LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32, status);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+@@ -3750,7 +3750,7 @@ static int signalyzer_h_init(void)
+ 			(SIGNALYZER_DATA_BUFFER_ADDR + i),
+ 			&read_buf[i])) != FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_read returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_read returned: %" PRIu32,
+ 					status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -3764,21 +3764,21 @@ static int signalyzer_h_init(void)
+ 	if ((status = signalyzer_h_ctrl_write(SIGNALYZER_DATA_BUFFER_ADDR,
+ 			(uint32_t)(signalyzer_h_side << 8))) != FT_OK)
+ 	{
+-		LOG_ERROR("signalyzer_h_ctrl_write returned: %lu", status);
++		LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32, status);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+ 	if ((status = signalyzer_h_ctrl_write(SIGNALYZER_DATA_BUFFER_ADDR + 1,
+ 			0x0404)) != FT_OK)
+ 	{
+-		LOG_ERROR("signalyzer_h_ctrl_write returned: %lu", status);
++		LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32, status);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+ 	if ((status = signalyzer_h_ctrl_write(SIGNALYZER_COMMAND_ADDR,
+ 			SIGNALYZER_COMMAND_GPIO_STATE)) != FT_OK)
+ 	{
+-		LOG_ERROR("signalyzer_h_ctrl_write returned: %lu", status);
++		LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32, status);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+@@ -3786,28 +3786,28 @@ static int signalyzer_h_init(void)
+ 	if ((status = signalyzer_h_ctrl_write(SIGNALYZER_DATA_BUFFER_ADDR,
+ 			((uint32_t)(signalyzer_h_side << 8) | 0x01))) != FT_OK)
+ 	{
+-		LOG_ERROR("signalyzer_h_ctrl_write returned: %lu", status);
++		LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32, status);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+ 	if ((status = signalyzer_h_ctrl_write(
+ 			(SIGNALYZER_DATA_BUFFER_ADDR + 1), 0xA000)) != FT_OK)
+ 	{
+-		LOG_ERROR("signalyzer_h_ctrl_write returned: %lu", status);
++		LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32, status);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+ 	if ((status = signalyzer_h_ctrl_write(
+ 			(SIGNALYZER_DATA_BUFFER_ADDR + 2), 0x0008)) != FT_OK)
+ 	{
+-		LOG_ERROR("signalyzer_h_ctrl_write returned: %lu", status);
++		LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32, status);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+ 	if ((status = signalyzer_h_ctrl_write(SIGNALYZER_COMMAND_ADDR,
+ 			SIGNALYZER_COMMAND_I2C)) != FT_OK)
+ 	{
+-		LOG_ERROR("signalyzer_h_ctrl_write returned: %lu", status);
++		LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32, status);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+@@ -3816,7 +3816,7 @@ static int signalyzer_h_init(void)
+ 	if ((status = signalyzer_h_ctrl_read(SIGNALYZER_COMMAND_ADDR,
+ 			&read_buf[0])) != FT_OK)
+ 	{
+-		LOG_ERROR("signalyzer_h_ctrl_read returned: %lu", status);
++		LOG_ERROR("signalyzer_h_ctrl_read returned: %" PRIu32, status);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+@@ -3830,7 +3830,7 @@ static int signalyzer_h_init(void)
+ 					(SIGNALYZER_DATA_BUFFER_ADDR + i),
+ 					&read_buf[i])) != FT_OK)
+ 			{
+-				LOG_ERROR("signalyzer_h_ctrl_read returned: %lu",
++				LOG_ERROR("signalyzer_h_ctrl_read returned: %" PRIu32,
+ 					status);
+ 				return ERROR_JTAG_DEVICE_ERROR;
+ 			}
+@@ -3895,7 +3895,7 @@ static int signalyzer_h_init(void)
+ 				((uint32_t)(signalyzer_h_side << 8) | 0x01)))
+ 			!= FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_write returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32,
+ 				status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -3903,7 +3903,7 @@ static int signalyzer_h_init(void)
+ 		if ((status = signalyzer_h_ctrl_write(SIGNALYZER_COMMAND_ADDR,
+ 				SIGNALYZER_COMMAND_POWERCONTROL_SET)) != FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_write returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32,
+ 					status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -3913,7 +3913,7 @@ static int signalyzer_h_init(void)
+ 				SIGNALYZER_DATA_BUFFER_ADDR,
+ 				(uint32_t)(signalyzer_h_side << 8))) != FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_write returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32,
+ 					status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -3922,7 +3922,7 @@ static int signalyzer_h_init(void)
+ 				SIGNALYZER_DATA_BUFFER_ADDR + 1, 0x0000))
+ 			!= FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_write returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32,
+ 					status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -3930,7 +3930,7 @@ static int signalyzer_h_init(void)
+ 		if ((status = signalyzer_h_ctrl_write(SIGNALYZER_COMMAND_ADDR,
+ 				SIGNALYZER_COMMAND_GPIO_MODE)) != FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_write returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32,
+ 					status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -3940,7 +3940,7 @@ static int signalyzer_h_init(void)
+ 				SIGNALYZER_DATA_BUFFER_ADDR,
+ 				(uint32_t)(signalyzer_h_side << 8))) != FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_write returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32,
+ 					status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -3949,7 +3949,7 @@ static int signalyzer_h_init(void)
+ 				SIGNALYZER_DATA_BUFFER_ADDR + 1, 0x4040))
+ 			!= FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_write returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32,
+ 					status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -3958,7 +3958,7 @@ static int signalyzer_h_init(void)
+ 				SIGNALYZER_COMMAND_ADDR,
+ 				SIGNALYZER_COMMAND_GPIO_STATE)) != FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_write returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32,
+ 					status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -4030,7 +4030,7 @@ static int signalyzer_h_init(void)
+ 				((uint32_t)(signalyzer_h_side << 8) | 0x01)))
+ 			!= FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_write returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32,
+ 					status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -4039,7 +4039,7 @@ static int signalyzer_h_init(void)
+ 				SIGNALYZER_COMMAND_ADDR,
+ 				SIGNALYZER_COMMAND_POWERCONTROL_SET)) != FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_write returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32,
+ 					status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -4051,7 +4051,7 @@ static int signalyzer_h_init(void)
+ 				SIGNALYZER_DATA_BUFFER_ADDR,
+ 				(uint32_t)(signalyzer_h_side << 8))) != FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_write returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32,
+ 					status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -4060,7 +4060,7 @@ static int signalyzer_h_init(void)
+ 				SIGNALYZER_DATA_BUFFER_ADDR + 1, 0x0060))
+ 			!= FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_write returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32,
+ 					status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -4069,7 +4069,7 @@ static int signalyzer_h_init(void)
+ 				SIGNALYZER_COMMAND_ADDR,
+ 				SIGNALYZER_COMMAND_GPIO_MODE)) != FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_write returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32,
+ 					status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -4081,7 +4081,7 @@ static int signalyzer_h_init(void)
+ 				SIGNALYZER_DATA_BUFFER_ADDR,
+ 				(uint32_t)(signalyzer_h_side << 8))) != FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_write returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32,
+ 					status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -4090,7 +4090,7 @@ static int signalyzer_h_init(void)
+ 				SIGNALYZER_DATA_BUFFER_ADDR + 1, 0x0000))
+ 			!= FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_write returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32,
+ 					status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+@@ -4099,7 +4099,7 @@ static int signalyzer_h_init(void)
+ 				SIGNALYZER_COMMAND_ADDR,
+ 				SIGNALYZER_COMMAND_GPIO_STATE)) != FT_OK)
+ 		{
+-			LOG_ERROR("signalyzer_h_ctrl_write returned: %lu",
++			LOG_ERROR("signalyzer_h_ctrl_write returned: %" PRIu32,
+ 					status);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+
+commit 107ddb38b7450f46bd812f52208e43c073e71af6
+Author: Steve Bennett <steveb at workware.net.au>
+Date:   Tue Jul 12 12:34:27 2011 +0100
+
+    ftdi: update for latest libftdi 1.0.4
+    
+    For libftd2xx1.0.4, which uses a different directory structure
+    than libftd2xx0.4.16
+    Without this fix the build fails with version 1.0.4 of the driver.
+    
+    Note that this does not fix --with-ftd2xx-lib=shared
+    
+    Signed-off-by: Steve Bennett <steveb at workware.net.au>
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/configure.in b/configure.in
+index de74ffa..8c77a25 100644
+--- a/configure.in
++++ b/configure.in
+@@ -873,14 +873,23 @@ if test $build_ft2232_ftd2xx = yes -o $build_presto_ftd2xx = yes ; then
+     AC_MSG_ERROR([Option: --with-ftd2xx-linux-tardir appears wrong, cannot find: ${FTD2XX_H}])
+     fi
+     CFLAGS="$CFLAGS -I$with_ftd2xx_linux_tardir"
+-    FTD2XX_LDFLAGS="-L$with_ftd2xx_linux_tardir"
+-    FTD2XX_LIB="-lftd2xx"
+-    if test $with_ftd2xx_lib != shared; then
+-      # Test #1 - Future proof - if/when ftdichip fixes their distro.
+-      # Try it with the simple ".a" suffix.
+-      FTD2XX_LIB="$with_ftd2xx_linux_tardir/static_lib/libftd2xx.a"
+-      if test -f "${FTD2XX_LIB}"; then
+-        FTD2XX_LDFLAGS="${FTD2XX_LDFLAGS}/static_lib"
++    if test $with_ftd2xx_lib = shared; then
++       FTD2XX_LDFLAGS="-L$with_ftd2xx_linux_tardir"
++       FTD2XX_LIB="-lftd2xx"
++    else
++      # Test #1 - v1.0.x
++      case "$host_cpu" in
++      i?86|x86_32)
++              dir=build/i386;;
++      amd64|x86_64)
++              dir=build/x86_64;;
++      *)
++              dir=none;;
++      esac
++      if test -f "$with_ftd2xx_linux_tardir/$dir/libftd2xx.a"; then
++          FTD2XX_LDFLAGS="-L$with_ftd2xx_linux_tardir/$dir"
++          # Also needs -lrt
++          FTD2XX_LIB="-lftd2xx -lrt"
+       else
+         # Test Number2.
+         # Grr.. perhaps it exists as a version number?
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ configure.in                   |   25 +++++++---
+ src/jtag/drivers/ft2232.c      |  102 ++++++++++++++++++++++-----------------
+ src/jtag/drivers/usb_blaster.c |   16 +++---
+ 3 files changed, 82 insertions(+), 61 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From ntfreak at users.sourceforge.net  Thu Jul 14 15:51:47 2011
+From: ntfreak at users.sourceforge.net (Spencer Oliver)
+Date: Thu, 14 Jul 2011 13:51:47 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-955-gf44bde2
+Message-ID: <mailman.128.1331736155.7625.openocd-svn@lists.berlios.de>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  f44bde23b9cf6b3868c712b20cf7d11bdb605482 (commit)
+      from  0ea76bc778a1c5c33bf43e2afbcbbfc819764778 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit f44bde23b9cf6b3868c712b20cf7d11bdb605482
+Author: Luca Bruno <lucab at debian.org>
+Date:   Sat Jul 9 23:44:39 2011 +0200
+
+    Do not append git info to version string when building from released tarball
+    
+    When building official releases from tarball, git commit info is not
+    available in the building environment. Thus, automake should not try to
+    append the git commit to the version string.
+    
+    Signed-off-by: Luca Bruno <lucab at debian.org>
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/src/Makefile.am b/src/Makefile.am
+index 1e7af9c..1be24ea 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -45,10 +45,11 @@ libopenocd_la_CPPFLAGS = -DPKGBLDDATE=\"`date +%F-%R`\"
+ # guess-rev.sh returns either a repository version ID or "-snapshot"
+ if RELEASE
+ libopenocd_la_CPPFLAGS += -DRELSTR=\"\"
++libopenocd_la_CPPFLAGS += -DGITVERSION=\"\"
+ else
+ libopenocd_la_CPPFLAGS += -DRELSTR=\"`$(top_srcdir)/guess-rev.sh $(top_srcdir)`\"
+-endif
+ libopenocd_la_CPPFLAGS += -DGITVERSION=\"`cd $(top_srcdir) && git describe`\"
++endif
+ 
+ # add default CPPFLAGS
+ libopenocd_la_CPPFLAGS += $(AM_CPPFLAGS) $(CPPFLAGS)
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/Makefile.am |    3 ++-
+ 1 files changed, 2 insertions(+), 1 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From gowinex at users.sourceforge.net  Fri Jul 15 12:04:46 2011
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Fri, 15 Jul 2011 10:04:46 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-956-ge7269e3
+Message-ID: <mailman.129.1331736155.7625.openocd-svn@lists.berlios.de>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  e7269e32a7390e0f17817bc340d50e0cf4d0e9e0 (commit)
+      from  f44bde23b9cf6b3868c712b20cf7d11bdb605482 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit e7269e32a7390e0f17817bc340d50e0cf4d0e9e0
+Author: ??yvind Harboe <oyvind.harboe at zylin.com>
+Date:   Fri Jul 15 12:05:37 2011 +0200
+
+    stm32f2xxx: comments about frequency choice
+
+diff --git a/jimtcl b/jimtcl
+index 411e92f..60dfb02 160000
+--- a/jimtcl
++++ b/jimtcl
+@@ -1 +1 @@
+-Subproject commit 411e92fea9621630eb350e0c2bb43543e553b84f
++Subproject commit 60dfb023c4afa95047e0fa8db49830ccb46446b2
+diff --git a/tcl/target/stm32f2xxx.cfg b/tcl/target/stm32f2xxx.cfg
+index 9ebc00f..8a85724 100644
+--- a/tcl/target/stm32f2xxx.cfg
++++ b/tcl/target/stm32f2xxx.cfg
+@@ -21,6 +21,11 @@ if { [info exists WORKAREASIZE] } {
+ }
+ 
+ # JTAG speed should be <= F_CPU/6. F_CPU after reset is 8MHz, so use F_JTAG = 1MHz
++#
++# Since we may be running of an RC oscilator, we crank down the speed a
++# bit more to be on the safe side. Perhaps superstition, but if are
++# running off a crystal, we can run closer to the limit. Note
++# that there can be a pretty wide band where things are more or less stable.
+ jtag_khz 1000
+ 
+ jtag_nsrst_delay 100
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ jimtcl                    |    2 +-
+ tcl/target/stm32f2xxx.cfg |    5 +++++
+ 2 files changed, 6 insertions(+), 1 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From ntfreak at users.sourceforge.net  Mon Jul 18 15:47:13 2011
+From: ntfreak at users.sourceforge.net (Spencer Oliver)
+Date: Mon, 18 Jul 2011 13:47:13 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-959-gd6c42bf
+Message-ID: <mailman.130.1331736156.7625.openocd-svn@lists.berlios.de>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  d6c42bf312ec6cdf95c6837fdadcebf1b104fa4f (commit)
+       via  ffbb5cd85caeffde06a36bc996238655e2808520 (commit)
+       via  5e7c8d074c9de94d16210406baa1fd2872dc79e7 (commit)
+      from  e7269e32a7390e0f17817bc340d50e0cf4d0e9e0 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit d6c42bf312ec6cdf95c6837fdadcebf1b104fa4f
+Author: Michael Hunold <michael at mihu.de>
+Date:   Mon Jul 18 09:20:31 2011 +0200
+
+    CPU name in TMPA900 config file should obviously be TMPA900 (not TMPA910).
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/tcl/target/tmpa900.cfg b/tcl/target/tmpa900.cfg
+index a551391..d5b458f 100644
+--- a/tcl/target/tmpa900.cfg
++++ b/tcl/target/tmpa900.cfg
+@@ -1,11 +1,11 @@
+ ######################################
+-# Target:    Toshiba TMPA910
++# Target:    Toshiba TMPA900
+ ######################################
+ 
+ if { [info exists CHIPNAME] } {
+    set  _CHIPNAME $CHIPNAME
+ } else {
+-   set  _CHIPNAME tmpa910
++   set  _CHIPNAME tmpa900
+ }
+ 
+ if { [info exists ENDIAN] } {
+@@ -21,7 +21,7 @@ if { [info exists CPUTAPID ] } {
+    set _CPUTAPID 0x07926031
+ }
+ 
+-#TMPA910 has following IDs:
++#TMPA900 has following IDs:
+ # CP15.0 register 0x41069265
+ # CP15.1 register 0x1d152152
+ # ARM core 0x07926031
+
+commit ffbb5cd85caeffde06a36bc996238655e2808520
+Author: Spencer Oliver <ntfreak at users.sourceforge.net>
+Date:   Mon Jul 18 14:02:31 2011 +0100
+
+    build: do not install jimtcl
+    
+    We now make use of the new jimtcl --disable-install-jim
+    Now we can install openocd without jimtcl bring installed.
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/Makefile.am b/Makefile.am
+index 1b19ba4..461bca4 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -3,7 +3,7 @@
+ AUTOMAKE_OPTIONS = gnu 1.6
+ 
+ # make sure we pass the correct jimtcl flags to distcheck
+-DISTCHECK_CONFIGURE_FLAGS = --with-jim-ext=nvp --disable-lineedit
++DISTCHECK_CONFIGURE_FLAGS = --with-jim-ext=nvp --disable-lineedit --disable-install-jim
+ 
+ nobase_dist_pkgdata_DATA = \
+ 	contrib/libdcc/dcc_stdio.c \
+diff --git a/configure.in b/configure.in
+index 8c77a25..a1ca005 100644
+--- a/configure.in
++++ b/configure.in
+@@ -774,7 +774,7 @@ fi
+ 
+ if test "$use_internal_jimtcl" = yes; then
+   if test -f "$srcdir/jimtcl/configure.ac"; then
+-    AX_CONFIG_SUBDIR_OPTION([jimtcl], [--with-jim-ext=nvp --disable-lineedit])
++    AX_CONFIG_SUBDIR_OPTION([jimtcl], [--with-jim-ext=nvp --disable-lineedit --disable-install-jim])
+   else
+     AC_MSG_ERROR([jimtcl not found, run git submodule init and git submodule update.])
+   fi
+
+commit 5e7c8d074c9de94d16210406baa1fd2872dc79e7
+Author: Spencer Oliver <ntfreak at users.sourceforge.net>
+Date:   Mon Jul 18 14:01:05 2011 +0100
+
+    jimtcl: update to support --disable-install-jim
+    
+    Update jimtcl version to commit 6233a6c5d39928f1bfafa8f41cb1ddf0c5a83de0
+    This enable to to build jimtcl as a submodule but not install it.
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/jimtcl b/jimtcl
+index 60dfb02..6233a6c 160000
+--- a/jimtcl
++++ b/jimtcl
+@@ -1 +1 @@
+-Subproject commit 60dfb023c4afa95047e0fa8db49830ccb46446b2
++Subproject commit 6233a6c5d39928f1bfafa8f41cb1ddf0c5a83de0
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ Makefile.am            |    2 +-
+ configure.in           |    2 +-
+ jimtcl                 |    2 +-
+ tcl/target/tmpa900.cfg |    6 +++---
+ 4 files changed, 6 insertions(+), 6 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From ntfreak at users.sourceforge.net  Tue Jul 26 22:18:08 2011
+From: ntfreak at users.sourceforge.net (Spencer Oliver)
+Date: Tue, 26 Jul 2011 20:18:08 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-960-ge872d28
+Message-ID: <mailman.131.1331736156.7625.openocd-svn@lists.berlios.de>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  e872d2880e019bde20a176166fc748334845f13e (commit)
+      from  d6c42bf312ec6cdf95c6837fdadcebf1b104fa4f (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit e872d2880e019bde20a176166fc748334845f13e
+Author: Ronny Strutz <ronny at ewoks.de>
+Date:   Tue Jul 26 21:14:47 2011 +0100
+
+    add Fujitsu FM3 Family flash support
+    
+    Signed-off-by: Ronny Strutz <ronny at ewoks.de>
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/src/flash/nor/Makefile.am b/src/flash/nor/Makefile.am
+index 41fb564..c897851 100644
+--- a/src/flash/nor/Makefile.am
++++ b/src/flash/nor/Makefile.am
+@@ -30,7 +30,8 @@ NOR_DRIVERS = \
+ 	str9x.c \
+ 	str9xpec.c \
+ 	tms470.c \
+-	virtual.c
++	virtual.c \
++	fm3.c
+ 
+ # Disabled for now, it generates warnings
+ # dsp5680xx_flash.c 
+diff --git a/src/flash/nor/drivers.c b/src/flash/nor/drivers.c
+index 637c63b..dc927b3 100644
+--- a/src/flash/nor/drivers.c
++++ b/src/flash/nor/drivers.c
+@@ -44,6 +44,7 @@ extern struct flash_driver virtual_flash;
+ extern struct flash_driver stmsmi_flash;
+ extern struct flash_driver em357_flash;
+ //extern struct flash_driver dsp5680xx_flash;
++extern struct flash_driver fm3_flash;
+ 
+ /**
+  * The list of built-in flash drivers.
+@@ -74,6 +75,7 @@ static struct flash_driver *flash_drivers[] = {
+ 	&em357_flash,
+ 	// Disabled for now, it generates warnings
+ 	//&dsp5680xx_flash,
++	&fm3_flash,
+ 	NULL,
+ };
+ 
+diff --git a/src/flash/nor/fm3.c b/src/flash/nor/fm3.c
+new file mode 100644
+index 0000000..a584964
+--- /dev/null
++++ b/src/flash/nor/fm3.c
+@@ -0,0 +1,654 @@
++/***************************************************************************
++ *   Copyright (C) 2011 by Marc Willam, Holger Wech                        *
++ *   m.willam at gmx.eu                                                       *
++ *   Copyright (C) 2011 Ronny Strutz                                       *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifdef HAVE_CONFIG_H
++#include "config.h"
++#endif
++
++#include "imp.h"
++#include <helper/binarybuffer.h>
++#include <target/algorithm.h>
++#include <target/armv7m.h>
++
++#define FLASH_DQ6 0x00000040	/* Data toggle flag bit (TOGG) position */
++#define FLASH_DQ5 0x00000020	/* Time limit exceeding flag bit (TLOV) position */
++
++enum fm3_variant
++{
++	mb9bfxx1,
++	mb9bfxx2,
++	mb9bfxx3,
++	mb9bfxx4,
++	mb9bfxx5,
++	mb9bfxx6
++};
++
++struct fm3_flash_bank
++{
++	struct working_area *write_algorithm;
++	enum fm3_variant variant;
++	int probed;
++};
++
++FLASH_BANK_COMMAND_HANDLER(fm3_flash_bank_command)
++{
++	struct fm3_flash_bank *fm3_info;
++
++	if (CMD_ARGC < 6)
++	{
++		LOG_WARNING("incomplete flash_bank fm3 configuration");
++		return ERROR_FLASH_BANK_INVALID;
++	}
++
++	LOG_INFO("******HWE* FLASH CMD Parameter %s", CMD_ARGV[5]);
++
++	fm3_info = malloc(sizeof(struct fm3_flash_bank));
++	bank->driver_priv = fm3_info;
++
++	if (strcmp(CMD_ARGV[5], "mb9bfxx1.cpu") == 0)
++	{
++		fm3_info->variant = mb9bfxx1;
++	}
++	else if (strcmp(CMD_ARGV[5], "mb9bfxx2.cpu") == 0)
++	{
++		fm3_info->variant = mb9bfxx2;
++	}
++	else if (strcmp(CMD_ARGV[5], "mb9bfxx3.cpu") == 0)
++	{
++		fm3_info->variant = mb9bfxx3;
++	}
++	else if (strcmp(CMD_ARGV[5], "mb9bfxx4.cpu") == 0)
++	{
++		fm3_info->variant = mb9bfxx4;
++	}
++	else if (strcmp(CMD_ARGV[5], "mb9bfxx5.cpu") == 0)
++	{
++		fm3_info->variant = mb9bfxx5;
++	}
++	else if (strcmp(CMD_ARGV[5], "mb9bfxx6.cpu") == 0)
++	{
++		fm3_info->variant = mb9bfxx6;
++		LOG_INFO("******HWE* fm3 Variant set to: mb9bfxx6");
++	}
++	else
++	{
++		LOG_ERROR("unknown fm3 variant: %s", CMD_ARGV[5]);
++		free(fm3_info);
++		return ERROR_FLASH_BANK_INVALID;
++	}
++
++	fm3_info->write_algorithm = NULL;
++	fm3_info->probed = 0;
++
++	return ERROR_OK;
++}
++
++static int fm3_busy_wait(struct target *target, uint32_t offset, int timeout_ms)
++{
++	int retval = ERROR_OK;
++	uint16_t state1, state2;
++	int ms = 0;
++
++	while(1) {
++		target_read_u16(target, offset, &state1);	/* dummy-read - see flash manual */
++		target_read_u16(target, offset, &state1);
++		target_read_u16(target, offset, &state2);
++
++		if ( (state1 & FLASH_DQ6) == (state2 & FLASH_DQ6) ) {
++			break;
++		}
++		else if (state1 & FLASH_DQ5) {
++			target_read_u16(target, offset, &state1);
++			target_read_u16(target, offset, &state2);
++			if ( (state1 & FLASH_DQ6) != (state2 & FLASH_DQ6) )
++				retval = ERROR_FLASH_OPERATION_FAILED;
++			break;
++		}
++		usleep(1000);
++		++ms;
++
++		if (ms > timeout_ms) {
++			LOG_ERROR("toggle bit reading timed out!");
++			retval = ERROR_FLASH_OPERATION_FAILED;
++			break;
++		}
++	}
++
++	if (retval == ERROR_OK)
++		LOG_DEBUG("fm3_busy_wait(%x) needs about %d ms", offset, ms);
++
++	return retval;
++}
++
++static int fm3_erase(struct flash_bank *bank, int first, int last)
++{
++	struct target *target = bank->target;
++	int retval = ERROR_OK;
++	uint32_t u32DummyRead;
++	int sector, odd;
++
++	if (target->state != TARGET_HALTED) {
++		LOG_ERROR("Target not halted");
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	LOG_INFO("Fujitsu MB9Bxxx: Sector Erase ... (%d to %d)", first, last);
++
++	target_write_u32(target, 0x40000000, 0x0001);		/* FASZR = 0x01, Enables CPU Programming Mode */
++	target_read_u32(target, 0x40000000, &u32DummyRead); /* dummy read of FASZR */
++
++	for (sector = first ; sector <= last ; sector++) {
++		uint32_t offset = bank->sectors[sector].offset;
++
++		for (odd = 0; odd < 2 ; odd++) {
++
++			if (odd)
++				offset += 4;
++
++			target_write_u16(target, 0x1550, 0x00AA);
++			target_write_u16(target, 0x0AA8, 0x0055);
++			target_write_u16(target, 0x1550, 0x0080);
++			target_write_u16(target, 0x1550, 0x00AA);
++			target_write_u16(target, 0x0AA8, 0x0055);
++			target_write_u16(target, offset, 0x0030);
++
++			retval = fm3_busy_wait(target, offset, 500);
++
++			if (retval != ERROR_OK)
++				break;
++		}
++		bank->sectors[sector].is_erased = 1;
++	}
++
++	target_write_u32(target, 0x40000000, 0x0002);
++	target_read_u32(target, 0x40000000, &u32DummyRead); /* dummy read of FASZR */
++
++	return retval;
++}
++
++static int fm3_write_block(struct flash_bank *bank, uint8_t *buffer, uint32_t offset, uint32_t count)
++{
++	struct fm3_flash_bank *fm3_info = bank->driver_priv;
++	struct target *target = bank->target;
++	uint32_t buffer_size = 8192;
++	struct working_area *source;
++	uint32_t address = bank->base + offset;
++	struct reg_param reg_params[4];
++	struct armv7m_algorithm armv7m_info;
++	int retval = ERROR_OK;
++
++	/* RAMCODE used for fm3 Flash programming:                 */
++	/* R0 keeps source start address         (u32Source)       */
++	/* R1 keeps target start address         (u32Target)       */
++	/* R2 keeps number of halfwords to write (u32Count)        */
++	/* R3 returns result value               (u32FlashResult)  */
++
++	const uint8_t fm3_flash_write_code[] = {
++								/*    fm3_FLASH_IF->FASZ &= 0xFFFD;                               */
++	0x00, 0xBF,                 /*        NOP                                                     */
++	0x5F, 0xF0, 0x80, 0x43,     /*        MOVS.W   R3, #(fm3_FLASH_IF->FASZ)                      */
++	0x1B, 0x68,                 /*        LDR      R3, [R3]                                       */
++	0x4F, 0xF6, 0xFD, 0x74,     /*        MOVW     R4, #0xFFFD                                    */
++	0x23, 0x40,                 /*        ANDS     R3, R3, R4                                     */
++	0x5F, 0xF0, 0x80, 0x44,     /*        MOVS.W   R4, #(fm3_FLASH_IF->FASZ)                      */
++	0x23, 0x60,                 /*        STR      R3, [R4]                                       */
++								/*    fm3_FLASH_IF->FASZ |= 1;                                    */
++	0x5F, 0xF0, 0x80, 0x43,     /*        MOVS.W   R3, #(fm3_FLASH_IF->FASZ)                      */
++	0x1B, 0x68,                 /*        LDR      R3, [R3]                                       */
++	0x53, 0xF0, 0x01, 0x03,     /*        ORRS.W   R3, R3, #1                                     */
++	0x5F, 0xF0, 0x80, 0x44,     /*        MOVS.W   R4, #(fm3_FLASH_IF->FASZ)                      */
++	0x23, 0x60,                 /*        STR      R3, [R4]                                       */
++	                            /*    u32DummyRead = fm3_FLASH_IF->FASZ;                          */
++	0x2B, 0x4B,                 /*        LDR.N    R3, ??u32DummyRead                             */
++	0x5F, 0xF0, 0x80, 0x44,     /*        MOVS.W   R4, #(fm3_FLASH_IF->FASZ)                      */
++	0x24, 0x68,                 /*        LDR      R4, [R4]                                       */
++	0x1C, 0x60,                 /*        STR      R4, [R3]                                       */
++	                            /*    u32FlashResult = FLASH_WRITE_NO_RESULT                      */
++	0x2A, 0x4B,                 /*        LDR.N    R3, ??u32FlashResult                           */
++	0x00, 0x24,                 /*        MOVS     R4, #0                                         */
++	0x1C, 0x60,                 /*        STR      R4, [R3]                                       */
++	                            /*    while ((u32Count > 0 ) && (u32FlashResult                   */
++	                            /*      == FLASH_WRITE_NO_RESULT))                                */
++	0x01, 0x2A,                 /* L0:    CMP      R2, #1                                         */
++	0x32, 0xDB,                 /*        BLT.N    L1                                             */
++	0x27, 0x4B,                 /*        LDR.N    R3, ??u32FlashResult                           */
++	0x1B, 0x68,                 /*        LDR      R3, [R3]                                       */
++	0x00, 0x2B,                 /*        CMP      R3, #0                                         */
++	0x2E, 0xD1,                 /*        BNE.N    L1                                             */
++	                            /*    *(FLASH_SEQ_1550) = FLASH_WRITE_1;                          */
++	0x41, 0xF2, 0x50, 0x53,     /*        MOVW     R3, #0x1550                                    */
++	0xAA, 0x24,                 /*        MOVS     R4. #0xAA                                      */
++	0x1C, 0x80,                 /*        STRH     R4, [R3]                                       */
++	                            /*    *(FLASH_SEQ_0AA8) = FLASH_WRITE_2;                          */
++	0x40, 0xF6, 0xA8, 0x23,     /*        MOVW     R3, #0x0AA8                                    */
++	0x55, 0x24,                 /*        MOVS     R4. #0x55                                      */
++	0x1C, 0x80,                 /*        STRH     R4, [R3]                                       */
++	                            /*    *(FLASH_SEQ_1550) = FLASH_WRITE_3;                          */
++	0x41, 0xF2, 0x50, 0x53,     /*        MOVW     R3, #0x1550                                    */
++	0xA0, 0x24,                 /*        MOVS     R4. #0xA0                                      */
++	0x1C, 0x80,                 /*        STRH     R4, [R3]                                       */
++	                            /*    *(volatile uint16_t*)u32Target                              */
++	                            /*      = *(volatile uint16_t*)u32Source;                         */
++	0x03, 0x88,                 /*        LDRH     R3, [R0]                                       */
++	0x0B, 0x80,                 /*        STRH     R3, [R1]                                       */
++	                            /*    while (u32FlashResult == FLASH_WRITE_NO_RESTULT)            */
++	0x1E, 0x4B,                 /* L2:    LDR.N    R3, ??u32FlashResult                           */
++	0x1B, 0x68,                 /*        LDR      R3, [R3]                                       */
++	0x00, 0x2B,                 /*        CMP      R3, #0                                         */
++	0x11, 0xD1,                 /*        BNE.N    L3                                             */
++	                            /*    if ((*(volatile uint16_t*)u32Target & FLASH_DQ5)             */
++	                            /*      == FLASH_DQ5)                                             */
++	0x0B, 0x88,                 /*        LDRH     R3, [R1]                                       */
++	0x9B, 0x06,                 /*        LSLS     R3, R3, #0x1A                                  */
++	0x02, 0xD5,                 /*        BPL.N    L4                                             */
++	                            /*    u32FlashResult = FLASH_WRITE_TIMEOUT                        */
++	0x1B, 0x4B,                 /*        LDR.N    R3, ??u32FlashResult                           */
++	0x02, 0x24,                 /*        MOVS     R4, #2                                         */
++	0x1C, 0x60,                 /*        STR      R4, [R3]                                       */
++	                            /*    if ((*(volatile uint16_t *)u32Target & FLASH_DQ7)            */
++	                            /*      == (*(volatile uint16_t*)u32Source & FLASH_DQ7))          */
++	0x0B, 0x88,                 /* L4:    LDRH     R3, [R1]                                       */
++	0x13, 0xF0, 0x80, 0x03,     /*        ANDS.W   R3, R3, #0x80                                  */
++	0x04, 0x88,                 /*        LDRH     R4, [R0]                                       */
++	0x14, 0xF0, 0x80, 0x04,     /*        ANDS.W   R4, R4, #0x80                                  */
++	0xA3, 0x42,                 /*        CMP      R3, R4                                         */
++	0xED, 0xD1,                 /*        BNE.N    L2                                             */
++	                            /*    u32FlashResult = FLASH_WRITE_OKAY                           */
++	0x15, 0x4B,                 /*        LDR.N    R3, ??u32FlashResult                           */
++	0x01, 0x24,                 /*        MOVS     R4, #1                                         */
++	0x1C, 0x60,                 /*        STR      R4, [R3]                                       */
++	0xE9, 0xE7,                 /*        B.N      L2                                             */
++	                            /*    if (u32FlashResult != FLASH_WRITE_TIMEOUT)                   */
++	0x13, 0x4B,                 /*        LDR.N    R3, ??u32FlashResult                           */
++	0x1B, 0x68,                 /*        LDR      R3, [R3]                                       */
++	0x02, 0x2B,                 /*        CMP      R3, #2                                         */
++	0x02, 0xD0,                 /*        BEQ.N    L5                                             */
++	                            /*    u32FlashResult = FLASH_WRITE_NO_RESULT                      */
++	0x11, 0x4B,                 /*        LDR.N    R3, ??u32FlashResult                           */
++	0x00, 0x24,                 /*        MOVS     R4, #0                                         */
++	0x1C, 0x60,                 /*        STR      R4, [R3]                                       */
++	                            /*    u32Count--;                                                 */
++	0x52, 0x1E,                 /* L5:    SUBS     R2, R2, #1                                     */
++	                            /*    u32Source += 2;                                             */
++	0x80, 0x1C,                 /*        ADDS     R0, R0, #2                                     */
++	                            /*    u32Target += 2;                                             */
++	0x89, 0x1C,                 /*        ADDS     R1, R1, #2                                     */
++	0xCA, 0xE7,                 /*        B.N      L0                                             */
++	                            /*    fm3_FLASH_IF->FASZ &= 0xFFFE;                               */
++	0x5F, 0xF0, 0x80, 0x43,     /* L1:    MOVS.W   R3, #(fm3_FLASH_IF->FASZ)                      */
++	0x1B, 0x68,                 /*        LDR      R3, [R3]                                       */
++	0x4F, 0xF6, 0xFE, 0x74,     /*        MOVW     R4, #0xFFFE                                    */
++	0x23, 0x40,                 /*        ANDS     R3, R3, R4                                     */
++	0x5F, 0xF0, 0x80, 0x44,     /*        MOVS.W   R4, #(fm3_FLASH_IF->FASZ)                      */
++	0x23, 0x60,                 /*        STR      R3, [R4]                                       */
++	                            /*    fm3_FLASH_IF->FASZ |= 2;                                    */
++	0x5F, 0xF0, 0x80, 0x43,     /*        MOVS.W   R3, #(fm3_FLASH_IF->FASZ)                      */
++	0x1B, 0x68,                 /*        LDR      R3, [R3]                                       */
++	0x53, 0xF0, 0x02, 0x03,     /*        ORRS.W   R3, R3, #2                                     */
++	0x5F, 0xF0, 0x80, 0x44,     /*        MOVS.W   R4, #(fm3_FLASH_IF->FASZ)                      */
++	0x23, 0x60,                 /*        STR      R4, [R3]                                       */
++	                            /*    u32DummyRead = fm3_FLASH_IF->FASZ;                          */
++	0x04, 0x4B,                 /*        LDR.N    R3, ??u32DummyRead                             */
++	0x5F, 0xF0, 0x80, 0x44,     /*        MOVS.W   R4, #(fm3_FLASH_IF->FASZ)                      */
++	0x24, 0x68,                 /*        LDR      R4, [R4]                                       */
++	0x1C, 0x60,                 /*        STR      R4, [R3]                                       */
++	                            /*    copy u32FlashResult to R3 for return value                  */
++	0xDF, 0xF8, 0x0C, 0x30,     /*        LDR.W    R3, ??u32FlashResult                           */
++	0x1B, 0x68,                 /*        LDR      R3, [R3]                                       */
++	                            /*    Breakpoint here                                             */
++	0x00, 0xBE,                 /* Breakpoint #0                                                  */
++	0x00, 0x00,                 /*    alignment padding bytes                                     */
++	0x00, 0x80, 0xFF, 0x1F,     /* u32DummyRead address in RAM (0x1FFF8000)                       */
++	0x04, 0x80, 0xFF, 0x1F      /* u32FlashResult address in RAM (0x1FFF8004)                     */
++	};
++
++	LOG_INFO("Fujitsu MB9B500: FLASH Write ...");
++
++	/* disable HW watchdog */
++	target_write_u32(target, 0x40011C00, 0x1ACCE551);
++	target_write_u32(target, 0x40011C00, 0xE5331AAE);
++	target_write_u32(target, 0x40011008, 0x00000000);
++
++	count = count / 2;		/* number bytes -> number halfwords */
++
++	/* check code alignment */
++	if (offset & 0x1)
++	{
++		LOG_WARNING("offset 0x%" PRIx32 " breaks required 2-byte alignment", offset);
++		return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
++	}
++
++	/* allocate working area with flash programming code */
++	if (target_alloc_working_area(target, sizeof(fm3_flash_write_code),
++			&fm3_info->write_algorithm) != ERROR_OK)
++	{
++		LOG_WARNING("no working area available, can't do block memory writes");
++		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	}
++
++	retval = target_write_buffer(target, fm3_info->write_algorithm->address,
++		sizeof(fm3_flash_write_code), fm3_flash_write_code);
++	if (retval != ERROR_OK)
++		return retval;
++
++	/* memory buffer */
++	while (target_alloc_working_area(target, buffer_size, &source) != ERROR_OK)
++	{
++		buffer_size /= 2;
++		if (buffer_size <= 256)
++		{
++			/* free working area, if write algorithm already allocated */
++			if (fm3_info->write_algorithm)
++			{
++				target_free_working_area(target, fm3_info->write_algorithm);
++			}
++
++			LOG_WARNING("no large enough working area available, can't do block memory writes");
++			return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++		}
++	}
++
++	armv7m_info.common_magic = ARMV7M_COMMON_MAGIC;
++	armv7m_info.core_mode = ARMV7M_MODE_ANY;
++
++	init_reg_param(&reg_params[0], "r0", 32, PARAM_OUT); // source start address
++	init_reg_param(&reg_params[1], "r1", 32, PARAM_OUT); // target start address
++	init_reg_param(&reg_params[2], "r2", 32, PARAM_OUT); // number of halfwords to program
++	init_reg_param(&reg_params[3], "r3", 32, PARAM_IN);  // result
++
++	/* write code buffer and use Flash programming code within fm3           */
++	/* Set breakpoint to 0 with time-out of 1000 ms                          */
++	while (count > 0)
++	{
++		uint32_t thisrun_count = (count > (buffer_size / 2)) ? (buffer_size / 2) : count;
++
++		/* for some reason the first 8 byte of code are corrupt when target_run_algorithm() returns */
++		/* need some more investigation on this                                                     */
++		retval = target_write_buffer(target,
++				fm3_info->write_algorithm->address, 8, fm3_flash_write_code);
++		if (retval != ERROR_OK)
++			return retval;
++
++
++		retval = target_write_buffer(target,
++				source->address, thisrun_count * 2, buffer);
++		if (retval != ERROR_OK)
++			break;
++
++		buf_set_u32(reg_params[0].value, 0, 32, source->address);
++		buf_set_u32(reg_params[1].value, 0, 32, address);
++		buf_set_u32(reg_params[2].value, 0, 32, thisrun_count);
++
++
++		retval = target_run_algorithm(target, 0, NULL, 4, reg_params,
++				fm3_info->write_algorithm->address, 0, 1000, &armv7m_info);
++		if (retval != ERROR_OK)
++		{
++			LOG_ERROR("error executing fm3 Flash programming algorithm");
++			retval = ERROR_FLASH_OPERATION_FAILED;
++			break;
++		}
++
++#if 0
++		/* debug the corrupted 8 bytes */
++		unsigned char buf[256];
++		retval = target_read_buffer(target, fm3_info->write_algorithm->address, 256, buf);
++		if (retval != ERROR_OK)
++			printf("cannot read buffer\n");
++		unsigned int i;
++		for ( i = 0; i < sizeof(fm3_flash_write_code); i++)
++			if (buf[i] != fm3_flash_write_code[i])
++				printf("broken: %d %02x != %02x\n", i, buf[i], fm3_flash_write_code[i]);
++#endif
++
++		if (buf_get_u32(reg_params[3].value, 0, 32) != ERROR_OK)
++		{
++			LOG_ERROR("Fujitsu MB9B500: FLASH programming ERROR (Timeout) -> Reg R3: %x",
++					buf_get_u32(reg_params[3].value, 0, 32));
++			retval = ERROR_FLASH_OPERATION_FAILED;
++			break;
++		}
++
++		buffer  += thisrun_count * 2;
++		address += thisrun_count * 2;
++		count   -= thisrun_count;
++	}
++
++	target_free_working_area(target, source);
++	target_free_working_area(target, fm3_info->write_algorithm);
++
++	destroy_reg_param(&reg_params[0]);
++	destroy_reg_param(&reg_params[1]);
++	destroy_reg_param(&reg_params[2]);
++	destroy_reg_param(&reg_params[3]);
++
++	return retval;
++}
++
++static int fm3_probe(struct flash_bank *bank)
++{
++	struct fm3_flash_bank *fm3_info = bank->driver_priv;
++	uint16_t num_pages;
++
++	if (bank->target->state != TARGET_HALTED)
++	{
++		LOG_ERROR("Target not halted");
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	num_pages = 6;				/* max number of Flash pages for malloc */
++	fm3_info->probed = 0;
++
++	bank->sectors = malloc(sizeof(struct flash_sector) * num_pages);
++	bank->base = 0x00000000;
++	num_pages = 2;				/* start with smallest Flash pages number */
++	bank->size = 32 * 1024;		/* bytes */
++
++	bank->sectors[0].offset = 0;
++	bank->sectors[0].size = 16 * 1024;
++	bank->sectors[0].is_erased = -1;
++	bank->sectors[0].is_protected = -1;
++
++	bank->sectors[1].offset = 0x4000;
++	bank->sectors[1].size = 16 * 1024;
++	bank->sectors[1].is_erased = -1;
++	bank->sectors[1].is_protected = -1;
++
++	if (fm3_info->variant == mb9bfxx1)
++	{
++		num_pages = 3;
++		bank->size = 64 * 1024; /* bytes */
++		bank->num_sectors = num_pages;
++
++		bank->sectors[2].offset = 0x8000;
++		bank->sectors[2].size = 32 * 1024;
++		bank->sectors[2].is_erased = -1;
++		bank->sectors[2].is_protected = -1;
++	}
++
++	if (  (fm3_info->variant == mb9bfxx2)
++		|| (fm3_info->variant == mb9bfxx4)
++		|| (fm3_info->variant == mb9bfxx5)
++		|| (fm3_info->variant == mb9bfxx6))
++	{
++		num_pages = 3;
++		bank->size = 128 * 1024; // bytes
++		bank->num_sectors = num_pages;
++
++		bank->sectors[2].offset = 0x8000;
++		bank->sectors[2].size = 96 * 1024;
++		bank->sectors[2].is_erased = -1;
++		bank->sectors[2].is_protected = -1;
++	}
++
++	if ( (fm3_info->variant == mb9bfxx4)
++		|| (fm3_info->variant == mb9bfxx5)
++		|| (fm3_info->variant == mb9bfxx6))
++	{
++		num_pages = 4;
++		bank->size = 256 * 1024; // bytes
++		bank->num_sectors = num_pages;
++
++		bank->sectors[3].offset = 0x20000;
++		bank->sectors[3].size = 128 * 1024;
++		bank->sectors[3].is_erased = -1;
++		bank->sectors[3].is_protected = -1;
++	}
++
++	if ( (fm3_info->variant == mb9bfxx5)
++		|| (fm3_info->variant == mb9bfxx6))
++	{
++		num_pages = 5;
++		bank->size = 384 * 1024; // bytes
++		bank->num_sectors = num_pages;
++
++		bank->sectors[4].offset = 0x40000;
++		bank->sectors[4].size = 128 * 1024;
++		bank->sectors[4].is_erased = -1;
++		bank->sectors[4].is_protected = -1;
++	}
++
++	if (fm3_info->variant == mb9bfxx6)
++	{
++		num_pages = 6;
++		bank->size = 512 * 1024; // bytes
++		bank->num_sectors = num_pages;
++
++		bank->sectors[5].offset = 0x60000;
++		bank->sectors[5].size = 128 * 1024;
++		bank->sectors[5].is_erased = -1;
++		bank->sectors[5].is_protected = -1;
++	}
++
++	fm3_info->probed = 1;
++
++	return ERROR_OK;
++}
++
++static int fm3_auto_probe(struct flash_bank *bank)
++{
++	struct fm3_flash_bank *fm3_info = bank->driver_priv;
++	if (fm3_info->probed)
++		return ERROR_OK;
++	return fm3_probe(bank);
++}
++
++static int fm3_info(struct flash_bank *bank, char *buf, int buf_size)
++{
++	snprintf(buf, buf_size, "Fujitsu fm3 Device does not support Chip-ID (Type unknown)");
++	return ERROR_OK;
++}
++
++static int fm3_chip_erase(struct flash_bank *bank)
++{
++	struct target *target = bank->target;
++	int retval = ERROR_OK;
++	uint32_t u32DummyRead;
++
++	if (target->state != TARGET_HALTED)
++	{
++		LOG_ERROR("Target not halted");
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	LOG_INFO("Fujitsu MB9Bxxx: Chip Erase ... (may take several seconds)");
++
++	/* Implement Flash chip erase (mass erase) completely on host */
++	target_write_u32(target, 0x40000000, 0x0001);		/* FASZR = 0x01, Enables CPU Programming Mode (16-bit Flash access) */
++	target_read_u32(target, 0x40000000, &u32DummyRead); /* dummy read of FASZR */
++
++	target_write_u16(target, 0x00001550, 0x00AA); 		/* Flash unlock sequence */
++	target_write_u16(target, 0x00000AA8, 0x0055);
++	target_write_u16(target, 0x00001550, 0x0080);
++	target_write_u16(target, 0x00001550, 0x00AA);
++	target_write_u16(target, 0x00000AA8, 0x0055);
++	target_write_u16(target, 0x00001550, 0x0010); 		/* Chip Erase command */
++
++	retval = fm3_busy_wait(target, 0xAA8, 20000);
++
++	target_write_u32(target, 0x40000000, 0x0002);
++	target_read_u32(target, 0x40000000, &u32DummyRead); /* dummy read of FASZR */
++
++	return retval;
++}
++
++COMMAND_HANDLER(fm3_handle_chip_erase_command)
++{
++	int i;
++
++	if (CMD_ARGC < 1)
++	{
++		command_print(CMD_CTX, "fm3 chip_erase <bank>");
++		return ERROR_OK;
++	}
++
++	struct flash_bank *bank;
++	int retval = CALL_COMMAND_HANDLER(flash_command_get_bank, 0, &bank);
++	if (ERROR_OK != retval)
++		return retval;
++
++	if (fm3_chip_erase(bank) == ERROR_OK)
++	{
++		/* set all sectors as erased */
++		for (i = 0; i < bank->num_sectors; i++)
++			bank->sectors[i].is_erased = 1;
++
++		command_print(CMD_CTX, "fm3 chip erase complete");
++	}
++	else
++	{
++		command_print(CMD_CTX, "fm3 chip erase failed");
++	}
++
++	return ERROR_OK;
++}
++
++static const struct command_registration fm3_exec_command_handlers[] = {
++	{
++		.name = "chip_erase",
++		.handler = fm3_handle_chip_erase_command,
++		.mode = COMMAND_EXEC,
++		.usage = "bank_id",
++		.help = "Erase entire Flash device.",
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++static const struct command_registration fm3_command_handlers[] = {
++	{
++		.name = "fm3",
++		.mode = COMMAND_ANY,
++		.help = "fm3 Flash command group",
++		.chain = fm3_exec_command_handlers,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++struct flash_driver fm3_flash = {
++	.name = "fm3",
++	.commands = fm3_command_handlers,
++	.flash_bank_command = fm3_flash_bank_command,
++	.erase = fm3_erase,
++	.write = fm3_write_block,
++	.probe = fm3_probe,
++	.auto_probe = fm3_auto_probe,
++	.erase_check = default_flash_mem_blank_check,
++	.info = fm3_info,
++};
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/Makefile.am |    3 +-
+ src/flash/nor/drivers.c   |    2 +
+ src/flash/nor/fm3.c       |  654 +++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 658 insertions(+), 1 deletions(-)
+ create mode 100644 src/flash/nor/fm3.c
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From ntfreak at users.sourceforge.net  Tue Jul 26 22:27:33 2011
+From: ntfreak at users.sourceforge.net (Spencer Oliver)
+Date: Tue, 26 Jul 2011 20:27:33 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-962-gba4b8af
+Message-ID: <mailman.132.1331736156.7625.openocd-svn@lists.berlios.de>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  ba4b8af4d7de5268ad8240751c12c79ac607e975 (commit)
+       via  577c3bc087d60414ee45031809c9acce24a8f3e0 (commit)
+      from  e872d2880e019bde20a176166fc748334845f13e (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit ba4b8af4d7de5268ad8240751c12c79ac607e975
+Author: Jie Zhang <jie.zhang at analog.com>
+Date:   Thu Jul 21 11:29:20 2011 -0400
+
+    remove doc on the deprecated '-p' option
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index e9e32b8..7e99d5a 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -676,8 +676,6 @@ setting from within a telnet or gdb session using @command{debug_level
+ You can redirect all output from the daemon to a file using the
+ @option{-l <logfile>} switch.
+ 
+-For details on the @option{-p} option. @xref{Connecting to GDB}.
+-
+ Note! OpenOCD will launch the GDB & telnet server even if it can not
+ establish a connection with the target. In general, it is possible for
+ the JTAG controller to be unresponsive until the target is set up
+
+commit 577c3bc087d60414ee45031809c9acce24a8f3e0
+Author: Jie Zhang <jie.zhang at analog.com>
+Date:   Thu Jul 21 11:16:50 2011 -0400
+
+    Update doc about Jim since it's not a single .C file and a single .H file any more
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index fd92d51..e9e32b8 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -526,7 +526,7 @@ OpenOCD mailing list.
+ @item @b{Jim vs. Tcl}
+ @* Jim-Tcl is a stripped down version of the well known Tcl language,
+ which can be found here: @url{http://www.tcl.tk}. Jim-Tcl has far
+-fewer features. Jim-Tcl is a single .C file and a single .H file and
++fewer features. Jim-Tcl is several dozens of .C files and .H files and
+ implements the basic Tcl command set. In contrast: Tcl 8.6 is a
+ 4.2 MB .zip file containing 1540 files. 
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ doc/openocd.texi |    4 +---
+ 1 files changed, 1 insertions(+), 3 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From ntfreak at users.sourceforge.net  Wed Jul 27 12:04:10 2011
+From: ntfreak at users.sourceforge.net (Spencer Oliver)
+Date: Wed, 27 Jul 2011 10:04:10 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-964-gb5a324e
+Message-ID: <mailman.133.1331736156.7625.openocd-svn@lists.berlios.de>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  b5a324e63c066b97c148c72ecec2e0dfc6023c70 (commit)
+       via  1cfd3fdda9dc706f002be5e8a1461a82b73ff1f5 (commit)
+      from  ba4b8af4d7de5268ad8240751c12c79ac607e975 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit b5a324e63c066b97c148c72ecec2e0dfc6023c70
+Author: Spencer Oliver <ntfreak at users.sourceforge.net>
+Date:   Wed Jul 27 10:56:25 2011 +0100
+
+    cfg: add Fujitsu FM3 config
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/tcl/target/fm3.cfg b/tcl/target/fm3.cfg
+new file mode 100644
+index 0000000..af7647d
+--- /dev/null
++++ b/tcl/target/fm3.cfg
+@@ -0,0 +1,47 @@
++# MB96F506
++# Fujitsu Cortex-M3 with 512kB Flash and 64kB RAM
++
++if { [info exists CHIPNAME] } {
++	set  _CHIPNAME $CHIPNAME
++} else {
++	set  _CHIPNAME mb9bf500
++}
++
++if { [info exists ENDIAN] } {
++	set  _ENDIAN $ENDIAN
++} else {
++	set  _ENDIAN little
++}
++
++if { [info exists CPUTAPID ] } {
++	set _CPUTAPID $CPUTAPID
++} else {
++	set _CPUTAPID 0x4ba00477
++}
++
++# delays on reset lines
++jtag_nsrst_delay 100
++jtag_ntrst_delay 100
++
++# Fujitsu cortex-M3 reset configuration
++reset_config trst_only
++
++jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_CPUTAPID
++
++set _TARGETNAME $_CHIPNAME.cpu
++target create $_TARGETNAME cortex_m3 -endian $_ENDIAN -chain-position $_TARGETNAME
++
++# MB9BF506 has 64kB of SRAM on its main system bus 
++$_TARGETNAME configure -work-area-phys 0x1FFF8000 -work-area-size 0x10000 -work-area-backup 0
++
++# MB9BF506 has 512kB internal FLASH 
++
++set _FLASHNAME $_CHIPNAME.flash
++flash bank $_FLASHNAME fm3 0 0 0 0 $_TARGETNAME
++
++# 4MHz / 6 = 666kHz, so use 500
++adapter_khz 500
++
++# if srst is not fitted use SYSRESETREQ to
++# perform a soft reset
++cortex_m3 reset_config sysresetreq
+
+commit 1cfd3fdda9dc706f002be5e8a1461a82b73ff1f5
+Author: Spencer Oliver <ntfreak at users.sourceforge.net>
+Date:   Wed Jul 27 10:28:24 2011 +0100
+
+    doc: add Fujitsu FM3 flash driver info
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index 7e99d5a..dfb8e30 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -4882,6 +4882,19 @@ flash bank vbank1 virtual 0x9fc00000 0 0 0 $_TARGETNAME $_FLASHNAME
+ @end example
+ @end deffn
+ 
++ at deffn {Flash Driver} fm3
++All members of the FM3 microcontroller family from Fujitsu
++include internal flash and use ARM Cortex M3 cores.
++The @var{fm3} driver uses the @var{target} parameter to select the
++correct bank config, it can currently be one of the following:
++ at code{mb9bfxx1.cpu}, @code{mb9bfxx2.cpu}, @code{mb9bfxx3.cpu},
++ at code{mb9bfxx4.cpu}, @code{mb9bfxx5.cpu} or @code{mb9bfxx6.cpu}.
++	
++ at example
++flash bank $_FLASHNAME fm3 0 0 0 0 $_TARGETNAME
++ at end example
++ at end deffn
++
+ @subsection str9xpec driver
+ @cindex str9xpec
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ doc/openocd.texi   |   13 +++++++++++++
+ tcl/target/fm3.cfg |   47 +++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 60 insertions(+), 0 deletions(-)
+ create mode 100644 tcl/target/fm3.cfg
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From ntfreak at users.sourceforge.net  Fri Jul 29 23:56:25 2011
+From: ntfreak at users.sourceforge.net (Spencer Oliver)
+Date: Fri, 29 Jul 2011 21:56:25 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-970-g69ac20a
+Message-ID: <mailman.134.1331736156.7625.openocd-svn@lists.berlios.de>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  69ac20a1556b06f837986cd12c4724970550c24f (commit)
+       via  633b1a2b49f84720e7f9ec24f42abfefd558ec6a (commit)
+       via  852289bc4935ec8ac27242812fccb4806e304859 (commit)
+       via  89f593d8cbd74eb1db5d6beb2e60e9844504db6e (commit)
+       via  c73342fbe77b0d0432ce189566e0e8383f2b7493 (commit)
+       via  b066a7db2498eadcdeb55ea763d805c75fbbd00b (commit)
+      from  b5a324e63c066b97c148c72ecec2e0dfc6023c70 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 69ac20a1556b06f837986cd12c4724970550c24f
+Author: Spencer Oliver <ntfreak at users.sourceforge.net>
+Date:   Fri Jul 29 17:01:31 2011 +0100
+
+    cfg: support calling legacy stm32 scripts
+    
+    For the time being we support the old stm32 script names - this will
+    be removed before the next release cycle.
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/tcl/target/stm32.cfg b/tcl/target/stm32.cfg
+new file mode 100644
+index 0000000..217b79d
+--- /dev/null
++++ b/tcl/target/stm32.cfg
+@@ -0,0 +1,3 @@
++# deprecated cfg file
++echo "DEPRECATED! use script 'target/stm32f1x.cfg' not 'target/stm32.cfg'"
++source [find target/stm32f1x.cfg]
+diff --git a/tcl/target/stm32f2xxx.cfg b/tcl/target/stm32f2xxx.cfg
+new file mode 100644
+index 0000000..ab5b1a4
+--- /dev/null
++++ b/tcl/target/stm32f2xxx.cfg
+@@ -0,0 +1,3 @@
++# deprecated cfg file
++echo "DEPRECATED! use script 'target/stm32f2x.cfg' not 'target/stm32f2xxx.cfg'"
++source [find target/stm32f2x.cfg]
+
+commit 633b1a2b49f84720e7f9ec24f42abfefd558ec6a
+Author: Spencer Oliver <ntfreak at users.sourceforge.net>
+Date:   Thu Jul 28 16:06:24 2011 +0100
+
+    docs: remove obsolete luminary target info
+    
+    The lm3s variant is not required as this is handled in the
+    target script - see tcl/target/stellaris.cfg.
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index 069367d..e3934e8 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -3602,14 +3602,7 @@ At this writing, the supported CPU types and variants are:
+ (Support for this is preliminary and incomplete.)
+ @item @code{cortex_a8} -- this is an ARMv7 core with an MMU
+ @item @code{cortex_m3} -- this is an ARMv7 core, supporting only the
+-compact Thumb2 instruction set.  It supports one variant:
+- at itemize @minus
+- at item @code{lm3s} ... Use this when debugging older Stellaris LM3S targets.
+-This will cause OpenOCD to use a software reset rather than asserting
+-SRST, to avoid a issue with clearing the debug registers.
+-This is fixed in Fury Rev B, DustDevil Rev B, Tempest; these revisions will
+-be detected and the normal reset behaviour used.
+- at end itemize
++compact Thumb2 instruction set.
+ @item @code{dragonite} -- resembles arm966e
+ @item @code{dsp563xx} -- implements Freescale's 24-bit DSP.
+ (Support for this is still incomplete.)
+
+commit 852289bc4935ec8ac27242812fccb4806e304859
+Author: Spencer Oliver <ntfreak at users.sourceforge.net>
+Date:   Thu Jul 28 12:47:49 2011 +0100
+
+    flash: add support for deprecated stm32 flash cmds
+    
+    Issue warning when the old cmd is used and redirect to new supported one.
+    These deprecated cmds will be removed at some point.
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/src/flash/startup.tcl b/src/flash/startup.tcl
+index 6cb7d8e..5f40e64 100644
+--- a/src/flash/startup.tcl
++++ b/src/flash/startup.tcl
+@@ -1,2 +1,13 @@
+ # Defines basic Tcl procs for OpenOCD flash module
+ 
++# ease migration to updated flash driver
++proc stm32x args {
++	echo "DEPRECATED! use 'stm32f1x $args' not 'stm32x $args'"
++	eval stm32f1x $args
++}
++
++proc stm32f2xxx args {
++	echo "DEPRECATED! use 'stm32f2x $args' not 'stm32f2xxx $args'"
++	eval stm32f2x $args
++}
++
+
+commit 89f593d8cbd74eb1db5d6beb2e60e9844504db6e
+Author: Spencer Oliver <ntfreak at users.sourceforge.net>
+Date:   Thu Jul 28 11:45:09 2011 +0100
+
+    cfg: update scripts to use new stm32 driver names
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/tcl/board/hitex_stm32-performancestick.cfg b/tcl/board/hitex_stm32-performancestick.cfg
+index 515f7e0..0ec4076 100644
+--- a/tcl/board/hitex_stm32-performancestick.cfg
++++ b/tcl/board/hitex_stm32-performancestick.cfg
+@@ -5,7 +5,7 @@ reset_config trst_and_srst
+ source [find interface/stm32-stick.cfg]
+ 
+ set  CHIPNAME stm32_hitex
+-source [find target/stm32.cfg]
++source [find target/stm32f1x.cfg]
+ 
+ # configure str750 connected to jtag chain
+ # FIXME -- source [find target/str750.cfg] after cleaning that up
+diff --git a/tcl/board/olimex_stm32_h103.cfg b/tcl/board/olimex_stm32_h103.cfg
+index 98b0b65..ec03034 100644
+--- a/tcl/board/olimex_stm32_h103.cfg
++++ b/tcl/board/olimex_stm32_h103.cfg
+@@ -4,4 +4,4 @@
+ # Work-area size (RAM size) = 20kB for STM32F103RB device
+ set WORKAREASIZE 0x5000
+ 
+-source [find target/stm32.cfg]
++source [find target/stm32f1x.cfg]
+diff --git a/tcl/board/olimex_stm32_h107.cfg b/tcl/board/olimex_stm32_h107.cfg
+index c21e19b..1d34a23 100644
+--- a/tcl/board/olimex_stm32_h107.cfg
++++ b/tcl/board/olimex_stm32_h107.cfg
+@@ -5,4 +5,4 @@
+ # Work-area size (RAM size) = 64kB for STM32F107VC device
+ set WORKAREASIZE 0x10000
+ 
+-source [find target/stm32.cfg]
++source [find target/stm32f1x.cfg]
+diff --git a/tcl/board/stm32100b_eval.cfg b/tcl/board/stm32100b_eval.cfg
+index e04b612..41153e5 100644
+--- a/tcl/board/stm32100b_eval.cfg
++++ b/tcl/board/stm32100b_eval.cfg
+@@ -4,4 +4,4 @@
+ # The chip has only 8KB sram
+ set WORKAREASIZE 0x2000
+ 
+-source [find target/stm32.cfg]
++source [find target/stm32f1x.cfg]
+diff --git a/tcl/board/stm3210b_eval.cfg b/tcl/board/stm3210b_eval.cfg
+index 70798c1..ff3f777 100644
+--- a/tcl/board/stm3210b_eval.cfg
++++ b/tcl/board/stm3210b_eval.cfg
+@@ -4,4 +4,4 @@
+ # increase working area to 32KB for faster flash programming
+ set WORKAREASIZE 0x8000
+ 
+-source [find target/stm32.cfg]
++source [find target/stm32f1x.cfg]
+diff --git a/tcl/board/stm3210c_eval.cfg b/tcl/board/stm3210c_eval.cfg
+index 27684f0..e069c04 100644
+--- a/tcl/board/stm3210c_eval.cfg
++++ b/tcl/board/stm3210c_eval.cfg
+@@ -4,4 +4,4 @@
+ # increase working area to 32KB for faster flash programming
+ set WORKAREASIZE 0x8000
+ 
+-source [find target/stm32.cfg]
++source [find target/stm32f1x.cfg]
+diff --git a/tcl/board/stm3210e_eval.cfg b/tcl/board/stm3210e_eval.cfg
+index 786d027..91807ce 100644
+--- a/tcl/board/stm3210e_eval.cfg
++++ b/tcl/board/stm3210e_eval.cfg
+@@ -4,7 +4,7 @@
+ # increase working area to 32KB for faster flash programming
+ set WORKAREASIZE 0x8000
+ 
+-source [find target/stm32.cfg]
++source [find target/stm32f1x.cfg]
+ 
+ #
+ # configure FSMC Bank 1 (NOR/PSRAM Bank 2) NOR flash
+diff --git a/tcl/board/stm3220g_eval.cfg b/tcl/board/stm3220g_eval.cfg
+index e836f0e..48b57c1 100644
+--- a/tcl/board/stm3220g_eval.cfg
++++ b/tcl/board/stm3220g_eval.cfg
+@@ -8,4 +8,4 @@ set WORKAREASIZE 0x20000
+ # chip name
+ set CHIPNAME STM32F207IGT6
+ 
+-source [find target/stm32f2xxx.cfg]
++source [find target/stm32f2x.cfg]
+diff --git a/tcl/target/stm32.cfg b/tcl/target/stm32f1x.cfg
+similarity index 96%
+rename from tcl/target/stm32.cfg
+rename to tcl/target/stm32f1x.cfg
+index 9879c04..8007ff5 100644
+--- a/tcl/target/stm32.cfg
++++ b/tcl/target/stm32f1x.cfg
+@@ -68,7 +68,7 @@ $_TARGETNAME configure -work-area-phys 0x20000000 -work-area-size $_WORKAREASIZE
+ 
+ # flash size will be probed
+ set _FLASHNAME $_CHIPNAME.flash
+-flash bank $_FLASHNAME stm32x 0x08000000 0 0 0 $_TARGETNAME
++flash bank $_FLASHNAME stm32f1x 0x08000000 0 0 0 $_TARGETNAME
+ 
+ # if srst is not fitted use SYSRESETREQ to
+ # perform a soft reset
+diff --git a/tcl/target/stm32f2xxx.cfg b/tcl/target/stm32f2x.cfg
+similarity index 96%
+rename from tcl/target/stm32f2xxx.cfg
+rename to tcl/target/stm32f2x.cfg
+index 8a85724..b8de384 100644
+--- a/tcl/target/stm32f2xxx.cfg
++++ b/tcl/target/stm32f2x.cfg
+@@ -57,5 +57,5 @@ target create $_TARGETNAME cortex_m3 -endian $_ENDIAN -chain-position $_TARGETNA
+ $_TARGETNAME configure -work-area-phys 0x20000000 -work-area-size $_WORKAREASIZE -work-area-backup 0
+ 
+ set _FLASHNAME $_CHIPNAME.flash
+-flash bank $_FLASHNAME stm32f2xxx 0 0 0 0 $_TARGETNAME
++flash bank $_FLASHNAME stm32f2x 0 0 0 0 $_TARGETNAME
+ 
+diff --git a/tcl/target/stm32xl.cfg b/tcl/target/stm32xl.cfg
+index cde07df..f72896d 100644
+--- a/tcl/target/stm32xl.cfg
++++ b/tcl/target/stm32xl.cfg
+@@ -1,6 +1,6 @@
+ # script for stm32xl family (dual flash bank)
+-source [find target/stm32.cfg]
++source [find target/stm32f1x.cfg]
+ 
+ # flash size will be probed
+ set _FLASHNAME $_CHIPNAME.flash1
+-flash bank $_FLASHNAME stm32x 0x08080000 0 0 0 $_TARGETNAME
++flash bank $_FLASHNAME stm32f1x 0x08080000 0 0 0 $_TARGETNAME
+
+commit c73342fbe77b0d0432ce189566e0e8383f2b7493
+Author: Spencer Oliver <ntfreak at users.sourceforge.net>
+Date:   Thu Jul 28 11:44:48 2011 +0100
+
+    docs: update to use new stm32 driver names
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index dfb8e30..069367d 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -1277,7 +1277,7 @@ at91sam3u4c.cfg  lm3s9b9x.cfg  samsung_s3c6410.cfg
+ at91sam3u4e.cfg  lpc1768.cfg   sharp_lh79532.cfg
+ at91sam3uXX.cfg  lpc2103.cfg   smdk6410.cfg
+ at91sam7sx.cfg   lpc2124.cfg   smp8634.cfg
+-at91sam9260.cfg  lpc2129.cfg   stm32.cfg
++at91sam9260.cfg  lpc2129.cfg   stm32f1x.cfg
+ c100.cfg         lpc2148.cfg   str710.cfg
+ c100config.tcl   lpc2294.cfg   str730.cfg
+ c100helper.tcl   lpc2378.cfg   str750.cfg
+@@ -4762,44 +4762,51 @@ applied to all of them.
+ @end quotation
+ @end deffn
+ 
+- at deffn {Flash Driver} stm32x
+-All members of the STM32 microcontroller family from ST Microelectronics
++ at deffn {Flash Driver} stm32f1x
++All members of the STM32f1x microcontroller family from ST Microelectronics
+ include internal flash and use ARM Cortex M3 cores.
+ The driver automatically recognizes a number of these chips using
+ the chip identification register, and autoconfigures itself.
+ 
+ @example
+-flash bank $_FLASHNAME stm32x 0 0 0 0 $_TARGETNAME
++flash bank $_FLASHNAME stm32f1x 0 0 0 0 $_TARGETNAME
+ @end example
+ 
+-Some stm32x-specific commands
+- at footnote{Currently there is a @command{stm32x mass_erase} command.
++Some stm32f1x-specific commands
++ at footnote{Currently there is a @command{stm32f1x mass_erase} command.
+ That seems pointless since the same effect can be had using the
+ standard @command{flash erase_address} command.}
+ are defined:
+ 
+- at deffn Command {stm32x lock} num
++ at deffn Command {stm32f1x lock} num
+ Locks the entire stm32 device.
+ The @var{num} parameter is a value shown by @command{flash banks}.
+ @end deffn
+ 
+- at deffn Command {stm32x unlock} num
++ at deffn Command {stm32f1x unlock} num
+ Unlocks the entire stm32 device.
+ The @var{num} parameter is a value shown by @command{flash banks}.
+ @end deffn
+ 
+- at deffn Command {stm32x options_read} num
++ at deffn Command {stm32f1x options_read} num
+ Read and display the stm32 option bytes written by
+-the @command{stm32x options_write} command.
++the @command{stm32f1x options_write} command.
+ The @var{num} parameter is a value shown by @command{flash banks}.
+ @end deffn
+ 
+- at deffn Command {stm32x options_write} num (@option{SWWDG}|@option{HWWDG}) (@option{RSTSTNDBY}|@option{NORSTSTNDBY}) (@option{RSTSTOP}|@option{NORSTSTOP})
++ at deffn Command {stm32f1x options_write} num (@option{SWWDG}|@option{HWWDG}) (@option{RSTSTNDBY}|@option{NORSTSTNDBY}) (@option{RSTSTOP}|@option{NORSTSTOP})
+ Writes the stm32 option byte with the specified values.
+ The @var{num} parameter is a value shown by @command{flash banks}.
+ @end deffn
+ @end deffn
+ 
++ at deffn {Flash Driver} stm32f2x
++All members of the STM32f2x microcontroller family from ST Microelectronics
++include internal flash and use ARM Cortex M3 cores.
++The driver automatically recognizes a number of these chips using
++the chip identification register, and autoconfigures itself.
++ at end deffn
++
+ @deffn {Flash Driver} str7x
+ All members of the STR7 microcontroller family from ST Microelectronics
+ include internal flash and use ARM7TDMI cores.
+
+commit b066a7db2498eadcdeb55ea763d805c75fbbd00b
+Author: Spencer Oliver <ntfreak at users.sourceforge.net>
+Date:   Thu Jul 28 11:42:27 2011 +0100
+
+    flash: update stm32 driver names
+    
+    Use consistent names for the stm32 family flash drivers, eg.
+    stm32x -> stm32f1x
+    stm32f2xxx -> stm32f2x
+    
+    this makes it easier to add support for newer stm32 families.
+    
+    Signed-off-by: Spencer Oliver <ntfreak at users.sourceforge.net>
+
+diff --git a/src/flash/nor/Makefile.am b/src/flash/nor/Makefile.am
+index c897851..6dd95fe 100644
+--- a/src/flash/nor/Makefile.am
++++ b/src/flash/nor/Makefile.am
+@@ -24,8 +24,8 @@ NOR_DRIVERS = \
+ 	pic32mx.c \
+ 	stmsmi.c \
+ 	stellaris.c \
+-	stm32x.c \
+-	stm32f2xxx.c \
++	stm32f1x.c \
++	stm32f2x.c \
+ 	str7x.c \
+ 	str9x.c \
+ 	str9xpec.c \
+diff --git a/src/flash/nor/drivers.c b/src/flash/nor/drivers.c
+index dc927b3..669b0b9 100644
+--- a/src/flash/nor/drivers.c
++++ b/src/flash/nor/drivers.c
+@@ -32,8 +32,8 @@ extern struct flash_driver str9x_flash;
+ extern struct flash_driver aduc702x_flash;
+ extern struct flash_driver stellaris_flash;
+ extern struct flash_driver str9xpec_flash;
+-extern struct flash_driver stm32x_flash;
+-extern struct flash_driver stm32xf2xxx_flash;
++extern struct flash_driver stm32f1x_flash;
++extern struct flash_driver stm32f2x_flash;
+ extern struct flash_driver tms470_flash;
+ extern struct flash_driver ecosflash_flash;
+ extern struct flash_driver ocl_flash;
+@@ -62,8 +62,8 @@ static struct flash_driver *flash_drivers[] = {
+ 	&aduc702x_flash,
+ 	&stellaris_flash,
+ 	&str9xpec_flash,
+-	&stm32x_flash,
+-	&stm32xf2xxx_flash,
++	&stm32f1x_flash,
++	&stm32f2x_flash,
+ 	&tms470_flash,
+ 	&ecosflash_flash,
+ 	&ocl_flash,
+diff --git a/src/flash/nor/stm32x.c b/src/flash/nor/stm32f1x.c
+similarity index 99%
+rename from src/flash/nor/stm32x.c
+rename to src/flash/nor/stm32f1x.c
+index b4300be..6bc4300 100644
+--- a/src/flash/nor/stm32x.c
++++ b/src/flash/nor/stm32f1x.c
+@@ -1544,16 +1544,16 @@ static const struct command_registration stm32x_exec_command_handlers[] = {
+ 
+ static const struct command_registration stm32x_command_handlers[] = {
+ 	{
+-		.name = "stm32x",
++		.name = "stm32f1x",
+ 		.mode = COMMAND_ANY,
+-		.help = "stm32x flash command group",
++		.help = "stm32f1x flash command group",
+ 		.chain = stm32x_exec_command_handlers,
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
+-struct flash_driver stm32x_flash = {
+-	.name = "stm32x",
++struct flash_driver stm32f1x_flash = {
++	.name = "stm32f1x",
+ 	.commands = stm32x_command_handlers,
+ 	.flash_bank_command = stm32x_flash_bank_command,
+ 	.erase = stm32x_erase,
+diff --git a/src/flash/nor/stm32f2xxx.c b/src/flash/nor/stm32f2x.c
+similarity index 97%
+rename from src/flash/nor/stm32f2xxx.c
+rename to src/flash/nor/stm32f2x.c
+index df50e84..c2f586a 100644
+--- a/src/flash/nor/stm32f2xxx.c
++++ b/src/flash/nor/stm32f2x.c
+@@ -48,8 +48,7 @@
+  *
+  */
+ 
+-
+-/* Danger!!!! The STM32F1xxxx and STM32F2xxxx series actually have
++/* Danger!!!! The STM32F1x and STM32F2x series actually have
+  * quite different flash controllers.
+  *
+  * What's more scary is that the names of the registers and their
+@@ -57,7 +56,7 @@
+  * can be very different.
+  *
+  * To reduce testing complexity and dangers of regressions,
+- * a seperate file is used for stm32fx2222.
++ * a seperate file is used for stm32fx2x.
+  *
+  * 1mByte part with 4 x 16, 1 x 64, 7 x 128kBytes sectors
+  *
+@@ -73,16 +72,16 @@
+  * PM0059
+  * www.st.com/internet/com/TECHNICAL_RESOURCES/TECHNICAL_LITERATURE/PROGRAMMING_MANUAL/CD00233952.pdf
+  *
+- * STM32F1xxx series - notice that this code was copy, pasted and knocked
+- * into a stm32f2xxx driver, so in case something has been converted or
++ * STM32F1x series - notice that this code was copy, pasted and knocked
++ * into a stm32f2x driver, so in case something has been converted or
+  * bugs haven't been fixed, here are the original manuals:
+  *
+  * RM0008 - Reference manual
+  *
+  * RM0042, the Flash programming manual for low-, medium- high-density and
+- * connectivity line STM32F10xxx devices
++ * connectivity line STM32F10x devices
+  *
+- * PM0068, the Flash programming manual for XL-density STM32F10xxx devices.
++ * PM0068, the Flash programming manual for XL-density STM32F10x devices.
+  *
+  */
+ 
+@@ -683,16 +682,16 @@ static const struct command_registration stm32x_exec_command_handlers[] = {
+ 
+ static const struct command_registration stm32x_command_handlers[] = {
+ 	{
+-		.name = "stm32f2xxx",
++		.name = "stm32f2x",
+ 		.mode = COMMAND_ANY,
+-		.help = "stm32f2xxx flash command group",
++		.help = "stm32f2x flash command group",
+ 		.chain = stm32x_exec_command_handlers,
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
+-struct flash_driver stm32xf2xxx_flash = {
+-	.name = "stm32f2xxx",
++struct flash_driver stm32f2x_flash = {
++	.name = "stm32f2x",
+ 	.commands = stm32x_command_handlers,
+ 	.flash_bank_command = stm32x_flash_bank_command,
+ 	.erase = stm32x_erase,
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ doc/openocd.texi                            |   38 +++++++-------
+ src/flash/nor/Makefile.am                   |    4 +-
+ src/flash/nor/drivers.c                     |    8 ++--
+ src/flash/nor/{stm32x.c => stm32f1x.c}      |    8 ++--
+ src/flash/nor/{stm32f2xxx.c => stm32f2x.c}  |   21 ++++----
+ src/flash/startup.tcl                       |   11 ++++
+ tcl/board/hitex_stm32-performancestick.cfg  |    2 +-
+ tcl/board/olimex_stm32_h103.cfg             |    2 +-
+ tcl/board/olimex_stm32_h107.cfg             |    2 +-
+ tcl/board/stm32100b_eval.cfg                |    2 +-
+ tcl/board/stm3210b_eval.cfg                 |    2 +-
+ tcl/board/stm3210c_eval.cfg                 |    2 +-
+ tcl/board/stm3210e_eval.cfg                 |    2 +-
+ tcl/board/stm3220g_eval.cfg                 |    2 +-
+ tcl/target/stm32.cfg                        |   78 +-------------------------
+ tcl/target/{stm32.cfg => stm32f1x.cfg}      |    2 +-
+ tcl/target/{stm32f2xxx.cfg => stm32f2x.cfg} |    2 +-
+ tcl/target/stm32f2xxx.cfg                   |   64 +---------------------
+ tcl/target/stm32xl.cfg                      |    4 +-
+ 19 files changed, 68 insertions(+), 188 deletions(-)
+ rename src/flash/nor/{stm32x.c => stm32f1x.c} (99%)
+ rename src/flash/nor/{stm32f2xxx.c => stm32f2x.c} (97%)
+ copy tcl/target/{stm32.cfg => stm32f1x.cfg} (96%)
+ copy tcl/target/{stm32f2xxx.cfg => stm32f2x.cfg} (96%)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+

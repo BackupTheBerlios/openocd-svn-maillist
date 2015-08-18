@@ -1,0 +1,323 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-637-g81790fb
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-637-g81790fb&In-Reply-To=%3CE1POnfJ-0005Sz-9g%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002452.html">
+   <LINK REL="Next"  HREF="002454.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-637-g81790fb</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-637-g81790fb&In-Reply-To=%3CE1POnfJ-0005Sz-9g%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-637-g81790fb">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Sat Dec  4 09:40:18 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002452.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-634-g0ac6c0d
+</A></li>
+        <LI>Next message: <A HREF="002454.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-638-g2e7d51c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2453">[ date ]</a>
+              <a href="thread.html#2453">[ thread ]</a>
+              <a href="subject.html#2453">[ subject ]</a>
+              <a href="author.html#2453">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  81790fb56a6db1e5cd9af2b6889071d1dc975052 (commit)
+       via  bd9d2468cb936d7da6c41da0b9e19ac8f68abae0 (commit)
+       via  f2a1b7f3afd24da9bb58c0575cf0be3d7ab75988 (commit)
+      from  0ac6c0d1a8ff35d2022f11fd0ab057c82c12157b (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 81790fb56a6db1e5cd9af2b6889071d1dc975052
+Author: Rolf Meeser &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">rolfm_9dq at yahoo.de</A>&gt;
+Date:   Fri Dec 3 14:03:28 2010 +0100
+
+    Add board config for Embedded Artists LPC2478-32
+
+diff --git a/tcl/board/embedded-artists_lpc2478-32.cfg b/tcl/board/embedded-artists_lpc2478-32.cfg
+new file mode 100644
+index 0000000..4939699
+--- /dev/null
++++ b/tcl/board/embedded-artists_lpc2478-32.cfg
+@@ -0,0 +1,148 @@
++# Embedded Artists eval board for LPC2478
++# <A HREF="http://www.embeddedartists.com/">http://www.embeddedartists.com/</A>
++
++# Delays on reset lines
++adapter_nsrst_delay 500
++jtag_ntrst_delay 1
++
++# Adaptive JTAG clocking through RTCK.
++# 
++jtag_rclk 20
++
++# Target device: LPC2478
++set CCLK 72000
++source [find target/lpc2478.cfg]
++
++# A working area will help speeding the flash programming
++$_TARGETNAME configure -work-area-phys 0x40000200 -work-area-size [expr 0x10000-0x200-0x20] -work-area-backup 0
++
++# External 16-bit flash at chip select CS0 (SST39VF3201-70, 4 MiB)
++flash bank $_CHIPNAME.extflash cfi 0x80000000 0x400000 2 2 $_TARGETNAME jedec_probe
++
++# Helper
++#
++proc read_register {register} {
++    set result &quot;&quot;
++    mem2array result 32 $register 1
++    return $result(0)
++}
++
++
++# Enable the PLL.
++# Generate maximum CPU clock (72 MHz) Run from internal RC oscillator.
++# Note: The PLL output runs at a frequency N times the desired CPU clock.
++#       It in unavoidable that the CPU clock drops down to (4 MHz/N) during
++#       the initialization!
++#       Here: N=4
++#       Note that if the PLL is already active at the time this script is
++#       called, the effective value of N is the value of CCLKCFG at that time!
++#
++proc enable_pll {} {
++    # Disconnect PLL in case it is already connected
++    if {[expr [read_register 0xE01FC080] &amp; 0x03] == 3} {
++        # Disconnect it, but leave it enabled
++        # (This MUST be done in two steps)
++        mww 0xE01FC080 0x00000001       # PLLCON: disconnect PLL
++        mww 0xE01FC08C 0x000000AA       # PLLFEED
++        mww 0xE01FC08C 0x00000055       # PLLFEED
++    }
++    # Disable PLL (as it might already be enabled at this time!)
++    mww 0xE01FC080 0x00000000       # PLLCON: disable PLL
++    mww 0xE01FC08C 0x000000AA       # PLLFEED
++    mww 0xE01FC08C 0x00000055       # PLLFEED
++
++    # Setup PLL to generate 288 MHz from internal RC oscillator
++    mww 0xE01FC10C 0x00000000       # CLKSRCSEL: IRC
++    mww 0xE01FC084 0x00000023       # PLLCFG: N=1, M=36
++    mww 0xE01FC08C 0x000000AA       # PLLFEED
++    mww 0xE01FC08C 0x00000055       # PLLFEED
++    mww 0xE01FC080 0x00000001       # PLLCON: enable PLL
++    mww 0xE01FC08C 0x000000AA       # PLLFEED
++    mww 0xE01FC08C 0x00000055       # PLLFEED
++    sleep 100
++    mww 0xE01FC104 0x00000003       # CCLKCFG: divide by 4 (72 MHz)
++    mww 0xE01FC080 0x00000003       # PLLCON: connect PLL
++    mww 0xE01FC08C 0x000000AA       # PLLFEED
++    mww 0xE01FC08C 0x00000055       # PLLFEED
++}
++
++
++# Event handlers
++#
++$_TARGETNAME configure -event reset-start {
++    # Back to the slow JTAG clock
++    jtag_rclk 20
++}
++
++
++$_TARGETNAME configure -event reset-init {
++
++    arm core_state arm
++    arm7_9 dcc_downloads enable     # Speed up downloads by using DCC transfer
++    arm7_9 fast_memory_access enable
++
++    # Peripheral clocks
++    mww 0xE01FC0C4 0x04280FFE       # PCONP: (reset value)
++
++    # Map the user flash to the vector table area (0x00...0x3F)
++    mww 0xE01FC040 0x00000001       # MEMMAP: User flash
++
++    # Memory accelerator module
++    mww 0xE01FC004 0x00000003       # MAMTIM: 3 clock cycles
++    mww 0xE01FC000 0x00000002       # MAMCR: fully enabled
++
++    # Enable external memory bus (32-bit SDRAM at DYCS0, 16-bit flash at CS0)
++    mww 0xE002C014 0x55010115       # PINSEL5: P2.16=CAS, P2.17=RAS, P2.18=CLKOUT0,
++                                    # P2.20=DYCS0, P2.24=CKEOUT0, P2.28=DQMOUT0,
++                                    # P2.29=DQMOUT1, P2.30=DQMOUT2, P2.31=DQMOUT3
++    mww 0xE002C018 0x55555555       # PINSEL6: P3.0...P3.15=D0...D15
++    mww 0xE002C01C 0x55555555       # PINSEL7: P3.16...P3.31=D16...D31
++    mww 0xE002C020 0x55555555       # PINSEL8: P4.0...P4.15=A0...A15
++    mww 0xE002C024 0x50051555       # PINSEL9: P4.16...P4.22=A16...A22, P4.24=OE,
++                                    # P4.25=WE, P4.30=CS0, P4.31=CS1
++    mww 0xFFE08000 0x00000001       # EMCControl: Enable EMC
++
++    # Start PLL, then use faster JTAG clock
++    enable_pll
++    jtag_rclk 3000
++
++    # 16-bit flash @ CS0 (SST39VF3201-70)
++    mww 0xFFE08200 0x00080081       # EMCStaticConfig0: 16 bit, PB=1, buffers on
++    mww 0xFFE08204 0x00000000       # EMCStaticWaitWen0
++    mww 0xFFE08208 0x00000000       # EMCStaticWaitOen0
++    mww 0xFFE0820C 0x00000005       # EMCStaticWaitRd0
++    mww 0xFFE08210 0x00000005       # EMCStaticWaitPage0
++    mww 0xFFE08214 0x00000003       # EMCStaticWaitWr0
++    mww 0xFFE08218 0x00000001       # EMCStaticWaitTurn0
++
++    # 8-bit NAND @ CS1
++    # TODO
++
++    # 32-bit SDRAM @ DYCS0 (K4M563233G-HN75)
++    mww 0xFFE08028 0x00000001       # EMCDynamicReadConfig
++    mww 0xFFE08030 0x00000001       # EMCDynamicRP
++    mww 0xFFE08034 0x00000003       # EMCDynamicRAS
++    mww 0xFFE08038 0x00000005       # EMCDynamicSREX
++    mww 0xFFE0803C 0x00000001       # EMCDynamicAPR
++    mww 0xFFE08040 0x00000005       # EMCDynamicDAL
++    mww 0xFFE08044 0x00000001       # EMCDynamicWR
++    mww 0xFFE08048 0x00000005       # EMCDynamicRC
++    mww 0xFFE0804C 0x00000005       # EMCDynamicRFC
++    mww 0xFFE08050 0x00000005       # EMCDynamicXSR
++    mww 0xFFE08054 0x00000001       # EMCDynamicRRD
++    mww 0xFFE08058 0x00000001       # EMCDynamicMRD
++    #
++    mww 0xFFE08104 0x00000202       # EMCDynamicRasCas0
++    mww 0xFFE08100 0x00005488       # EMCDynamicConfig0
++    sleep 100
++    mww 0xFFE08020 0x00000183       # EMCDynamicControl: Clock on continuously, NOP
++    sleep 10
++    mww 0xFFE08020 0x00000103       # EMCDynamicControl: PRECHARGE-ALL
++    mww 0xFFE08024 0x00000046       # EMCDynamicRefresh
++    sleep 100
++    mww 0xFFE08020 0x00000083       # EMCDynamicControl: MODE
++    mdw 0xA0011000 1                # Set SDRAM mode register
++    mww 0xFFE08020 0x00000000       # EMCDynamicControl: NORMAL
++    mww 0xFFE08100 0x00085488       # EMCDynamicConfig0: Enable buffers
++}
++
+
+commit bd9d2468cb936d7da6c41da0b9e19ac8f68abae0
+Author: Rolf Meeser &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">rolfm_9dq at yahoo.de</A>&gt;
+Date:   Fri Dec 3 13:54:47 2010 +0100
+
+    Fix flash name in Hitex LPC2929 board config
+
+diff --git a/tcl/board/hitex_lpc2929.cfg b/tcl/board/hitex_lpc2929.cfg
+index d9ca110..13d3872 100644
+--- a/tcl/board/hitex_lpc2929.cfg
++++ b/tcl/board/hitex_lpc2929.cfg
+@@ -28,7 +28,7 @@ $_TARGETNAME configure -event reset-start {
+ }
+ 
+ # External 16-bit flash at chip select CS7 (SST39VF3201-70, 4 MiB)
+-set _FLASHNAME $_CHIPNAME.flash
++set _FLASHNAME $_CHIPNAME.extflash
+ flash bank $_FLASHNAME cfi 0x5C000000 0x400000 2 2 $_TARGETNAME jedec_probe
+ 
+ 
+
+commit f2a1b7f3afd24da9bb58c0575cf0be3d7ab75988
+Author: Rolf Meeser &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">rolfm_9dq at yahoo.de</A>&gt;
+Date:   Fri Dec 3 14:06:11 2010 +0100
+
+    Fix sector layout for 504-KiB LPC2000 devices
+
+diff --git a/src/flash/nor/lpc2000.c b/src/flash/nor/lpc2000.c
+index 14d0e44..fea663e 100644
+--- a/src/flash/nor/lpc2000.c
++++ b/src/flash/nor/lpc2000.c
+@@ -196,10 +196,13 @@ static int lpc2000_build_sector_list(struct flash_bank *bank)
+ 			case 256 * 1024:
+ 				bank-&gt;num_sectors = 15;
+ 				break;
+-			case 512 * 1024:
+ 			case 500 * 1024:
+ 				bank-&gt;num_sectors = 27;
+ 				break;
++			case 512 * 1024:
++			case 504 * 1024:
++				bank-&gt;num_sectors = 28;
++				break;
+ 			default:
+ 				LOG_ERROR(&quot;BUG: unknown bank-&gt;size encountered&quot;);
+ 				exit(-1);
+@@ -210,7 +213,7 @@ static int lpc2000_build_sector_list(struct flash_bank *bank)
+ 
+ 		for (i = 0; i &lt; bank-&gt;num_sectors; i++)
+ 		{
+-			if ((i &gt;= 0) &amp;&amp; (i &lt; 8))
++			if (i &lt; 8)
+ 			{
+ 				bank-&gt;sectors[i].offset = offset;
+ 				bank-&gt;sectors[i].size = 4 * 1024;
+@@ -218,7 +221,7 @@ static int lpc2000_build_sector_list(struct flash_bank *bank)
+ 				bank-&gt;sectors[i].is_erased = -1;
+ 				bank-&gt;sectors[i].is_protected = 1;
+ 			}
+-			if ((i &gt;= 8) &amp;&amp; (i &lt; 22))
++			else if (i &lt; 22)
+ 			{
+ 				bank-&gt;sectors[i].offset = offset;
+ 				bank-&gt;sectors[i].size = 32 * 1024;
+@@ -226,7 +229,7 @@ static int lpc2000_build_sector_list(struct flash_bank *bank)
+ 				bank-&gt;sectors[i].is_erased = -1;
+ 				bank-&gt;sectors[i].is_protected = 1;
+ 			}
+-			if ((i &gt;= 22) &amp;&amp; (i &lt; 27))
++			else if (i &lt; 28)
+ 			{
+ 				bank-&gt;sectors[i].offset = offset;
+ 				bank-&gt;sectors[i].size = 4 * 1024;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/lpc2000.c                   |   11 ++-
+ tcl/board/embedded-artists_lpc2478-32.cfg |  148 +++++++++++++++++++++++++++++
+ tcl/board/hitex_lpc2929.cfg               |    2 +-
+ 3 files changed, 156 insertions(+), 5 deletions(-)
+ create mode 100644 tcl/board/embedded-artists_lpc2478-32.cfg
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002452.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-634-g0ac6c0d
+</A></li>
+	<LI>Next message: <A HREF="002454.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-638-g2e7d51c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2453">[ date ]</a>
+              <a href="thread.html#2453">[ thread ]</a>
+              <a href="subject.html#2453">[ subject ]</a>
+              <a href="author.html#2453">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

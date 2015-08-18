@@ -1,0 +1,397 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-688-g89fa493
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-688-g89fa493&In-Reply-To=%3CE1NEUS9-00012Q-ME%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001878.html">
+   <LINK REL="Next"  HREF="001880.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-688-g89fa493</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-688-g89fa493&In-Reply-To=%3CE1NEUS9-00012Q-ME%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-688-g89fa493">zwelch at users.sourceforge.net
+       </A><BR>
+    <I>Sat Nov 28 22:03:36 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001878.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-685-g5f02234
+</A></li>
+        <LI>Next message: <A HREF="001880.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-694-g2da2864
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1879">[ date ]</a>
+              <a href="thread.html#1879">[ thread ]</a>
+              <a href="subject.html#1879">[ subject ]</a>
+              <a href="author.html#1879">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  89fa493a3bc34d22eeca06fa4e78523ac3b766a8 (commit)
+       via  df22f0f9ca4ebf881adf8d20cb63e64139f18613 (commit)
+       via  37dd5a685a67f9069ac0c1d98d47077a67fb897a (commit)
+      from  5f0223423d6c9a41bf0a9ac45772d1b01469bf0a (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 89fa493a3bc34d22eeca06fa4e78523ac3b766a8
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Fri Nov 27 21:47:54 2009 -0800
+
+    remove unknown handler
+    
+    Updates command registration to provide top-level handlers for all
+    commands, rather than falling back onto the 'unknown' command. Instead,
+    that same handler is registered for placeholders, providing the same
+    functionality under the root verb command name instead.  This permits
+    users to implement their own 'unknown' function, and it resolves some
+    mind-bending breakage related to function object lookup while recursing.
+    
+    Changes 'ocd_bounce' to call 'ocd_command' and 'ocd_help' from the
+    wrapper directly, rather than bouncing through their wrappers. This
+    prevents endless recursion caused by the above changes, whereby the
+    'command' wrapper's type check would blow the stack to hell and gone.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index ba04157..2b29956 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -296,37 +296,32 @@ static void command_free(struct command *c)
+ 	free(c);
+ }
+ 
++static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv);
++
+ static int register_command_handler(struct command *c)
+ {
+-	int retval = -ENOMEM;
+-	const char *full_name = command_name(c, '_');
+-	if (NULL == full_name)
+-		return retval;
++	const char *ocd_name = alloc_printf(&quot;ocd_%s&quot;, c-&gt;name);
++	if (NULL == ocd_name)
++		return JIM_ERR;
+ 
+-	if (NULL != c-&gt;handler)
+-	{
+-		const char *ocd_name = alloc_printf(&quot;ocd_%s&quot;, full_name);
+-		if (NULL == full_name)
+-			goto free_full_name;
++	LOG_DEBUG(&quot;registering '%s'...&quot;, ocd_name);
+ 
+-		Jim_CreateCommand(interp, ocd_name, script_command, c, NULL);
+-		free((void *)ocd_name);
+-	}
++	Jim_CmdProc func = c-&gt;handler ? &amp;script_command : &amp;command_unknown;
++	int retval = Jim_CreateCommand(interp, ocd_name, func, c, NULL);
++	free((void *)ocd_name);
++	if (JIM_OK != retval)
++		return retval;
+ 
+ 	/* we now need to add an overrideable proc */
+ 	const char *override_name = alloc_printf(
+ 			&quot;proc %s {args} {eval ocd_bouncer %s $args}&quot;,
+-			full_name, full_name);
++			c-&gt;name, c-&gt;name);
+ 	if (NULL == override_name)
+-		goto free_full_name;
++		return JIM_ERR;
+ 
+-	Jim_Eval_Named(interp, override_name, __THIS__FILE__, __LINE__);
++	retval = Jim_Eval_Named(interp, override_name, __FILE__, __LINE__);
+ 	free((void *)override_name);
+ 
+-	retval = ERROR_OK;
+-
+-free_full_name:
+-	free((void *)full_name);
+ 	return retval;
+ }
+ 
+@@ -350,19 +345,20 @@ struct command* register_command(struct command_context *context,
+ 	if (NULL == c)
+ 		return NULL;
+ 
+-	if (NULL != c-&gt;handler)
++	int retval = ERROR_OK;
++	if (NULL != cr-&gt;jim_handler &amp;&amp; NULL == parent)
+ 	{
+-		int retval = register_command_handler(command_root(c));
+-		if (ERROR_OK != retval)
+-		{
+-			unregister_command(context, parent, name);
+-			return NULL;
+-		}
++		retval = Jim_CreateCommand(interp, cr-&gt;name,
++				cr-&gt;jim_handler, cr-&gt;jim_handler_data, NULL);
+ 	}
++	else if (NULL != cr-&gt;handler || NULL != parent)
++		retval = register_command_handler(command_root(c));
+ 
+-	if (NULL != cr-&gt;jim_handler &amp;&amp; NULL == parent)
+-		Jim_CreateCommand(interp, cr-&gt;name, cr-&gt;jim_handler, cr-&gt;jim_handler_data, NULL);
+-
++	if (ERROR_OK != retval)
++	{
++		unregister_command(context, parent, name);
++		c = NULL;
++	}
+ 	return c;
+ }
+ 
+@@ -903,15 +899,22 @@ static int command_unknown_find(unsigned argc, Jim_Obj *const *argv,
+ static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+ 	const char *cmd_name = Jim_GetString(argv[0], NULL);
+-	script_debug(interp, cmd_name, argc - 1, argv + 1);
++	if (strcmp(cmd_name, &quot;unknown&quot;) == 0)
++	{
++		if (argc == 1)
++			return JIM_OK;
++		argc--;
++		argv++;
++	}
++	script_debug(interp, cmd_name, argc, argv);
+ 
+ 	struct command_context *cmd_ctx = current_command_context();
+ 	struct command *c = cmd_ctx-&gt;commands;
+-	int remaining = command_unknown_find(argc - 1, argv + 1, c, &amp;c, true);
++	int remaining = command_unknown_find(argc, argv, c, &amp;c, true);
+ 	// if nothing could be consumed, then it's really an unknown command
+-	if (remaining == argc - 1)
++	if (remaining == argc)
+ 	{
+-		const char *cmd = Jim_GetString(argv[1], NULL);
++		const char *cmd = Jim_GetString(argv[0], NULL);
+ 		LOG_ERROR(&quot;Unknown command:\n  %s&quot;, cmd);
+ 		return JIM_OK;
+ 	}
+@@ -1196,7 +1199,6 @@ struct command_context* command_init(const char *startup_tcl)
+ 	Jim_SetGlobalVariableStr(interp, &quot;ocd_HOSTOS&quot;,
+ 			Jim_NewStringObj(interp, HostOs , strlen(HostOs)));
+ 
+-	Jim_CreateCommand(interp, &quot;unknown&quot;, &amp;command_unknown, NULL, NULL);
+ 	Jim_CreateCommand(interp, &quot;ocd_find&quot;, jim_find, NULL, NULL);
+ 	Jim_CreateCommand(interp, &quot;echo&quot;, jim_echo, NULL, NULL);
+ 	Jim_CreateCommand(interp, &quot;capture&quot;, jim_capture, NULL, NULL);
+diff --git a/src/helper/startup.tcl b/src/helper/startup.tcl
+index cb5fb02..dda89c8 100644
+--- a/src/helper/startup.tcl
++++ b/src/helper/startup.tcl
+@@ -15,7 +15,7 @@ proc exit {} {
+ # to discard 'handler' command output,
+ proc ocd_bouncer {name args} {
+ 	set cmd [format &quot;ocd_%s&quot; $name]
+-	set type [eval command type $cmd $args]
++	set type [eval ocd_command type $cmd $args]
+ 	if {$type == &quot;native&quot;} {
+ 		return [eval $cmd $args]
+ 	} else {if {$type == &quot;simple&quot;} {
+@@ -25,7 +25,7 @@ proc ocd_bouncer {name args} {
+ 			set errmsg &quot;Command handler execution failed&quot;
+ 		}
+ 	} else {if {$type == &quot;group&quot;} {
+-		catch {eval help $name $args}
++		catch {eval ocd_help $name $args}
+ 		set errmsg [format &quot;%s: command requires more arguments&quot; \
+ 			[concat $name &quot; &quot; $args]]
+ 	} else {
+
+commit df22f0f9ca4ebf881adf8d20cb63e64139f18613
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Fri Nov 27 19:14:30 2009 -0800
+
+    improve command handler wrapper script
+    
+    Adds 'ocd_bouncer' in startup.tcl that is called as a helper for
+    all command handlers, shrinking the embedded C wrapper to a mere stub.
+    
+    Jim handlers are called directly, simple handlers get called with the
+    wrapper to capture and discard their output on error, and placeholders
+    call help directly (though the unknown handler still does this too).
+    It attempts to improve the quality of the error messages as well.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 23175ba..ba04157 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -314,9 +314,8 @@ static int register_command_handler(struct command *c)
+ 	}
+ 
+ 	/* we now need to add an overrideable proc */
+-	const char *override_name = alloc_printf(&quot;proc %s {args} {&quot;
+-			&quot;if {[catch {eval ocd_%s $args}] == 0} &quot;
+-			&quot;{return \&quot;\&quot;} else {return -code error}}&quot;,
++	const char *override_name = alloc_printf(
++			&quot;proc %s {args} {eval ocd_bouncer %s $args}&quot;,
+ 			full_name, full_name);
+ 	if (NULL == override_name)
+ 		goto free_full_name;
+diff --git a/src/helper/startup.tcl b/src/helper/startup.tcl
+index f11d5b6..cb5fb02 100644
+--- a/src/helper/startup.tcl
++++ b/src/helper/startup.tcl
+@@ -10,6 +10,30 @@ proc exit {} {
+ 	ocd_throw exit
+ }
+ 
++# All commands are registered with an 'ocd_' prefix, while the &quot;real&quot;
++# command is a wrapper that calls this function.  Its primary purpose is
++# to discard 'handler' command output,
++proc ocd_bouncer {name args} {
++	set cmd [format &quot;ocd_%s&quot; $name]
++	set type [eval command type $cmd $args]
++	if {$type == &quot;native&quot;} {
++		return [eval $cmd $args]
++	} else {if {$type == &quot;simple&quot;} {
++		if {[catch {eval $cmd $args}] == 0} {
++			return &quot;&quot;
++		} else {
++			set errmsg &quot;Command handler execution failed&quot;
++		}
++	} else {if {$type == &quot;group&quot;} {
++		catch {eval help $name $args}
++		set errmsg [format &quot;%s: command requires more arguments&quot; \
++			[concat $name &quot; &quot; $args]]
++	} else {
++		set errmsg [format &quot;Unknown command type: %s&quot; $type]
++	}}}
++	return -code error $errmsg
++}
++
+ # Try flipping / and \ to find file if the filename does not
+ # match the precise spelling
+ proc find {filename} {
+
+commit 37dd5a685a67f9069ac0c1d98d47077a67fb897a
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Fri Nov 27 18:59:14 2009 -0800
+
+    add 'command type' introspective handler
+    
+    Adds the 'command' group handler, with the 'type' command producing
+    a string that tells whether the given command is 'native' (for Jim-based
+    command handlers), 'simple' (for simple built-in commands), 'group'
+    for command group placeholders, and 'unknown' if not found in the
+    command registration tables (e.g. core built-ins functions).
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 65421f5..23175ba 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -948,6 +948,31 @@ static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	return script_command_run(interp, count, start, c, found);
+ }
+ 
++static int jim_command_type(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (1 == argc)
++		return JIM_ERR;
++
++	struct command_context *cmd_ctx = current_command_context();
++	struct command *c = cmd_ctx-&gt;commands;
++	int remaining = command_unknown_find(argc - 1, argv + 1, c, &amp;c, true);
++	// if nothing could be consumed, then it's an unknown command
++	if (remaining == argc - 1)
++	{
++		Jim_SetResultString(interp, &quot;unknown&quot;, -1);
++		return JIM_OK;
++	}
++
++	if (c-&gt;jim_handler)
++		Jim_SetResultString(interp, &quot;native&quot;, -1);
++	else if (c-&gt;handler)
++		Jim_SetResultString(interp, &quot;simple&quot;, -1);
++	else
++		Jim_SetResultString(interp, &quot;group&quot;, -1);
++
++	return JIM_OK;
++}
++
+ int help_add_command(struct command_context *cmd_ctx, struct command *parent,
+ 		const char *cmd_name, const char *help_text, const char *usage)
+ {
+@@ -1069,6 +1094,18 @@ COMMAND_HANDLER(handle_sleep_command)
+ 	return ERROR_OK;
+ }
+ 
++static const struct command_registration command_subcommand_handlers[] = {
++	{
++		.name = &quot;type&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_command_type,
++		.usage = &quot;&lt;name&gt; ...&quot;,
++		.help = &quot;Returns the type of built-in command:&quot;
++			&quot;'native', 'simple', 'group', or 'unknown'&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
+ static const struct command_registration command_builtin_handlers[] = {
+ 	{
+ 		.name = &quot;add_help_text&quot;,
+@@ -1106,6 +1143,12 @@ static const struct command_registration command_builtin_handlers[] = {
+ 		.help = &quot;show basic command usage&quot;,
+ 		.usage = &quot;[&lt;command&gt; ...]&quot;,
+ 	},
++	{
++		.name = &quot;command&quot;,
++		.mode= COMMAND_ANY,
++		.help = &quot;core command group (introspection)&quot;,
++		.chain = command_subcommand_handlers,
++	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/helper/command.c   |  118 +++++++++++++++++++++++++++++++++---------------
+ src/helper/startup.tcl |   24 ++++++++++
+ 2 files changed, 105 insertions(+), 37 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001878.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-685-g5f02234
+</A></li>
+	<LI>Next message: <A HREF="001880.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-694-g2da2864
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1879">[ date ]</a>
+              <a href="thread.html#1879">[ thread ]</a>
+              <a href="subject.html#1879">[ subject ]</a>
+              <a href="author.html#1879">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

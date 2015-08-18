@@ -1,0 +1,840 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-726-g8fc5a9a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-726-g8fc5a9a&In-Reply-To=%3CE1NFGkO-0005Lt-Gj%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001890.html">
+   <LINK REL="Next"  HREF="001892.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-726-g8fc5a9a</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-726-g8fc5a9a&In-Reply-To=%3CE1NFGkO-0005Lt-Gj%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-726-g8fc5a9a">zwelch at users.sourceforge.net
+       </A><BR>
+    <I>Tue Dec  1 01:37:39 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001890.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-721-gbe65f49
+</A></li>
+        <LI>Next message: <A HREF="001892.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-728-g892604b
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1891">[ date ]</a>
+              <a href="thread.html#1891">[ thread ]</a>
+              <a href="subject.html#1891">[ subject ]</a>
+              <a href="author.html#1891">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  8fc5a9a5e90ba1c7580e9d883aed0d790e594c8e (commit)
+       via  cbc894ed7b07f7eea34acfea62c728bdf182918f (commit)
+       via  7b2906de246bc37af99d432b3edf12e9f5f63521 (commit)
+       via  8e8a359af2a5ab3cc7c795e147aa0ca3ec06288f (commit)
+       via  e1ee27026569a94e58648d9825dc000dd53130d1 (commit)
+      from  be65f497f5f50d6d037295d5f466db5314f99de1 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 8fc5a9a5e90ba1c7580e9d883aed0d790e594c8e
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sun Nov 29 18:50:48 2009 -0800
+
+    remove interp global variable!
+    
+    Finish removing references to the 'interp' global variable from the
+    command module, encapsulating all reference via command_context.
+    
+    Eliminates use of the global entirely, so it can be removed.  Hurrah!
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 607693c..9b9c5ec 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -47,7 +47,6 @@
+ /* nice short description of source file */
+ #define __THIS__FILE__ &quot;command.c&quot;
+ 
+-Jim_Interp *interp = NULL;
+ 
+ static int run_command(struct command_context *context,
+ 		struct command *c, const char *words[], unsigned num_words);
+@@ -159,7 +158,7 @@ static const char **script_command_args_alloc(
+ 	return words;
+ }
+ 
+-static struct command_context *current_command_context(void)
++static struct command_context *current_command_context(Jim_Interp *interp)
+ {
+ 	/* grab the command context from the associated data */
+ 	struct command_context *cmd_ctx = Jim_GetAssocData(interp, &quot;context&quot;);
+@@ -188,7 +187,7 @@ static int script_command_run(Jim_Interp *interp,
+ 	if (capture)
+ 		state = command_log_capture_start(interp);
+ 
+-	struct command_context *cmd_ctx = current_command_context();
++	struct command_context *cmd_ctx = current_command_context(interp);
+ 	int retval = run_command(cmd_ctx, c, (const char **)words, nwords);
+ 
+ 	command_log_capture_finish(state);
+@@ -327,8 +326,10 @@ command_new_error:
+ 
+ static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv);
+ 
+-static int register_command_handler(struct command *c)
++static int register_command_handler(struct command_context *cmd_ctx,
++		struct command *c)
+ {
++	Jim_Interp *interp = cmd_ctx-&gt;interp;
+ 	const char *ocd_name = alloc_printf(&quot;ocd_%s&quot;, c-&gt;name);
+ 	if (NULL == ocd_name)
+ 		return JIM_ERR;
+@@ -377,11 +378,11 @@ struct command* register_command(struct command_context *context,
+ 	int retval = ERROR_OK;
+ 	if (NULL != cr-&gt;jim_handler &amp;&amp; NULL == parent)
+ 	{
+-		retval = Jim_CreateCommand(interp, cr-&gt;name,
++		retval = Jim_CreateCommand(context-&gt;interp, cr-&gt;name,
+ 				cr-&gt;jim_handler, cr-&gt;jim_handler_data, NULL);
+ 	}
+ 	else if (NULL != cr-&gt;handler || NULL != parent)
+-		retval = register_command_handler(command_root(c));
++		retval = register_command_handler(context, command_root(c));
+ 
+ 	if (ERROR_OK != retval)
+ 	{
+@@ -615,6 +616,7 @@ int command_run_line(struct command_context *context, char *line)
+ 	 * happen when the Jim Tcl interpreter is provided by eCos for
+ 	 * instance.
+ 	 */
++	Jim_Interp *interp = context-&gt;interp;
+ 	Jim_DeleteAssocData(interp, &quot;context&quot;);
+ 	retcode = Jim_SetAssocData(interp, &quot;context&quot;, NULL, context);
+ 	if (retcode == JIM_OK)
+@@ -977,7 +979,7 @@ static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	}
+ 	script_debug(interp, cmd_name, argc, argv);
+ 
+-	struct command_context *cmd_ctx = current_command_context();
++	struct command_context *cmd_ctx = current_command_context(interp);
+ 	struct command *c = cmd_ctx-&gt;commands;
+ 	int remaining = command_unknown_find(argc, argv, c, &amp;c, true);
+ 	// if nothing could be consumed, then it's really an unknown command
+@@ -1021,7 +1023,7 @@ static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 
+ static int jim_command_mode(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+-	struct command_context *cmd_ctx = current_command_context();
++	struct command_context *cmd_ctx = current_command_context(interp);
+ 	enum command_mode mode;
+ 	if (argc &gt; 1)
+ 	{
+@@ -1054,7 +1056,7 @@ static int jim_command_type(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	if (1 == argc)
+ 		return JIM_ERR;
+ 
+-	struct command_context *cmd_ctx = current_command_context();
++	struct command_context *cmd_ctx = current_command_context(interp);
+ 	struct command *c = cmd_ctx-&gt;commands;
+ 	int remaining = command_unknown_find(argc - 1, argv + 1, c, &amp;c, true);
+ 	// if nothing could be consumed, then it's an unknown command
+@@ -1276,11 +1278,12 @@ struct command_context* command_init(const char *startup_tcl)
+ #if !BUILD_ECOSBOARD
+ 	Jim_InitEmbedded();
+ 	/* Create an interpreter */
+-	interp = context-&gt;interp = Jim_CreateInterp();
++	context-&gt;interp = Jim_CreateInterp();
+ 	/* Add all the Jim core commands */
+-	Jim_RegisterCoreCommands(interp);
++	Jim_RegisterCoreCommands(context-&gt;interp);
+ #endif
+ 
++	Jim_Interp *interp = context-&gt;interp;
+ #if defined(_MSC_VER)
+ 	/* WinXX - is generic, the forward
+ 	 * looking problem is this:
+@@ -1347,17 +1350,16 @@ int command_context_mode(struct command_context *cmd_ctx, enum command_mode mode
+ 	return ERROR_OK;
+ }
+ 
+-void process_jim_events(void)
++void process_jim_events(struct command_context *cmd_ctx)
+ {
+ #if !BUILD_ECOSBOARD
+ 	static int recursion = 0;
++	if (recursion)
++		return;
+ 
+-	if (!recursion)
+-	{
+-		recursion++;
+-		Jim_ProcessEvents (interp, JIM_ALL_EVENTS | JIM_DONT_WAIT);
+-		recursion--;
+-	}
++	recursion++;
++	Jim_ProcessEvents(cmd_ctx-&gt;interp, JIM_ALL_EVENTS | JIM_DONT_WAIT);
++	recursion--;
+ #endif
+ }
+ 
+diff --git a/src/helper/command.h b/src/helper/command.h
+index f27364e..611db87 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -351,7 +351,7 @@ int command_run_linef(struct command_context *context, const char *format, ...)
+ 		__attribute__ ((format (PRINTF_ATTRIBUTE_FORMAT, 2, 3)));
+ void command_output_text(struct command_context *context, const char *data);
+ 
+-void process_jim_events(void);
++void process_jim_events(struct command_context *cmd_ctx);
+ 
+ #define		ERROR_COMMAND_CLOSE_CONNECTION		(-600)
+ #define		ERROR_COMMAND_SYNTAX_ERROR			(-601)
+diff --git a/src/server/server.c b/src/server/server.c
+index a02d4a5..0f977a7 100644
+--- a/src/server/server.c
++++ b/src/server/server.c
+@@ -386,7 +386,7 @@ int server_loop(struct command_context *command_context)
+ 		}
+ 
+ 		target_call_timer_callbacks();
+-		process_jim_events ();
++		process_jim_events(command_context);
+ 
+ 		if (retval == 0)
+ 		{
+
+commit cbc894ed7b07f7eea34acfea62c728bdf182918f
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sun Nov 29 18:39:13 2009 -0800
+
+    command output capture: do not use interp global
+    
+    Adds a log_capture_state structure to pass to the log capture
+    callback used by the command module.  Ensures that the capture occurs
+    in the proper context.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 5df4a45..607693c 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -52,30 +52,50 @@ Jim_Interp *interp = NULL;
+ static int run_command(struct command_context *context,
+ 		struct command *c, const char *words[], unsigned num_words);
+ 
++struct log_capture_state {
++	Jim_Interp *interp;
++	Jim_Obj *output;
++};
++
+ static void tcl_output(void *privData, const char *file, unsigned line,
+ 		const char *function, const char *string)
+ {
+-	Jim_Obj *tclOutput = (Jim_Obj *)privData;
+-	Jim_AppendString(interp, tclOutput, string, strlen(string));
++	struct log_capture_state *state = (struct log_capture_state *)privData;
++	Jim_AppendString(state-&gt;interp, state-&gt;output, string, strlen(string));
+ }
+ 
+-static Jim_Obj *command_log_capture_start(Jim_Interp *interp)
++static struct log_capture_state *command_log_capture_start(Jim_Interp *interp)
+ {
+ 	/* capture log output and return it. A garbage collect can
+ 	 * happen, so we need a reference count to this object */
+ 	Jim_Obj *tclOutput = Jim_NewStringObj(interp, &quot;&quot;, 0);
+ 	if (NULL == tclOutput)
+ 		return NULL;
++
++	struct log_capture_state *state = malloc(sizeof(*state));
++	if (NULL == state)
++		return NULL;
++
++	state-&gt;interp = interp;
+ 	Jim_IncrRefCount(tclOutput);
+-	log_add_callback(tcl_output, tclOutput);
+-	return tclOutput;
++	state-&gt;output = tclOutput;
++
++	log_add_callback(tcl_output, state);
++
++	return state;
+ }
+ 
+-static void command_log_capture_finish(Jim_Interp *interp, Jim_Obj *tclOutput)
++static void command_log_capture_finish(struct log_capture_state *state)
+ {
+-	log_remove_callback(tcl_output, tclOutput);
+-	Jim_SetResult(interp, tclOutput);
+-	Jim_DecrRefCount(interp, tclOutput);
++	if (NULL == state)
++		return;
++
++	log_remove_callback(tcl_output, state);
++
++	Jim_SetResult(state-&gt;interp, state-&gt;output);
++	Jim_DecrRefCount(state-&gt;interp, state-&gt;output);
++
++	free(state);
+ }
+ 
+ static int command_retval_set(Jim_Interp *interp, int retval)
+@@ -164,15 +184,14 @@ static int script_command_run(Jim_Interp *interp,
+ 	if (NULL == words)
+ 		return JIM_ERR;
+ 
+-	Jim_Obj *tclOutput = NULL;
++	struct log_capture_state *state = NULL;
+ 	if (capture)
+-		tclOutput = command_log_capture_start(interp);
++		state = command_log_capture_start(interp);
+ 
+ 	struct command_context *cmd_ctx = current_command_context();
+ 	int retval = run_command(cmd_ctx, c, (const char **)words, nwords);
+ 
+-	if (capture)
+-		command_log_capture_finish(interp, tclOutput);
++	command_log_capture_finish(state);
+ 
+ 	script_command_args_free(words, nwords);
+ 	return command_retval_set(interp, retval);
+@@ -804,12 +823,12 @@ static int jim_capture(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	if (argc != 2)
+ 		return JIM_ERR;
+ 
+-	Jim_Obj *tclOutput = command_log_capture_start(interp);
++	struct log_capture_state *state = command_log_capture_start(interp);
+ 
+ 	const char *str = Jim_GetString(argv[1], NULL);
+ 	int retcode = Jim_Eval_Named(interp, str, __THIS__FILE__, __LINE__);
+ 
+-	command_log_capture_finish(interp, tclOutput);
++	command_log_capture_finish(state);
+ 
+ 	return retcode;
+ }
+
+commit 7b2906de246bc37af99d432b3edf12e9f5f63521
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sun Nov 29 18:27:45 2009 -0800
+
+    do not extern 'interp' from command.c
+    
+    Adds 'interp' field to command_context, chasing the few remaining
+    references to the global variable outside of the command module.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 319f081..5df4a45 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -1257,7 +1257,7 @@ struct command_context* command_init(const char *startup_tcl)
+ #if !BUILD_ECOSBOARD
+ 	Jim_InitEmbedded();
+ 	/* Create an interpreter */
+-	interp = Jim_CreateInterp();
++	interp = context-&gt;interp = Jim_CreateInterp();
+ 	/* Add all the Jim core commands */
+ 	Jim_RegisterCoreCommands(interp);
+ #endif
+diff --git a/src/helper/command.h b/src/helper/command.h
+index 0723596..f27364e 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -59,6 +59,7 @@ typedef int (*command_output_handler_t)(struct command_context *context,
+ 
+ struct command_context
+ {
++	Jim_Interp *interp;
+ 	enum command_mode mode;
+ 	struct command *commands;
+ 	int current_target;
+@@ -359,8 +360,6 @@ void process_jim_events(void);
+ #define		ERROR_COMMAND_ARGUMENT_OVERFLOW		(-604)
+ #define		ERROR_COMMAND_ARGUMENT_UNDERFLOW	(-605)
+ 
+-extern Jim_Interp *interp;
+-
+ int parse_ulong(const char *str, unsigned long *ul);
+ int parse_ullong(const char *str, unsigned long long *ul);
+ 
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index 211b9d5..9230cc2 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -1535,7 +1535,7 @@ int jtag_init(struct command_context *cmd_ctx)
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+ 		return retval;
+ 
+-	if (Jim_Eval_Named(interp, &quot;jtag_init&quot;, __FILE__, __LINE__) != JIM_OK)
++	if (Jim_Eval_Named(cmd_ctx-&gt;interp, &quot;jtag_init&quot;, __FILE__, __LINE__) != JIM_OK)
+ 		return ERROR_FAIL;
+ 
+ 	return ERROR_OK;
+diff --git a/src/openocd.c b/src/openocd.c
+index 2a65b4d..1be209a 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -277,7 +277,7 @@ int openocd_main(int argc, char *argv[])
+ 		return EXIT_FAILURE;
+ #endif
+ 
+-	ret = server_init();
++	ret = server_init(cmd_ctx);
+ 	if (ERROR_OK != ret)
+ 		return EXIT_FAILURE;
+ 
+diff --git a/src/server/httpd.c b/src/server/httpd.c
+index 9fa5879..b346ca2 100644
+--- a/src/server/httpd.c
++++ b/src/server/httpd.c
+@@ -180,6 +180,7 @@ httpd_Jim_Command_formfetch(Jim_Interp *interp,
+ struct httpd_request
+ {
+ 	int post;
++	Jim_Interp *interp;
+ 	struct MHD_PostProcessor *postprocessor;
+ 
+ 	//Jim_Obj *dict;
+@@ -208,7 +209,8 @@ static void request_completed(void *cls, struct MHD_Connection *connection,
+ }
+ 
+ /* append to said key in dictionary */
+-static void append_key(struct httpd_request *r, const char *key,
++static void append_key(Jim_Interp *interp,
++		struct httpd_request *r, const char *key,
+ 		const char *data, size_t off, size_t size)
+ {
+ 	Jim_Obj *keyObj = Jim_NewStringObj(interp, key, -1);
+@@ -259,7 +261,7 @@ static int iterate_post(void *con_cls, enum MHD_ValueKind kind,
+ {
+ 	struct httpd_request *r = (struct httpd_request*) con_cls;
+ 
+-	append_key(r, key, data, off, size);
++	append_key(r-&gt;interp, r, key, data, off, size);
+ 
+ 	return MHD_YES;
+ }
+@@ -268,12 +270,13 @@ static int record_arg(void *cls, enum MHD_ValueKind kind, const char *key,
+ 		const char *value)
+ {
+ 	struct httpd_request *r = (struct httpd_request*) cls;
+-	append_key(r, key, value, 0, strlen(value));
++	append_key(r-&gt;interp, r, key, value, 0, strlen(value));
+ 	return MHD_YES;
+ }
+ 
+ 
+-static int handle_request(struct MHD_Connection * connection, const char * url)
++static int handle_request(Jim_Interp *interp,
++		struct MHD_Connection * connection, const char * url)
+ {
+ 	struct MHD_Response * response;
+ 
+@@ -358,6 +361,7 @@ static int ahc_echo_inner(void * cls, struct MHD_Connection * connection,
+ 		const char * url, const char * method, const char * version,
+ 		const char * upload_data, size_t * upload_data_size, void ** ptr)
+ {
++	Jim_Interp *interp = (Jim_Interp *)cls;
+ 	int post = 0;
+ 
+ 	if (0 == strcmp(method, &quot;POST&quot;))
+@@ -384,7 +388,7 @@ static int ahc_echo_inner(void * cls, struct MHD_Connection * connection,
+ 		memset(*ptr, 0, sizeof(struct httpd_request));
+ 
+ 		r = (struct httpd_request *) *ptr;
+-
++		r-&gt;interp = interp;
+ 		r-&gt;post = post;
+ 		Jim_SetVariableStr(interp, &quot;httppostdata&quot;, Jim_NewDictObj(interp, NULL, 0));
+ 
+@@ -437,7 +441,7 @@ static int ahc_echo_inner(void * cls, struct MHD_Connection * connection,
+ 		url=&quot;index.tcl&quot;;
+ 
+ 	const char *file_name = alloc_printf(&quot;%s/%s&quot;, httpd_dir, url);
+-	int result = handle_request(connection, file_name);
++	int result = handle_request(interp, connection, file_name);
+ 	free((void *)file_name);
+ 	return result;
+ }
+@@ -487,7 +491,7 @@ int httpd_start(struct command_context *cmd_ctx)
+ 	int port = 8888;
+ 	LOG_USER(&quot;Launching httpd server on port %d&quot;, port);
+ 	d = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY, port, NULL, NULL,
+-			&amp;ahc_echo, NULL, /* could be data for handler, but we only have a single handler, use global variables instead */
++			&amp;ahc_echo, cmd_ctx-&gt;interp,
+ 			MHD_OPTION_NOTIFY_COMPLETED, request_completed, NULL, /* Closure... what's that??? */
+ 			MHD_OPTION_END);
+ 	if (d == NULL)
+diff --git a/src/server/server.c b/src/server/server.c
+index 256c590..a02d4a5 100644
+--- a/src/server/server.c
++++ b/src/server/server.c
+@@ -487,7 +487,7 @@ void sig_handler(int sig) {
+ }
+ #endif
+ 
+-int server_init(void)
++int server_init(struct command_context *cmd_ctx)
+ {
+ #ifdef _WIN32
+ 	WORD wVersionRequested;
+@@ -518,7 +518,7 @@ int server_init(void)
+ 	signal(SIGABRT, sig_handler);
+ #endif
+ 
+-	int ret = tcl_init();
++	int ret = tcl_init(cmd_ctx);
+ 	if (ERROR_OK != ret)
+ 		return ret;
+ 
+diff --git a/src/server/server.h b/src/server/server.h
+index 5e86281..173de95 100644
+--- a/src/server/server.h
++++ b/src/server/server.h
+@@ -74,7 +74,7 @@ int add_service(char *name, enum connection_type type, unsigned short port,
+ 		input_handler_t in_handler, connection_closed_handler_t close_handler,
+ 		void *priv);
+ 
+-int server_init(void);
++int server_init(struct command_context *cmd_ctx);
+ int server_quit(void);
+ 
+ int server_loop(struct command_context *command_context);
+diff --git a/src/server/tcl_server.c b/src/server/tcl_server.c
+index 22469a4..0824768 100644
+--- a/src/server/tcl_server.c
++++ b/src/server/tcl_server.c
+@@ -81,6 +81,7 @@ static int tcl_new_connection(struct connection *connection)
+ 
+ static int tcl_input(struct connection *connection)
+ {
++	Jim_Interp *interp = (Jim_Interp *)connection-&gt;priv;
+ 	int retval;
+ 	int i;
+ 	ssize_t rlen;
+@@ -156,7 +157,7 @@ static int tcl_closed(struct connection *connection)
+ 	return ERROR_OK;
+ }
+ 
+-int tcl_init(void)
++int tcl_init(struct command_context *cmd_ctx)
+ {
+ 	int retval;
+ 
+@@ -166,7 +167,9 @@ int tcl_init(void)
+ 		return ERROR_OK;
+ 	}
+ 
+-	retval = add_service(&quot;tcl&quot;, CONNECTION_TCP, tcl_port, 1, tcl_new_connection, tcl_input, tcl_closed, NULL);
++	retval = add_service(&quot;tcl&quot;, CONNECTION_TCP, tcl_port, 1,
++			&amp;tcl_new_connection, &amp;tcl_input,
++			&amp;tcl_closed, cmd_ctx-&gt;interp);
+ 	return retval;
+ }
+ 
+diff --git a/src/server/tcl_server.h b/src/server/tcl_server.h
+index 1f6ba62..e0d7b16 100644
+--- a/src/server/tcl_server.h
++++ b/src/server/tcl_server.h
+@@ -22,7 +22,7 @@
+ 
+ #include &quot;server.h&quot;
+ 
+-int tcl_init(void);
++int tcl_init(struct command_context *cmd_ctx);
+ int tcl_register_commands(struct command_context *cmd_ctx);
+ 
+ #endif /* _TCL_SERVER_H_ */
+diff --git a/src/target/target.c b/src/target/target.c
+index 4297258..31734b8 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -449,12 +449,12 @@ int target_process_reset(struct command_context *cmd_ctx, enum target_reset_mode
+ 	jtag_poll_set_enabled(false);
+ 
+ 	sprintf(buf, &quot;ocd_process_reset %s&quot;, n-&gt;name);
+-	retval = Jim_Eval(interp, buf);
++	retval = Jim_Eval(cmd_ctx-&gt;interp, buf);
+ 
+ 	jtag_poll_set_enabled(save_poll);
+ 
+ 	if (retval != JIM_OK) {
+-		Jim_PrintErrorMessage(interp);
++		Jim_PrintErrorMessage(cmd_ctx-&gt;interp);
+ 		return ERROR_FAIL;
+ 	}
+ 
+@@ -759,6 +759,8 @@ err_write_phys_memory(struct target *target, uint32_t address,
+ 	return ERROR_FAIL;
+ }
+ 
++static int handle_target(void *priv);
++
+ int target_init(struct command_context *cmd_ctx)
+ {
+ 	struct target *target;
+@@ -876,7 +878,7 @@ int target_init(struct command_context *cmd_ctx)
+ 	{
+ 		if ((retval = target_register_user_commands(cmd_ctx)) != ERROR_OK)
+ 			return retval;
+-		if ((retval = target_register_timer_callback(handle_target, 100, 1, NULL)) != ERROR_OK)
++		if ((retval = target_register_timer_callback(&amp;handle_target, 100, 1, cmd_ctx-&gt;interp)) != ERROR_OK)
+ 			return retval;
+ 	}
+ 
+@@ -1796,8 +1798,9 @@ static void target_call_event_callbacks_all(enum target_event e) {
+ }
+ 
+ /* process target state changes */
+-int handle_target(void *priv)
++static int handle_target(void *priv)
+ {
++	Jim_Interp *interp = (Jim_Interp *)priv;
+ 	int retval = ERROR_OK;
+ 
+ 	/* we do not want to recurse here... */
+diff --git a/src/target/target.h b/src/target/target.h
+index af4727c..3e30714 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -251,7 +251,6 @@ int target_register_commands(struct command_context *cmd_ctx);
+ int target_register_user_commands(struct command_context *cmd_ctx);
+ int target_init(struct command_context *cmd_ctx);
+ int target_examine(void);
+-int handle_target(void *priv);
+ int target_process_reset(struct command_context *cmd_ctx,
+ 		enum target_reset_mode reset_mode);
+ 
+
+commit 8e8a359af2a5ab3cc7c795e147aa0ca3ec06288f
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sun Nov 29 18:21:59 2009 -0800
+
+    target: avoid using interp global variable
+    
+    Adds 'interp' to target_event_action structure to avoid using the
+    global variable of the same name.
+
+diff --git a/src/target/target.c b/src/target/target.c
+index 3a84040..4297258 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -3524,9 +3524,9 @@ void target_handle_event(struct target *target, enum target_event e)
+ 					   e,
+ 					   Jim_Nvp_value2name_simple(nvp_target_event, e)-&gt;name,
+ 					   Jim_GetString(teap-&gt;body, NULL));
+-			if (Jim_EvalObj(interp, teap-&gt;body) != JIM_OK)
++			if (Jim_EvalObj(teap-&gt;interp, teap-&gt;body) != JIM_OK)
+ 			{
+-				Jim_PrintErrorMessage(interp);
++				Jim_PrintErrorMessage(teap-&gt;interp);
+ 			}
+ 		}
+ 	}
+@@ -3668,9 +3668,10 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 						replace = false;
+ 					}
+ 					teap-&gt;event = n-&gt;value;
++					teap-&gt;interp = goi-&gt;interp;
+ 					Jim_GetOpt_Obj(goi, &amp;o);
+ 					if (teap-&gt;body) {
+-						Jim_DecrRefCount(interp, teap-&gt;body);
++						Jim_DecrRefCount(teap-&gt;interp, teap-&gt;body);
+ 					}
+ 					teap-&gt;body  = Jim_DuplicateObj(goi-&gt;interp, o);
+ 					/*
+@@ -3718,7 +3719,7 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 					goto no_params;
+ 				}
+ 			}
+-			Jim_SetResult(interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;working_area_virt));
++			Jim_SetResult(goi-&gt;interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;working_area_virt));
+ 			/* loop for more */
+ 			break;
+ 
+@@ -3736,7 +3737,7 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 					goto no_params;
+ 				}
+ 			}
+-			Jim_SetResult(interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;working_area_phys));
++			Jim_SetResult(goi-&gt;interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;working_area_phys));
+ 			/* loop for more */
+ 			break;
+ 
+@@ -3753,7 +3754,7 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 					goto no_params;
+ 				}
+ 			}
+-			Jim_SetResult(interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;working_area_size));
++			Jim_SetResult(goi-&gt;interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;working_area_size));
+ 			/* loop for more */
+ 			break;
+ 
+@@ -3771,7 +3772,7 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 					goto no_params;
+ 				}
+ 			}
+-			Jim_SetResult(interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;backup_working_area));
++			Jim_SetResult(goi-&gt;interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;backup_working_area));
+ 			/* loop for more e*/
+ 			break;
+ 
+@@ -3838,7 +3839,7 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 					goto no_params;
+ 				}
+ 			}
+-			Jim_SetResultString(interp, target-&gt;tap-&gt;dotted_name, -1);
++			Jim_SetResultString(goi-&gt;interp, target-&gt;tap-&gt;dotted_name, -1);
+ 			/* loop for more e*/
+ 			break;
+ 		}
+@@ -4486,7 +4487,7 @@ static int target_create(Jim_GetOptInfo *goi)
+ 
+ 	if (target-&gt;tap == NULL)
+ 	{
+-		Jim_SetResultString(interp, &quot;-chain-position required when creating target&quot;, -1);
++		Jim_SetResultString(goi-&gt;interp, &quot;-chain-position required when creating target&quot;, -1);
+ 		e = JIM_ERR;
+ 	}
+ 
+diff --git a/src/target/target.h b/src/target/target.h
+index 009ec17..af4727c 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -222,6 +222,7 @@ enum target_event
+ 
+ struct target_event_action {
+ 	enum target_event event;
++	Jim_Interp *interp;
+ 	struct Jim_Obj *body;
+ 	int has_percent;
+ 	struct target_event_action *next;
+
+commit e1ee27026569a94e58648d9825dc000dd53130d1
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sun Nov 29 18:08:13 2009 -0800
+
+    jtag: avoid using interp global variable
+    
+    Adds 'interp' field to jtag_tap_event_action structure to avoid
+    using the global variable of same name.
+
+diff --git a/src/jtag/jtag.h b/src/jtag/jtag.h
+index d4fafa3..ee96775 100644
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -209,9 +209,14 @@ enum jtag_event {
+ 
+ struct jtag_tap_event_action
+ {
+-	enum jtag_event		event;
+-	Jim_Obj*                 body;
+-	struct jtag_tap_event_action* next;
++	/// The event for which this action will be triggered.
++	enum jtag_event event;
++	/// The interpreter to use for evaluating the @c body.
++	Jim_Interp *interp;
++	/// Contains a script to 'eval' when the @c event is triggered.
++	Jim_Obj *body;
++	// next action in linked list
++	struct jtag_tap_event_action *next;
+ };
+ 
+ /**
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index 7ec7fa4..68bb21e 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -341,8 +341,9 @@ static int jtag_tap_configure_event(Jim_GetOptInfo *goi, struct jtag_tap * tap)
+ 		if (!found)
+ 			jteap = calloc(1, sizeof(*jteap));
+ 		else if (NULL != jteap-&gt;body)
+-			Jim_DecrRefCount(interp, jteap-&gt;body);
++			Jim_DecrRefCount(goi-&gt;interp, jteap-&gt;body);
+ 
++		jteap-&gt;interp = goi-&gt;interp;
+ 		jteap-&gt;event = n-&gt;value;
+ 
+ 		Jim_Obj *o;
+@@ -359,6 +360,7 @@ static int jtag_tap_configure_event(Jim_GetOptInfo *goi, struct jtag_tap * tap)
+ 	}
+ 	else if (found)
+ 	{
++		jteap-&gt;interp = goi-&gt;interp;
+ 		Jim_SetResult(goi-&gt;interp,
+ 			Jim_DuplicateObj(goi-&gt;interp, jteap-&gt;body));
+ 	}
+@@ -616,9 +618,9 @@ static void jtag_tap_handle_event(struct jtag_tap *tap, enum jtag_event e)
+ 				tap-&gt;dotted_name, e, nvp-&gt;name,
+ 				Jim_GetString(jteap-&gt;body, NULL));
+ 
+-		if (Jim_EvalObj(interp, jteap-&gt;body) != JIM_OK)
++		if (Jim_EvalObj(jteap-&gt;interp, jteap-&gt;body) != JIM_OK)
+ 		{
+-			Jim_PrintErrorMessage(interp);
++			Jim_PrintErrorMessage(jteap-&gt;interp);
+ 			continue;
+ 		}
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/helper/command.c    |   87 +++++++++++++++++++++++++++++------------------
+ src/helper/command.h    |    5 +--
+ src/jtag/core.c         |    2 +-
+ src/jtag/jtag.h         |   11 ++++--
+ src/jtag/tcl.c          |    8 +++--
+ src/openocd.c           |    2 +-
+ src/server/httpd.c      |   18 ++++++----
+ src/server/server.c     |    6 ++--
+ src/server/server.h     |    2 +-
+ src/server/tcl_server.c |    7 +++-
+ src/server/tcl_server.h |    2 +-
+ src/target/target.c     |   30 +++++++++-------
+ src/target/target.h     |    2 +-
+ 13 files changed, 110 insertions(+), 72 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001890.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-721-gbe65f49
+</A></li>
+	<LI>Next message: <A HREF="001892.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-728-g892604b
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1891">[ date ]</a>
+              <a href="thread.html#1891">[ thread ]</a>
+              <a href="subject.html#1891">[ subject ]</a>
+              <a href="author.html#1891">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

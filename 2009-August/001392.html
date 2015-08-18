@@ -1,0 +1,1719 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2609 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2609%20-%20trunk/src/target&In-Reply-To=%3C200908250658.n7P6wZjt004826%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001391.html">
+   <LINK REL="Next"  HREF="001393.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2609 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2609%20-%20trunk/src/target&In-Reply-To=%3C200908250658.n7P6wZjt004826%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2609 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Tue Aug 25 08:58:35 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001391.html">[Openocd-svn] r2608 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001393.html">[Openocd-svn] r2610 - trunk/tcl/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1392">[ date ]</a>
+              <a href="thread.html#1392">[ thread ]</a>
+              <a href="subject.html#1392">[ subject ]</a>
+              <a href="author.html#1392">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-08-25 08:58:34 +0200 (Tue, 25 Aug 2009)
+New Revision: 2609
+
+Modified:
+   trunk/src/target/cortex_a8.c
+   trunk/src/target/cortex_a8.h
+Log:
+David Brownell The rest of the Cortex-A8 support from Magnus: replace the previous
+nonfunctional cortex_a8 code with something that at least basically
+works (for halt/step/resume, without MMU) even if it is incomplete.
+(With tweaks from ?\195?\152yvind, and cleanup from Dave.)
+
+This code has mainly been developed and tested against R1606, it has 
+been built and tested against R2294 where it runs but step and resume 
+commands are broken due to regression (which should be fixed now).
+
+This code is really written for OMAP3530.  It doesn't identify debug
+resources using generic DAP calls to scan the ROM table, or perform
+topology detection.  The OMAP3530 DAP exposes two memory access ports:
+
+ - Port #0 is connected to L3 interconnect (the main bus) with
+   passthrough to the L4 EMU bus ... so it will be used for most
+   memory accesses.
+
+ - Port #1 is connected to a dedicated debug bus (L4 EMU), with
+   access to L4 Wakeup, and holds the ROM table ... so it must
+   be used for most debug and control operations.
+
+The are some defines to handle this in cortex_a8.c, which should be
+replaced with more general code.  Having access to another Cortex-A8
+implementation would help get that right.
+
+
+Modified: trunk/src/target/cortex_a8.c
+===================================================================
+--- trunk/src/target/cortex_a8.c	2009-08-25 06:57:26 UTC (rev 2608)
++++ trunk/src/target/cortex_a8.c	2009-08-25 06:58:34 UTC (rev 2609)
+@@ -34,89 +34,1126 @@
+ #endif
+ 
+ #include &quot;cortex_a8.h&quot;
++#include &quot;armv7a.h&quot;
++#include &quot;armv4_5.h&quot;
++
+ #include &quot;target_request.h&quot;
+ #include &quot;target_type.h&quot;
+ 
+-
+ /* cli handling */
+ int cortex_a8_register_commands(struct command_context_s *cmd_ctx);
+ 
+ /* forward declarations */
+ int cortex_a8_target_create(struct target_s *target, Jim_Interp *interp);
++int cortex_a8_init_target(struct command_context_s *cmd_ctx,
++		struct target_s *target);
++int cortex_a8_examine(struct target_s *target);
++int cortex_a8_poll(target_t *target);
++int cortex_a8_halt(target_t *target);
++int cortex_a8_resume(struct target_s *target, int current, uint32_t address,
++		int handle_breakpoints, int debug_execution);
++int cortex_a8_step(struct target_s *target, int current, uint32_t address,
++		int handle_breakpoints);
++int cortex_a8_debug_entry(target_t *target);
++int cortex_a8_restore_context(target_t *target);
++int cortex_a8_bulk_write_memory(target_t *target, uint32_t address,
++		uint32_t count, uint8_t *buffer);
++int cortex_a8_set_breakpoint(struct target_s *target,
++		breakpoint_t *breakpoint, uint8_t matchmode);
++int cortex_a8_unset_breakpoint(struct target_s *target, breakpoint_t *breakpoint);
++int cortex_a8_add_breakpoint(struct target_s *target, breakpoint_t *breakpoint);
++int cortex_a8_remove_breakpoint(struct target_s *target, breakpoint_t *breakpoint);
++int cortex_a8_dap_read_coreregister_u32(target_t *target,
++		uint32_t *value, int regnum);
++int cortex_a8_dap_write_coreregister_u32(target_t *target,
++		uint32_t value, int regnum);
+ 
+ target_type_t cortexa8_target =
+ {
+ 	.name = &quot;cortex_a8&quot;,
+ 
+-	.poll = NULL,
+-	.arch_state = armv7m_arch_state,
++	.poll = cortex_a8_poll,
++	.arch_state = armv7a_arch_state,
+ 
+ 	.target_request_data = NULL,
+ 
+-	.halt = NULL,
+-	.resume = NULL,
+-	.step = NULL,
++	.halt = cortex_a8_halt,
++	.resume = cortex_a8_resume,
++	.step = cortex_a8_step,
+ 
+ 	.assert_reset = NULL,
+ 	.deassert_reset = NULL,
+ 	.soft_reset_halt = NULL,
+ 
+-	.get_gdb_reg_list = armv7m_get_gdb_reg_list,
++//	.get_gdb_reg_list = armv4_5_get_gdb_reg_list,
++	.get_gdb_reg_list = armv4_5_get_gdb_reg_list,
+ 
+ 	.read_memory = cortex_a8_read_memory,
+ 	.write_memory = cortex_a8_write_memory,
+-	.bulk_write_memory = NULL,
+-	.checksum_memory = NULL,
+-	.blank_check_memory = NULL,
++	.bulk_write_memory = cortex_a8_bulk_write_memory,
++	.checksum_memory = arm7_9_checksum_memory,
++	.blank_check_memory = arm7_9_blank_check_memory,
+ 
+-	.run_algorithm = armv7m_run_algorithm,
++	.run_algorithm = armv4_5_run_algorithm,
+ 
+-	.add_breakpoint = NULL,
+-	.remove_breakpoint = NULL,
++	.add_breakpoint = cortex_a8_add_breakpoint,
++	.remove_breakpoint = cortex_a8_remove_breakpoint,
+ 	.add_watchpoint = NULL,
+ 	.remove_watchpoint = NULL,
+ 
+ 	.register_commands = cortex_a8_register_commands,
+ 	.target_create = cortex_a8_target_create,
+-	.init_target = NULL,
+-	.examine = NULL,
++	.init_target = cortex_a8_init_target,
++	.examine = cortex_a8_examine,
+ 	.quit = NULL
+ };
+ 
+-int cortex_a8_dcc_read(swjdp_common_t *swjdp, uint8_t *value, uint8_t *ctrl)
++/*
++ * FIXME do topology discovery using the ROM; don't
++ * assume this is an OMAP3.
++ */
++#define swjdp_memoryap 0
++#define swjdp_debugap 1
++#define OMAP3530_DEBUG_BASE 0x54011000
++
++/*
++ * Cortex-A8 Basic debug access, very low level assumes state is saved
++ */
++int cortex_a8_init_debug_access(target_t *target)
+ {
+-	uint16_t dcrdr;
++#if 0
++# Unlocking the debug registers for modification
++mww 0x54011FB0 0xC5ACCE55 4
+ 
+-	mem_ap_read_buf_u16(swjdp, (uint8_t*)&amp;dcrdr, 1, DCB_DCRDR);
+-	*ctrl = (uint8_t)dcrdr;
+-	*value = (uint8_t)(dcrdr &gt;&gt; 8);
++# Clear Sticky Power Down status Bit to enable access to
++# the registers in the Core Power Domain
++mdw 0x54011314
++# Check that it is cleared
++mdw 0x54011314
++# Now we can read Core Debug Registers at offset 0x080
++mdw 0x54011080 4
++# We can also read RAM.
++mdw 0x80000000 32
+ 
+-	LOG_DEBUG(&quot;data 0x%x ctrl 0x%x&quot;, *value, *ctrl);
++mdw 0x5401d030
++mdw 0x54011FB8
+ 
+-	/* write ack back to software dcc register
+-	 * signify we have read data */
+-	if (dcrdr &amp; (1 &lt;&lt; 0))
++# Set DBGEN line for hardware debug (OMAP35xx)
++mww 0x5401d030 0x00002000
++
++#Check AUTHSTATUS
++mdw 0x54011FB8
++
++# Instr enable
++mww 0x54011088 0x2000
++mdw 0x54011080 4
++#endif
++	return ERROR_OK;
++}
++
++int cortex_a8_exec_opcode(target_t *target, uint32_t opcode)
++{
++	uint32_t dscr;
++	int retvalue;
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
++
++	LOG_DEBUG(&quot;exec opcode 0x%08x&quot;, opcode);
++	mem_ap_write_u32(swjdp, OMAP3530_DEBUG_BASE + CPUDBG_ITR, opcode);
++	do
+ 	{
+-		dcrdr = 0;
+-		mem_ap_write_buf_u16(swjdp, (uint8_t*)&amp;dcrdr, 1, DCB_DCRDR);
++		retvalue = mem_ap_read_atomic_u32(swjdp,
++				OMAP3530_DEBUG_BASE + CPUDBG_DSCR, &amp;dscr);
+ 	}
++	while ((dscr &amp; (1 &lt;&lt; 24)) == 0); /* Wait for InstrCompl bit to be set */
+ 
++	return retvalue;
++}
++
++/**************************************************************************
++Read core register with very few exec_opcode, fast but needs work_area.
++This can cause problems with MMU active.
++**************************************************************************/
++int cortex_a8_read_regs_through_mem(target_t *target, uint32_t address,
++		uint32_t * regfile)
++{
++	int retval = ERROR_OK;
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
++
++	cortex_a8_dap_read_coreregister_u32(target, regfile, 0);
++	cortex_a8_dap_write_coreregister_u32(target, address, 0);
++	cortex_a8_exec_opcode(target, ARMV4_5_STMIA(0, 0xFFFE, 0, 0));
++	dap_ap_select(swjdp, swjdp_memoryap);
++	mem_ap_read_buf_u32(swjdp, (uint8_t *)(&amp;regfile[1]), 4*15, address);
++	dap_ap_select(swjdp, swjdp_debugap);
++
++	return retval;
++}
++
++int cortex_a8_read_cp(target_t *target, uint32_t *value, uint8_t CP,
++		uint8_t op1, uint8_t CRn, uint8_t CRm, uint8_t op2)
++{
++	int retval;
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
++
++	cortex_a8_exec_opcode(target, ARMV4_5_MRC(CP, op1, 0, CRn, CRm, op2));
++	/* Move R0 to DTRTX */
++	cortex_a8_exec_opcode(target, ARMV4_5_MCR(14, 0, 0, 0, 5, 0));
++
++	/* Read DCCTX */
++	retval = mem_ap_read_atomic_u32(swjdp,
++			OMAP3530_DEBUG_BASE + CPUDBG_DTRTX, value);
++
++	return retval;
++}
++
++int cortex_a8_write_cp(target_t *target, uint32_t value,
++	uint8_t CP, uint8_t op1, uint8_t CRn, uint8_t CRm, uint8_t op2)
++/* TODO Fix this */
++{
++	int retval;
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
++
++	retval = mem_ap_write_u32(swjdp,
++			OMAP3530_DEBUG_BASE + CPUDBG_DTRRX, value);
++	/* Move DTRRX to r0 */
++	cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0));
++
++	cortex_a8_exec_opcode(target, ARMV4_5_MCR(CP, 0, 0, 0, 5, 0));
++	return retval;
++}
++
++int cortex_a8_read_cp15(target_t *target, uint32_t op1, uint32_t op2,
++		uint32_t CRn, uint32_t CRm, uint32_t *value)
++{
++	return cortex_a8_read_cp(target, value, 15, op1, CRn, CRm, op2);
++}
++
++int cortex_a8_write_cp15(target_t *target, uint32_t op1, uint32_t op2,
++		uint32_t CRn, uint32_t CRm, uint32_t value)
++{
++	return cortex_a8_write_cp(target, value, 15, op1, CRn, CRm, op2);
++}
++
++int cortex_a8_dap_read_coreregister_u32(target_t *target,
++		uint32_t *value, int regnum)
++{
++	int retval = ERROR_OK;
++	uint8_t reg = regnum&amp;0xFF;
++
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
++
++	swjdp-&gt;trans_mode = TRANS_MODE_COMPOSITE;
++
++	if (reg &gt; 16)
++		return retval;
++
++	if (reg &lt; 15)
++	{
++		/* Rn to DCCTX, MCR p14, 0, Rd, c0, c5, 0,  0xEE000E15 */
++		cortex_a8_exec_opcode(target, ARMV4_5_MCR(14, 0, reg, 0, 5, 0));
++	}
++	else if (reg == 15)
++	{
++		cortex_a8_exec_opcode(target, 0xE1A0000F);
++		cortex_a8_exec_opcode(target, ARMV4_5_MCR(14, 0, 0, 0, 5, 0));
++	}
++	else if (reg == 16)
++	{
++		cortex_a8_exec_opcode(target, ARMV4_5_MRS(0, 0));
++		cortex_a8_exec_opcode(target, ARMV4_5_MCR(14, 0, 0, 0, 5, 0));
++	}
++
++	/* Read DCCTX */
++	retval = mem_ap_read_atomic_u32(swjdp,
++			OMAP3530_DEBUG_BASE + CPUDBG_DTRTX, value);
++//	retval = mem_ap_read_u32(swjdp, OMAP3530_DEBUG_BASE + CPUDBG_DTRTX, value);
++
++	return retval;
++}
++
++int cortex_a8_dap_write_coreregister_u32(target_t *target, uint32_t value, int regnum)
++{
++	int retval = ERROR_OK;
++	uint8_t Rd = regnum&amp;0xFF;
++
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
++
++	if (Rd &gt; 16)
++		return retval;
++
++	/* Write to DCCRX */
++	retval = mem_ap_write_u32(swjdp,
++			OMAP3530_DEBUG_BASE + CPUDBG_DTRRX, value);
++
++	if (Rd &lt; 15)
++	{
++		/* DCCRX to Rd, MCR p14, 0, Rd, c0, c5, 0,  0xEE000E15 */
++		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, Rd, 0, 5, 0));
++	}
++	else if (Rd == 15)
++	{
++		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0));
++		cortex_a8_exec_opcode(target, 0xE1A0F000);
++	}
++	else if (Rd == 16)
++	{
++		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0));
++		cortex_a8_exec_opcode(target, ARMV4_5_MSR_GP(0, 0xF, 0));
++		/* Execute a PrefetchFlush instruction through the ITR. */
++		cortex_a8_exec_opcode(target, ARMV4_5_MCR(15, 0, 0, 7, 5, 4));
++	}
++
++	return retval;
++}
++
++/*
++ * Cortex-A8 Run control
++ */
++
++int cortex_a8_poll(target_t *target)
++{
++	int retval = ERROR_OK;
++	uint32_t dscr;
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	cortex_a8_common_t *cortex_a8 = armv7a-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
++
++
++	enum target_state prev_target_state = target-&gt;state;
++
++	uint8_t saved_apsel = dap_ap_get_select(swjdp);
++	dap_ap_select(swjdp, swjdp_debugap);
++	retval = mem_ap_read_atomic_u32(swjdp,
++			OMAP3530_DEBUG_BASE + CPUDBG_DSCR, &amp;dscr);
++	if (retval != ERROR_OK)
++	{
++		dap_ap_select(swjdp, saved_apsel);
++		return retval;
++	}
++	cortex_a8-&gt;cpudbg_dscr = dscr;
++
++	if ((dscr &amp; 0x3) == 0x3)
++	{
++		if (prev_target_state != TARGET_HALTED)
++		{
++			/* We have a halting debug event */
++			LOG_DEBUG(&quot;Target halted&quot;);
++			target-&gt;state = TARGET_HALTED;
++			if ((prev_target_state == TARGET_RUNNING)
++					|| (prev_target_state == TARGET_RESET))
++			{
++				retval = cortex_a8_debug_entry(target);
++				if (retval != ERROR_OK)
++					return retval;
++
++				target_call_event_callbacks(target,
++						TARGET_EVENT_HALTED);
++			}
++			if (prev_target_state == TARGET_DEBUG_RUNNING)
++			{
++				LOG_DEBUG(&quot; &quot;);
++
++				retval = cortex_a8_debug_entry(target);
++				if (retval != ERROR_OK)
++					return retval;
++
++				target_call_event_callbacks(target,
++						TARGET_EVENT_DEBUG_HALTED);
++			}
++		}
++	}
++	else if ((dscr &amp; 0x3) == 0x2)
++	{
++		target-&gt;state = TARGET_RUNNING;
++	}
++	else
++	{
++		LOG_DEBUG(&quot;Unknown target state dscr = 0x%08x&quot;, dscr);
++		target-&gt;state = TARGET_UNKNOWN;
++	}
++
++	dap_ap_select(swjdp, saved_apsel);
++
++	return retval;
++}
++
++int cortex_a8_halt(target_t *target)
++{
++	int retval = ERROR_OK;
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
++
++	uint8_t saved_apsel = dap_ap_get_select(swjdp);
++	dap_ap_select(swjdp, swjdp_debugap);
++
++	/* Perhaps we should do a read-modify-write here */
++	retval = mem_ap_write_atomic_u32(swjdp,
++			OMAP3530_DEBUG_BASE + CPUDBG_DRCR, 0x1);
++
++	target-&gt;debug_reason = DBG_REASON_DBGRQ;
++	dap_ap_select(swjdp, saved_apsel);
++
++	return retval;
++}
++
++int cortex_a8_resume(struct target_s *target, int current,
++		uint32_t address, int handle_breakpoints, int debug_execution)
++{
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	cortex_a8_common_t *cortex_a8 = armv7a-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
++
++//	breakpoint_t *breakpoint = NULL;
++	uint32_t resume_pc;
++
++	uint8_t saved_apsel = dap_ap_get_select(swjdp);
++	dap_ap_select(swjdp, swjdp_debugap);
++
++	if (!debug_execution)
++	{
++		target_free_all_working_areas(target);
++//		cortex_m3_enable_breakpoints(target);
++//		cortex_m3_enable_watchpoints(target);
++	}
++
++#if 0
++	if (debug_execution)
++	{
++		/* Disable interrupts */
++		/* We disable interrupts in the PRIMASK register instead of
++		 * masking with C_MASKINTS,
++		 * This is probably the same issue as Cortex-M3 Errata 377493:
++		 * C_MASKINTS in parallel with disabled interrupts can cause
++		 * local faults to not be taken. */
++		buf_set_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_PRIMASK].value, 0, 32, 1);
++		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_PRIMASK].dirty = 1;
++		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_PRIMASK].valid = 1;
++
++		/* Make sure we are in Thumb mode */
++		buf_set_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].value, 0, 32,
++			buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].value, 0, 32) | (1 &lt;&lt; 24));
++		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].dirty = 1;
++		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].valid = 1;
++	}
++#endif
++
++	/* current = 1: continue on current pc, otherwise continue at &lt;address&gt; */
++	resume_pc = buf_get_u32(
++			ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++				armv4_5-&gt;core_mode, 15).value,
++			0, 32);
++	if (!current)
++		resume_pc = address;
++
++	/* Make sure that the Armv7 gdb thumb fixups does not
++	 * kill the return address
++	 */
++	if (!(cortex_a8-&gt;cpudbg_dscr &amp; (1 &lt;&lt; 5)))
++	{
++		resume_pc &amp;= 0xFFFFFFFC;
++	}
++	LOG_DEBUG(&quot;resume pc = 0x%08x&quot;, resume_pc);
++	buf_set_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++				armv4_5-&gt;core_mode, 15).value,
++			0, 32, resume_pc);
++	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++			armv4_5-&gt;core_mode, 15).dirty = 1;
++	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++			armv4_5-&gt;core_mode, 15).valid = 1;
++
++	cortex_a8_restore_context(target);
++//	arm7_9_restore_context(target); TODO Context is currently NOT Properly restored
++#if 0
++	/* the front-end may request us not to handle breakpoints */
++	if (handle_breakpoints)
++	{
++		/* Single step past breakpoint at current address */
++		if ((breakpoint = breakpoint_find(target, resume_pc)))
++		{
++			LOG_DEBUG(&quot;unset breakpoint at 0x%8.8x&quot;, breakpoint-&gt;address);
++			cortex_m3_unset_breakpoint(target, breakpoint);
++			cortex_m3_single_step_core(target);
++			cortex_m3_set_breakpoint(target, breakpoint);
++		}
++	}
++
++#endif
++	/* Restart core */
++	/* Perhaps we should do a read-modify-write here */
++	mem_ap_write_atomic_u32(swjdp, OMAP3530_DEBUG_BASE + CPUDBG_DRCR, 0x2);
++
++	target-&gt;debug_reason = DBG_REASON_NOTHALTED;
++	target-&gt;state = TARGET_RUNNING;
++
++	/* registers are now invalid */
++	armv4_5_invalidate_core_regs(target);
++
++	if (!debug_execution)
++	{
++		target-&gt;state = TARGET_RUNNING;
++		target_call_event_callbacks(target, TARGET_EVENT_RESUMED);
++		LOG_DEBUG(&quot;target resumed at 0x%x&quot;, resume_pc);
++	}
++	else
++	{
++		target-&gt;state = TARGET_DEBUG_RUNNING;
++		target_call_event_callbacks(target, TARGET_EVENT_DEBUG_RESUMED);
++		LOG_DEBUG(&quot;target debug resumed at 0x%x&quot;, resume_pc);
++	}
++
++	dap_ap_select(swjdp, saved_apsel);
++
+ 	return ERROR_OK;
+ }
+ 
+-int cortex_a8_read_memory(struct target_s *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++int cortex_a8_debug_entry(target_t *target)
+ {
++	int i;
++	uint32_t regfile[16], pc, cpsr;
++	int retval = ERROR_OK;
++	working_area_t *regfile_working_area = NULL;
++
+ 	/* get pointers to arch-specific information */
+-	armv7m_common_t *armv7m = target-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	cortex_a8_common_t *cortex_a8 = armv7a-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
++
++	if (armv7a-&gt;pre_debug_entry)
++		armv7a-&gt;pre_debug_entry(target);
++
++	LOG_DEBUG(&quot;dscr = 0x%08x&quot;, cortex_a8-&gt;cpudbg_dscr);
++
++	/* Examine debug reason */
++	switch ((cortex_a8-&gt;cpudbg_dscr &gt;&gt; 2)&amp;0xF)
++	{
++		case 0:
++		case 4:
++			target-&gt;debug_reason = DBG_REASON_DBGRQ;
++			break;
++		case 1:
++		case 3:
++			target-&gt;debug_reason = DBG_REASON_BREAKPOINT;
++			break;
++		case 10:
++			target-&gt;debug_reason = DBG_REASON_WATCHPOINT;
++			break;
++		default:
++			target-&gt;debug_reason = DBG_REASON_UNDEFINED;
++			break;
++	}
++
++	/* Examine target state and mode */
++	dap_ap_select(swjdp, swjdp_memoryap);
++	if (cortex_a8-&gt;fast_reg_read)
++		target_alloc_working_area(target, 64, &amp;regfile_working_area);
++
++	/* First load register acessible through core debug port*/
++	if (!regfile_working_area)
++	{
++		for (i = 0; i &lt;= 15; i++)
++			cortex_a8_dap_read_coreregister_u32(target,
++					&amp;regfile[i], i);
++	}
++	else
++	{
++		cortex_a8_read_regs_through_mem(target,
++				regfile_working_area-&gt;address, regfile);
++		dap_ap_select(swjdp, swjdp_memoryap);
++		target_free_working_area(target, regfile_working_area);
++	}
++
++	cortex_a8_dap_read_coreregister_u32(target, &amp;cpsr, 16);
++	pc = regfile[15];
++	dap_ap_select(swjdp, swjdp_debugap);
++	LOG_DEBUG(&quot;cpsr: %8.8x&quot;, cpsr);
++
++	armv4_5-&gt;core_mode = cpsr &amp; 0x3F;
++
++	for (i = 0; i &lt;= ARM_PC; i++)
++	{
++		buf_set_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++					armv4_5-&gt;core_mode, i).value,
++				0, 32, regfile[i]);
++		ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++				armv4_5-&gt;core_mode, i).valid = 1;
++		ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++				armv4_5-&gt;core_mode, i).dirty = 0;
++	}
++	buf_set_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++				armv4_5-&gt;core_mode, 16).value,
++			0, 32, cpsr);
++	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 16).valid = 1;
++	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 16).dirty = 0;
++
++	/* Fixup PC Resume Address */
++	/* TODO Her we should use arch-&gt;core_state */
++	if (cortex_a8-&gt;cpudbg_dscr &amp; (1 &lt;&lt; 5))
++	{
++		// T bit set for Thumb or ThumbEE state
++		regfile[ARM_PC] -= 4;
++	}
++	else
++	{
++		// ARM state
++		regfile[ARM_PC] -= 8;
++	}
++	buf_set_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++				armv4_5-&gt;core_mode, ARM_PC).value,
++			0, 32, regfile[ARM_PC]);
++
++	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 0)
++		.dirty = ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++				armv4_5-&gt;core_mode, 0).valid;
++	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 15)
++		.dirty = ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++				armv4_5-&gt;core_mode, 15).valid;
++
++#if 0
++/* TODO, Move this */
++	uint32_t cp15_control_register, cp15_cacr, cp15_nacr;
++	cortex_a8_read_cp(target, &amp;cp15_control_register, 15, 0, 1, 0, 0);
++	LOG_DEBUG(&quot;cp15_control_register = 0x%08x&quot;, cp15_control_register);
++
++	cortex_a8_read_cp(target, &amp;cp15_cacr, 15, 0, 1, 0, 2);
++	LOG_DEBUG(&quot;cp15 Coprocessor Access Control Register = 0x%08x&quot;, cp15_cacr);
++
++	cortex_a8_read_cp(target, &amp;cp15_nacr, 15, 0, 1, 1, 2);
++	LOG_DEBUG(&quot;cp15 Nonsecure Access Control Register = 0x%08x&quot;, cp15_nacr);
++#endif
++
++	/* Are we in an exception handler */
++//	armv4_5-&gt;exception_number = 0;
++	if (armv7a-&gt;post_debug_entry)
++		armv7a-&gt;post_debug_entry(target);
++
++
++
++	return retval;
++
++}
++
++void cortex_a8_post_debug_entry(target_t *target)
++{
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	cortex_a8_common_t *cortex_a8 = armv7a-&gt;arch_info;
++
++//	cortex_a8_read_cp(target, &amp;cp15_control_register, 15, 0, 1, 0, 0);
++	/* examine cp15 control reg */
++	armv7a-&gt;read_cp15(target, 0, 0, 1, 0, &amp;cortex_a8-&gt;cp15_control_reg);
++	jtag_execute_queue();
++	LOG_DEBUG(&quot;cp15_control_reg: %8.8x&quot;, cortex_a8-&gt;cp15_control_reg);
++
++	if (armv7a-&gt;armv4_5_mmu.armv4_5_cache.ctype == -1)
++	{
++		uint32_t cache_type_reg;
++		/* identify caches */
++		armv7a-&gt;read_cp15(target, 0, 1, 0, 0, &amp;cache_type_reg);
++		jtag_execute_queue();
++		/* FIXME the armv4_4 cache info DOES NOT APPLY to Cortex-A8 */
++		armv4_5_identify_cache(cache_type_reg,
++				&amp;armv7a-&gt;armv4_5_mmu.armv4_5_cache);
++	}
++
++	armv7a-&gt;armv4_5_mmu.mmu_enabled =
++			(cortex_a8-&gt;cp15_control_reg &amp; 0x1U) ? 1 : 0;
++	armv7a-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled =
++			(cortex_a8-&gt;cp15_control_reg &amp; 0x4U) ? 1 : 0;
++	armv7a-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled =
++			(cortex_a8-&gt;cp15_control_reg &amp; 0x1000U) ? 1 : 0;
++
++
++}
++
++int cortex_a8_step(struct target_s *target, int current, uint32_t address,
++		int handle_breakpoints)
++{
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	cortex_a8_common_t *cortex_a8 = armv7a-&gt;arch_info;
++	breakpoint_t *breakpoint = NULL;
++	breakpoint_t stepbreakpoint;
++
++	int timeout = 100;
++
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		LOG_WARNING(&quot;target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	/* current = 1: continue on current pc, otherwise continue at &lt;address&gt; */
++	if (!current)
++	{
++		buf_set_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++					armv4_5-&gt;core_mode, ARM_PC).value,
++				0, 32, address);
++	}
++	else
++	{
++		address = buf_get_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++					armv4_5-&gt;core_mode, ARM_PC).value,
++				0, 32);
++	}
++
++	/* The front-end may request us not to handle breakpoints.
++	 * But since Cortex-A8 uses breakpoint for single step,
++	 * we MUST handle breakpoints.
++	 */
++	handle_breakpoints = 1;
++	if (handle_breakpoints) {
++		breakpoint = breakpoint_find(target,
++				buf_get_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++					armv4_5-&gt;core_mode, 15).value,
++			0, 32));
++		if (breakpoint)
++			cortex_a8_unset_breakpoint(target, breakpoint);
++	}
++
++	/* Setup single step breakpoint */
++	stepbreakpoint.address = address;
++	stepbreakpoint.length = (cortex_a8-&gt;cpudbg_dscr &amp; (1 &lt;&lt; 5)) ? 2 : 4;
++	stepbreakpoint.type = BKPT_HARD;
++	stepbreakpoint.set = 0;
++
++	/* Break on IVA mismatch */
++	cortex_a8_set_breakpoint(target, &amp;stepbreakpoint, 0x04);
++
++	target-&gt;debug_reason = DBG_REASON_SINGLESTEP;
++
++	cortex_a8_resume(target, 1, address, 0, 0);
++
++	while (target-&gt;state != TARGET_HALTED)
++	{
++		cortex_a8_poll(target);
++		if (--timeout == 0)
++		{
++			LOG_WARNING(&quot;timeout waiting for target halt&quot;);
++			break;
++		}
++	}
++
++	cortex_a8_unset_breakpoint(target, &amp;stepbreakpoint);
++	if (timeout &gt; 0) target-&gt;debug_reason = DBG_REASON_BREAKPOINT;
++
++	if (breakpoint)
++		cortex_a8_set_breakpoint(target, breakpoint, 0);
++
++	if (target-&gt;state != TARGET_HALTED)
++		LOG_DEBUG(&quot;target stepped&quot;);
++
++	return ERROR_OK;
++}
++
++int cortex_a8_restore_context(target_t *target)
++{
++	int i;
++	uint32_t value;
++
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++
++	LOG_DEBUG(&quot; &quot;);
++
++	if (armv7a-&gt;pre_restore_context)
++		armv7a-&gt;pre_restore_context(target);
++
++	for (i = 15; i &gt;= 0; i--)
++	{
++		if (ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++					armv4_5-&gt;core_mode, i).dirty)
++		{
++			value = buf_get_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++						armv4_5-&gt;core_mode, i).value,
++					0, 32);
++			/* TODO Check return values */
++			cortex_a8_dap_write_coreregister_u32(target, value, i);
++		}
++	}
++
++	if (armv7a-&gt;post_restore_context)
++		armv7a-&gt;post_restore_context(target);
++
++	return ERROR_OK;
++}
++
++
++/*
++ * Cortex-A8 Core register functions
++ */
++
++int cortex_a8_load_core_reg_u32(struct target_s *target, int num,
++		armv4_5_mode_t mode, uint32_t * value)
++{
+ 	int retval;
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+ 
++	if ((num &lt;= ARM_CPSR))
++	{
++		/* read a normal core register */
++		retval = cortex_a8_dap_read_coreregister_u32(target, value, num);
++
++		if (retval != ERROR_OK)
++		{
++			LOG_ERROR(&quot;JTAG failure %i&quot;, retval);
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++		LOG_DEBUG(&quot;load from core reg %i value 0x%x&quot;, num, *value);
++	}
++	else
++	{
++		return ERROR_INVALID_ARGUMENTS;
++	}
++
++	/* Register other than r0 - r14 uses r0 for access */
++	if (num &gt; 14)
++		ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++				armv4_5-&gt;core_mode, 0).dirty =
++			ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++				armv4_5-&gt;core_mode, 0).valid;
++	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++				armv4_5-&gt;core_mode, 15).dirty =
++			ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++				armv4_5-&gt;core_mode, 15).valid;
++
++	return ERROR_OK;
++}
++
++int cortex_a8_store_core_reg_u32(struct target_s *target, int num,
++		armv4_5_mode_t mode, uint32_t value)
++{
++	int retval;
++//	uint32_t reg;
++
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++
++#ifdef ARMV7_GDB_HACKS
++	/* If the LR register is being modified, make sure it will put us
++	 * in &quot;thumb&quot; mode, or an INVSTATE exception will occur. This is a
++	 * hack to deal with the fact that gdb will sometimes &quot;forge&quot;
++	 * return addresses, and doesn't set the LSB correctly (i.e., when
++	 * printing expressions containing function calls, it sets LR=0.) */
++
++	if (num == 14)
++		value |= 0x01;
++#endif
++
++	if ((num &lt;= ARM_CPSR))
++	{
++		retval = cortex_a8_dap_write_coreregister_u32(target, value, num);
++		if (retval != ERROR_OK)
++		{
++			LOG_ERROR(&quot;JTAG failure %i&quot;, retval);
++			ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++					armv4_5-&gt;core_mode, num).dirty =
++				ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++					armv4_5-&gt;core_mode, num).valid;
++			return ERROR_JTAG_DEVICE_ERROR;
++		}
++		LOG_DEBUG(&quot;write core reg %i value 0x%x&quot;, num, value);
++	}
++	else
++	{
++		return ERROR_INVALID_ARGUMENTS;
++	}
++
++	return ERROR_OK;
++}
++
++
++int cortex_a8_read_core_reg(struct target_s *target, int num,
++		enum armv4_5_mode mode)
++{
++	uint32_t value;
++	int retval;
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	cortex_a8_dap_read_coreregister_u32(target, &amp;value, num);
++
++	if ((retval = jtag_execute_queue()) != ERROR_OK)
++	{
++		return retval;
++	}
++
++	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).valid = 1;
++	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).dirty = 0;
++	buf_set_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
++			mode, num).value, 0, 32, value);
++
++	return ERROR_OK;
++}
++
++int cortex_a8_write_core_reg(struct target_s *target, int num,
++		enum armv4_5_mode mode, uint32_t value)
++{
++	int retval;
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++
++	cortex_a8_dap_write_coreregister_u32(target, value, num);
++	if ((retval = jtag_execute_queue()) != ERROR_OK)
++	{
++		return retval;
++	}
++
++	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).valid = 1;
++	ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).dirty = 0;
++
++	return ERROR_OK;
++}
++
++
++/*
++ * Cortex-A8 Breakpoint and watchpoint fuctions
++ */
++
++/* Setup hardware Breakpoint Register Pair */
++int cortex_a8_set_breakpoint(struct target_s *target,
++		breakpoint_t *breakpoint, uint8_t matchmode)
++{
++	int retval;
++	int brp_i=0;
++	uint32_t control;
++	uint8_t byte_addr_select = 0x0F;
++
++
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	cortex_a8_common_t *cortex_a8 = armv7a-&gt;arch_info;
++	cortex_a8_brp_t * brp_list = cortex_a8-&gt;brp_list;
++
++	if (breakpoint-&gt;set)
++	{
++		LOG_WARNING(&quot;breakpoint already set&quot;);
++		return ERROR_OK;
++	}
++
++	if (breakpoint-&gt;type == BKPT_HARD)
++	{
++		while (brp_list[brp_i].used &amp;&amp; (brp_i &lt; cortex_a8-&gt;brp_num))
++			brp_i++ ;
++		if (brp_i &gt;= cortex_a8-&gt;brp_num)
++		{
++			LOG_ERROR(&quot;ERROR Can not find free Breakpoint Register Pair&quot;);
++			exit(-1);
++		}
++		breakpoint-&gt;set = brp_i + 1;
++		if (breakpoint-&gt;length == 2)
++		{
++			byte_addr_select = (3 &lt;&lt; (breakpoint-&gt;address &amp; 0x02));
++		}
++		control = ((matchmode &amp; 0x7) &lt;&lt; 20)
++				| (byte_addr_select &lt;&lt; 5)
++				| (3 &lt;&lt; 1) | 1;
++		brp_list[brp_i].used = 1;
++		brp_list[brp_i].value = (breakpoint-&gt;address &amp; 0xFFFFFFFC);
++		brp_list[brp_i].control = control;
++		target_write_u32(target, OMAP3530_DEBUG_BASE
++				+ CPUDBG_BVR_BASE + 4 * brp_list[brp_i].BRPn,
++				brp_list[brp_i].value);
++		target_write_u32(target, OMAP3530_DEBUG_BASE
++				+ CPUDBG_BCR_BASE + 4 * brp_list[brp_i].BRPn,
++				brp_list[brp_i].control);
++		LOG_DEBUG(&quot;brp %i control 0x%0x value 0x%0x&quot;, brp_i,
++				brp_list[brp_i].control,
++				brp_list[brp_i].value);
++	}
++	else if (breakpoint-&gt;type == BKPT_SOFT)
++	{
++		uint8_t code[4];
++		if (breakpoint-&gt;length == 2)
++		{
++			buf_set_u32(code, 0, 32, ARMV5_T_BKPT(0x11));
++		}
++		else
++		{
++			buf_set_u32(code, 0, 32, ARMV5_BKPT(0x11));
++		}
++		retval = target-&gt;type-&gt;read_memory(target,
++				breakpoint-&gt;address &amp; 0xFFFFFFFE,
++				breakpoint-&gt;length, 1,
++				breakpoint-&gt;orig_instr);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = target-&gt;type-&gt;write_memory(target,
++				breakpoint-&gt;address &amp; 0xFFFFFFFE,
++				breakpoint-&gt;length, 1, code);
++		if (retval != ERROR_OK)
++			return retval;
++		breakpoint-&gt;set = 0x11; /* Any nice value but 0 */
++	}
++
++	return ERROR_OK;
++}
++
++int cortex_a8_unset_breakpoint(struct target_s *target, breakpoint_t *breakpoint)
++{
++	int retval;
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	cortex_a8_common_t *cortex_a8 = armv7a-&gt;arch_info;
++	cortex_a8_brp_t * brp_list = cortex_a8-&gt;brp_list;
++
++	if (!breakpoint-&gt;set)
++	{
++		LOG_WARNING(&quot;breakpoint not set&quot;);
++		return ERROR_OK;
++	}
++
++	if (breakpoint-&gt;type == BKPT_HARD)
++	{
++		int brp_i = breakpoint-&gt;set - 1;
++		if ((brp_i &lt; 0) || (brp_i &gt;= cortex_a8-&gt;brp_num))
++		{
++			LOG_DEBUG(&quot;Invalid BRP number in breakpoint&quot;);
++			return ERROR_OK;
++		}
++		LOG_DEBUG(&quot;rbp %i control 0x%0x value 0x%0x&quot;, brp_i,
++				brp_list[brp_i].control, brp_list[brp_i].value);
++		brp_list[brp_i].used = 0;
++		brp_list[brp_i].value = 0;
++		brp_list[brp_i].control = 0;
++		target_write_u32(target, OMAP3530_DEBUG_BASE
++				+ CPUDBG_BCR_BASE + 4 * brp_list[brp_i].BRPn,
++				brp_list[brp_i].control);
++		target_write_u32(target, OMAP3530_DEBUG_BASE
++				+ CPUDBG_BVR_BASE + 4 * brp_list[brp_i].BRPn,
++				brp_list[brp_i].value);
++	}
++	else
++	{
++		/* restore original instruction (kept in target endianness) */
++		if (breakpoint-&gt;length == 4)
++		{
++			retval = target-&gt;type-&gt;write_memory(target,
++					breakpoint-&gt;address &amp; 0xFFFFFFFE,
++					4, 1, breakpoint-&gt;orig_instr);
++			if (retval != ERROR_OK)
++				return retval;
++		}
++		else
++		{
++			retval = target-&gt;type-&gt;write_memory(target,
++					breakpoint-&gt;address &amp; 0xFFFFFFFE,
++					2, 1, breakpoint-&gt;orig_instr);
++			if (retval != ERROR_OK)
++				return retval;
++		}
++	}
++	breakpoint-&gt;set = 0;
++
++	return ERROR_OK;
++}
++
++int cortex_a8_add_breakpoint(struct target_s *target, breakpoint_t *breakpoint)
++{
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	cortex_a8_common_t *cortex_a8 = armv7a-&gt;arch_info;
++
++	if ((breakpoint-&gt;type == BKPT_HARD) &amp;&amp; (cortex_a8-&gt;brp_num_available &lt; 1))
++	{
++		LOG_INFO(&quot;no hardware breakpoint available&quot;);
++		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	}
++
++	if (breakpoint-&gt;type == BKPT_HARD)
++		cortex_a8-&gt;brp_num_available--;
++	cortex_a8_set_breakpoint(target, breakpoint, 0x00); /* Exact match */
++
++	return ERROR_OK;
++}
++
++int cortex_a8_remove_breakpoint(struct target_s *target, breakpoint_t *breakpoint)
++{
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	cortex_a8_common_t *cortex_a8 = armv7a-&gt;arch_info;
++
++#if 0
++/* It is perfectly possible to remove brakpoints while the taget is running */
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		LOG_WARNING(&quot;target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++#endif
++
++	if (breakpoint-&gt;set)
++	{
++		cortex_a8_unset_breakpoint(target, breakpoint);
++		if (breakpoint-&gt;type == BKPT_HARD)
++			cortex_a8-&gt;brp_num_available++ ;
++	}
++
++
++	return ERROR_OK;
++}
++
++
++
++/*
++ * Cortex-A8 Reset fuctions
++ */
++
++
++/*
++ * Cortex-A8 Memory access
++ *
++ * This is same Cortex M3 but we must also use the correct
++ * ap number for every access.
++ */
++
++int cortex_a8_read_memory(struct target_s *target, uint32_t address,
++		uint32_t size, uint32_t count, uint8_t *buffer)
++{
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
++
++	int retval = ERROR_OK;
++
+ 	/* sanitize arguments */
+ 	if (((size != 4) &amp;&amp; (size != 2) &amp;&amp; (size != 1)) || (count == 0) || !(buffer))
+ 		return ERROR_INVALID_ARGUMENTS;
+ 
+ 	/* cortex_a8 handles unaligned memory access */
+ 
++// ???	dap_ap_select(swjdp, swjdp_memoryap);
++
+ 	switch (size)
+ 	{
+ 		case 4:
+@@ -136,17 +1173,22 @@
+ 	return retval;
+ }
+ 
+-int cortex_a8_write_memory(struct target_s *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++int cortex_a8_write_memory(struct target_s *target, uint32_t address,
++		uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+ 	/* get pointers to arch-specific information */
+-	armv7m_common_t *armv7m = target-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
++
+ 	int retval;
+ 
+ 	/* sanitize arguments */
+ 	if (((size != 4) &amp;&amp; (size != 2) &amp;&amp; (size != 1)) || (count == 0) || !(buffer))
+ 		return ERROR_INVALID_ARGUMENTS;
+ 
++// ???	dap_ap_select(swjdp, swjdp_memoryap);
++
+ 	switch (size)
+ 	{
+ 		case 4:
+@@ -166,21 +1208,53 @@
+ 	return retval;
+ }
+ 
++int cortex_a8_bulk_write_memory(target_t *target, uint32_t address,
++		uint32_t count, uint8_t *buffer)
++{
++	return cortex_a8_write_memory(target, address, 4, count, buffer);
++}
++
++
++int cortex_a8_dcc_read(swjdp_common_t *swjdp, uint8_t *value, uint8_t *ctrl)
++{
++#if 0
++	u16 dcrdr;
++
++	mem_ap_read_buf_u16(swjdp, (uint8_t*)&amp;dcrdr, 1, DCB_DCRDR);
++	*ctrl = (uint8_t)dcrdr;
++	*value = (uint8_t)(dcrdr &gt;&gt; 8);
++
++	LOG_DEBUG(&quot;data 0x%x ctrl 0x%x&quot;, *value, *ctrl);
++
++	/* write ack back to software dcc register
++	 * signify we have read data */
++	if (dcrdr &amp; (1 &lt;&lt; 0))
++	{
++		dcrdr = 0;
++		mem_ap_write_buf_u16(swjdp, (uint8_t*)&amp;dcrdr, 1, DCB_DCRDR);
++	}
++#endif
++	return ERROR_OK;
++}
++
++
+ int cortex_a8_handle_target_request(void *priv)
+ {
+ 	target_t *target = priv;
+-	if (!target_was_examined(target))
++	if (!target-&gt;type-&gt;examined)
+ 		return ERROR_OK;
+-	armv7m_common_t *armv7m = target-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
+ 
++
+ 	if (!target-&gt;dbg_msg_enabled)
+ 		return ERROR_OK;
+ 
+ 	if (target-&gt;state == TARGET_RUNNING)
+ 	{
+-		uint8_t data;
+-		uint8_t ctrl;
++		uint8_t data = 0;
++		uint8_t ctrl = 0;
+ 
+ 		cortex_a8_dcc_read(swjdp, &amp;data, &amp;ctrl);
+ 
+@@ -204,39 +1278,188 @@
+ 	return ERROR_OK;
+ }
+ 
+-int cortex_a8_init_arch_info(target_t *target, cortex_a8_common_t *cortex_a8, jtag_tap_t *tap)
++/*
++ * Cortex-A8 target information and configuration
++ */
++
++int cortex_a8_examine(struct target_s *target)
+ {
+-	armv7m_common_t *armv7m;
+-	armv7m = &amp;cortex_a8-&gt;armv7m;
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++	cortex_a8_common_t *cortex_a8 = armv7a-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
+ 
++
++	int i;
++	int retval = ERROR_OK;
++	uint32_t didr, ctypr, ttypr, cpuid;
++
++	LOG_DEBUG(&quot;TODO&quot;);
++
++	/* We do one extra read to ensure DAP is configured,
++	 * we call ahbap_debugport_init(swjdp) instead
++	 */
++	ahbap_debugport_init(swjdp);
++	mem_ap_read_atomic_u32(swjdp, OMAP3530_DEBUG_BASE + CPUDBG_CPUID, &amp;cpuid);
++	if ((retval = mem_ap_read_atomic_u32(swjdp,
++			OMAP3530_DEBUG_BASE + CPUDBG_CPUID, &amp;cpuid)) != ERROR_OK)
++	{
++		LOG_DEBUG(&quot;Examine failed&quot;);
++		return retval;
++	}
++
++	if ((retval = mem_ap_read_atomic_u32(swjdp,
++			OMAP3530_DEBUG_BASE + CPUDBG_CTYPR, &amp;ctypr)) != ERROR_OK)
++	{
++		LOG_DEBUG(&quot;Examine failed&quot;);
++		return retval;
++	}
++
++	if ((retval = mem_ap_read_atomic_u32(swjdp,
++			OMAP3530_DEBUG_BASE + CPUDBG_TTYPR, &amp;ttypr)) != ERROR_OK)
++	{
++		LOG_DEBUG(&quot;Examine failed&quot;);
++		return retval;
++	}
++
++	if ((retval = mem_ap_read_atomic_u32(swjdp,
++			OMAP3530_DEBUG_BASE + CPUDBG_DIDR, &amp;didr)) != ERROR_OK)
++	{
++		LOG_DEBUG(&quot;Examine failed&quot;);
++		return retval;
++	}
++
++	LOG_DEBUG(&quot;cpuid = 0x%08x&quot;, cpuid);
++	LOG_DEBUG(&quot;ctypr = 0x%08x&quot;, ctypr);
++	LOG_DEBUG(&quot;ttypr = 0x%08x&quot;, ttypr);
++	LOG_DEBUG(&quot;didr = 0x%08x&quot;, didr);
++
++	/* Setup Breakpoint Register Pairs */
++	cortex_a8-&gt;brp_num = ((didr &gt;&gt; 24) &amp; 0x0F) + 1;
++	cortex_a8-&gt;brp_num_context = ((didr &gt;&gt; 20) &amp; 0x0F) + 1;
++	cortex_a8-&gt;brp_num_available = cortex_a8-&gt;brp_num;
++	cortex_a8-&gt;brp_list = calloc(cortex_a8-&gt;brp_num, sizeof(cortex_a8_brp_t));
++//	cortex_a8-&gt;brb_enabled = ????;
++	for (i = 0; i &lt; cortex_a8-&gt;brp_num; i++)
++	{
++		cortex_a8-&gt;brp_list[i].used = 0;
++		if (i &lt; (cortex_a8-&gt;brp_num-cortex_a8-&gt;brp_num_context))
++			cortex_a8-&gt;brp_list[i].type = BRP_NORMAL;
++		else
++			cortex_a8-&gt;brp_list[i].type = BRP_CONTEXT;
++		cortex_a8-&gt;brp_list[i].value = 0;
++		cortex_a8-&gt;brp_list[i].control = 0;
++		cortex_a8-&gt;brp_list[i].BRPn = i;
++	}
++
++	/* Setup Watchpoint Register Pairs */
++	cortex_a8-&gt;wrp_num = ((didr &gt;&gt; 28) &amp; 0x0F) + 1;
++	cortex_a8-&gt;wrp_num_available = cortex_a8-&gt;wrp_num;
++	cortex_a8-&gt;wrp_list = calloc(cortex_a8-&gt;wrp_num, sizeof(cortex_a8_wrp_t));
++	for (i = 0; i &lt; cortex_a8-&gt;wrp_num; i++)
++	{
++		cortex_a8-&gt;wrp_list[i].used = 0;
++		cortex_a8-&gt;wrp_list[i].type = 0;
++		cortex_a8-&gt;wrp_list[i].value = 0;
++		cortex_a8-&gt;wrp_list[i].control = 0;
++		cortex_a8-&gt;wrp_list[i].WRPn = i;
++	}
++	LOG_DEBUG(&quot;Configured %i hw breakpoint pairs and %i hw watchpoint pairs&quot;,
++			cortex_a8-&gt;brp_num , cortex_a8-&gt;wrp_num);
++
++	target-&gt;type-&gt;examined = 1;
++
++	return retval;
++}
++
++/*
++ *	Cortex-A8 target creation and initialization
++ */
++
++void cortex_a8_build_reg_cache(target_t *target)
++{
++	reg_cache_t **cache_p = register_get_last_cache_p(&amp;target-&gt;reg_cache);
++	/* get pointers to arch-specific information */
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++
++	(*cache_p) = armv4_5_build_reg_cache(target, armv4_5);
++	armv4_5-&gt;core_cache = (*cache_p);
++}
++
++
++int cortex_a8_init_target(struct command_context_s *cmd_ctx,
++		struct target_s *target)
++{
++	cortex_a8_build_reg_cache(target);
++	return ERROR_OK;
++}
++
++int cortex_a8_init_arch_info(target_t *target,
++		cortex_a8_common_t *cortex_a8, jtag_tap_t *tap)
++{
++	armv4_5_common_t *armv4_5;
++	armv7a_common_t *armv7a;
++
++	armv7a = &amp;cortex_a8-&gt;armv7a_common;
++	armv4_5 = &amp;armv7a-&gt;armv4_5_common;
++	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
++
++	/* Setup cortex_a8_common_t */
++	cortex_a8-&gt;common_magic = CORTEX_A8_COMMON_MAGIC;
++	cortex_a8-&gt;arch_info = NULL;
++	armv7a-&gt;arch_info = cortex_a8;
++	armv4_5-&gt;arch_info = armv7a;
++
++	armv4_5_init_arch_info(target, armv4_5);
++
+ 	/* prepare JTAG information for the new target */
+ 	cortex_a8-&gt;jtag_info.tap = tap;
+ 	cortex_a8-&gt;jtag_info.scann_size = 4;
++LOG_DEBUG(&quot; &quot;);
++	swjdp-&gt;dp_select_value = -1;
++	swjdp-&gt;ap_csw_value = -1;
++	swjdp-&gt;ap_tar_value = -1;
++	swjdp-&gt;jtag_info = &amp;cortex_a8-&gt;jtag_info;
++	swjdp-&gt;memaccess_tck = 80;
+ 
+-	armv7m-&gt;swjdp_info.dp_select_value = -1;
+-	armv7m-&gt;swjdp_info.ap_csw_value = -1;
+-	armv7m-&gt;swjdp_info.ap_tar_value = -1;
+-	armv7m-&gt;swjdp_info.jtag_info = &amp;cortex_a8-&gt;jtag_info;
++	/* Number of bits for tar autoincrement, impl. dep. at least 10 */
++	swjdp-&gt;tar_autoincr_block = (1 &lt;&lt; 10);
+ 
+-	/* initialize arch-specific breakpoint handling */
++	cortex_a8-&gt;fast_reg_read = 0;
+ 
+-	cortex_a8-&gt;common_magic = CORTEX_A8_COMMON_MAGIC;
+-	cortex_a8-&gt;arch_info = NULL;
+ 
+ 	/* register arch-specific functions */
+-	armv7m-&gt;examine_debug_reason = NULL;
++	armv7a-&gt;examine_debug_reason = NULL;
+ 
+-	armv7m-&gt;pre_debug_entry = NULL;
+-	armv7m-&gt;post_debug_entry = NULL;
++	armv7a-&gt;pre_debug_entry = NULL;
++	armv7a-&gt;post_debug_entry = cortex_a8_post_debug_entry;
+ 
+-	armv7m-&gt;pre_restore_context = NULL;
+-	armv7m-&gt;post_restore_context = NULL;
++	armv7a-&gt;pre_restore_context = NULL;
++	armv7a-&gt;post_restore_context = NULL;
++	armv7a-&gt;armv4_5_mmu.armv4_5_cache.ctype = -1;
++//	armv7a-&gt;armv4_5_mmu.get_ttb = armv7a_get_ttb;
++	armv7a-&gt;armv4_5_mmu.read_memory = cortex_a8_read_memory;
++	armv7a-&gt;armv4_5_mmu.write_memory = cortex_a8_write_memory;
++//	armv7a-&gt;armv4_5_mmu.disable_mmu_caches = armv7a_disable_mmu_caches;
++//	armv7a-&gt;armv4_5_mmu.enable_mmu_caches = armv7a_enable_mmu_caches;
++	armv7a-&gt;armv4_5_mmu.has_tiny_pages = 1;
++	armv7a-&gt;armv4_5_mmu.mmu_enabled = 0;
++	armv7a-&gt;read_cp15 = cortex_a8_read_cp15;
++	armv7a-&gt;write_cp15 = cortex_a8_write_cp15;
+ 
+-	armv7m_init_arch_info(target, armv7m);
+-	armv7m-&gt;arch_info = cortex_a8;
+-	armv7m-&gt;load_core_reg_u32 = NULL;
+-	armv7m-&gt;store_core_reg_u32 = NULL;
+ 
++//	arm7_9-&gt;handle_target_request = cortex_a8_handle_target_request;
++
++	armv4_5-&gt;read_core_reg = cortex_a8_read_core_reg;
++	armv4_5-&gt;write_core_reg = cortex_a8_write_core_reg;
++//	armv4_5-&gt;full_context = arm7_9_full_context;
++
++//	armv4_5-&gt;load_core_reg_u32 = cortex_a8_load_core_reg_u32;
++//	armv4_5-&gt;store_core_reg_u32 = cortex_a8_store_core_reg_u32;
++//	armv4_5-&gt;read_core_reg = armv4_5_read_core_reg; /* this is default */
++//	armv4_5-&gt;write_core_reg = armv4_5_write_core_reg;
++
+ 	target_register_timer_callback(cortex_a8_handle_target_request, 1, 1, target);
+ 
+ 	return ERROR_OK;
+@@ -244,20 +1467,40 @@
+ 
+ int cortex_a8_target_create(struct target_s *target, Jim_Interp *interp)
+ {
+-	cortex_a8_common_t *cortex_a8 = calloc(1,sizeof(cortex_a8_common_t));
++	cortex_a8_common_t *cortex_a8 = calloc(1, sizeof(cortex_a8_common_t));
+ 
+ 	cortex_a8_init_arch_info(target, cortex_a8, target-&gt;tap);
+ 
+ 	return ERROR_OK;
+ }
+ 
++static int cortex_a8_handle_cache_info_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
++{
++	target_t *target = get_current_target(cmd_ctx);
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
++
++	return armv4_5_handle_cache_info_command(cmd_ctx,
++			&amp;armv7a-&gt;armv4_5_mmu.armv4_5_cache);
++}
++
++
+ int cortex_a8_register_commands(struct command_context_s *cmd_ctx)
+ {
+-	int retval;
++	command_t *cortex_a8_cmd;
++	int retval = ERROR_OK;
+ 
+-	retval = armv7m_register_commands(cmd_ctx);
++	armv4_5_register_commands(cmd_ctx);
++	armv7a_register_commands(cmd_ctx);
+ 
+-	register_command(cmd_ctx, NULL, &quot;cortex_a8&quot;, NULL, COMMAND_ANY, &quot;cortex_a8 specific commands&quot;);
++	cortex_a8_cmd =	register_command(cmd_ctx, NULL, &quot;cortex_a8&quot;,
++			NULL, COMMAND_ANY,
++			&quot;cortex_a8 specific commands&quot;);
+ 
++	register_command(cmd_ctx, cortex_a8_cmd, &quot;cache_info&quot;,
++			cortex_a8_handle_cache_info_command, COMMAND_EXEC,
++			&quot;display information about target caches&quot;);
++
+ 	return retval;
+ }
+
+Modified: trunk/src/target/cortex_a8.h
+===================================================================
+--- trunk/src/target/cortex_a8.h	2009-08-25 06:57:26 UTC (rev 2608)
++++ trunk/src/target/cortex_a8.h	2009-08-25 06:58:34 UTC (rev 2609)
+@@ -31,7 +31,8 @@
+ 
+ #include &quot;register.h&quot;
+ #include &quot;target.h&quot;
+-#include &quot;armv7m.h&quot;
++#include &quot;armv7a.h&quot;
++#include &quot;arm7_9_common.h&quot;
+ 
+ extern char* cortex_a8_state_strings[];
+ 
+@@ -39,56 +40,82 @@
+ 
+ #define CPUID		0x54011D00
+ /* Debug Control Block */
+-#define DCB_DHCSR	0x54011DF0
+-#define DCB_DCRSR	0x54011DF4
+-#define DCB_DCRDR	0x54011DF8
+-#define DCB_DEMCR	0x54011DFC
++#define CPUDBG_DIDR		0x000
++#define CPUDBG_WFAR		0x018
++#define CPUDBG_DSCCR	0x028
++#define CPUDBG_DTRRX	0x080
++#define CPUDBG_ITR	0x084
++#define CPUDBG_DSCR	0x088
++#define CPUDBG_DTRTX	0x08c
++#define CPUDBG_DRCR	0x090
++#define CPUDBG_BVR_BASE	0x100
++#define CPUDBG_BCR_BASE	0x140
++#define CPUDBG_WVR_BASE	0x180
+ 
+-typedef struct  cortex_a8_fp_comparator_s
++#define CPUDBG_CPUID	0xD00
++#define CPUDBG_CTYPR	0xD04
++#define CPUDBG_TTYPR	0xD0C
++
++#define BRP_NORMAL 0
++#define BRP_CONTEXT 1
++
++typedef struct  cortex_a8_brp_s
+ {
+ 	int used;
+ 	int type;
+-	uint32_t fpcr_value;
+-	uint32_t fpcr_address;
+-} cortex_a8_fp_comparator_t;
++	uint32_t value;
++	uint32_t control;
++	uint8_t 	BRPn;
++} cortex_a8_brp_t;
+ 
+-typedef struct  cortex_a8_dwt_comparator_s
++typedef struct  cortex_a8_wrp_s
+ {
+ 	int used;
+-	uint32_t comp;
+-	uint32_t mask;
+-	uint32_t function;
+-	uint32_t dwt_comparator_address;
+-} cortex_a8_dwt_comparator_t;
++	int type;
++	uint32_t value;
++	uint32_t control;
++	uint8_t 	WRPn;
++} cortex_a8_wrp_t;
+ 
+ typedef struct cortex_a8_common_s
+ {
+ 	int common_magic;
+ 	arm_jtag_t jtag_info;
+ 
++	/* Core Debug Unit */
++	uint32_t debug_base;
++	uint8_t debug_ap;
++	uint8_t memory_ap;
++
+ 	/* Context information */
+-	uint32_t dcb_dhcsr;
++	uint32_t cpudbg_dscr;
+ 	uint32_t nvic_dfsr;  /* Debug Fault Status Register - shows reason for debug halt */
+ 	uint32_t nvic_icsr;  /* Interrupt Control State Register - shows active and pending IRQ */
+ 
+-	/* Flash Patch and Breakpoint (FPB) */
+-	int fp_num_lit;
+-	int fp_num_code;
+-	int fp_code_available;
+-	int fpb_enabled;
+-	int auto_bp_type;
+-	cortex_a8_fp_comparator_t *fp_comparator_list;
++	/* Saved cp15 registers */
++	uint32_t cp15_control_reg;
++	uint32_t cp15_aux_control_reg;
+ 
+-	/* Data Watchpoint and Trace (DWT) */
+-	int dwt_num_comp;
+-	int dwt_comp_available;
+-	cortex_a8_dwt_comparator_t *dwt_comparator_list;
++	/* Breakpoint register pairs */
++	int brp_num_context;
++	int brp_num;
++	int brp_num_available;
++//	int brp_enabled;
++	cortex_a8_brp_t *brp_list;
+ 
++	/* Watchpoint register pairs */
++	int wrp_num;
++	int wrp_num_available;
++	cortex_a8_wrp_t *wrp_list;
++
+ 	/* Interrupts */
+ 	int intlinesnum;
+ 	uint32_t *intsetenable;
+ 
+-	armv7m_common_t armv7m;
++	/* Use cortex_a8_read_regs_through_mem for fast register reads */
++	int fast_reg_read;
++
++	armv7a_common_t armv7a_common;
+ 	void *arch_info;
+ } cortex_a8_common_t;
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001391.html">[Openocd-svn] r2608 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001393.html">[Openocd-svn] r2610 - trunk/tcl/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1392">[ date ]</a>
+              <a href="thread.html#1392">[ thread ]</a>
+              <a href="subject.html#1392">[ subject ]</a>
+              <a href="author.html#1392">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

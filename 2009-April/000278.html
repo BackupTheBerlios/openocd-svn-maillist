@@ -1,0 +1,357 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1494 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1494%20-%20trunk/src/target&In-Reply-To=%3C200904211135.n3LBZxIR026068%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000277.html">
+   <LINK REL="Next"  HREF="000279.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1494 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1494%20-%20trunk/src/target&In-Reply-To=%3C200904211135.n3LBZxIR026068%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1494 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Tue Apr 21 13:35:59 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000277.html">[Openocd-svn] r1493 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000279.html">[Openocd-svn] r1495 - in trunk: . src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#278">[ date ]</a>
+              <a href="thread.html#278">[ thread ]</a>
+              <a href="subject.html#278">[ subject ]</a>
+              <a href="author.html#278">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-04-21 13:35:58 +0200 (Tue, 21 Apr 2009)
+New Revision: 1494
+
+Modified:
+   trunk/src/target/mips32.h
+   trunk/src/target/mips32_pracc.c
+   trunk/src/target/mips32_pracc.h
+Log:
+Nico Coesel &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ncoesel at dealogic.nl</A>&gt; MIPS32 speedup patches
+
+Modified: trunk/src/target/mips32.h
+===================================================================
+--- trunk/src/target/mips32.h	2009-04-21 11:33:29 UTC (rev 1493)
++++ trunk/src/target/mips32.h	2009-04-21 11:35:58 UTC (rev 1494)
+@@ -74,6 +74,7 @@
+ } mips32_core_reg_t;
+ 
+ #define MIPS32_OP_BEQ	0x04
++#define MIPS32_OP_BNE	0x05
+ #define MIPS32_OP_ADDI	0x08
+ #define MIPS32_OP_AND	0x24
+ #define MIPS32_OP_COP0	0x10
+@@ -102,6 +103,7 @@
+ #define MIPS32_AND(reg, off, val)	MIPS32_R_INST(0, off, val, reg, 0, MIPS32_OP_AND)
+ #define MIPS32_B(off)				MIPS32_BEQ(0, 0, off)
+ #define MIPS32_BEQ(src,tar,off)		MIPS32_I_INST(MIPS32_OP_BEQ, src, tar, off)
++#define MIPS32_BNE(src,tar,off)		MIPS32_I_INST(MIPS32_OP_BNE, src, tar, off)
+ #define MIPS32_MFC0(gpr, cpr, sel)	MIPS32_R_INST(MIPS32_OP_COP0, MIPS32_COP0_MF, gpr, cpr, 0, sel)
+ #define MIPS32_MTC0(gpr,cpr, sel)	MIPS32_R_INST(MIPS32_OP_COP0, MIPS32_COP0_MT, gpr, cpr, 0, sel)
+ #define MIPS32_LBU(reg, off, base)	MIPS32_I_INST(MIPS32_OP_LBU, base, reg, off)
+
+Modified: trunk/src/target/mips32_pracc.c
+===================================================================
+--- trunk/src/target/mips32_pracc.c	2009-04-21 11:33:29 UTC (rev 1493)
++++ trunk/src/target/mips32_pracc.c	2009-04-21 11:35:58 UTC (rev 1494)
+@@ -19,6 +19,57 @@
+  *   Free Software Foundation, Inc.,                                       *
+  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+  ***************************************************************************/
++
++/*
++This version has optimized assembly routines for 32 bit operations:
++- read word
++- write word
++- write array of words
++
++One thing to be aware of is that the MIPS32 cpu will execute the 
++instruction after a branch instruction (one delay slot).
++
++For example:
++
++
++    LW $2, ($5 +10)
++    B foo
++    LW $1, ($2 +100)
++
++The LW $1, ($2 +100) instruction is also executed. If this is 
++not wanted a NOP can be inserted:
++
++    LW $2, ($5 +10)
++    B foo
++    NOP
++    LW $1, ($2 +100)
++
++or the code can be changed to:
++
++    B foo
++    LW $2, ($5 +10)
++    LW $1, ($2 +100)
++
++The original code contained NOPs. I have removed these and moved
++the branches.
++
++I also moved the PRACC_STACK to 0xFF204000. This allows
++the use of 16 bits offsets to get pointers to the input
++and output area relative to the stack. Note that the stack
++isn't really a stack (the stack pointer is not 'moving')
++but a FIFO simulated in software.
++
++These changes result in a 35% speed increase when programming an
++external flash.
++
++More improvement could be gained if the registers do no need
++to be preserved but in that case the routines should be aware
++OpenOCD is used as a flash programmer or as a debug tool.
++
++Nico Coesel
++*/
++
++
+ #ifdef HAVE_CONFIG_H
+ #include &quot;config.h&quot;
+ #endif
+@@ -94,7 +145,7 @@
+ 		 * to start of debug vector */
+ 		
+ 		data = 0;
+-		LOG_ERROR(&quot;Error reading unexpected address&quot;);
++		LOG_ERROR(&quot;Error reading unexpected address %8.8x&quot;, address);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 	
+@@ -103,10 +154,15 @@
+ 	mips_ejtag_drscan_32(ctx-&gt;ejtag_info, &amp;data);
+ 
+ 	/* Clear the access pending bit (let the processor eat!) */
++
+ 	ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl &amp; ~EJTAG_CTRL_PRACC;
+ 	mips_ejtag_set_instr(ctx-&gt;ejtag_info, EJTAG_INST_CONTROL, NULL);
+ 	mips_ejtag_drscan_32(ctx-&gt;ejtag_info, &amp;ejtag_ctrl);
++
++	jtag_add_clocks(5);
++	jtag_execute_queue();
+ 	
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -115,7 +171,7 @@
+ 	u32 ejtag_ctrl,data;
+ 	int offset;
+ 	mips_ejtag_t *ejtag_info = ctx-&gt;ejtag_info;
+-	
++
+ 	mips_ejtag_set_instr(ctx-&gt;ejtag_info, EJTAG_INST_DATA, NULL);
+ 	mips_ejtag_drscan_32(ctx-&gt;ejtag_info, &amp;data);
+ 	
+@@ -123,6 +179,9 @@
+ 	ejtag_ctrl = ejtag_info-&gt;ejtag_ctrl &amp; ~EJTAG_CTRL_PRACC;
+ 	mips_ejtag_set_instr(ctx-&gt;ejtag_info, EJTAG_INST_CONTROL, NULL);
+ 	mips_ejtag_drscan_32(ctx-&gt;ejtag_info, &amp;ejtag_ctrl);
++
++	jtag_add_clocks(5);
++	jtag_execute_queue();
+ 	
+ 	if ((address &gt;= MIPS32_PRACC_PARAM_IN)
+ 		&amp;&amp; (address &lt;= MIPS32_PRACC_PARAM_IN + ctx-&gt;num_iparam * 4))
+@@ -143,7 +202,7 @@
+ 	}
+ 	else
+ 	{
+-		LOG_ERROR(&quot;Error writing unexpected address&quot;);
++		LOG_ERROR(&quot;Error writing unexpected address %8.8x&quot;, address);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 	
+@@ -175,6 +234,8 @@
+ 		address = data = 0;
+ 		mips_ejtag_set_instr(ejtag_info, EJTAG_INST_ADDRESS, NULL);
+ 		mips_ejtag_drscan_32(ejtag_info, &amp;address);
++
++//		printf(&quot;Adres: %.8x\n&quot;, address);
+ 		
+ 		/* Check for read or write */
+ 		if (ejtag_ctrl &amp; EJTAG_CTRL_PRNW)
+@@ -194,6 +255,7 @@
+ 			
+ 			if ((retval = mips32_pracc_exec_read(&amp;ctx, address)) != ERROR_OK)
+ 				return retval;
++
+ 		}
+ 		
+ 		if (cycle == 0)
+@@ -309,23 +371,16 @@
+ 		MIPS32_LUI(15,UPPER16(MIPS32_PRACC_STACK)), 		/* $15 = MIPS32_PRACC_STACK */
+ 		MIPS32_ORI(15,15,LOWER16(MIPS32_PRACC_STACK)),
+ 		MIPS32_SW(8,0,15), 									/* sw $8,($15) */
+-		MIPS32_SW(9,0,15), 									/* sw $9,($15) */
+ 
+-		MIPS32_LUI(8,UPPER16(MIPS32_PRACC_PARAM_IN)),		/* $8 = MIPS32_PRACC_PARAM_IN */
+-		MIPS32_ORI(8,8,LOWER16(MIPS32_PRACC_PARAM_IN)),
+-		MIPS32_LW(8,0,8),									/* $8=mem[$8]; read addr */
+-		MIPS32_LUI(9,UPPER16(MIPS32_PRACC_PARAM_OUT)), 		/* $9=MIPS32_PRACC_PARAM_OUT */
+-		MIPS32_ORI(9,9,LOWER16(MIPS32_PRACC_PARAM_OUT)),
++		MIPS32_LW(8,NEG16(MIPS32_PRACC_STACK-MIPS32_PRACC_PARAM_IN), 15),  //load R8 @ param_in[0] = address
+ 
+ 		MIPS32_LW(8,0,8), 									/* lw $8,0($8), Load $8 with the word @mem[$8] */
+-		MIPS32_SW(8,0,9), 									/* sw $8,0($9) */
++		MIPS32_SW(8,NEG16(MIPS32_PRACC_STACK-MIPS32_PRACC_PARAM_OUT),15), 									/* sw $8,0($9) */
+ 
+-		MIPS32_LW(9,0,15), 									/* lw $9,($15) */
+ 		MIPS32_LW(8,0,15), 									/* lw $8,($15) */
+-		MIPS32_MFC0(15,31,0),								/* move COP0 DeSave to $15 */
++		MIPS32_B(NEG16(9)),	//was 17							/* b start */
++		MIPS32_MFC0(15,31,0),   //this instruction will be executed (MIPS executes instruction after jump)							/* move COP0 DeSave to $15 */
+ 		MIPS32_NOP,
+-		MIPS32_B(NEG16(17)),								/* b start */
+-		MIPS32_NOP,
+ 	};
+ 
+ 	int retval = ERROR_OK;
+@@ -520,6 +575,8 @@
+ 
+ int mips32_pracc_write_mem32(mips_ejtag_t *ejtag_info, u32 addr, int count, u32 *buf)
+ {
++
++//NC: use destination pointer as loop counter (last address is in $10)
+ 	u32 code[] = {
+ 															/* start: */
+ 		MIPS32_MTC0(15,31,0),								/* move $15 to COP0 DeSave */
+@@ -530,41 +587,33 @@
+ 		MIPS32_SW(10,0,15), 								/* sw $10,($15) */
+ 		MIPS32_SW(11,0,15), 								/* sw $11,($15) */
+ 		
+-		MIPS32_LUI(8,UPPER16(MIPS32_PRACC_PARAM_IN)), 		/* $8 = MIPS32_PRACC_PARAM_IN */
+-		MIPS32_ORI(8,8,LOWER16(MIPS32_PRACC_PARAM_IN)),
++		MIPS32_ADDI(8,15,NEG16(MIPS32_PRACC_STACK-MIPS32_PRACC_PARAM_IN)),  //$8= MIPS32_PRACC_PARAM_IN
+ 		MIPS32_LW(9,0,8), 									/* Load write addr to $9 */
+-		MIPS32_LW(10,4,8), 									/* Load write count to $10 */
+-		MIPS32_ADDI(8,8,8), 								/* $8+=8 */
+-		MIPS32_NOP,
+-															/* loop: */
+-		MIPS32_BEQ(0,10,9),									/* beq $0, $10, end */
+-		MIPS32_NOP,
+-		
++		MIPS32_LW(10,4,8),	//last address 									/* Load write count to $10 */
++		MIPS32_ADDI(8,8,8), 	// $8+=8 beginning of data
++
++//loop:
+ 		MIPS32_LW(11,0,8), 									/* lw $11,0($8), Load $11 with the word @mem[$8] */
+ 		MIPS32_SW(11,0,9), 									/* sw $11,0($9) */
+ 		
+-		MIPS32_ADDI(10,10,NEG16(1)), 						/* $10-- */
+ 		MIPS32_ADDI(9,9,4), 								/* $9+=4 */
+-		MIPS32_ADDI(8,8,4), 								/* $8+=4 */
+-		MIPS32_NOP,
+-		MIPS32_B(NEG16(9)),									/* b loop */
+-		MIPS32_NOP,
++		MIPS32_BNE(10,9,NEG16(4)),  //was 9 BNE $10, 9, loop									/* b loop */
++		MIPS32_ADDI(8,8,4),  //this instruction is part of the loop (one delay slot)!	/* $8+=4 */
+ 															/* end: */
+ 		MIPS32_LW(11,0,15), 								/* lw $11,($15) */
+ 		MIPS32_LW(10,0,15), 								/* lw $10,($15) */
+ 		MIPS32_LW(9,0,15), 									/* lw $9,($15) */
+ 		MIPS32_LW(8,0,15), 									/* lw $8,($15) */
++		MIPS32_B(NEG16(21)),	 //was 30							/* b start */
+ 		MIPS32_MFC0(15,31,0),								/* move COP0 DeSave to $15 */
+-		MIPS32_NOP,
+-		MIPS32_B(NEG16(30)),								/* b start */
+-		MIPS32_NOP,
++		MIPS32_NOP, //this one will not be executed
+ 	};
+ 	
+ 	/* TODO remove array */
+ 	u32 param_in[count+2];
+ 	param_in[0] = addr;
+-	param_in[1] = count;
+-	
++	param_in[1] = addr + count * sizeof(u32);	//last address
++    
+ 	memcpy(&amp;param_in[2], buf, count * sizeof(u32));
+ 	
+ 	mips32_pracc_exec(ejtag_info, sizeof(code)/sizeof(code[0]), code, \
+@@ -582,20 +631,17 @@
+ 		MIPS32_ORI(15,15,LOWER16(MIPS32_PRACC_STACK)),
+ 		MIPS32_SW(8,0,15), 									/* sw $8,($15) */
+ 		MIPS32_SW(9,0,15), 									/* sw $9,($15) */
++	
++		MIPS32_LW(8,NEG16((MIPS32_PRACC_STACK-MIPS32_PRACC_PARAM_IN)-4), 15),  //load R8 @ param_in[1] = data
++		MIPS32_LW(9,NEG16(MIPS32_PRACC_STACK-MIPS32_PRACC_PARAM_IN), 15),  //load R9 @ param_in[0] = address
+ 
+-		MIPS32_LUI(8,UPPER16((MIPS32_PRACC_PARAM_IN+4))), 	/* $8 = MIPS32_PRACC_PARAM_IN+4 */
+-		MIPS32_ORI(8,8,LOWER16((MIPS32_PRACC_PARAM_IN+4))),
+-		MIPS32_LW(9,NEG16(4),8), 							/* Load write addr to $9 */
+-
+-		MIPS32_LW(8,0,8), 									/* lw $8,0($8), Load $8 with the word @mem[$8] */
+ 		MIPS32_SW(8,0,9), 									/* sw $8,0($9) */
+ 
+ 		MIPS32_LW(9,0,15), 									/* lw $9,($15) */
+ 		MIPS32_LW(8,0,15), 									/* lw $8,($15) */
+-		MIPS32_MFC0(15,31,0),								/* move COP0 DeSave to $15 */
++		MIPS32_B(NEG16(11)),								/* b start */
++		MIPS32_MFC0(15,31,0),							/* move COP0 DeSave to $15 */
+ 		MIPS32_NOP,
+-		MIPS32_B(NEG16(15)),								/* b start */
+-		MIPS32_NOP,
+ 	};
+ 
+ 	/* TODO remove array */
+
+Modified: trunk/src/target/mips32_pracc.h
+===================================================================
+--- trunk/src/target/mips32_pracc.h	2009-04-21 11:33:29 UTC (rev 1493)
++++ trunk/src/target/mips32_pracc.h	2009-04-21 11:35:58 UTC (rev 1494)
+@@ -25,7 +25,8 @@
+ #include &quot;mips_ejtag.h&quot;
+ 
+ #define MIPS32_PRACC_TEXT			0xFF200200
+-#define MIPS32_PRACC_STACK			0xFF2FFFFC
++//#define MIPS32_PRACC_STACK			0xFF2FFFFC
++#define MIPS32_PRACC_STACK			0xFF204000
+ #define MIPS32_PRACC_PARAM_IN		0xFF201000
+ #define MIPS32_PRACC_PARAM_IN_SIZE	0x1000
+ #define MIPS32_PRACC_PARAM_OUT		(MIPS32_PRACC_PARAM_IN + MIPS32_PRACC_PARAM_IN_SIZE)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000277.html">[Openocd-svn] r1493 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000279.html">[Openocd-svn] r1495 - in trunk: . src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#278">[ date ]</a>
+              <a href="thread.html#278">[ thread ]</a>
+              <a href="subject.html#278">[ subject ]</a>
+              <a href="author.html#278">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

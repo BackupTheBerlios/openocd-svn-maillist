@@ -1,0 +1,203 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1744 - in trunk: . src/helper
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1744%20-%20in%20trunk%3A%20.%20src/helper&In-Reply-To=%3C200905111120.n4BBKrA1009404%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000527.html">
+   <LINK REL="Next"  HREF="000529.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1744 - in trunk: . src/helper</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1744%20-%20in%20trunk%3A%20.%20src/helper&In-Reply-To=%3C200905111120.n4BBKrA1009404%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1744 - in trunk: . src/helper">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Mon May 11 13:20:53 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000527.html">[Openocd-svn] r1743 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000529.html">[Openocd-svn] r1745 -	zy1000/trunk/ecoshal/hal/zylin/phi/current/include/pkgconf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#528">[ date ]</a>
+              <a href="thread.html#528">[ thread ]</a>
+              <a href="subject.html#528">[ subject ]</a>
+              <a href="author.html#528">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-11 13:20:45 +0200 (Mon, 11 May 2009)
+New Revision: 1744
+
+Modified:
+   trunk/configure.in
+   trunk/src/helper/jim-eventloop.c
+   trunk/src/helper/jim.c
+   trunk/src/helper/jim.h
+Log:
+Update jim helper files to use proper configure script support:
+- configure.in: Add AC_TYPE_LONG_LONG_INT to detect 'long long int' support.
+- configure.in: Add AC_C_CONST to provide equivalent support as jim.h.
+- jim*.c: include config.h when HAVE_CONFIG_H is defined.
+- jim*.{h,c}: use HAVE_LONG_LONG_INT definition from config.h.
+- jim.h: Remove hard-coded const and HAVE_LONG_LONG definitions.
+- jim.h: -DJIM_NO_CONST has been obsoleted; -Dconst is equivalent.
+
+
+Modified: trunk/configure.in
+===================================================================
+--- trunk/configure.in	2009-05-11 10:10:11 UTC (rev 1743)
++++ trunk/configure.in	2009-05-11 11:20:45 UTC (rev 1744)
+@@ -816,6 +816,10 @@
+ AC_PROG_RANLIB
+ AC_PROG_LIBTOOL
+ 
++dnl configure checks required for Jim files (these are obsolete w/ C99)
++AC_C_CONST
++AC_TYPE_LONG_LONG_INT
++
+ # Look for environ alternatives.  Possibility #1: is environ in unistd.h or stdlib.h?
+ AC_MSG_CHECKING([for environ in unistd.h and stdlib.h])
+ AC_COMPILE_IFELSE([
+
+Modified: trunk/src/helper/jim-eventloop.c
+===================================================================
+--- trunk/src/helper/jim-eventloop.c	2009-05-11 10:10:11 UTC (rev 1743)
++++ trunk/src/helper/jim-eventloop.c	2009-05-11 11:20:45 UTC (rev 1744)
+@@ -44,6 +44,9 @@
+  *  - more complete [after] command with [after info] and other subcommands.
+  *  - Win32 port
+  */
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
+ 
+ #define JIM_EXTENSION
+ #define __JIM_EVENTLOOP_CORE__
+
+Modified: trunk/src/helper/jim.c
+===================================================================
+--- trunk/src/helper/jim.c	2009-05-11 10:10:11 UTC (rev 1743)
++++ trunk/src/helper/jim.c	2009-05-11 11:20:45 UTC (rev 1744)
+@@ -39,6 +39,10 @@
+  * are those of the authors and should not be interpreted as representing
+  * official policies, either expressed or implied, of the Jim Tcl Project.
+  **/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
+ #define __JIM_CORE__
+ #define JIM_OPTIMIZATION /* comment to avoid optimizations and reduce size */
+ 
+@@ -160,7 +164,7 @@
+  * Ignores `locale' stuff.  Assumes that the upper and lower case
+  * alphabets and digits are each contiguous.
+  */
+-#ifdef HAVE_LONG_LONG
++#ifdef HAVE_LONG_LONG_INT
+ #define JimIsAscii(c) (((c) &amp; ~0x7f) == 0)
+ static jim_wide JimStrtoll(const char *nptr, char **endptr, register int base)
+ {
+@@ -424,7 +428,7 @@
+ {
+     char *endptr;
+ 
+-#ifdef HAVE_LONG_LONG
++#ifdef HAVE_LONG_LONG_INT
+     *widePtr = JimStrtoll(str, &amp;endptr, base);
+ #else
+     *widePtr = strtol(str, &amp;endptr, base);
+@@ -7662,7 +7666,7 @@
+                     /* Try to scan a number with the given base */
+                     if (descr-&gt;modifier == 'l')
+                     {
+-#ifdef HAVE_LONG_LONG
++#ifdef HAVE_LONG_LONG_INT
+                         jwvalue = JimStrtoll(tok, &amp;endp, base),
+ #else
+                         jwvalue = strtol(tok, &amp;endp, base),
+
+Modified: trunk/src/helper/jim.h
+===================================================================
+--- trunk/src/helper/jim.h	2009-05-11 10:10:11 UTC (rev 1743)
++++ trunk/src/helper/jim.h	2009-05-11 11:20:45 UTC (rev 1744)
+@@ -78,25 +78,6 @@
+ #include &lt;stdarg.h&gt; /* In order to get type va_list */
+ 
+ /* -----------------------------------------------------------------------------
+-* Some /very/ old compiler maybe do not know how to
+-* handle 'const'. They even do not know, how to ignore
+-* it. For those compiler it may be better to compile with
+-* define JIM_NO_CONST activated
+-* ---------------------------------------------------------------------------*/
+-
+-#ifdef JIM_NO_CONST
+-#  define const
+-#endif
+-
+-/* -----------------------------------------------------------------------------
+- * System configuration
+- * For most modern systems, you can leave the default.
+- * For embedded systems some change may be required.
+- * ---------------------------------------------------------------------------*/
+-
+-#define HAVE_LONG_LONG
+-
+-/* -----------------------------------------------------------------------------
+  * Compiler specific fixes.
+  * ---------------------------------------------------------------------------*/
+ 
+@@ -106,7 +87,7 @@
+ #endif /* _MSC_VER */
+ 
+ /* Long Long type and related issues */
+-#ifdef HAVE_LONG_LONG
++#ifdef HAVE_LONG_LONG_INT
+ #  ifdef _MSC_VER /* MSC compiler */
+ #    define jim_wide _int64
+ #    ifndef LLONG_MAX
+@@ -138,7 +119,7 @@
+  * LIBC specific fixes
+  * ---------------------------------------------------------------------------*/
+ 
+-#ifdef HAVE_LONG_LONG
++#ifdef HAVE_LONG_LONG_INT
+ # if defined(_MSC_VER) || defined(__MSVCRT__)
+ #    define JIM_WIDE_MODIFIER &quot;I64d&quot;
+ # else
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000527.html">[Openocd-svn] r1743 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000529.html">[Openocd-svn] r1745 -	zy1000/trunk/ecoshal/hal/zylin/phi/current/include/pkgconf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#528">[ date ]</a>
+              <a href="thread.html#528">[ thread ]</a>
+              <a href="subject.html#528">[ subject ]</a>
+              <a href="author.html#528">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

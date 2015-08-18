@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2656 - trunk/tcl/board
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2656%20-%20trunk/tcl/board&In-Reply-To=%3C200908310602.n7V621Dx028599%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001438.html">
+   <LINK REL="Next"  HREF="001440.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2656 - trunk/tcl/board</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2656%20-%20trunk/tcl/board&In-Reply-To=%3C200908310602.n7V621Dx028599%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2656 - trunk/tcl/board">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Mon Aug 31 08:02:01 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001438.html">[Openocd-svn] r2655 - trunk/src/flash
+</A></li>
+        <LI>Next message: <A HREF="001440.html">[Openocd-svn] r2657 - trunk/tcl/board
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1439">[ date ]</a>
+              <a href="thread.html#1439">[ thread ]</a>
+              <a href="subject.html#1439">[ subject ]</a>
+              <a href="author.html#1439">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-08-31 08:02:01 +0200 (Mon, 31 Aug 2009)
+New Revision: 2656
+
+Added:
+   trunk/tcl/board/propox_mmnet1001.cfg
+Log:
+Ferdinand Postema &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ferdinand at postema.eu</A>&gt; config script for the MMnet1001 module from Propox.
+
+Added: trunk/tcl/board/propox_mmnet1001.cfg
+===================================================================
+--- trunk/tcl/board/propox_mmnet1001.cfg	2009-08-30 21:12:50 UTC (rev 2655)
++++ trunk/tcl/board/propox_mmnet1001.cfg	2009-08-31 06:02:01 UTC (rev 2656)
+@@ -0,0 +1,83 @@
++
++## Chip:
++set CHIPNAME at91sam9260
++set CPUTAPID 0x0792603f
++set ENDIAN little
++source [find target/at91sam9260.cfg]
++
++$_TARGETNAME configure -event reset-init {at91sam_init}
++
++
++proc at91sam_init { } {
++	
++	# at reset chip runs at 32 kHz =&gt; 1/8 * 32 kHz = 4 kHz
++	jtag_rclk 4
++
++	# Enable user reset and disable watchdog
++	mww 0xfffffd08 0xa5000501         # RSTC_MR : enable user reset
++	mww 0xfffffd44 0x00008000         # WDT_MR : disable watchdog
++
++	# Oscillator setup
++	mww 0xfffffc20 0x00004001         # CKGR_MOR : enable the main oscillator (18.432 MHz)
++	sleep 20                          # wait 20 ms
++	mww 0xfffffc30 0x00000001         # PMC_MCKR : switch to main oscillator
++	sleep 10                          # wait 10 ms
++
++	# now we are running at 18.432 MHz kHz =&gt; 1/8 * 18.432 MHz = 2.304 MHz
++	jtag_rclk 2000
++
++	mww 0xfffffc28 0x2060bf09         # CKGR_PLLAR: Set PLLA Register for 198,656MHz
++	sleep 20                          # wait 20 ms
++	mww 0xfffffc2c 0x207c3f0c         # CKGR_PLLBR: Set PLLB Register for USB usage (USB_CLK = 48 MHz)
++	sleep 10                          # wait 10 ms
++	mww 0xfffffc30 0x00000101         # PMC_MCKR : Select prescaler
++	sleep 10                          # wait 10 ms
++	mww 0xfffffc30 0x00000102         # PMC_MCKR : Clock from PLLA is selected
++	sleep 10                          # wait 10 ms
++
++	# now we are running at 198.656 MHz kHz =&gt; full speed jtag
++	jtag_rclk 30000
++
++	arm7_9 dcc_downloads enable       # Enable faster DCC downloads
++
++	# Configure PIO Controller for SDRAM data-lines D16-D31
++	# PC16-PC31 = Peripheral A: D16-D32
++	mww 0xfffff844 0xffff0000	# Interrupt Disable
++	mww 0xfffff854 0xffff0000	# Multi-Drive Disable
++	mww 0xfffff860 0xffff0000	# Pull-Up Disable
++	mww 0xfffff870 0xffff0000	# PIO_ASR : Select peripheral A function for D15..D31
++	mww 0xfffff804 0xffff0000	# PIO_PDR : Disable PIO function for D15..D31 (Peripheral function enable)
++	mww 0xfffffc10 0x00000010	# Enable PIO-C Clock in PMC (PID=4)
++
++	# SD-Ram setup
++	mww 0xffffef1c 0x2			# EBI_CSA : Assign EBI Chip Select 1 to SDRAM
++	mww 0xffffea08 0x85227259	# SDRAMC_CR : Configure SDRAM (IS42S32160A: 4M Words x 32 Bits x 4 Banks (512-Mbit))
++	mww 0xffffea00 0x1			# SDRAMC_MR : issue a NOP command
++	mww 0x20000000 0
++	mww 0xffffea00 0x2			# SDRAMC_MR : issue an 'All Banks Precharge' command
++	mww 0x20000000 0
++	mww 0xffffea00 0x4			# SDRAMC_MR : issue an 'Auto-Refresh' command (1st)
++	mww 0x20000000 0
++	mww 0xffffea00 0x4			# SDRAMC_MR : issue an 'Auto-Refresh' command (2nd)
++	mww 0x20000000 0
++	mww 0xffffea00 0x4			# SDRAMC_MR : issue an 'Auto-Refresh' command (3th)
++	mww 0x20000000 0
++	mww 0xffffea00 0x4			# SDRAMC_MR : issue an 'Auto-Refresh' command (4th)
++	mww 0x20000000 0
++	mww 0xffffea00 0x4			# SDRAMC_MR : issue an 'Auto-Refresh' command (5th)
++	mww 0x20000000 0
++	mww 0xffffea00 0x4			# SDRAMC_MR : issue an 'Auto-Refresh' command (6th)
++	mww 0x20000000 0
++	mww 0xffffea00 0x4			# SDRAMC_MR : issue an 'Auto-Refresh' command (7th)
++	mww 0x20000000 0
++	mww 0xffffea00 0x4			# SDRAMC_MR : issue an 'Auto-Refresh' command (8th)
++	mww 0x20000000 0
++	mww 0xffffea00 0x3			# SDRAMC_MR : issue a 'Load Mode Register' command
++	mww 0x20000000 0
++	mww 0xffffea00 0x0			# SDRAMC_MR : Normal Mode
++	mww 0x20000000 0
++	mww 0xFFFFEA04 0x30d		# SDRAM Refresh Time Register
++								#  datasheet: 8k refresh cycles / 64 ms
++								#  MCLK / (8*1024 / 64e-3) = 100e6 / 128000 = 781 = 0x30d
++
++}
+
+
+Property changes on: trunk/tcl/board/propox_mmnet1001.cfg
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001438.html">[Openocd-svn] r2655 - trunk/src/flash
+</A></li>
+	<LI>Next message: <A HREF="001440.html">[Openocd-svn] r2657 - trunk/tcl/board
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1439">[ date ]</a>
+              <a href="thread.html#1439">[ thread ]</a>
+              <a href="subject.html#1439">[ subject ]</a>
+              <a href="author.html#1439">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

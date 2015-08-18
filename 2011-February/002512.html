@@ -1,0 +1,161 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-738-g706284a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-738-g706284a&In-Reply-To=%3CE1Pmj8I-0001Lt-GM%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002511.html">
+   <LINK REL="Next"  HREF="002513.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-738-g706284a</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-738-g706284a&In-Reply-To=%3CE1Pmj8I-0001Lt-GM%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-738-g706284a">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Tue Feb  8 09:41:09 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002511.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-737-g5ca7cbe
+</A></li>
+        <LI>Next message: <A HREF="002513.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-739-gd51b561
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2512">[ date ]</a>
+              <a href="thread.html#2512">[ thread ]</a>
+              <a href="subject.html#2512">[ subject ]</a>
+              <a href="author.html#2512">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  706284a8fd562d5a6e2c1f123f8cb366b7e49e7d (commit)
+      from  5ca7cbe2d232fcaff32598af1ef5e962e704c004 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 706284a8fd562d5a6e2c1f123f8cb366b7e49e7d
+Author: Mathias K &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">kesmtp at freenet.de</A>&gt;
+Date:   Fri Feb 4 21:15:22 2011 +0100
+
+    buf_set_buf around 30% speed increase
+    
+    Also i have checked the input of this function and in many cases
+    a simple byte copy is possible.
+    
+    I have added this check now and is it possible the buffer is
+    copied byte by byte and not bit by bit.
+    
+    With byte boundary input the test looks like this:
+    
+    buf_set_buf 0x02000000 iteration test:
+    runtime (seconds): old: 6.828559 new: 0.436191 diff: 6.392368
+    runtime (seconds): old: 6.853636 new: 0.430389 diff: 6.423247
+    runtime (seconds): old: 6.794985 new: 0.423065 diff: 6.371920
+    
+    Without:
+    
+    buf_set_buf 0x02000000 iteration test:
+    runtime (seconds): old: 6.370869 new: 5.552624 diff: 0.818245
+    runtime (seconds): old: 6.420730 new: 5.665887 diff: 0.754843
+    runtime (seconds): old: 6.583306 new: 5.599021 diff: 0.984285
+    
+    Regards,
+    
+    Mathias
+
+diff --git a/src/helper/binarybuffer.c b/src/helper/binarybuffer.c
+index 3a16cce..e789e6f 100644
+--- a/src/helper/binarybuffer.c
++++ b/src/helper/binarybuffer.c
+@@ -133,19 +133,34 @@ void* buf_set_buf(const void *_src, unsigned src_start,
+ {
+ 	const uint8_t *src = _src;
+ 	uint8_t *dst = _dst;
++	unsigned  sb,db,sq,dq;
++
++	sb = src_start / 8;
++	db = dst_start / 8;
++	sq = src_start % 8;
++	dq = dst_start % 8;
+ 
+-	unsigned src_idx = src_start, dst_idx = dst_start;
+ 	for (unsigned i = 0; i &lt; len; i++)
+ 	{
+-		if (((src[src_idx / 8] &gt;&gt; (src_idx % 8)) &amp; 1) == 1)
+-			dst[dst_idx / 8] |= 1 &lt;&lt; (dst_idx % 8);
++		if (((*src &gt;&gt; (sq&amp;7)) &amp; 1) == 1)
++			*dst |= 1 &lt;&lt; (dq&amp;7);
+ 		else
+-			dst[dst_idx / 8] &amp;= ~(1 &lt;&lt; (dst_idx % 8));
+-		dst_idx++;
+-		src_idx++;
++			*dst &amp;= ~(1 &lt;&lt; (dq&amp;7));
++
++		if ( sq++ == 7 )
++		{
++			sq = 0;
++			src++;
++		}
++
++		if ( dq++ == 7 )
++		{
++			dq = 0;
++			dst++;
++		}
+ 	}
+ 
+-	return dst;
++	return (uint8_t*)_dst;
+ }
+ 
+ uint32_t flip_u32(uint32_t value, unsigned int num)
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/helper/binarybuffer.c |   29 ++++++++++++++++++++++-------
+ 1 files changed, 22 insertions(+), 7 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002511.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-737-g5ca7cbe
+</A></li>
+	<LI>Next message: <A HREF="002513.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-739-gd51b561
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2512">[ date ]</a>
+              <a href="thread.html#2512">[ thread ]</a>
+              <a href="subject.html#2512">[ subject ]</a>
+              <a href="author.html#2512">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

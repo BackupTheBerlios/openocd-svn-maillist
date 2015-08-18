@@ -1,0 +1,169 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2095 - in trunk: doc src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2095%20-%20in%20trunk%3A%20doc%20src/jtag&In-Reply-To=%3C200906071910.n57JArQ0010906%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000878.html">
+   <LINK REL="Next"  HREF="000880.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2095 - in trunk: doc src/jtag</H1>
+    <B>oharboe at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2095%20-%20in%20trunk%3A%20doc%20src/jtag&In-Reply-To=%3C200906071910.n57JArQ0010906%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2095 - in trunk: doc src/jtag">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Sun Jun  7 21:10:53 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000878.html">[Openocd-svn] r2094 - in trunk/src/jtag: . minidummy
+</A></li>
+        <LI>Next message: <A HREF="000880.html">[Openocd-svn] r2096 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#879">[ date ]</a>
+              <a href="thread.html#879">[ thread ]</a>
+              <a href="subject.html#879">[ subject ]</a>
+              <a href="author.html#879">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-06-07 21:10:51 +0200 (Sun, 07 Jun 2009)
+New Revision: 2095
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/jtag/jtag.c
+Log:
+retire endstate command
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-06-07 18:39:11 UTC (rev 2094)
++++ trunk/doc/openocd.texi	2009-06-07 19:10:51 UTC (rev 2095)
+@@ -4474,14 +4474,6 @@
+ instead of batching them into larger operations.
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffn</A> Command {endstate} tap_state
+-Flush any pending JTAG operations,
+-and return with all TAPs in @var{tap_state}.
+-This state should be a stable state such as @sc{reset},
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at sc</A>{run/idle},
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at sc</A>{drpause}, or @sc{irpause}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> deffn
+-
+ @deffn Command {irscan} [tap instruction]+ [@option{-endstate} tap_state]
+ For each @var{tap} listed, loads the instruction register
+ with its associated numeric @var{instruction}.
+@@ -4552,7 +4544,7 @@
+ @cindex TAP state names
+ 
+ The @var{tap_state} names used by OpenOCD in the @command{drscan},
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at command</A>{endstate}, and @command{irscan} commands are:
++and @command{irscan} commands are:
+ 
+ @itemize @bullet
+ @item @b{RESET}
+@@ -4578,9 +4570,6 @@
+ others, the next TCK transition changes to a new state.
+ 
+ @itemize @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @sc{reset} is probably most useful with @command{endstate},
+-but entering it frequently has side effects.
+-(This is the only stable state with TMS high.)
+ @item From @sc{drshift} and @sc{irshift}, clock transitions will
+ produce side effects by changing register contents.  The values
+ to be latched in upcoming @sc{drupdate} or @sc{irupdate} states
+@@ -4838,6 +4827,9 @@
+ @item @b{arm7_9 fast_writes}
+ @cindex arm7_9 fast_writes
+ @*Use @command{arm7_9 fast_memory_access} instead.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @b{endstate}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at cindex</A> endstate
++@*An buggy old command that would not really work since background polling would wipe out the global endstate
+ @xref{arm7_9 fast_memory_access}.
+ @item @b{arm7_9 force_hw_bkpts}
+ @*Use @command{gdb_breakpoint_override} instead. Note that GDB will use hardware breakpoints
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-07 18:39:11 UTC (rev 2094)
++++ trunk/src/jtag/jtag.c	2009-06-07 19:10:51 UTC (rev 2095)
+@@ -227,7 +227,6 @@
+ 
+ static int handle_scan_chain_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ 
+-static int handle_endstate_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int handle_jtag_reset_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int handle_runtest_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int handle_irscan_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+@@ -1659,8 +1658,6 @@
+ 	register_command(cmd_ctx, NULL, &quot;scan_chain&quot;, handle_scan_chain_command,
+ 		COMMAND_EXEC, &quot;print current scan chain configuration&quot;);
+ 
+-	register_command(cmd_ctx, NULL, &quot;endstate&quot;, handle_endstate_command,
+-		COMMAND_EXEC, &quot;finish JTAG operations in &lt;tap_state&gt;&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;jtag_reset&quot;, handle_jtag_reset_command,
+ 		COMMAND_EXEC, &quot;toggle reset lines &lt;trst&gt; &lt;srst&gt;&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;runtest&quot;, handle_runtest_command,
+@@ -2215,26 +2212,6 @@
+ 
+ }
+ 
+-static int handle_endstate_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+-{
+-	if (argc &lt; 1)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-
+-	tap_state_t state = tap_state_by_name(args[0]);
+-	if (state &lt; 0)
+-	{
+-		command_print( cmd_ctx, &quot;Invalid state name: %s\n&quot;, args[0] );
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-	}
+-	jtag_set_end_state(state);
+-	jtag_execute_queue();
+-
+-	command_print(cmd_ctx, &quot;current endstate: %s&quot;,
+-			tap_state_name(cmd_queue_end_state));
+-
+-	return ERROR_OK;
+-}
+-
+ static int handle_jtag_reset_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
+ 	int trst = -1;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000878.html">[Openocd-svn] r2094 - in trunk/src/jtag: . minidummy
+</A></li>
+	<LI>Next message: <A HREF="000880.html">[Openocd-svn] r2096 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#879">[ date ]</a>
+              <a href="thread.html#879">[ thread ]</a>
+              <a href="subject.html#879">[ subject ]</a>
+              <a href="author.html#879">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

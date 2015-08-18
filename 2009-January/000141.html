@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1357 - trunk/tools/xsvf_tools
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1357%20-%20trunk/tools/xsvf_tools&In-Reply-To=%3C200901230705.n0N758h7028460%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000140.html">
+   <LINK REL="Next"  HREF="000142.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1357 - trunk/tools/xsvf_tools</H1>
+    <B>kc8apf at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1357%20-%20trunk/tools/xsvf_tools&In-Reply-To=%3C200901230705.n0N758h7028460%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1357 - trunk/tools/xsvf_tools">kc8apf at mail.berlios.de
+       </A><BR>
+    <I>Fri Jan 23 08:05:08 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000140.html">[Openocd-svn] r1356 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000142.html">[Openocd-svn] r1358 - trunk/src/helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#141">[ date ]</a>
+              <a href="thread.html#141">[ thread ]</a>
+              <a href="subject.html#141">[ subject ]</a>
+              <a href="author.html#141">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kc8apf
+Date: 2009-01-23 08:05:04 +0100 (Fri, 23 Jan 2009)
+New Revision: 1357
+
+Modified:
+   trunk/tools/xsvf_tools/svf2xsvf.py
+   trunk/tools/xsvf_tools/xsvfdump.py
+Log:
+Add TRST support to xsvf tools.  Courtesy of Dick Hollenbeck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dick at softplc.com</A>&gt;
+
+Modified: trunk/tools/xsvf_tools/svf2xsvf.py
+===================================================================
+--- trunk/tools/xsvf_tools/svf2xsvf.py	2009-01-23 07:02:47 UTC (rev 1356)
++++ trunk/tools/xsvf_tools/svf2xsvf.py	2009-01-23 07:05:04 UTC (rev 1357)
+@@ -57,6 +57,11 @@
+ doCOMMENTs = True       # Save XCOMMENTs in the output xsvf file
+ #doCOMMENTs = False       # Save XCOMMENTs in the output xsvf file
+ 
++# pick your file encoding
++file_encoding = 'ISO-8859-1'
++#file_encoding = 'utf-8'
++
++
+ xrepeat = 0             # argument to XREPEAT, gives retry count for masked compares
+ 
+ 
+@@ -74,7 +79,8 @@
+ 
+ (XCOMPLETE,XTDOMASK,XSIR,XSDR,XRUNTEST,hole0,hole1,XREPEAT,XSDRSIZE,XSDRTDO,
+     XSETSDRMASKS,XSDRINC,XSDRB,XSDRC,XSDRE,XSDRTDOB,XSDRTDOC,
+-    XSDRTDOE,XSTATE,XENDIR,XENDDR,XSIR2,XCOMMENT,XWAIT,XWAITSTATE,LCOUNT,LDELAY,LSDR) = range(28)
++    XSDRTDOE,XSTATE,XENDIR,XENDDR,XSIR2,XCOMMENT,XWAIT,XWAITSTATE,
++    LCOUNT,LDELAY,LSDR,XTRST) = range(29)
+ 
+ #Note: LCOUNT, LDELAY, and LSDR are Lattice extensions to SVF and provide a way to loop back
+ # and check a completion status, essentially waiting on a part until it signals that it is done.
+@@ -90,6 +96,8 @@
+         TDO  (1);
+ &quot;&quot;&quot;
+ 
++#XTRST is an opcode Xilinx seemed to have missed and it comes from the SVF TRST statement.
++
+ LineNumber = 1
+ 
+ def s_ident(scanner, token): return (&quot;ident&quot;, token.upper(), LineNumber)
+@@ -127,9 +135,14 @@
+     re.MULTILINE
+     )
+ 
++# open the file using the given encoding
++file = open( sys.argv[1], encoding=file_encoding )
++
+ # read all svf file input into string &quot;input&quot;
+-input = open( sys.argv[1] ).read()
++input = file.read()
+ 
++file.close()
++
+ # Lexer:
+ # create a list of tuples containing (tokenType, tokenValue, LineNumber)
+ tokens = scanner.scan( input )[0]
+@@ -368,6 +381,8 @@
+ enddr_state_allowed = ('DRPAUSE', 'IDLE')
+ endir_state_allowed = ('IRPAUSE', 'IDLE')
+ 
++trst_mode_allowed = ('ON', 'OFF', 'Z', 'ABSENT')
++
+ enddr_state = IDLE
+ endir_state = IDLE
+ 
+@@ -681,6 +696,19 @@
+                 if tokVal != ';':
+                     raise ParseError( tokLn, tokVal, &quot;Expecting ';' after FREQUENCY cycles HZ&quot;)
+ 
++        elif tokVal == 'TRST':
++            nextTok()
++            if tokVal not in trst_mode_allowed:
++                raise ParseError( tokLn, tokVal, &quot;Expecting 'ON|OFF|Z|ABSENT' after TRST&quot;)
++            trst_mode = tokVal
++            nextTok()
++            if tokVal != ';':
++                raise ParseError( tokLn, tokVal, &quot;Expecting ';' after TRST trst_mode&quot;)
++            obuf = bytearray( 2 )
++            obuf[0] = XTRST
++            obuf[1] = trst_mode_allowed.index( trst_mode )  # use the index as the binary argument to XTRST opcode
++            output.write( obuf )
++
+         else:
+             raise ParseError( tokLn, tokVal, &quot;Unknown token '%s'&quot; % tokVal)
+ 
+
+Modified: trunk/tools/xsvf_tools/xsvfdump.py
+===================================================================
+--- trunk/tools/xsvf_tools/xsvfdump.py	2009-01-23 07:02:47 UTC (rev 1356)
++++ trunk/tools/xsvf_tools/xsvfdump.py	2009-01-23 07:05:04 UTC (rev 1357)
+@@ -39,7 +39,8 @@
+ 
+ (XCOMPLETE,XTDOMASK,XSIR,XSDR,XRUNTEST,hole0,hole1,XREPEAT,XSDRSIZE,XSDRTDO,
+     XSETSDRMASKS,XSDRINC,XSDRB,XSDRC,XSDRE,XSDRTDOB,XSDRTDOC,
+-    XSDRTDOE,XSTATE,XENDIR,XENDDR,XSIR2,XCOMMENT,XWAIT,XWAITSTATE,LCOUNT,LDELAY,LSDR) = range(28)
++    XSDRTDOE,XSTATE,XENDIR,XENDDR,XSIR2,XCOMMENT,XWAIT,XWAITSTATE,
++    LCOUNT,LDELAY,LSDR,XTRST) = range(29)
+ 
+ 
+ (RESET,IDLE,
+@@ -51,6 +52,10 @@
+     &quot;DRSELECT&quot;,&quot;DRCAPTURE&quot;,&quot;DRSHIFT&quot;,&quot;DREXIT1&quot;,&quot;DRPAUSE&quot;,&quot;DREXIT2&quot;,&quot;DRUPDATE&quot;,
+     &quot;IRSELECT&quot;,&quot;IRCAPTURE&quot;,&quot;IRSHIFT&quot;,&quot;IREXIT1&quot;,&quot;IRPAUSE&quot;,&quot;IREXIT2&quot;,&quot;IRUPDATE&quot;)
+ 
++
++trst_mode_allowed = ('ON', 'OFF', 'Z', 'ABSENT')
++
++
+ Setsdrmasks = 0
+ SetsdrmasksOnesCount = 0
+ 
+@@ -229,6 +234,14 @@
+         tdo = bytes2hexString( f, Xsdrsize )
+         print(&quot;LSDR 0x%s 0x%s&quot; % (tdi, tdo) )
+ 
++    elif op == XTRST:
++        # the argument is a single byte and it is the index into &quot;trst_mode_allowed&quot;
++        trst_mode = ReadByte(f)
++        if trst_mode &lt;= 3:
++            print(&quot;TRST %s&quot; % trst_mode_allowed[trst_mode] )
++        else:
++            print(&quot;TRST 0x%02X&quot; % trst_mode );
++
+     else:
+         print(&quot;UNKNOWN op 0x%02X %d&quot; % (op, op))
+         exit(1)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000140.html">[Openocd-svn] r1356 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000142.html">[Openocd-svn] r1358 - trunk/src/helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#141">[ date ]</a>
+              <a href="thread.html#141">[ thread ]</a>
+              <a href="subject.html#141">[ subject ]</a>
+              <a href="author.html#141">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

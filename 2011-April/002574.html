@@ -1,0 +1,730 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-847-g08303f1
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-847-g08303f1&In-Reply-To=%3Cmailman.59.1331736154.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002573.html">
+   <LINK REL="Next"  HREF="002575.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-847-g08303f1</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-847-g08303f1&In-Reply-To=%3Cmailman.59.1331736154.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-847-g08303f1">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Wed Apr 13 10:59:33 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002573.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-844-gd6027ca
+</A></li>
+        <LI>Next message: <A HREF="002575.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-848-g5cc83a8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2574">[ date ]</a>
+              <a href="thread.html#2574">[ thread ]</a>
+              <a href="subject.html#2574">[ subject ]</a>
+              <a href="author.html#2574">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  08303f10aaf5a146eef6f3a2d07bddda012a3556 (commit)
+       via  28ddd16ddce082b2d47ce0a61f485119a20298d6 (commit)
+       via  a7844aa4e83481a66fd5df8f33956da586d2f880 (commit)
+      from  d6027ca6a81dfde3c2ce09712ca256b00c8047a1 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 08303f10aaf5a146eef6f3a2d07bddda012a3556
+Author: Michel JAOUEN &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">michel.jaouen at stericsson.com</A>&gt;
+Date:   Tue Apr 12 16:48:22 2011 +0200
+
+    cortex_a :apb mem read/write working with mmu_on
+    
+    Conflicts:
+    
+    	src/target/cortex_a.c
+
+diff --git a/src/target/cortex_a.c b/src/target/cortex_a.c
+index 74516d2..86706cc 100644
+--- a/src/target/cortex_a.c
++++ b/src/target/cortex_a.c
+@@ -320,6 +320,7 @@ static int cortex_a8_dap_write_coreregister_u32(struct target *target,
+ 		/* DCCRX to Rn, &quot;MRC p14, 0, Rn, c0, c5, 0&quot;, 0xEE10nE15 */
+ 		retval = cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, Rd, 0, 5, 0),
+ 				&amp;dscr);
++	
+ 		if (retval != ERROR_OK)
+ 			return retval;
+ 	}
+@@ -1449,6 +1450,94 @@ static int cortex_a8_deassert_reset(struct target *target)
+ 	return ERROR_OK;
+ }
+ 
++static int cortex_a8_write_apb_ab_memory(struct target *target,
++                uint32_t address, uint32_t size,
++                uint32_t count, const uint8_t *buffer)
++{
++	int retval = ERROR_INVALID_ARGUMENTS;
++	struct armv7a_common *armv7a = target_to_armv7a(target);
++	struct arm *armv4_5 = &amp;armv7a-&gt;armv4_5_common;
++	int nbytes = count * size;
++	uint32_t data;
++	struct reg *reg;
++
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		LOG_WARNING(&quot;target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++	reg = arm_reg_current(armv4_5, 0);
++	reg-&gt;dirty = 1;
++	reg = arm_reg_current(armv4_5, 1);
++	reg-&gt;dirty = 1;
++	retval = cortex_a8_dap_write_coreregister_u32(target, address, 0);
++	if (retval != ERROR_OK)
++		return retval;
++
++	while (nbytes &gt; 0) {
++		data = *buffer++;
++		retval = cortex_a8_dap_write_coreregister_u32(target, data, 1);
++		if (retval != ERROR_OK)
++			return retval;
++
++		/* execute instruction STRB r1, [r0], 1 (0xe4c01001) */
++		retval = cortex_a8_exec_opcode(target, ARMV4_5_STRB_IP(1, 0) , NULL);
++		if (retval != ERROR_OK)
++			return retval;
++		--nbytes;
++	}
++	return retval;
++}
++
++
++static int cortex_a8_read_apb_ab_memory(struct target *target,
++                uint32_t address, uint32_t size,
++                uint32_t count, uint8_t *buffer)
++{
++	int retval = ERROR_INVALID_ARGUMENTS;
++	struct armv7a_common *armv7a = target_to_armv7a(target);
++	struct arm *armv4_5 = &amp;armv7a-&gt;armv4_5_common;
++	/* read memory through APB-AP */
++	int nbytes = count * size;
++	uint32_t data;
++	struct reg *reg;
++
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		LOG_WARNING(&quot;target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	reg = arm_reg_current(armv4_5, 0);
++	reg-&gt;dirty = 1;
++	reg = arm_reg_current(armv4_5, 1);
++	reg-&gt;dirty = 1;
++
++	retval = cortex_a8_dap_write_coreregister_u32(target, address, 0);
++	if (retval != ERROR_OK)
++		return retval;
++
++	while (nbytes &gt; 0) {
++
++
++		/* execute instruction LDRB r1, [r0], 1 (0xe4d01001) */
++		retval = cortex_a8_exec_opcode(target, ARMV4_5_LDRB_IP(1, 0) , NULL);
++		if (retval != ERROR_OK)
++			return retval;
++
++		retval = cortex_a8_dap_read_coreregister_u32(target, &amp;data, 1);
++		if (retval != ERROR_OK)
++			return retval;
++
++		*buffer++ = data;
++		--nbytes;
++
++	}
++	return retval;
++}
++
++
++
+ /*
+  * Cortex-A8 Memory access
+  *
+@@ -1464,8 +1553,8 @@ static int cortex_a8_read_phys_memory(struct target *target,
+ 	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
+ 	int retval = ERROR_INVALID_ARGUMENTS;
+ 	uint8_t apsel = swjdp-&gt;apsel;
+-
+-	LOG_DEBUG(&quot;Reading memory at real address 0x%x; size %d; count %d&quot;, address, size, count);
++	LOG_DEBUG(&quot;Reading memory at real address 0x%x; size %d; count %d&quot;,
++			address, size, count);
+ 
+ 	if (count &amp;&amp; buffer) {
+ 
+@@ -1474,115 +1563,75 @@ static int cortex_a8_read_phys_memory(struct target *target,
+ 			/* read memory through AHB-AP */
+ 
+ 			switch (size) {
+-				case 4:
+-					retval = mem_ap_sel_read_buf_u32(swjdp, swjdp_memoryap,
+-							buffer, 4 * count, address);
+-					break;
+-				case 2:
+-					retval = mem_ap_sel_read_buf_u16(swjdp, swjdp_memoryap,
+-							buffer, 2 * count, address);
+-					break;
+-				case 1:
+-					retval = mem_ap_sel_read_buf_u8(swjdp, swjdp_memoryap,
+-							buffer, count, address);
+-					break;
++			case 4:
++				retval = mem_ap_sel_read_buf_u32(swjdp, swjdp_memoryap,
++						buffer, 4 * count, address);
++				break;
++			case 2:
++				retval = mem_ap_sel_read_buf_u16(swjdp, swjdp_memoryap,
++						buffer, 2 * count, address);
++				break;
++			case 1:
++				retval = mem_ap_sel_read_buf_u8(swjdp, swjdp_memoryap,
++						buffer, count, address);
++				break;
+ 			}
+ 
+ 		} else {
+ 
+ 			/* read memory through APB-AP */
+-
+-			uint32_t saved_r0, saved_r1;
+-			int nbytes = count * size;
+-			uint32_t data;
+ 			int enabled = 0;
+ 
+-			if (target-&gt;state != TARGET_HALTED)
+-			{
+-				LOG_WARNING(&quot;target not halted&quot;);
+-				return ERROR_TARGET_NOT_HALTED;
+-			}
+-
+ 			retval = cortex_a8_mmu(target, &amp;enabled);
+ 			if (retval != ERROR_OK)
+ 				return retval;
+ 
+ 			if (enabled)
+ 			{
+-				LOG_WARNING(&quot;Reading physical memory through APB with MMU enabled is not yet implemented&quot;);
++				LOG_WARNING(&quot;Reading physical memory through \
++						APB with MMU enabled is not yet implemented&quot;);
+ 				return ERROR_TARGET_FAILURE;
+ 			}
+-
+-			/* save registers r0 and r1, we are going to corrupt them  */
+-			retval = cortex_a8_dap_read_coreregister_u32(target, &amp;saved_r0, 0);
+-			if (retval != ERROR_OK)
+-				return retval;
+-
+-			retval = cortex_a8_dap_read_coreregister_u32(target, &amp;saved_r1, 1);
+-			if (retval != ERROR_OK)
+-				return retval;
+-
+-			retval = cortex_a8_dap_write_coreregister_u32(target, address, 0);
+-			if (retval != ERROR_OK)
+-				return retval;
+-
+-			while (nbytes &gt; 0) {
+-
+-				/* execute instruction LDRB r1, [r0], 1 (0xe4d01001) */
+-				retval = cortex_a8_exec_opcode(target, ARMV4_5_LDRB_IP(1, 0) , NULL);
+-				if (retval != ERROR_OK)
+-						return retval;
+-
+-				retval = cortex_a8_dap_read_coreregister_u32(target, &amp;data, 1);
+-				if (retval != ERROR_OK)
+-					return retval;
+-
+-				*buffer++ = data;
+-				--nbytes;
+-
+-			}
+-
+-			/* restore corrupted registers r0 and r1 */
+-			retval = cortex_a8_dap_write_coreregister_u32(target, saved_r0, 0);
+-			if (retval != ERROR_OK)
+-				return retval;
+-
+-			retval = cortex_a8_dap_write_coreregister_u32(target, saved_r1, 1);
+-			if (retval != ERROR_OK)
+-				return retval;
+-
++			retval =  cortex_a8_read_apb_ab_memory(target, address, size, count, buffer);
+ 		}
+ 	}
+-
+ 	return retval;
+ }
+ 
+ static int cortex_a8_read_memory(struct target *target, uint32_t address,
+ 		uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+-        int enabled = 0;
+-        uint32_t virt, phys;
+-        int retval;
++	int enabled = 0;
++	uint32_t virt, phys;
++	int retval;
++	struct armv7a_common *armv7a = target_to_armv7a(target);
++	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
++	uint8_t apsel = swjdp-&gt;apsel;
+ 
+ 	/* cortex_a8 handles unaligned memory access */
++	LOG_DEBUG(&quot;Reading memory at address 0x%x; size %d; count %d&quot;, address,
++			size, count);
++	if (apsel == swjdp_memoryap) {
++		retval = cortex_a8_mmu(target, &amp;enabled);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+-        LOG_DEBUG(&quot;Reading memory at address 0x%x; size %d; count %d&quot;, address, size, count);
+-        retval = cortex_a8_mmu(target, &amp;enabled);
+-        if (retval != ERROR_OK)
+-        	return retval;
+-
+-        if(enabled)
+-        {
+-            virt = address;
+-            retval = cortex_a8_virt2phys(target, virt, &amp;phys);
+-            if (retval != ERROR_OK)
+-            	return retval;
+-
+-            LOG_DEBUG(&quot;Reading at virtual address. Translating v:0x%x to r:0x%x&quot;, virt, phys);
+-            address = phys;
+-        }
++		if(enabled)
++		{
++			virt = address;
++			retval = cortex_a8_virt2phys(target, virt, &amp;phys);
++			if (retval != ERROR_OK)
++				return retval;
+ 
+-        return cortex_a8_read_phys_memory(target, address, size, count, buffer);
++			LOG_DEBUG(&quot;Reading at virtual address. Translating v:0x%x to r:0x%x&quot;,
++					virt, phys);
++			address = phys;
++		}
++		retval = cortex_a8_read_phys_memory(target, address, size, count, buffer);
++	} else {
++		retval = cortex_a8_read_apb_ab_memory(target, address, size, count, buffer);
++	}
++	return retval;
+ }
+ 
+ static int cortex_a8_write_phys_memory(struct target *target,
+@@ -1594,7 +1643,8 @@ static int cortex_a8_write_phys_memory(struct target *target,
+ 	int retval = ERROR_INVALID_ARGUMENTS;
+ 	uint8_t apsel = swjdp-&gt;apsel;
+ 
+-	LOG_DEBUG(&quot;Writing memory to real address 0x%x; size %d; count %d&quot;, address, size, count);
++	LOG_DEBUG(&quot;Writing memory to real address 0x%x; size %d; count %d&quot;, address,
++			size, count);
+ 
+ 	if (count &amp;&amp; buffer) {
+ 
+@@ -1620,69 +1670,19 @@ static int cortex_a8_write_phys_memory(struct target *target,
+ 		} else {
+ 
+ 			/* write memory through APB-AP */
+-
+-			uint32_t saved_r0, saved_r1;
+-			int nbytes = count * size;
+-			uint32_t data;
+ 			int enabled = 0;
+ 
+-			if (target-&gt;state != TARGET_HALTED)
+-			{
+-				LOG_WARNING(&quot;target not halted&quot;);
+-				return ERROR_TARGET_NOT_HALTED;
+-			}
+-
+ 			retval = cortex_a8_mmu(target, &amp;enabled);
+ 			if (retval != ERROR_OK)
+ 				return retval;
+ 
+ 			if (enabled)
+ 			{
+-				LOG_WARNING(&quot;Writing physical memory through APB with MMU enabled is not yet implemented&quot;);
++				LOG_WARNING(&quot;Writing physical memory through APB with MMU&quot; \
++						&quot;enabled is not yet implemented&quot;);
+ 				return ERROR_TARGET_FAILURE;
+ 			}
+-
+-			/* save registers r0 and r1, we are going to corrupt them  */
+-			retval = cortex_a8_dap_read_coreregister_u32(target, &amp;saved_r0, 0);
+-			if (retval != ERROR_OK)
+-				return retval;
+-
+-			retval = cortex_a8_dap_read_coreregister_u32(target, &amp;saved_r1, 1);
+-			if (retval != ERROR_OK)
+-				return retval;
+-
+-			retval = cortex_a8_dap_write_coreregister_u32(target, address, 0);
+-			if (retval != ERROR_OK)
+-				return retval;
+-
+-			while (nbytes &gt; 0) {
+-
+-				data = *buffer++;
+-
+-				retval = cortex_a8_dap_write_coreregister_u32(target, data, 1);
+-				if (retval != ERROR_OK)
+-					return retval;
+-
+-					/* execute instruction STRB r1, [r0], 1 (0xe4c01001) */
+-				retval = cortex_a8_exec_opcode(target, ARMV4_5_STRB_IP(1, 0) , NULL);
+-				if (retval != ERROR_OK)
+-						return retval;
+-
+-				--nbytes;
+-			}
+-
+-			/* restore corrupted registers r0 and r1 */
+-			retval = cortex_a8_dap_write_coreregister_u32(target, saved_r0, 0);
+-			if (retval != ERROR_OK)
+-				return retval;
+-
+-			retval = cortex_a8_dap_write_coreregister_u32(target, saved_r1, 1);
+-			if (retval != ERROR_OK)
+-				return retval;
+-
+-			/* we can return here without invalidating D/I-cache because */
+-			/* access through APB maintains cache coherency              */
+-			return retval;
++			return cortex_a8_write_apb_ab_memory(target, address, size, count, buffer);
+ 		}
+ 	}
+ 
+@@ -1750,27 +1750,39 @@ static int cortex_a8_write_phys_memory(struct target *target,
+ static int cortex_a8_write_memory(struct target *target, uint32_t address,
+                 uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+-        int enabled = 0;
+-        uint32_t virt, phys;
+-        int retval;
+-
+-        LOG_DEBUG(&quot;Writing memory to address 0x%x; size %d; count %d&quot;, address, size, count);
+-        retval = cortex_a8_mmu(target, &amp;enabled);
+-        if (retval != ERROR_OK)
+-        	return retval;
+-
+-        if(enabled)
+-        {
+-            virt = address;
+-            retval = cortex_a8_virt2phys(target, virt, &amp;phys);
+-            if (retval != ERROR_OK)
+-            	return retval;
+-            LOG_DEBUG(&quot;Writing to virtual address. Translating v:0x%x to r:0x%x&quot;, virt, phys);
+-            address = phys;
+-        }
+-
+-        return cortex_a8_write_phys_memory(target, address, size, 
+-                count, buffer);
++	int enabled = 0;
++	uint32_t virt, phys;
++	int retval;
++	struct armv7a_common *armv7a = target_to_armv7a(target);
++	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
++	uint8_t apsel = swjdp-&gt;apsel;
++	/* cortex_a8 handles unaligned memory access */
++	LOG_DEBUG(&quot;Reading memory at address 0x%x; size %d; count %d&quot;, address,
++			size, count);
++	if (apsel == swjdp_memoryap) {
++
++		LOG_DEBUG(&quot;Writing memory to address 0x%x; size %d; count %d&quot;, address, size, count);
++		retval = cortex_a8_mmu(target, &amp;enabled);
++		if (retval != ERROR_OK)
++			return retval;
++
++		if(enabled)
++		{
++			virt = address;
++			retval = cortex_a8_virt2phys(target, virt, &amp;phys);
++			if (retval != ERROR_OK)
++				return retval;
++			LOG_DEBUG(&quot;Writing to virtual address. Translating v:0x%x to r:0x%x&quot;, virt, phys);
++			address = phys;
++		}
++
++		retval = cortex_a8_write_phys_memory(target, address, size, 
++				count, buffer);
++	}
++	else {
++		retval = cortex_a8_write_apb_ab_memory(target, address, size, count, buffer);
++	}
++    return retval;
+ }
+ 
+ static int cortex_a8_bulk_write_memory(struct target *target, uint32_t address,
+
+commit 28ddd16ddce082b2d47ce0a61f485119a20298d6
+Author: Michel JAOUEN &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">michel.jaouen at stericsson.com</A>&gt;
+Date:   Tue Apr 12 18:24:50 2011 +0200
+
+    cortex_a : multiple target on the same dap
+
+diff --git a/src/jtag/jtag.h b/src/jtag/jtag.h
+index 6709cf7..a3ce371 100644
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -164,6 +164,8 @@ struct jtag_tap {
+ 	struct jtag_tap_event_action *event_action;
+ 
+ 	struct jtag_tap* next_tap;
++	/* dap instance if some null if no instance , initialized to 0 by calloc*/
++	struct adiv5_dap *dap; 
+ };
+ 
+ void jtag_tap_init(struct jtag_tap *tap);
+diff --git a/src/target/cortex_a.c b/src/target/cortex_a.c
+index f81f069..74516d2 100644
+--- a/src/target/cortex_a.c
++++ b/src/target/cortex_a.c
+@@ -1959,6 +1959,11 @@ static int cortex_a8_init_arch_info(struct target *target,
+ 
+ 	/* Setup struct cortex_a8_common */
+ 	cortex_a8-&gt;common_magic = CORTEX_A8_COMMON_MAGIC;
++	/*  tap has no dap initialized */
++	if (!tap-&gt;dap)
++	{
++	armv7a-&gt;armv4_5_common.dap = dap;
++	/* Setup struct cortex_a8_common */
+ 	armv4_5-&gt;arch_info = armv7a;
+ 
+ 	/* prepare JTAG information for the new target */
+@@ -1971,6 +1976,11 @@ static int cortex_a8_init_arch_info(struct target *target,
+ 
+ 	/* Number of bits for tar autoincrement, impl. dep. at least 10 */
+ 	dap-&gt;tar_autoincr_block = (1 &lt;&lt; 10);
++	dap-&gt;memaccess_tck = 80;
++	tap-&gt;dap = dap;
++    }
++	else
++	armv7a-&gt;armv4_5_common.dap = tap-&gt;dap;
+ 
+ 	cortex_a8-&gt;fast_reg_read = 0;
+ 
+
+commit a7844aa4e83481a66fd5df8f33956da586d2f880
+Author: Michel JAOUEN &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">michel.jaouen at stericsson.com</A>&gt;
+Date:   Tue Apr 12 18:09:18 2011 +0200
+
+    cortex_a : use dap ref from armv4_5common
+
+diff --git a/src/target/cortex_a.c b/src/target/cortex_a.c
+index 5fad309..f81f069 100644
+--- a/src/target/cortex_a.c
++++ b/src/target/cortex_a.c
+@@ -81,7 +81,7 @@ static int cortex_a8_get_ttb(struct target *target, uint32_t *result);
+ static int cortex_a8_init_debug_access(struct target *target)
+ {
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
+ 	int retval;
+ 	uint32_t dummy;
+ 
+@@ -129,7 +129,7 @@ static int cortex_a8_exec_opcode(struct target *target,
+ 	uint32_t dscr;
+ 	int retval;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
+ 
+ 	dscr = dscr_p ? *dscr_p : 0;
+ 
+@@ -191,7 +191,7 @@ static int cortex_a8_read_regs_through_mem(struct target *target, uint32_t addre
+ {
+ 	int retval = ERROR_OK;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
+ 
+ 	retval = cortex_a8_dap_read_coreregister_u32(target, regfile, 0);
+ 	if (retval != ERROR_OK)
+@@ -216,7 +216,7 @@ static int cortex_a8_dap_read_coreregister_u32(struct target *target,
+ 	uint8_t reg = regnum&amp;0xFF;
+ 	uint32_t dscr = 0;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
+ 
+ 	if (reg &gt; 17)
+ 		return retval;
+@@ -286,7 +286,7 @@ static int cortex_a8_dap_write_coreregister_u32(struct target *target,
+ 	uint8_t Rd = regnum&amp;0xFF;
+ 	uint32_t dscr;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
+ 
+ 	LOG_DEBUG(&quot;register %i, value 0x%08&quot; PRIx32, regnum, value);
+ 
+@@ -369,7 +369,7 @@ static int cortex_a8_dap_write_memap_register_u32(struct target *target, uint32_
+ {
+ 	int retval;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
+ 
+ 	retval = mem_ap_sel_write_atomic_u32(swjdp, swjdp_debugap, address, value);
+ 
+@@ -395,14 +395,14 @@ static inline struct cortex_a8_common *dpm_to_a8(struct arm_dpm *dpm)
+ static int cortex_a8_write_dcc(struct cortex_a8_common *a8, uint32_t data)
+ {
+ 	LOG_DEBUG(&quot;write DCC 0x%08&quot; PRIx32, data);
+-	return mem_ap_sel_write_u32(&amp;a8-&gt;armv7a_common.dap, swjdp_debugap,
+-			a8-&gt;armv7a_common.debug_base + CPUDBG_DTRRX, data);
++	return mem_ap_sel_write_u32(a8-&gt;armv7a_common.armv4_5_common.dap,
++			swjdp_debugap,a8-&gt;armv7a_common.debug_base + CPUDBG_DTRRX, data);
+ }
+ 
+ static int cortex_a8_read_dcc(struct cortex_a8_common *a8, uint32_t *data,
+ 		uint32_t *dscr_p)
+ {
+-	struct adiv5_dap *swjdp = &amp;a8-&gt;armv7a_common.dap;
++	struct adiv5_dap *swjdp = a8-&gt;armv7a_common.armv4_5_common.dap;
+ 	uint32_t dscr = DSCR_INSTR_COMP;
+ 	int retval;
+ 
+@@ -439,7 +439,7 @@ static int cortex_a8_read_dcc(struct cortex_a8_common *a8, uint32_t *data,
+ static int cortex_a8_dpm_prepare(struct arm_dpm *dpm)
+ {
+ 	struct cortex_a8_common *a8 = dpm_to_a8(dpm);
+-	struct adiv5_dap *swjdp = &amp;a8-&gt;armv7a_common.dap;
++	struct adiv5_dap *swjdp = a8-&gt;armv7a_common.armv4_5_common.dap;
+ 	uint32_t dscr;
+ 	int retval;
+ 
+@@ -682,7 +682,7 @@ static int cortex_a8_poll(struct target *target)
+ 	uint32_t dscr;
+ 	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
+ 	struct armv7a_common *armv7a = &amp;cortex_a8-&gt;armv7a_common;
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
+ 	enum target_state prev_target_state = target-&gt;state;
+ 
+ 	retval = mem_ap_sel_read_atomic_u32(swjdp, swjdp_debugap,
+@@ -741,7 +741,7 @@ static int cortex_a8_halt(struct target *target)
+ 	int retval = ERROR_OK;
+ 	uint32_t dscr;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
+ 
+ 	/*
+ 	 * Tell the core to be halted by writing DRCR with 0x1
+@@ -793,7 +793,7 @@ static int cortex_a8_resume(struct target *target, int current,
+ {
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct arm *armv4_5 = &amp;armv7a-&gt;armv4_5_common;
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
+ 	int retval;
+ 
+ //	struct breakpoint *breakpoint = NULL;
+@@ -945,7 +945,7 @@ static int cortex_a8_debug_entry(struct target *target)
+ 	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct arm *armv4_5 = &amp;armv7a-&gt;armv4_5_common;
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
+ 	struct reg *reg;
+ 
+ 	LOG_DEBUG(&quot;dscr = 0x%08&quot; PRIx32, cortex_a8-&gt;cpudbg_dscr);
+@@ -1461,7 +1461,7 @@ static int cortex_a8_read_phys_memory(struct target *target,
+                 uint32_t count, uint8_t *buffer)
+ {
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
+ 	int retval = ERROR_INVALID_ARGUMENTS;
+ 	uint8_t apsel = swjdp-&gt;apsel;
+ 
+@@ -1590,7 +1590,7 @@ static int cortex_a8_write_phys_memory(struct target *target,
+                 uint32_t count, const uint8_t *buffer)
+ {
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
+ 	int retval = ERROR_INVALID_ARGUMENTS;
+ 	uint8_t apsel = swjdp-&gt;apsel;
+ 
+@@ -1784,7 +1784,7 @@ static int cortex_a8_handle_target_request(void *priv)
+ {
+ 	struct target *target = priv;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
+ 	int retval;
+ 
+ 	if (!target_was_examined(target))
+@@ -1824,7 +1824,7 @@ static int cortex_a8_examine_first(struct target *target)
+ {
+ 	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
+ 	struct armv7a_common *armv7a = &amp;cortex_a8-&gt;armv7a_common;
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++	struct adiv5_dap *swjdp = armv7a-&gt;armv4_5_common.dap;
+ 	int i;
+ 	int retval = ERROR_OK;
+ 	uint32_t didr, ctypr, ttypr, cpuid;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/jtag.h       |    2 +
+ src/target/cortex_a.c |  376 ++++++++++++++++++++++++++-----------------------
+ 2 files changed, 201 insertions(+), 177 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002573.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-844-gd6027ca
+</A></li>
+	<LI>Next message: <A HREF="002575.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-848-g5cc83a8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2574">[ date ]</a>
+              <a href="thread.html#2574">[ thread ]</a>
+              <a href="subject.html#2574">[ subject ]</a>
+              <a href="author.html#2574">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

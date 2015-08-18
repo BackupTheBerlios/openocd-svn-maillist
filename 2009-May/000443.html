@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1659 - trunk/src/server
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1659%20-%20trunk/src/server&In-Reply-To=%3C200905080449.n484nXsV018968%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000442.html">
+   <LINK REL="Next"  HREF="000444.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1659 - trunk/src/server</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1659%20-%20trunk/src/server&In-Reply-To=%3C200905080449.n484nXsV018968%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1659 - trunk/src/server">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Fri May  8 06:49:33 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000442.html">[Openocd-svn] r1658 - trunk/src/helper
+</A></li>
+        <LI>Next message: <A HREF="000444.html">[Openocd-svn] r1660 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#443">[ date ]</a>
+              <a href="thread.html#443">[ thread ]</a>
+              <a href="subject.html#443">[ subject ]</a>
+              <a href="author.html#443">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-08 06:49:27 +0200 (Fri, 08 May 2009)
+New Revision: 1659
+
+Modified:
+   trunk/src/server/httpd.c
+Log:
+Fix warnings in httpd.c; builds with libmicrohttpd-0.4.1.
+
+Modified: trunk/src/server/httpd.c
+===================================================================
+--- trunk/src/server/httpd.c	2009-05-08 04:46:00 UTC (rev 1658)
++++ trunk/src/server/httpd.c	2009-05-08 04:49:27 UTC (rev 1659)
+@@ -42,6 +42,7 @@
+ #include &lt;unistd.h&gt;
+ #include &lt;sys/types.h&gt;
+ #include &lt;fcntl.h&gt;
++#include &lt;pthread.h&gt;
+ #include &lt;signal.h&gt;
+ 
+ #include &lt;sys/types.h&gt;
+@@ -54,6 +55,8 @@
+ 
+ #define PAGE_NOT_FOUND &quot;&lt;html&gt;&lt;head&gt;&lt;title&gt;File not found&lt;/title&gt;&lt;/head&gt;&lt;body&gt;File not found&lt;/body&gt;&lt;/html&gt;&quot;
+ 
++int loadFile(const char *name, void **data, size_t *len);
++
+ static const char *appendf(const char *prev, const char *format, ...)
+ {
+ 	va_list ap;
+@@ -134,23 +137,19 @@
+ 
+ 	data = Jim_GetString(Jim_GetResult(interp), &amp;actual);
+ 
+-	FILE *f;
+-	f = fopen(file, &quot;wb&quot;);
+-	if (f != NULL)
++	FILE *f = fopen(file, &quot;wb&quot;);
++	if (NULL == f)
+ 	{
+-		int ok;
+-		ok = fwrite(data, 1, actual, f) == actual;
+-		fclose(f);
+-
+-		if (!ok)
+-		{
+-			Jim_SetResultString(interp, &quot;Could not write to file&quot;, -1);
+-			return JIM_ERR;
+-		}
++		Jim_SetResultString(interp, &quot;Could not create file&quot;, -1);
++		return JIM_ERR;
+ 	}
+-	else
++
++	int result = fwrite(data, 1, actual, f);
++	fclose(f);
++
++	if (result != actual)
+ 	{
+-		Jim_SetResultString(interp, &quot;Could not create file&quot;, -1);
++		Jim_SetResultString(interp, &quot;Could not write to file&quot;, -1);
+ 		return JIM_ERR;
+ 	}
+ 	return JIM_OK;
+@@ -243,7 +242,7 @@
+ /* append data to each key */
+ static int iterate_post(void *con_cls, enum MHD_ValueKind kind,
+ 		const char *key, const char *filename, const char *content_type,
+-		const char *transfer_encoding, const char *data, size_t off,
++		const char *transfer_encoding, const char *data, uint64_t off,
+ 		size_t size)
+ {
+ 	struct httpd_request *r = (struct httpd_request*) con_cls;
+@@ -313,7 +312,7 @@
+ 	else
+ 	{
+ 		void *data;
+-		int len;
++		size_t len;
+ 
+ 		int retval = loadFile(url, &amp;data, &amp;len);
+ 		if (retval != ERROR_OK)
+@@ -327,7 +326,7 @@
+ 			return ret;
+ 		}
+ 
+-		LOG_DEBUG(&quot;Serving %s length=%d&quot;, url, len);
++		LOG_DEBUG(&quot;Serving %s length=%u&quot;, url, len);
+ 		/* serve file directly */
+ 		response = MHD_create_response_from_data(len, data, MHD_YES, MHD_NO);
+ 		MHD_add_response_header(response, &quot;Content-Type&quot;, &quot;image/png&quot;);
+@@ -381,7 +380,7 @@
+ 		if (r-&gt;post)
+ 		{
+ 			r-&gt;postprocessor = MHD_create_post_processor(connection, 2048
+-					* 1024, iterate_post, r);
++					* 1024, &amp;iterate_post, r);
+ 		}
+ 
+ 		return MHD_YES;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000442.html">[Openocd-svn] r1658 - trunk/src/helper
+</A></li>
+	<LI>Next message: <A HREF="000444.html">[Openocd-svn] r1660 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#443">[ date ]</a>
+              <a href="thread.html#443">[ thread ]</a>
+              <a href="subject.html#443">[ subject ]</a>
+              <a href="author.html#443">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

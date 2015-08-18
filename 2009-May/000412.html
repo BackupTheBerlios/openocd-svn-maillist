@@ -1,0 +1,177 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1628 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1628%20-%20trunk/src/target&In-Reply-To=%3C200905070127.n471R323001596%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000411.html">
+   <LINK REL="Next"  HREF="000413.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1628 - trunk/src/target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1628%20-%20trunk/src/target&In-Reply-To=%3C200905070127.n471R323001596%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1628 - trunk/src/target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Thu May  7 03:27:03 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000411.html">[Openocd-svn] r1627 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="000413.html">[Openocd-svn] r1629 - in trunk/src: jtag target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#412">[ date ]</a>
+              <a href="thread.html#412">[ thread ]</a>
+              <a href="subject.html#412">[ subject ]</a>
+              <a href="author.html#412">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-07 03:26:56 +0200 (Thu, 07 May 2009)
+New Revision: 1628
+
+Modified:
+   trunk/src/target/arm11.c
+Log:
+Fix most pointer cast alignment warnings in arm11.c; fix u16 memory reads..
+
+Modified: trunk/src/target/arm11.c
+===================================================================
+--- trunk/src/target/arm11.c	2009-05-07 00:58:38 UTC (rev 1627)
++++ trunk/src/target/arm11.c	2009-05-07 01:26:56 UTC (rev 1628)
+@@ -1144,10 +1144,7 @@
+ 		{
+ 			arm11-&gt;reg_list[ARM11_RC_R1].dirty = 1;
+ 
+-			u16 * buf16 = (u16*)buffer;
+-
+-			{size_t i;
+-			for (i = 0; i &lt; count; i++)
++			for (size_t i = 0; i &lt; count; i++)
+ 			{
+ 				/* ldrh    r1, [r0], #2 */
+ 				arm11_run_instr_no_data1(arm11,
+@@ -1158,20 +1155,24 @@
+ 				/* MCR p14,0,R1,c0,c5,0 */
+ 				arm11_run_instr_data_from_core(arm11, 0xEE001E15, &amp;res, 1);
+ 
+-				*buf16++ = res;
+-			}}
++				u16 svalue = res;
++				memcpy(buffer + count * sizeof(u16), &amp;svalue, sizeof(u16));
++			}
+ 
+ 			break;
+ 		}
+ 
+ 	case 4:
++		{
++		u32 instr = !arm11_config_memrw_no_increment ? 0xecb05e01 : 0xed905e00;
++		/** \todo TODO: buffer cast to u32* causes alignment warnings */
++		u32 *words = (u32 *)buffer;
+ 
+ 		/* LDC p14,c5,[R0],#4 */
+ 		/* LDC p14,c5,[R0] */
+-		arm11_run_instr_data_from_core(arm11,
+-			(!arm11_config_memrw_no_increment ? 0xecb05e01 : 0xed905e00),
+-			(u32 *)buffer, count);
++		arm11_run_instr_data_from_core(arm11, instr, words, count);
+ 		break;
++		}
+ 	}
+ 
+ 	arm11_run_instr_data_finish(arm11);
+@@ -1223,45 +1224,45 @@
+ 		{
+ 			arm11-&gt;reg_list[ARM11_RC_R1].dirty = 1;
+ 
+-			u16 * buf16 = (u16*)buffer;
++			for (size_t i = 0; i &lt; count; i++)
++			{
++				u16 value;
++				memcpy(&amp;value, buffer + count * sizeof(u16), sizeof(u16));
+ 
+-			{size_t i;
+-			for (i = 0; i &lt; count; i++)
+-			{
+ 				/* MRC p14,0,r1,c0,c5,0 */
+-				arm11_run_instr_data_to_core1(arm11, 0xee101e15, *buf16++);
++				arm11_run_instr_data_to_core1(arm11, 0xee101e15, value);
+ 
+ 				/* strh    r1, [r0], #2 */
+ 				/* strh    r1, [r0] */
+ 				arm11_run_instr_no_data1(arm11,
+ 					!arm11_config_memrw_no_increment ? 0xe0c010b2 : 0xe1c010b0);
+-			}}
++			}
+ 
+ 			break;
+ 		}
+ 
+-	case 4:
+-		/** \todo TODO: check if buffer cast to u32* might cause alignment problems */
++	case 4: {
++		u32 instr = !arm11_config_memrw_no_increment ? 0xeca05e01 : 0xed805e00;
+ 
++		/** \todo TODO: buffer cast to u32* causes alignment warnings */
++		u32 *words = (u32*)buffer;
++
+ 		if (!arm11_config_memwrite_burst)
+ 		{
+ 			/* STC p14,c5,[R0],#4 */
+ 			/* STC p14,c5,[R0]*/
+-			arm11_run_instr_data_to_core(arm11,
+-				(!arm11_config_memrw_no_increment ? 0xeca05e01 : 0xed805e00),
+-				(u32 *)buffer, count);
++			arm11_run_instr_data_to_core(arm11, instr, words, count);
+ 		}
+ 		else
+ 		{
+ 			/* STC p14,c5,[R0],#4 */
+ 			/* STC p14,c5,[R0]*/
+-			arm11_run_instr_data_to_core_noack(arm11,
+-				(!arm11_config_memrw_no_increment ? 0xeca05e01 : 0xed805e00),
+-				(u32 *)buffer, count);
++			arm11_run_instr_data_to_core_noack(arm11, instr, words, count);
+ 		}
+ 
+ 		break;
+ 	}
++	}
+ 
+ #if 1
+ 	/* r0 verification */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000411.html">[Openocd-svn] r1627 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="000413.html">[Openocd-svn] r1629 - in trunk/src: jtag target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#412">[ date ]</a>
+              <a href="thread.html#412">[ thread ]</a>
+              <a href="subject.html#412">[ subject ]</a>
+              <a href="author.html#412">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

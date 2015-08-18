@@ -1,0 +1,161 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2031 - trunk trunk/src/jtag zy1000/trunk/build	zy1000/trunk/build/include
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2031%20-%20trunk%20trunk/src/jtag%20zy1000/trunk/build%0A%09zy1000/trunk/build/include&In-Reply-To=%3C200906030755.n537tvc6006531%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000814.html">
+   <LINK REL="Next"  HREF="000816.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2031 - trunk trunk/src/jtag zy1000/trunk/build	zy1000/trunk/build/include</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2031%20-%20trunk%20trunk/src/jtag%20zy1000/trunk/build%0A%09zy1000/trunk/build/include&In-Reply-To=%3C200906030755.n537tvc6006531%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2031 - trunk trunk/src/jtag zy1000/trunk/build	zy1000/trunk/build/include">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Wed Jun  3 09:55:57 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000814.html">[Openocd-svn] r2030 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000816.html">[Openocd-svn] r2032 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#815">[ date ]</a>
+              <a href="thread.html#815">[ thread ]</a>
+              <a href="subject.html#815">[ subject ]</a>
+              <a href="author.html#815">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-06-03 09:55:56 +0200 (Wed, 03 Jun 2009)
+New Revision: 2031
+
+Modified:
+   trunk/configure.in
+   trunk/src/jtag/zy1000.c
+   zy1000/trunk/build/buildocd.sh
+   zy1000/trunk/build/include/jtag_minidriver.h
+Log:
+catchup with jtag refactoring.
+
+Modified: trunk/configure.in
+===================================================================
+--- trunk/configure.in	2009-06-03 07:06:37 UTC (rev 2030)
++++ trunk/configure.in	2009-06-03 07:55:56 UTC (rev 2031)
+@@ -454,7 +454,6 @@
+ fi
+ 
+ if test $build_ecosboard = yes; then
+-  build_bitbang=yes
+   AC_DEFINE(BUILD_ECOSBOARD, 1, [1 if you want eCosBoard.])
+ else
+   AC_DEFINE(BUILD_ECOSBOARD, 0, [0 if you don't want eCosBoard.])
+
+Modified: trunk/src/jtag/zy1000.c
+===================================================================
+--- trunk/src/jtag/zy1000.c	2009-06-03 07:06:37 UTC (rev 2030)
++++ trunk/src/jtag/zy1000.c	2009-06-03 07:55:56 UTC (rev 2031)
+@@ -23,7 +23,6 @@
+ #include &quot;embeddedice.h&quot;
+ #include &quot;minidriver.h&quot;
+ #include &quot;interface.h&quot;
+-#include &quot;bitbang.h&quot;
+ 
+ #include &lt;cyg/hal/hal_io.h&gt;             // low level i/o
+ #include &lt;cyg/hal/hal_diag.h&gt;
+@@ -117,7 +116,7 @@
+ jtag_interface_t zy1000_interface =
+ {
+ 	.name = &quot;ZY1000&quot;,
+-	.execute_queue = bitbang_execute_queue,
++	.execute_queue = NULL,
+ 	.speed = zy1000_speed,
+ 	.register_commands = zy1000_register_commands,
+ 	.init = zy1000_init,
+@@ -128,15 +127,6 @@
+ 	.srst_asserted = zy1000_srst_asserted,
+ };
+ 
+-bitbang_interface_t zy1000_bitbang =
+-{
+-	.read = zy1000_read,
+-	.write = zy1000_write,
+-	.reset = zy1000_reset
+-};
+-
+-
+-
+ static void zy1000_write(int tck, int tms, int tdi)
+ {
+ 
+@@ -368,8 +358,6 @@
+ 	zy1000_reset(0, 0);
+ 	zy1000_speed(jtag_speed);
+ 
+-	bitbang_interface = &amp;zy1000_bitbang;
+-
+ 	return ERROR_OK;
+ }
+ 
+
+Modified: zy1000/trunk/build/buildocd.sh
+===================================================================
+--- zy1000/trunk/build/buildocd.sh	2009-06-03 07:06:37 UTC (rev 2030)
++++ zy1000/trunk/build/buildocd.sh	2009-06-03 07:55:56 UTC (rev 2031)
+@@ -19,7 +19,7 @@
+ rm -rf /tmp/ecosboard/build
+ mkdir /tmp/ecosboard/build
+ cd /tmp/ecosboard/build
+-$OPENOCD/../../openocd/configure --disable-werror --enable-ioutil --host=arm-elf --includedir=/tmp/ecosboard/ecos/install/include/ --enable-ecosboard --prefix=/tmp/ecosboard/ocdinstall
++$OPENOCD/../../openocd/configure --disable-bitbang --disable-werror --enable-ioutil --host=arm-elf --includedir=/tmp/ecosboard/ecos/install/include/ --enable-ecosboard --prefix=/tmp/ecosboard/ocdinstall
+ echo &gt;makephi.sh sh $OPENOCD/makephi.sh
+ echo &gt;&gt;makephi.sh sh $OPENOCD/makefw.sh
+ make
+
+Modified: zy1000/trunk/build/include/jtag_minidriver.h
+===================================================================
+--- zy1000/trunk/build/include/jtag_minidriver.h	2009-06-03 07:06:37 UTC (rev 2030)
++++ zy1000/trunk/build/include/jtag_minidriver.h	2009-06-03 07:55:56 UTC (rev 2031)
+@@ -205,6 +205,6 @@
+ 	}
+ }
+ 
+-#define jtag_add_callback(callback, in) callback(in)
++#define interface_jtag_add_callback(callback, in) callback(in)
+ 
+-#define jtag_add_callback4(callback, in, data1, data2, data3) jtag_set_error(callback(in, data1, data2, data3))
++#define interface_jtag_add_callback4(callback, in, data1, data2, data3) jtag_set_error(callback(in, data1, data2, data3))
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000814.html">[Openocd-svn] r2030 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000816.html">[Openocd-svn] r2032 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#815">[ date ]</a>
+              <a href="thread.html#815">[ thread ]</a>
+              <a href="subject.html#815">[ subject ]</a>
+              <a href="author.html#815">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

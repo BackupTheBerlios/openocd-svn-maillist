@@ -1,0 +1,414 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-134-g2a0c9b0
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-134-g2a0c9b0&In-Reply-To=%3CE1NXfuG-0002fk-FP%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002054.html">
+   <LINK REL="Next"  HREF="002056.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-134-g2a0c9b0</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-134-g2a0c9b0&In-Reply-To=%3CE1NXfuG-0002fk-FP%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-134-g2a0c9b0">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Wed Jan 20 20:07:54 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002054.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-133-g22d25e6
+</A></li>
+        <LI>Next message: <A HREF="002056.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-135-gdbecb13
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2055">[ date ]</a>
+              <a href="thread.html#2055">[ thread ]</a>
+              <a href="subject.html#2055">[ subject ]</a>
+              <a href="author.html#2055">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  2a0c9b08d7ee0c1b0eb5b593d18f68d0c910927d (commit)
+      from  22d25e69213c49395ee0d40f6cc1eda935873ed2 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 2a0c9b08d7ee0c1b0eb5b593d18f68d0c910927d
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Wed Jan 20 11:07:42 2010 -0800
+
+    Cortex-M3 vector_catch testing support
+    
+    The &quot;cm3-ftest.cfg&quot; can be used to verify that OpenOCD handles
+    certain faults correctly:
+    
+     - Test #1: it ignores faults that it wasn't told to catch
+     - Test #2: if vector_catch is told to catch, it catches
+    
+    The &quot;fault.c&quot; generates ASM code to trigger faults, while the
+    config script loads and runs pre-compiled code.
+    
+    This covers most, but not all, of the vector_catch options.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/testing/examples/cortex/cm3-ftest.cfg b/testing/examples/cortex/cm3-ftest.cfg
+new file mode 100644
+index 0000000..2dae249
+--- /dev/null
++++ b/testing/examples/cortex/cm3-ftest.cfg
+@@ -0,0 +1,143 @@
++#
++# For each named Cortex-M3 vector_catch flag VECTOR ...
++#		bus_err		state_err
++#		chk_err		nocp_err
++#		mm_err		reset
++#
++# BUT NYET hard_err, int_err (their test cases don't yet work) ...
++#
++# Do the following:
++#
++#  - Test #1:  verify that OpenOCD ignores exceptions by default
++#     + l_VECTOR (loads testcase to RAM)
++#     + fault triggers loop-to-self exception &quot;handler&quot;
++#     + &quot;halt&quot;
++#     + observe fault &quot;handling&quot; -- loop-to-self from load_and_run (below)
++#
++#  - Test #2:  verify that &quot;vector_catch&quot; makes OpenOCD stops ignoring them
++#     + cortex_m3 vector_catch none
++#     + cortex_m3 vector_catch VECTOR
++#     + l_VECTOR (loads testcase to RAM)
++#     + fault triggers vector catch hardware
++#     + observe OpenOCD entering debug state with no assistance
++#
++# NOTE &quot;reset&quot; includes the NVIC, so that test case gets its reset vector
++# from the flash, not from the vector table set up here.  Which means that
++# for that vector_catch option, the Test #1 (above) &quot;observe&quot; step won't
++# use the SRAM address.
++#
++
++# we can fully automate test #2
++proc vector_test {tag} {
++	halt
++	# REVISIT -- annoying, we'd like to scrap vector_catch output
++	cortex_m3 vector_catch none
++	cortex_m3 vector_catch $tag
++	eval &quot;l_$tag&quot;
++}
++
++#
++# Load and start one vector_catch test case.
++#
++# name -- tag for the vector_catch flag being tested
++# halfwords -- array of instructions (some wide, some narrow)
++# n_instr -- how many instructions are in $halfwords
++#
++proc load_and_run { name halfwords n_instr } {
++	reset halt
++
++	# Load code at beginning of SRAM.
++	echo &quot;# code to trigger $name vector&quot;
++	set addr 0x20000000
++
++	# ocd_array2mem should be faster, though we'd need to
++	# compute the resulting $addr ourselves
++	foreach opcode $halfwords {
++		mwh $addr $opcode
++		incr addr 2
++	}
++
++	# create default loop-to-self at $addr ... it serves as
++	# (a) &quot;main loop&quot; on error
++	# (b) handler for all exceptions that get triggered
++	mwh $addr 0xe7fe
++
++	# disassemble, as sanity check and what's-happening trace
++	cortex_m3 disassemble 0x20000000 [expr 1 + $n_instr ]
++
++	# Assume that block of code is at most 16 halfwords long.
++	# Create a basic table of loop-to-self exception handlers.
++	mww 0x20000020 $addr 16
++	# Store its address in VTOR
++	mww 0xe000ed08 0x20000020
++	# Use SHCSR to ensure nothing escalates to a HardFault
++	mww 0xe000ed24 0x00070000
++
++	# now start, trigering the $name vector catch logic
++	resume 0x20000000
++}
++
++#proc l_hard_err {} {
++#	IMPLEMENT ME
++#	FORCED -- escalate something to HardFault
++#}
++
++#proc l_int_err {} {
++#	IMPLEMENT ME
++#	STKERR -- exception stack BusFault
++#}
++
++# BusFault, escalates to HardFault
++proc l_bus_err {} {
++	# PRECISERR -- assume less than 512 MBytes of SRAM
++	load_and_run bus_err {
++		0xf06f 0x4040
++		0x7800
++	} 2
++}
++
++# UsageFault, escalates to HardFault
++proc l_state_err {} {
++	# UNDEFINSTR -- issue architecturally undefined instruction
++	load_and_run state_err {
++		0xde00
++	} 1
++}
++
++# UsageFault, escalates to HardFault
++proc l_chk_err {} {
++	# UNALIGNED -- LDM through unaligned pointer
++	load_and_run chk_err {
++		0xf04f 0x0001
++		0xe890 0x0006
++	} 2
++}
++
++# UsageFault, escalates to HardFault
++proc l_nocp_err {} {
++	# NOCP -- issue cp14 DCC instruction
++	load_and_run nocp_err {
++		0xee10 0x0e15
++	} 1
++}
++
++# MemManage, escalates to HardFault
++proc l_mm_err {} {
++	# IACCVIOL -- instruction fetch from an XN region
++	load_and_run mm_err {
++		0xf04f 0x4060
++		0x4687
++	} 2
++}
++
++proc l_reset {} {
++	# issue SYSRESETREQ via AIRCR
++	load_and_run reset {
++		0xf04f 0x0104
++		0xf2c0 0x51fa
++		0xf44f 0x406d
++		0xf100 0x000c
++		0xf2ce 0x0000
++		0x6001
++	} 6
++}
+diff --git a/testing/examples/cortex/fault.c b/testing/examples/cortex/fault.c
+new file mode 100644
+index 0000000..9a5fe19
+--- /dev/null
++++ b/testing/examples/cortex/fault.c
+@@ -0,0 +1,152 @@
++/*
++ * COMPILE:  arm-none-eabi-gcc -mthumb -march=armv7-m ...
++ *	... plus, provide at least a default exception vector table.
++ *
++ * RUN:  this is best run from SRAM.  It starts at main() then triggers
++ * a fault before more than a handful of instructions have executed.
++ * Run each test case in two modes:
++ *
++ * (1)	Faults caught on the Cortex-M3.  Default handlers are usually
++ *	loop-to-self NOPs, so a debugger won't notice faults until they
++ *	halt the core and examine xSPR and other registers.
++ *
++ *	To verify the fault triggered, issue &quot;halt&quot; from OpenOCD; you
++ *	should be told about the fault and (some of) its details.
++ *	Then it's time to run the next test.
++ *
++ *	NOTE however that &quot;reset&quot; will restart everything; verify that
++ *	case by observing your reset handler doing its normal work.
++ *
++ * (2)	Faults intercepted by OpenOCD &quot;vector_catch ...&quot; commands.
++ *
++ *	OpenOCD should tell you about the fault, and show the same
++ *	details, without your &quot;halt&quot; command.
++ *
++ * Someday, a fancy version of this code could provide a vector table and
++ * fault handlers which use semihosting (when that works on Cortex-M3) to
++ * report what happened, again without needing a &quot;halt&quot; command.
++ */
++
++
++/* These symbols match the OpenOCD &quot;cortex_m3 vector_catch&quot; bit names. */
++enum vc_case {
++	hard_err,
++	int_err,
++	bus_err,
++	state_err,
++	chk_err,
++	nocp_err,
++	mm_err,
++	reset,
++};
++
++/* REVISIT come up with a way to avoid recompiling, maybe:
++ *  - write it in RAM before starting
++ *  - compiled-in BKPT, manual patch of r0, then resume
++ *  - ...
++ */
++
++#ifndef VC_ID
++#warning &quot;no VC_ID ... using reset&quot;
++#define VC_ID reset
++#endif
++
++int main(void) __attribute__ ((externally_visible, noreturn));
++
++/*
++ * Trigger various Cortex-M3 faults to verify that OpenOCD behaves OK
++ * in terms of its vector_catch handling.
++ *
++ * Fault handling should be left entirely up to the application code
++ * UNLESS a &quot;vector_catch&quot; command tells OpenOCD to intercept a fault.
++ *
++ * See ARMv7-M architecure spec table B1-9 for the list of faults and
++ * their mappings to the vector catch bits.
++ */
++int main(void)
++{
++	/* One test case for each vector catch bit.  We're not doing
++	 * hardware testing; so it doesn't matter when some DEMCR bits
++	 * could apply in multiple ways.
++	 */
++	switch (VC_ID) {
++
++	/* &quot;cortex_m3 vector_catch hard_err&quot; */
++	case hard_err:
++		/* FORCED - Fault escalation */
++
++		/* FIXME code this */
++		break;
++
++	/* &quot;cortex_m3 vector_catch int_err&quot; */
++	case int_err:
++		/* STKERR -- Exception stack BusFault */
++
++		/* FIXME code this */
++		break;
++
++	/* &quot;cortex_m3 vector_catch bus_err&quot; */
++	case bus_err:
++		/* PRECISERR -- precise data bus read
++		 * Here we assume a Cortex-M3 with 512 MBytes SRAM is very
++		 * unlikely, so the last SRAM byte isn't a valid address.
++		 */
++		__asm__ volatile(
++			&quot;mov r0, #0x3fffffff\n&quot;
++			&quot;ldrb r0, [r0]\n&quot;
++			);
++		break;
++
++	/* &quot;cortex_m3 vector_catch state_err&quot; */
++	case state_err:
++		/* UNDEFINSTR -- architectural undefined instruction */
++		__asm__ volatile(&quot;.hword 0xde00&quot;);
++		break;
++
++	/* &quot;cortex_m3 vector_catch chk_err&quot; */
++	case chk_err:
++		/* UNALIGNED ldm */
++		__asm__ volatile(
++			&quot;mov r0, #1\n&quot;
++			&quot;ldm r0, {r1, r2}\n&quot;
++			);
++		break;
++
++	/* &quot;cortex_m3 vector_catch nocp_err&quot; */
++	case nocp_err:
++		/* NOCP ... Cortex-M3 has no coprocessors (like CP14 DCC),
++		 * but these instructions are allowed by ARMv7-M.
++		 */
++		__asm__ volatile(&quot;mrc p14, 0, r0, c0, c5, 0&quot;);
++		break;
++
++	/* &quot;cortex_m3 vector_catch mm_err&quot; */
++	case mm_err:
++		/* IACCVIOL -- instruction fetch from an XN region */
++		__asm__ volatile(
++			&quot;mov r0, #0xe0000000\n&quot;
++			&quot;mov pc, r0\n&quot;
++			);
++		break;
++
++	/* &quot;cortex_m3 vector_catch reset&quot; */
++	case reset:
++		__asm__ volatile(
++			/* r1 = SYSRESETREQ */
++			&quot;mov r1, #0x0004\n&quot;
++			/* r1 |= VECTKEY */
++			&quot;movt r1, #0x05fa\n&quot;
++			/* r0 = &amp;AIRCR */
++			&quot;mov r0, #0xed00\n&quot;
++			&quot;add r0, #0xc\n&quot;
++			&quot;movt r0, #0xe000\n&quot;
++			/* AIRCR = ... */
++			&quot;str r1, [r0, #0]\n&quot;
++			);
++		break;
++	}
++
++	/* don't return */
++	while (1)
++		continue;
++}
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ testing/examples/cortex/cm3-ftest.cfg |  143 +++++++++++++++++++++++++++++++
+ testing/examples/cortex/fault.c       |  152 +++++++++++++++++++++++++++++++++
+ 2 files changed, 295 insertions(+), 0 deletions(-)
+ create mode 100644 testing/examples/cortex/cm3-ftest.cfg
+ create mode 100644 testing/examples/cortex/fault.c
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002054.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-133-g22d25e6
+</A></li>
+	<LI>Next message: <A HREF="002056.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-135-gdbecb13
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2055">[ date ]</a>
+              <a href="thread.html#2055">[ thread ]</a>
+              <a href="subject.html#2055">[ subject ]</a>
+              <a href="author.html#2055">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

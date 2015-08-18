@@ -1,0 +1,862 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-49-gc8926d1
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-49-gc8926d1&In-Reply-To=%3Cmailman.163.1331736157.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002677.html">
+   <LINK REL="Next"  HREF="002679.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-49-gc8926d1</H1>
+    <B>&#195;&#152;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-49-gc8926d1&In-Reply-To=%3Cmailman.163.1331736157.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-49-gc8926d1">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Tue Aug 30 18:28:53 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002677.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-48-ge175f02
+</A></li>
+        <LI>Next message: <A HREF="002679.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-50-g7e20eda
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2678">[ date ]</a>
+              <a href="thread.html#2678">[ thread ]</a>
+              <a href="subject.html#2678">[ subject ]</a>
+              <a href="author.html#2678">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  c8926d14579528bfcead1e179baf7cb846513db4 (commit)
+      from  e175f027151b11549dba56d8892977ee2ae8aa5d (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit c8926d14579528bfcead1e179baf7cb846513db4
+Author: Heythem Bouhaja &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">heythem.bouhaja at stericsson.com</A>&gt;
+Date:   Mon May 9 10:40:35 2011 +0200
+
+    cortex_a hybrid &amp; context breakpoints
+
+diff --git a/src/target/breakpoints.c b/src/target/breakpoints.c
+index e6eb673..5a0fc40 100644
+--- a/src/target/breakpoints.c
++++ b/src/target/breakpoints.c
+@@ -72,6 +72,7 @@ int breakpoint_add_internal(struct target *target, uint32_t address, uint32_t le
+ 
+ 	(*breakpoint_p) = malloc(sizeof(struct breakpoint));
+ 	(*breakpoint_p)-&gt;address = address;
++	(*breakpoint_p)-&gt;asid = 0;
+ 	(*breakpoint_p)-&gt;length = length;
+ 	(*breakpoint_p)-&gt;type = type;
+ 	(*breakpoint_p)-&gt;set = 0;
+@@ -107,6 +108,117 @@ fail:
+ 	return ERROR_OK;
+ }
+ 
++int context_breakpoint_add_internal(struct target *target, uint32_t asid, uint32_t length, enum breakpoint_type type)
++{
++	struct breakpoint *breakpoint = target-&gt;breakpoints;
++	struct breakpoint **breakpoint_p = &amp;target-&gt;breakpoints;
++	int retval;
++	int n;
++
++	n = 0;
++	while (breakpoint)
++	{
++		n++;
++		if (breakpoint-&gt;asid == asid) 
++		{
++			/* FIXME don't assume &quot;same address&quot; means &quot;same
++			 * breakpoint&quot; ... check all the parameters before
++			 * succeeding.
++			 */
++			LOG_DEBUG(&quot;Duplicate Breakpoint asid: 0x%08&quot; PRIx32 &quot; (BP %d)&quot;,
++					asid, breakpoint-&gt;unique_id );
++			return -1;
++		}
++		breakpoint_p = &amp;breakpoint-&gt;next;
++		breakpoint = breakpoint-&gt;next;
++	}
++
++	(*breakpoint_p) = malloc(sizeof(struct breakpoint));
++	(*breakpoint_p)-&gt;address = 0;
++	(*breakpoint_p)-&gt;asid = asid;
++	(*breakpoint_p)-&gt;length = length;
++	(*breakpoint_p)-&gt;type = type;
++	(*breakpoint_p)-&gt;set = 0;
++	(*breakpoint_p)-&gt;orig_instr = malloc(length);
++	(*breakpoint_p)-&gt;next = NULL;
++	(*breakpoint_p)-&gt;unique_id = bpwp_unique_id++;
++	retval = target_add_context_breakpoint(target, *breakpoint_p);
++	if (retval != ERROR_OK)
++	{
++		LOG_ERROR(&quot;could not add breakpoint&quot;);
++		free((*breakpoint_p)-&gt;orig_instr);
++		free(*breakpoint_p);
++		*breakpoint_p = NULL;
++		return retval;
++	}
++
++	LOG_DEBUG(&quot;added %s Context breakpoint at 0x%8.8&quot; PRIx32 &quot; of length 0x%8.8x, (BPID: %d)&quot;,
++			breakpoint_type_strings[(*breakpoint_p)-&gt;type],
++			(*breakpoint_p)-&gt;asid, (*breakpoint_p)-&gt;length,
++			(*breakpoint_p)-&gt;unique_id  );
++
++	return ERROR_OK;
++}
++
++int hybrid_breakpoint_add_internal(struct target *target, uint32_t address, uint32_t asid, uint32_t length, enum breakpoint_type type)
++{	
++	struct breakpoint *breakpoint = target-&gt;breakpoints;
++	struct breakpoint **breakpoint_p = &amp;target-&gt;breakpoints;
++	int retval;
++	int n;
++	n = 0;
++	while (breakpoint)
++	{
++		n++;
++		if ((breakpoint-&gt;asid == asid) &amp;&amp; (breakpoint-&gt;address == address)) {
++			/* FIXME don't assume &quot;same address&quot; means &quot;same
++			 * breakpoint&quot; ... check all the parameters before
++			 * succeeding.
++			 */
++			LOG_DEBUG(&quot;Duplicate Hybrid Breakpoint asid: 0x%08&quot; PRIx32 &quot; (BP %d)&quot;,
++					asid, breakpoint-&gt;unique_id );
++			return -1;
++		}
++		else if ((breakpoint-&gt;address == address) &amp;&amp; (breakpoint-&gt;asid == 0)) 
++		{
++			LOG_DEBUG(&quot;Duplicate Breakpoint IVA: 0x%08&quot; PRIx32 &quot; (BP %d)&quot;,
++					address, breakpoint-&gt;unique_id );
++			return -1;
++			
++		}
++		breakpoint_p = &amp;breakpoint-&gt;next;
++		breakpoint = breakpoint-&gt;next;
++	}
++	(*breakpoint_p) = malloc(sizeof(struct breakpoint));
++	(*breakpoint_p)-&gt;address = address;
++	(*breakpoint_p)-&gt;asid = asid;
++	(*breakpoint_p)-&gt;length = length;
++	(*breakpoint_p)-&gt;type = type;
++	(*breakpoint_p)-&gt;set = 0;
++	(*breakpoint_p)-&gt;orig_instr = malloc(length);
++	(*breakpoint_p)-&gt;next = NULL;
++	(*breakpoint_p)-&gt;unique_id = bpwp_unique_id++;
++
++
++	retval = target_add_hybrid_breakpoint(target, *breakpoint_p);
++	if (retval != ERROR_OK)
++	{
++		LOG_ERROR(&quot;could not add breakpoint&quot;);
++		free((*breakpoint_p)-&gt;orig_instr);
++		free(*breakpoint_p);
++		*breakpoint_p = NULL;
++		return retval;
++	}
++	LOG_DEBUG(&quot;added %s Hybrid breakpoint at address 0x%8.8&quot; PRIx32 &quot; of length 0x%8.8x, (BPID: %d)&quot;,
++			breakpoint_type_strings[(*breakpoint_p)-&gt;type],
++			(*breakpoint_p)-&gt;address, (*breakpoint_p)-&gt;length,
++			(*breakpoint_p)-&gt;unique_id  );
++
++	return ERROR_OK;
++}
++
++
++
+ int breakpoint_add(struct target *target, uint32_t address, uint32_t length, enum breakpoint_type type)
+ {
+ 
+@@ -129,6 +241,50 @@ int retval = ERROR_OK;
+ 	return(breakpoint_add_internal(target, address, length, type));
+ 
+ }
++int context_breakpoint_add(struct target *target, uint32_t asid, uint32_t length, enum breakpoint_type type)
++{
++
++int retval = ERROR_OK;
++    if (target-&gt;smp)
++	{
++		struct target_list *head;
++		struct target *curr;
++		head = target-&gt;head;
++		while(head != (struct target_list*)NULL)
++		{
++			curr = head-&gt;target;
++			retval = context_breakpoint_add_internal(curr, asid,length, type);
++			if (retval != ERROR_OK) return retval;
++			head = head-&gt;next;	
++		}
++		return retval;
++	}
++	else
++	return(context_breakpoint_add_internal(target, asid, length, type));
++
++}
++int hybrid_breakpoint_add(struct target *target, uint32_t address, uint32_t asid, uint32_t length, enum breakpoint_type type)
++{
++
++int retval = ERROR_OK;
++    if (target-&gt;smp)
++	{
++		struct target_list *head;
++		struct target *curr;
++		head = target-&gt;head;
++		while(head != (struct target_list*)NULL)
++		{
++			curr = head-&gt;target;
++			retval = hybrid_breakpoint_add_internal(curr, address, asid, length, type);
++			if (retval != ERROR_OK) return retval;
++			head = head-&gt;next;	
++		}
++		return retval;
++	}
++	else
++	return(hybrid_breakpoint_add_internal(target, address, asid, length, type));
++
++}
+ 
+ /* free up a breakpoint */
+ static void breakpoint_free(struct target *target, struct breakpoint *breakpoint_to_remove)
+@@ -162,7 +318,11 @@ void breakpoint_remove_internal(struct target *target, uint32_t address)
+ 
+ 	while (breakpoint)
+ 	{
+-		if (breakpoint-&gt;address == address)
++		if ((breakpoint-&gt;address == address) &amp;&amp; (breakpoint-&gt;asid == 0))
++			break;
++		else if ((breakpoint-&gt;address == 0) &amp;&amp; (breakpoint-&gt;asid == address))
++			break;
++		else if ((breakpoint-&gt;address == address) &amp;&amp; (breakpoint-&gt;asid != 0))
+ 			break;
+ 		breakpoint = breakpoint-&gt;next;
+ 	}
+diff --git a/src/target/breakpoints.h b/src/target/breakpoints.h
+index ee4d9d1..912117f 100644
+--- a/src/target/breakpoints.h
++++ b/src/target/breakpoints.h
+@@ -38,12 +38,14 @@ enum watchpoint_rw
+ struct breakpoint
+ {
+ 	uint32_t address;
++	uint32_t asid;
+ 	int length;
+ 	enum breakpoint_type type;
+ 	int set;
+ 	uint8_t *orig_instr;
+ 	struct breakpoint *next;
+-	int unique_id;
++	uint32_t unique_id;
++	int linked_BRP; 
+ };
+ 
+ struct watchpoint
+@@ -61,6 +63,10 @@ struct watchpoint
+ void breakpoint_clear_target(struct target *target);
+ int breakpoint_add(struct target *target,
+ 		uint32_t address, uint32_t length, enum breakpoint_type type);
++int context_breakpoint_add(struct target *target,
++		uint32_t asid, uint32_t length, enum breakpoint_type type);
++int hybrid_breakpoint_add(struct target *target,
++		uint32_t address, uint32_t asid, uint32_t length, enum breakpoint_type type);
+ void breakpoint_remove(struct target *target, uint32_t address);
+ 
+ struct breakpoint* breakpoint_find(struct target *target, uint32_t address);
+diff --git a/src/target/cortex_a.c b/src/target/cortex_a.c
+index 9b8ba41..39f1b9e 100755
+--- a/src/target/cortex_a.c
++++ b/src/target/cortex_a.c
+@@ -53,6 +53,10 @@ static int cortex_a8_debug_entry(struct target *target);
+ static int cortex_a8_restore_context(struct target *target, bool bpwp);
+ static int cortex_a8_set_breakpoint(struct target *target,
+ 		struct breakpoint *breakpoint, uint8_t matchmode);
++static int cortex_a8_set_context_breakpoint(struct target *target,
++		struct breakpoint *breakpoint, uint8_t matchmode);
++static int cortex_a8_set_hybrid_breakpoint(struct target *target,
++		struct breakpoint *breakpoint);
+ static int cortex_a8_unset_breakpoint(struct target *target,
+ 		struct breakpoint *breakpoint);
+ static int cortex_a8_dap_read_coreregister_u32(struct target *target,
+@@ -1422,6 +1426,141 @@ static int cortex_a8_set_breakpoint(struct target *target,
+ 	return ERROR_OK;
+ }
+ 
++static int cortex_a8_set_context_breakpoint(struct target *target,
++		struct breakpoint *breakpoint, uint8_t matchmode)
++{
++	int retval = ERROR_FAIL;
++	int brp_i=0;
++	uint32_t control;
++	uint8_t byte_addr_select = 0x0F;
++	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
++	struct armv7a_common *armv7a = &amp;cortex_a8-&gt;armv7a_common;
++	struct cortex_a8_brp * brp_list = cortex_a8-&gt;brp_list;
++	
++	if (breakpoint-&gt;set)
++	{
++		LOG_WARNING(&quot;breakpoint already set&quot;);
++		return retval ;
++	}
++	/*check available context BRPs*/
++	while ((brp_list[brp_i].used || (brp_list[brp_i].type!=BRP_CONTEXT)) &amp;&amp; (brp_i &lt; cortex_a8-&gt;brp_num))
++			brp_i++ ;
++	
++	if (brp_i &gt;= cortex_a8-&gt;brp_num)
++	{
++		LOG_ERROR(&quot;ERROR Can not find free Breakpoint Register Pair&quot;);
++		return ERROR_FAIL;
++	}
++
++	breakpoint-&gt;set = brp_i + 1;
++	control = ((matchmode &amp; 0x7) &lt;&lt; 20)
++				| (byte_addr_select &lt;&lt; 5)
++				| (3 &lt;&lt; 1) | 1;
++	brp_list[brp_i].used = 1;
++	brp_list[brp_i].value = (breakpoint-&gt;asid);
++	brp_list[brp_i].control = control;
++	retval = cortex_a8_dap_write_memap_register_u32(target, armv7a-&gt;debug_base
++			+ CPUDBG_BVR_BASE + 4 * brp_list[brp_i].BRPn, 
++			brp_list[brp_i].value);
++	if(retval != ERROR_OK)
++		return retval;
++	retval = cortex_a8_dap_write_memap_register_u32(target, armv7a-&gt;debug_base
++			+ CPUDBG_BCR_BASE + 4 * brp_list[brp_i].BRPn,
++			brp_list[brp_i].control);
++	if(retval != ERROR_OK)
++		return retval;
++	LOG_DEBUG(&quot;brp %i control 0x%0&quot; PRIx32 &quot; value 0x%0&quot; PRIx32, brp_i,
++	brp_list[brp_i].control,
++	brp_list[brp_i].value);
++	return ERROR_OK;
++		
++}
++
++static int cortex_a8_set_hybrid_breakpoint(struct target *target, struct breakpoint *breakpoint)
++{
++	int retval = ERROR_FAIL;
++	int brp_1=0; //holds the contextID pair
++	int brp_2=0; // holds the IVA pair
++	uint32_t control_CTX, control_IVA;
++	uint8_t CTX_byte_addr_select = 0x0F;
++	uint8_t IVA_byte_addr_select = 0x0F;
++	uint8_t CTX_machmode = 0x03;
++	uint8_t IVA_machmode = 0x01;
++	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
++	struct armv7a_common *armv7a = &amp;cortex_a8-&gt;armv7a_common;
++	struct cortex_a8_brp * brp_list = cortex_a8-&gt;brp_list;
++	
++	
++	
++	if (breakpoint-&gt;set)
++	{
++		LOG_WARNING(&quot;breakpoint already set&quot;);
++		return retval ;
++	}
++	/*check available context BRPs*/
++	while ((brp_list[brp_1].used || (brp_list[brp_1].type!=BRP_CONTEXT)) &amp;&amp; (brp_1 &lt; cortex_a8-&gt;brp_num))
++			brp_1++ ;
++	
++	printf(&quot;brp(CTX) found num: %d \n&quot;,brp_1);
++	if (brp_1 &gt;= cortex_a8-&gt;brp_num)
++	{
++		LOG_ERROR(&quot;ERROR Can not find free Breakpoint Register Pair&quot;);
++		return ERROR_FAIL;
++	}
++
++	while ((brp_list[brp_2].used || (brp_list[brp_2].type!=BRP_NORMAL)) &amp;&amp; (brp_2 &lt; cortex_a8-&gt;brp_num))
++			brp_2++ ;
++	
++	printf(&quot;brp(IVA) found num: %d \n&quot;,brp_2);
++	if (brp_2 &gt;= cortex_a8-&gt;brp_num)
++	{
++		LOG_ERROR(&quot;ERROR Can not find free Breakpoint Register Pair&quot;);
++		return ERROR_FAIL;
++	}
++
++	breakpoint-&gt;set = brp_1 + 1;
++	breakpoint-&gt;linked_BRP= brp_2;
++	control_CTX = ((CTX_machmode &amp; 0x7) &lt;&lt; 20)
++				| (brp_2 &lt;&lt; 16)
++				| (0 &lt;&lt; 14)
++				| (CTX_byte_addr_select &lt;&lt; 5)
++				| (3 &lt;&lt; 1) | 1;
++		brp_list[brp_1].used = 1;
++		brp_list[brp_1].value = (breakpoint-&gt;asid);
++		brp_list[brp_1].control = control_CTX;
++		retval = cortex_a8_dap_write_memap_register_u32(target, armv7a-&gt;debug_base
++				+ CPUDBG_BVR_BASE + 4 * brp_list[brp_1].BRPn, 
++				brp_list[brp_1].value);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cortex_a8_dap_write_memap_register_u32(target, armv7a-&gt;debug_base
++				+ CPUDBG_BCR_BASE + 4 * brp_list[brp_1].BRPn,
++				brp_list[brp_1].control);
++		if( retval != ERROR_OK )
++			return retval;
++
++		control_IVA = ((IVA_machmode &amp; 0x7) &lt;&lt; 20)
++				| (brp_1 &lt;&lt; 16)
++				| (IVA_byte_addr_select &lt;&lt; 5)
++				| (3 &lt;&lt; 1) | 1;
++		brp_list[brp_2].used = 1;
++		brp_list[brp_2].value = (breakpoint-&gt;address &amp; 0xFFFFFFFC);
++		brp_list[brp_2].control = control_IVA;
++		retval = cortex_a8_dap_write_memap_register_u32(target, armv7a-&gt;debug_base
++				+ CPUDBG_BVR_BASE + 4 * brp_list[brp_2].BRPn, 
++				brp_list[brp_2].value);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cortex_a8_dap_write_memap_register_u32(target, armv7a-&gt;debug_base
++				+ CPUDBG_BCR_BASE + 4 * brp_list[brp_2].BRPn,
++				brp_list[brp_2].control);
++		if (retval != ERROR_OK )
++			return retval;
++
++	return ERROR_OK;
++}
++
++
+ static int cortex_a8_unset_breakpoint(struct target *target, struct breakpoint *breakpoint)
+ {
+ 	int retval;
+@@ -1437,27 +1576,81 @@ static int cortex_a8_unset_breakpoint(struct target *target, struct breakpoint *
+ 
+ 	if (breakpoint-&gt;type == BKPT_HARD)
+ 	{
+-		int brp_i = breakpoint-&gt;set - 1;
+-		if ((brp_i &lt; 0) || (brp_i &gt;= cortex_a8-&gt;brp_num))
++		if ((breakpoint-&gt;address != 0) &amp;&amp; (breakpoint-&gt;asid != 0))
+ 		{
+-			LOG_DEBUG(&quot;Invalid BRP number in breakpoint&quot;);
++			int brp_i = breakpoint-&gt;set - 1;
++			int brp_j = breakpoint-&gt;linked_BRP;
++			if ((brp_i &lt; 0) || (brp_i &gt;= cortex_a8-&gt;brp_num))
++			{
++				LOG_DEBUG(&quot;Invalid BRP number in breakpoint&quot;);
++				return ERROR_OK;
++			}
++			LOG_DEBUG(&quot;rbp %i control 0x%0&quot; PRIx32 &quot; value 0x%0&quot; PRIx32, brp_i,
++					brp_list[brp_i].control, brp_list[brp_i].value);
++			brp_list[brp_i].used = 0;
++			brp_list[brp_i].value = 0;
++			brp_list[brp_i].control = 0;
++			retval = cortex_a8_dap_write_memap_register_u32(target, armv7a-&gt;debug_base
++					+ CPUDBG_BCR_BASE + 4 * brp_list[brp_i].BRPn,
++					brp_list[brp_i].control);
++			if (retval != ERROR_OK)
++				return retval;
++			retval = cortex_a8_dap_write_memap_register_u32(target, armv7a-&gt;debug_base
++					+ CPUDBG_BVR_BASE + 4 * brp_list[brp_i].BRPn,
++					brp_list[brp_i].value);
++			if (retval != ERROR_OK)
++				return retval;						
++			if ((brp_j &lt; 0) || (brp_j &gt;= cortex_a8-&gt;brp_num))
++			{
++				LOG_DEBUG(&quot;Invalid BRP number in breakpoint&quot;);
++				return ERROR_OK;
++			}
++			LOG_DEBUG(&quot;rbp %i control 0x%0&quot; PRIx32 &quot; value 0x%0&quot; PRIx32, brp_j,
++					brp_list[brp_j].control, brp_list[brp_j].value);
++			brp_list[brp_j].used = 0;
++			brp_list[brp_j].value = 0;
++			brp_list[brp_j].control = 0;
++			retval = cortex_a8_dap_write_memap_register_u32(target, armv7a-&gt;debug_base
++					+ CPUDBG_BCR_BASE + 4 * brp_list[brp_j].BRPn,
++					brp_list[brp_j].control);
++			if (retval != ERROR_OK)
++				return retval;
++			retval = cortex_a8_dap_write_memap_register_u32(target, armv7a-&gt;debug_base
++					+ CPUDBG_BVR_BASE + 4 * brp_list[brp_j].BRPn,
++					brp_list[brp_j].value);
++			if (retval != ERROR_OK)
++				return retval;
++			breakpoint-&gt;linked_BRP = 0;
++			breakpoint-&gt;set = 0;
+ 			return ERROR_OK;
++			
+ 		}
+-		LOG_DEBUG(&quot;rbp %i control 0x%0&quot; PRIx32 &quot; value 0x%0&quot; PRIx32, brp_i,
+-				brp_list[brp_i].control, brp_list[brp_i].value);
+-		brp_list[brp_i].used = 0;
+-		brp_list[brp_i].value = 0;
+-		brp_list[brp_i].control = 0;
+-		retval = cortex_a8_dap_write_memap_register_u32(target, armv7a-&gt;debug_base
+-				+ CPUDBG_BCR_BASE + 4 * brp_list[brp_i].BRPn,
+-				brp_list[brp_i].control);
+-		if (retval != ERROR_OK)
+-			return retval;
+-		retval = cortex_a8_dap_write_memap_register_u32(target, armv7a-&gt;debug_base
+-				+ CPUDBG_BVR_BASE + 4 * brp_list[brp_i].BRPn,
+-				brp_list[brp_i].value);
+-		if (retval != ERROR_OK)
+-			return retval;
++		else
++		{
++			int brp_i = breakpoint-&gt;set - 1;
++			if ((brp_i &lt; 0) || (brp_i &gt;= cortex_a8-&gt;brp_num))
++			{
++				LOG_DEBUG(&quot;Invalid BRP number in breakpoint&quot;);
++				return ERROR_OK;
++			}
++			LOG_DEBUG(&quot;rbp %i control 0x%0&quot; PRIx32 &quot; value 0x%0&quot; PRIx32, brp_i,
++					brp_list[brp_i].control, brp_list[brp_i].value);
++			brp_list[brp_i].used = 0;
++			brp_list[brp_i].value = 0;
++			brp_list[brp_i].control = 0;
++			retval = cortex_a8_dap_write_memap_register_u32(target, armv7a-&gt;debug_base
++					+ CPUDBG_BCR_BASE + 4 * brp_list[brp_i].BRPn,
++					brp_list[brp_i].control);
++			if (retval != ERROR_OK)
++				return retval;
++			retval = cortex_a8_dap_write_memap_register_u32(target, armv7a-&gt;debug_base
++					+ CPUDBG_BVR_BASE + 4 * brp_list[brp_i].BRPn,
++					brp_list[brp_i].value);
++			if (retval != ERROR_OK)
++				return retval;
++			breakpoint-&gt;set = 0;
++			return ERROR_OK;
++		}					
+ 	}
+ 	else
+ 	{
+@@ -1501,6 +1694,41 @@ static int cortex_a8_add_breakpoint(struct target *target,
+ 	return cortex_a8_set_breakpoint(target, breakpoint, 0x00); /* Exact match */
+ }
+ 
++static int cortex_a8_add_context_breakpoint(struct target *target,
++		struct breakpoint *breakpoint)
++{
++	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
++
++	if ((breakpoint-&gt;type == BKPT_HARD) &amp;&amp; (cortex_a8-&gt;brp_num_available &lt; 1))
++	{
++		LOG_INFO(&quot;no hardware breakpoint available&quot;);
++		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	}
++
++	if (breakpoint-&gt;type == BKPT_HARD)
++		cortex_a8-&gt;brp_num_available--;
++
++	return cortex_a8_set_context_breakpoint(target, breakpoint, 0x02); /* asid match */
++}
++
++static int cortex_a8_add_hybrid_breakpoint(struct target *target,
++		struct breakpoint *breakpoint)
++{
++	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
++
++	if ((breakpoint-&gt;type == BKPT_HARD) &amp;&amp; (cortex_a8-&gt;brp_num_available &lt; 1))
++	{
++		LOG_INFO(&quot;no hardware breakpoint available&quot;);
++		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	}
++
++	if (breakpoint-&gt;type == BKPT_HARD)
++		cortex_a8-&gt;brp_num_available--;
++
++	return cortex_a8_set_hybrid_breakpoint(target, breakpoint); /* ??? */
++}
++
++
+ static int cortex_a8_remove_breakpoint(struct target *target, struct breakpoint *breakpoint)
+ {
+ 	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
+@@ -2546,6 +2774,8 @@ struct target_type cortexa8_target = {
+ 	.run_algorithm = armv4_5_run_algorithm,
+ 
+ 	.add_breakpoint = cortex_a8_add_breakpoint,
++	.add_context_breakpoint = cortex_a8_add_context_breakpoint,
++	.add_hybrid_breakpoint = cortex_a8_add_hybrid_breakpoint,
+ 	.remove_breakpoint = cortex_a8_remove_breakpoint,
+ 	.add_watchpoint = NULL,
+ 	.remove_watchpoint = NULL,
+diff --git a/src/target/target.c b/src/target/target.c
+index b71d839..be9742f 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -772,6 +772,27 @@ int target_add_breakpoint(struct target *target,
+ 	}
+ 	return target-&gt;type-&gt;add_breakpoint(target, breakpoint);
+ }
++
++int target_add_context_breakpoint(struct target *target,
++		struct breakpoint *breakpoint)
++{
++	if (target-&gt;state != TARGET_HALTED) {
++		LOG_WARNING(&quot;target %s is not halted&quot;, target-&gt;cmd_name);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++	return target-&gt;type-&gt;add_context_breakpoint(target, breakpoint);
++}
++
++int target_add_hybrid_breakpoint(struct target *target,
++		struct breakpoint *breakpoint)
++{
++	if (target-&gt;state != TARGET_HALTED) {
++		LOG_WARNING(&quot;target %s is not halted&quot;, target-&gt;cmd_name);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++	return target-&gt;type-&gt;add_hybrid_breakpoint(target, breakpoint);
++}
++
+ int target_remove_breakpoint(struct target *target,
+ 		struct breakpoint *breakpoint)
+ {
+@@ -2919,7 +2940,7 @@ static int handle_bp_command_list(struct command_context *cmd_ctx)
+ 		{
+ 			char* buf = buf_to_str(breakpoint-&gt;orig_instr,
+ 					breakpoint-&gt;length, 16);
+-			command_print(cmd_ctx, &quot;0x%8.8&quot; PRIx32 &quot;, 0x%x, %i, 0x%s&quot;,
++			command_print(cmd_ctx, &quot;IVA breakpoint: 0x%8.8&quot; PRIx32 &quot;, 0x%x, %i, 0x%s&quot;,
+ 					breakpoint-&gt;address,
+ 					breakpoint-&gt;length,
+ 					breakpoint-&gt;set, buf);
+@@ -2927,9 +2948,22 @@ static int handle_bp_command_list(struct command_context *cmd_ctx)
+ 		}
+ 		else
+ 		{
+-			command_print(cmd_ctx, &quot;0x%8.8&quot; PRIx32 &quot;, 0x%x, %i&quot;,
+-						  breakpoint-&gt;address,
+-						  breakpoint-&gt;length, breakpoint-&gt;set);
++			if ((breakpoint-&gt;address == 0) &amp;&amp; (breakpoint-&gt;asid != 0))
++				command_print(cmd_ctx, &quot;Context breakpoint: 0x%8.8&quot; PRIx32 &quot;, 0x%x, %i&quot;,
++							breakpoint-&gt;asid,
++							breakpoint-&gt;length, breakpoint-&gt;set);
++			else if ((breakpoint-&gt;address != 0) &amp;&amp; (breakpoint-&gt;asid != 0))
++			{
++				command_print(cmd_ctx, &quot;Hybrid breakpoint(IVA): 0x%8.8&quot; PRIx32 &quot;, 0x%x, %i&quot;,
++							breakpoint-&gt;address,
++							breakpoint-&gt;length, breakpoint-&gt;set);
++				command_print(cmd_ctx, &quot;\t|---&gt;linked with ContextID: 0x%8.8&quot; PRIx32,
++							breakpoint-&gt;asid);
++			}
++			else
++				command_print(cmd_ctx, &quot;Breakpoint(IVA): 0x%8.8&quot; PRIx32 &quot;, 0x%x, %i&quot;,
++							breakpoint-&gt;address,
++							breakpoint-&gt;length, breakpoint-&gt;set);
+ 		}
+ 
+ 		breakpoint = breakpoint-&gt;next;
+@@ -2938,43 +2972,90 @@ static int handle_bp_command_list(struct command_context *cmd_ctx)
+ }
+ 
+ static int handle_bp_command_set(struct command_context *cmd_ctx,
+-		uint32_t addr, uint32_t length, int hw)
++		uint32_t addr, uint32_t asid, uint32_t length, int hw)
+ {
+ 	struct target *target = get_current_target(cmd_ctx);
+-	int retval = breakpoint_add(target, addr, length, hw);
+-	if (ERROR_OK == retval)
+-		command_print(cmd_ctx, &quot;breakpoint set at 0x%8.8&quot; PRIx32 &quot;&quot;, addr);
+-	else
+-		LOG_ERROR(&quot;Failure setting breakpoint&quot;);
+-	return retval;
++	
++		if (asid == 0)
++		{	int retval = breakpoint_add(target, addr, length, hw);
++			if (ERROR_OK == retval)
++				command_print(cmd_ctx, &quot;breakpoint set at 0x%8.8&quot; PRIx32 &quot;&quot;, addr);
++			else
++			{
++				LOG_ERROR(&quot;Failure setting breakpoint, the same address(IVA) is already used&quot;);
++				return retval;
++			}
++		}
++		else if (addr == 0)
++		{
++			int retval = context_breakpoint_add(target, asid, length, hw);
++			if (ERROR_OK == retval)
++				command_print(cmd_ctx, &quot;Context breakpoint set at 0x%8.8&quot; PRIx32 &quot;&quot;, asid);
++			else
++			{
++				LOG_ERROR(&quot;Failure setting breakpoint, the same address(CONTEXTID) is already used&quot;);
++				return retval;
++			}
++		}
++		else
++		{	
++			int retval = hybrid_breakpoint_add(target, addr, asid, length, hw);
++			if(ERROR_OK == retval)
++			command_print(cmd_ctx, &quot;Hybrid breakpoint set at 0x%8.8&quot; PRIx32 &quot;&quot;, asid);
++			else
++			{
++				LOG_ERROR(&quot;Failure setting breakpoint, the same address is already used&quot;);
++				return retval;
++			}
++		}
++	return ERROR_OK;
++
++	
+ }
+ 
+ COMMAND_HANDLER(handle_bp_command)
+ {
+-	if (CMD_ARGC == 0)
+-		return handle_bp_command_list(CMD_CTX);
+-
+-	if (CMD_ARGC &lt; 2 || CMD_ARGC &gt; 3)
+-	{
+-		command_print(CMD_CTX, &quot;usage: bp &lt;address&gt; &lt;length&gt; ['hw']&quot;);
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-	}
+-
+ 	uint32_t addr;
+-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], addr);
++	uint32_t asid;
+ 	uint32_t length;
+-	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], length);
+-
+ 	int hw = BKPT_SOFT;
+-	if (CMD_ARGC == 3)
++	switch(CMD_ARGC)
+ 	{
+-		if (strcmp(CMD_ARGV[2], &quot;hw&quot;) == 0)
++		case 0:
++			return handle_bp_command_list(CMD_CTX);
++		case 3:
++
++			if(strcmp(CMD_ARGV[2], &quot;hw&quot;) == 0)
++			{
++				hw = BKPT_HARD;
++				COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], addr);
++
++				COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], length);
++
++				asid = 0;
++				return handle_bp_command_set(CMD_CTX, addr, asid, length, hw);
++			}
++			else if(strcmp(CMD_ARGV[2], &quot;hw_ctx&quot;) == 0)
++			{
++				hw = BKPT_HARD;
++				COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], asid);
++				COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], length);
++				addr = 0;
++				return handle_bp_command_set(CMD_CTX, addr, asid, length, hw);
++			}
++
++		case 4:
+ 			hw = BKPT_HARD;
+-		else
++			COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], addr);
++			COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], asid);
++			COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], length);
++			return handle_bp_command_set(CMD_CTX, addr, asid, length, hw);
++		default:
++			command_print(CMD_CTX, &quot;usage: bp &lt;address&gt; [&lt;asid&gt;]&lt;length&gt; ['hw'|'hw_ctx']&quot;);
+ 			return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	return handle_bp_command_set(CMD_CTX, addr, length, hw);
++	
+ }
+ 
+ COMMAND_HANDLER(handle_rbp_command)
+@@ -5467,7 +5548,7 @@ static const struct command_registration target_exec_command_handlers[] = {
+ 		.handler = handle_bp_command,
+ 		.mode = COMMAND_EXEC,
+ 		.help = &quot;list or set hardware or software breakpoint&quot;,
+-		.usage = &quot;[address length ['hw']]&quot;,
++		.usage = &quot;usage: bp &lt;address&gt; [&lt;asid&gt;]&lt;length&gt; ['hw'|'hw_ctx']&quot;,
+ 	},
+ 	{
+ 		.name = &quot;rbp&quot;,
+diff --git a/src/target/target.h b/src/target/target.h
+index 1b5730f..5248d69 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -369,10 +369,25 @@ static inline void target_set_examined(struct target *target)
+ int target_add_breakpoint(struct target *target,
+ 		struct breakpoint *breakpoint);
+ /**
++ * Add the @a ContextID breakpoint  for @a target.
++ *
++ * This routine is a wrapper for target-&gt;type-&gt;add_context_breakpoint.
++ */
++int target_add_context_breakpoint(struct target *target,
++		struct breakpoint *breakpoint);
++/**
++ * Add the @a ContextID &amp; IVA breakpoint  for @a target.
++ *
++ * This routine is a wrapper for target-&gt;type-&gt;add_hybrid_breakpoint.
++ */
++int target_add_hybrid_breakpoint(struct target *target,
++		struct breakpoint *breakpoint);
++/**
+  * Remove the @a breakpoint for @a target.
+  *
+  * This routine is a wrapper for target-&gt;type-&gt;remove_breakpoint.
+  */
++
+ int target_remove_breakpoint(struct target *target,
+ 		struct breakpoint *breakpoint);
+ /**
+diff --git a/src/target/target_type.h b/src/target/target_type.h
+index 6059c40..fc062da 100644
+--- a/src/target/target_type.h
++++ b/src/target/target_type.h
+@@ -148,6 +148,8 @@ struct target_type
+ 	 * Upon GDB connection all breakpoints/watchpoints are cleared.
+ 	 */
+ 	int (*add_breakpoint)(struct target *target, struct breakpoint *breakpoint);
++	int (*add_context_breakpoint)(struct target *target, struct breakpoint *breakpoint);
++	int (*add_hybrid_breakpoint)(struct target *target, struct breakpoint *breakpoint);
+ 
+ 	/* remove breakpoint. hw will only be updated if the target
+ 	 * is currently halted.
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/breakpoints.c |  162 ++++++++++++++++++++++++++++-
+ src/target/breakpoints.h |    8 ++-
+ src/target/cortex_a.c    |  266 ++++++++++++++++++++++++++++++++++++++++++---
+ src/target/target.c      |  137 +++++++++++++++++++-----
+ src/target/target.h      |   15 +++
+ src/target/target_type.h |    2 +
+ 6 files changed, 542 insertions(+), 48 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002677.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-48-ge175f02
+</A></li>
+	<LI>Next message: <A HREF="002679.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-50-g7e20eda
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2678">[ date ]</a>
+              <a href="thread.html#2678">[ thread ]</a>
+              <a href="subject.html#2678">[ subject ]</a>
+              <a href="author.html#2678">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

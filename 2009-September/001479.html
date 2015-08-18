@@ -1,0 +1,256 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2696 - in trunk: src/flash src/jtag tcl/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2696%20-%20in%20trunk%3A%20src/flash%20src/jtag%20tcl/target&In-Reply-To=%3C200909111834.n8BIYGd9029080%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001478.html">
+   <LINK REL="Next"  HREF="001480.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2696 - in trunk: src/flash src/jtag tcl/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2696%20-%20in%20trunk%3A%20src/flash%20src/jtag%20tcl/target&In-Reply-To=%3C200909111834.n8BIYGd9029080%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2696 - in trunk: src/flash src/jtag tcl/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Fri Sep 11 20:34:16 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001478.html">[Openocd-svn] r2695 - trunk/tcl/interface
+</A></li>
+        <LI>Next message: <A HREF="001480.html">[Openocd-svn] r2697 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1479">[ date ]</a>
+              <a href="thread.html#1479">[ thread ]</a>
+              <a href="subject.html#1479">[ subject ]</a>
+              <a href="author.html#1479">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-09-11 20:34:15 +0200 (Fri, 11 Sep 2009)
+New Revision: 2696
+
+Modified:
+   trunk/src/flash/str9xpec.c
+   trunk/src/jtag/core.c
+   trunk/src/jtag/jtag.h
+   trunk/src/jtag/tcl.c
+   trunk/tcl/target/omap3530.cfg
+Log:
+tap post reset event added. Allows omap3530 to send 100 runtest idle tickle's after a TAP_RESET.
+
+Modified: trunk/src/flash/str9xpec.c
+===================================================================
+--- trunk/src/flash/str9xpec.c	2009-09-11 14:08:28 UTC (rev 2695)
++++ trunk/src/flash/str9xpec.c	2009-09-11 18:34:15 UTC (rev 2696)
+@@ -1254,7 +1254,8 @@
+ 		return ERROR_FAIL;
+ 
+ 	/* exit turbo mode via RESET */
+-	str9xpec_set_instr(tap, ISC_NOOP, TAP_RESET);
++	str9xpec_set_instr(tap, ISC_NOOP, TAP_IDLE);
++	jtag_add_tlr();
+ 	jtag_execute_queue();
+ 
+ 	/* restore previous scan chain */
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-09-11 14:08:28 UTC (rev 2695)
++++ trunk/src/jtag/core.c	2009-09-11 18:34:15 UTC (rev 2696)
+@@ -62,6 +62,7 @@
+ {
+ 	[JTAG_TRST_ASSERTED] = &quot;JTAG controller reset (TLR or TRST)&quot;,
+ 	[JTAG_TAP_EVENT_ENABLE] = &quot;TAP enabled&quot;,
++	[JTAG_TAP_EVENT_POST_RESET] = &quot;post reset&quot;,
+ 	[JTAG_TAP_EVENT_DISABLE] = &quot;TAP disabled&quot;,
+ };
+ 
+@@ -339,6 +340,8 @@
+ 
+ void jtag_add_ir_scan(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
++	assert(state != TAP_RESET);
++
+ 	if (jtag_verify &amp;&amp; jtag_verify_capture_ir)
+ 	{
+ 		/* 8 x 32 bit id's is enough for all invocations */
+@@ -361,6 +364,8 @@
+ void jtag_add_plain_ir_scan(int in_num_fields, const scan_field_t *in_fields,
+ 		tap_state_t state)
+ {
++	assert(state != TAP_RESET);
++
+ 	jtag_prelude(state);
+ 
+ 	int retval = interface_jtag_add_plain_ir_scan(
+@@ -439,6 +444,8 @@
+ void jtag_add_dr_scan(int in_num_fields, const scan_field_t *in_fields,
+ 		tap_state_t state)
+ {
++	assert(state != TAP_RESET);
++	
+ 	jtag_prelude(state);
+ 
+ 	int retval;
+@@ -449,6 +456,8 @@
+ void jtag_add_plain_dr_scan(int in_num_fields, const scan_field_t *in_fields,
+ 		tap_state_t state)
+ {
++	assert(state != TAP_RESET);
++	
+ 	jtag_prelude(state);
+ 
+ 	int retval;
+@@ -460,6 +469,8 @@
+ 		int num_fields, const int* num_bits, const uint32_t* value,
+ 		tap_state_t end_state)
+ {
++	assert(end_state != TAP_RESET);
++	
+ 	assert(end_state != TAP_INVALID);
+ 
+ 	cmd_queue_cur_state = end_state;
+@@ -473,6 +484,9 @@
+ {
+ 	jtag_prelude(TAP_RESET);
+ 	jtag_set_error(interface_jtag_add_tlr());
++
++	jtag_notify_reset();
++
+ 	jtag_call_event_callbacks(JTAG_TRST_ASSERTED);
+ }
+ 
+@@ -683,6 +697,8 @@
+ 			LOG_DEBUG(&quot;TRST line released&quot;);
+ 			if (jtag_ntrst_delay)
+ 				jtag_add_sleep(jtag_ntrst_delay * 1000);
++
++			jtag_notify_reset();
+ 		}
+ 	}
+ }
+@@ -851,7 +867,8 @@
+ 	for (unsigned i = 0; i &lt; JTAG_MAX_CHAIN_SIZE; i++)
+ 		buf_set_u32(idcode_buffer, i * 32, 32, 0x000000FF);
+ 
+-	jtag_add_plain_dr_scan(1, &amp;field, TAP_RESET);
++	jtag_add_plain_dr_scan(1, &amp;field, TAP_DRPAUSE);
++	jtag_add_tlr();
+ 	return jtag_execute_queue();
+ }
+ 
+@@ -1065,7 +1082,9 @@
+ 	field.in_value = ir_test;
+ 
+ 
+-	jtag_add_plain_ir_scan(1, &amp;field, TAP_RESET);
++	jtag_add_plain_ir_scan(1, &amp;field, TAP_IRPAUSE);
++	jtag_add_tlr();
++
+ 	int retval;
+ 	retval = jtag_execute_queue();
+ 	if (retval != ERROR_OK)
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-09-11 14:08:28 UTC (rev 2695)
++++ trunk/src/jtag/jtag.h	2009-09-11 18:34:15 UTC (rev 2696)
+@@ -208,6 +208,7 @@
+ 	JTAG_TRST_ASSERTED,
+ 	JTAG_TAP_EVENT_ENABLE,
+ 	JTAG_TAP_EVENT_DISABLE,
++	JTAG_TAP_EVENT_POST_RESET,
+ };
+ 
+ struct jtag_tap_event_action_s
+@@ -635,7 +636,10 @@
+ /// @returns the number of times the scan queue has been flushed
+ int jtag_get_flush_queue_count(void);
+ 
++/// Notify all TAP's about a TLR reset
++void jtag_notify_reset(void);
+ 
++
+ /* can be implemented by hw + sw */
+ extern int jtag_power_dropout(int* dropout);
+ extern int jtag_srst_asserted(int* srst_asserted);
+
+Modified: trunk/src/jtag/tcl.c
+===================================================================
+--- trunk/src/jtag/tcl.c	2009-09-11 14:08:28 UTC (rev 2695)
++++ trunk/src/jtag/tcl.c	2009-09-11 18:34:15 UTC (rev 2696)
+@@ -41,6 +41,7 @@
+ #endif
+ 
+ static const Jim_Nvp nvp_jtag_tap_event[] = {
++	{ .value = JTAG_TAP_EVENT_POST_RESET,   .name = &quot;post-reset&quot; },
+ 	{ .value = JTAG_TAP_EVENT_ENABLE,       .name = &quot;tap-enable&quot; },
+ 	{ .value = JTAG_TAP_EVENT_DISABLE,      .name = &quot;tap-disable&quot; },
+ 
+@@ -583,6 +584,17 @@
+ 	return JIM_ERR;
+ }
+ 
++
++void jtag_notify_reset(void)
++{
++	jtag_tap_t *tap;
++	for (tap = jtag_all_taps(); tap; tap = tap-&gt;next_tap)
++	{
++		jtag_tap_handle_event(tap, JTAG_TAP_EVENT_POST_RESET);
++	}
++}
++
++
+ int jtag_register_commands(struct command_context_s *cmd_ctx)
+ {
+ 	register_jim(cmd_ctx, &quot;jtag&quot;, jim_jtag_command, &quot;perform jtag tap actions&quot;);
+
+Modified: trunk/tcl/target/omap3530.cfg
+===================================================================
+--- trunk/tcl/target/omap3530.cfg	2009-09-11 14:08:28 UTC (rev 2695)
++++ trunk/tcl/target/omap3530.cfg	2009-09-11 18:34:15 UTC (rev 2696)
+@@ -34,6 +34,8 @@
+ jtag newtap $_CHIPNAME jrc -irlen 6 -ircapture 0x1 -irmask 0x3f \
+ 	-expected-id $_JRC_TAPID
+ 
++jtag configure $_CHIPNAME.jrc -event post-reset &quot;runtest 100&quot;
++
+ # GDB target:  Cortex-A8, using DAP
+ target create omap3.cpu cortex_a8 -chain-position $_CHIPNAME.dap
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001478.html">[Openocd-svn] r2695 - trunk/tcl/interface
+</A></li>
+	<LI>Next message: <A HREF="001480.html">[Openocd-svn] r2697 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1479">[ date ]</a>
+              <a href="thread.html#1479">[ thread ]</a>
+              <a href="subject.html#1479">[ subject ]</a>
+              <a href="author.html#1479">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

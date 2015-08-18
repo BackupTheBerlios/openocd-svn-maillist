@@ -1,0 +1,202 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2240 - in trunk: doc src/server
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2240%20-%20in%20trunk%3A%20doc%20src/server&In-Reply-To=%3C200906130839.n5D8d3lt009984%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001016.html">
+   <LINK REL="Next"  HREF="001025.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2240 - in trunk: doc src/server</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2240%20-%20in%20trunk%3A%20doc%20src/server&In-Reply-To=%3C200906130839.n5D8d3lt009984%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2240 - in trunk: doc src/server">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Sat Jun 13 10:39:03 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001016.html">[Openocd-svn] r2239 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001025.html">[Openocd-svn] r2241 - trunk/src/helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1024">[ date ]</a>
+              <a href="thread.html#1024">[ thread ]</a>
+              <a href="subject.html#1024">[ subject ]</a>
+              <a href="author.html#1024">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-13 10:38:57 +0200 (Sat, 13 Jun 2009)
+New Revision: 2240
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/server/gdb_server.c
+   trunk/src/server/tcl_server.c
+   trunk/src/server/telnet_server.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+OpenOCD doesn't actually *need* to be keeping all TCP ports
+active ... creating security issues in some network configs.
+
+Instead, let config file specify e.g. &quot;tcl_port 0&quot; (or gdb_port,
+telnet_port) to disable that particular remote access method.
+
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-06-13 00:34:31 UTC (rev 2239)
++++ trunk/doc/openocd.texi	2009-06-13 08:38:57 UTC (rev 2240)
+@@ -1422,10 +1422,17 @@
+ @cindex TCP port
+ @cindex server
+ @cindex port
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at cindex</A> security
+ The OpenOCD server accepts remote commands in several syntaxes.
+ Each syntax uses a different TCP/IP port, which you may specify
+ only during configuration (before those ports are opened).
+ 
++For reasons including security, you may wish to prevent remote
++access using one or more of these ports.
++In such cases, just specify the relevant port number as zero.
++If you disable all access through TCP/IP, you will need to
++use the command line @option{-pipe} option.
++
+ @deffn {Command} gdb_port (number)
+ @cindex GDB server
+ Specify or query the first port used for incoming GDB connections.
+@@ -1433,6 +1440,7 @@
+ first target will be gdb_port, the second target will listen on gdb_port + 1, and so on.
+ When not specified during the configuration stage,
+ the port @var{number} defaults to 3333.
++When specified as zero, this port is not activated.
+ @end deffn
+ 
+ @deffn {Command} tcl_port (number)
+@@ -1442,6 +1450,7 @@
+ Intended as a machine interface.
+ When not specified during the configuration stage,
+ the port @var{number} defaults to 6666.
++When specified as zero, this port is not activated.
+ @end deffn
+ 
+ @deffn {Command} telnet_port (number)
+@@ -1450,6 +1459,7 @@
+ This port is intended for interaction with one human through TCL commands.
+ When not specified during the configuration stage,
+ the port @var{number} defaults to 4444.
++When specified as zero, this port is not activated.
+ @end deffn
+ 
+ @anchor{GDB Configuration}
+
+Modified: trunk/src/server/gdb_server.c
+===================================================================
+--- trunk/src/server/gdb_server.c	2009-06-13 00:34:31 UTC (rev 2239)
++++ trunk/src/server/gdb_server.c	2009-06-13 08:38:57 UTC (rev 2240)
+@@ -44,7 +44,7 @@
+ static enum breakpoint_type gdb_breakpoint_override_type;
+ 
+ extern int gdb_error(connection_t *connection, int retval);
+-static unsigned short gdb_port;
++static unsigned short gdb_port = 3333;
+ static const char *DIGITS = &quot;0123456789abcdef&quot;;
+ 
+ static void gdb_log_callback(void *priv, const char *file, int line,
+@@ -2198,8 +2198,8 @@
+ 
+ 	if (gdb_port == 0 &amp;&amp; server_use_pipes == 0)
+ 	{
+-		LOG_DEBUG(&quot;no gdb port specified, using default port 3333&quot;);
+-		gdb_port = 3333;
++		LOG_INFO(&quot;gdb port disabled&quot;);
++		return ERROR_OK;
+ 	}
+ 
+ 	if (server_use_pipes)
+
+Modified: trunk/src/server/tcl_server.c
+===================================================================
+--- trunk/src/server/tcl_server.c	2009-06-13 00:34:31 UTC (rev 2239)
++++ trunk/src/server/tcl_server.c	2009-06-13 08:38:57 UTC (rev 2240)
+@@ -34,7 +34,7 @@
+ 	int tc_outerror; /* flag an output error */
+ } tcl_connection_t;
+ 
+-static unsigned short tcl_port = 0;
++static unsigned short tcl_port = 6666;
+ 
+ /* commands */
+ static int handle_tcl_port_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+@@ -165,8 +165,8 @@
+ 
+ 	if (tcl_port == 0)
+ 	{
+-		LOG_DEBUG(&quot;no tcl port specified, using default port 6666&quot;);
+-		tcl_port = 6666;
++		LOG_INFO(&quot;tcl port disabled&quot;);
++		return ERROR_OK;
+ 	}
+ 
+ 	retval = add_service(&quot;tcl&quot;, CONNECTION_TCP, tcl_port, 1, tcl_new_connection, tcl_input, tcl_closed, NULL);
+
+Modified: trunk/src/server/telnet_server.c
+===================================================================
+--- trunk/src/server/telnet_server.c	2009-06-13 00:34:31 UTC (rev 2239)
++++ trunk/src/server/telnet_server.c	2009-06-13 08:38:57 UTC (rev 2240)
+@@ -30,7 +30,7 @@
+ #include &quot;telnet_server.h&quot;
+ #include &quot;target_request.h&quot;
+ 
+-static unsigned short telnet_port = 0;
++static unsigned short telnet_port = 4444;
+ 
+ int handle_exit_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int handle_telnet_port_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+@@ -596,8 +596,8 @@
+ 
+ 	if (telnet_port == 0)
+ 	{
+-		LOG_DEBUG(&quot;no telnet port specified, using default port 4444&quot;);
+-		telnet_port = 4444;
++		LOG_INFO(&quot;telnet port disabled&quot;);
++		return ERROR_OK;
+ 	}
+ 
+ 	telnet_service-&gt;banner = banner;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001016.html">[Openocd-svn] r2239 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001025.html">[Openocd-svn] r2241 - trunk/src/helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1024">[ date ]</a>
+              <a href="thread.html#1024">[ thread ]</a>
+              <a href="subject.html#1024">[ subject ]</a>
+              <a href="author.html#1024">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

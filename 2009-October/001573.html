@@ -1,0 +1,404 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2790 - in trunk: doc src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2790%20-%20in%20trunk%3A%20doc%20src/target&In-Reply-To=%3C200910020919.n929J4d2015287%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001572.html">
+   <LINK REL="Next"  HREF="001574.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2790 - in trunk: doc src/target</H1>
+    <B>dbrownell at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2790%20-%20in%20trunk%3A%20doc%20src/target&In-Reply-To=%3C200910020919.n929J4d2015287%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2790 - in trunk: doc src/target">dbrownell at mail.berlios.de
+       </A><BR>
+    <I>Fri Oct  2 11:19:04 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001572.html">[Openocd-svn] r2789 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001574.html">[Openocd-svn] r2791 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1573">[ date ]</a>
+              <a href="thread.html#1573">[ thread ]</a>
+              <a href="subject.html#1573">[ subject ]</a>
+              <a href="author.html#1573">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: dbrownell
+Date: 2009-10-02 11:19:03 +0200 (Fri, 02 Oct 2009)
+New Revision: 2790
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/target/etb.c
+   trunk/src/target/etm.c
+Log:
+Minor ETB and ETM bugfixes and doc updates
+
+ - ETB
+    * report _actual_ hardware status, not just expected status
+    * add a missing diagnostic on a potential ETB setup error
+    * prefix any diagnostics with &quot;ETB&quot;
+ - ETM
+    * make &quot;etm status&quot; show ETM hardware status too, instead of
+      just traceport status (which previously was fake, sigh)
+ - Docs
+    * flesh out &quot;etm tracemode&quot; docs a bit
+    * clarify &quot;etm status&quot; ... previously it was traceport status
+    * explain &quot;etm trigger_percent&quot; as a *traceport* option
+
+ETM+ETB tracing still isn't behaving, but now I can see that part of 
+the reason is that the ETB turns itself off almost immediately after
+being enabled, and before collecting any data.
+
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-10-01 17:39:13 UTC (rev 2789)
++++ trunk/doc/openocd.texi	2009-10-02 09:19:03 UTC (rev 2790)
+@@ -4891,7 +4891,7 @@
+ @end deffn
+ 
+ @deffn Command {etm status}
+-Displays status of the current target's ETM:
++Displays status of the current target's ETM and trace port driver:
+ is the ETM idle, or is it collecting data?
+ Did trace data overflow?
+ Was it triggered?
+@@ -4904,19 +4904,43 @@
+ and any buffered trace data is invalidated.
+ 
+ @itemize
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @var{type} ... one of
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{type} ... describing how data accesses are traced,
++when they pass any ViewData filtering that that was set up.
++The value is one of
+ @option{none} (save nothing),
+ @option{data} (save data),
+ @option{address} (save addresses),
+ @option{all} (save data and addresses)
+ @item @var{context_id_bits} ... 0, 8, 16, or 32
+ @item @var{cycle_accurate} ...  @option{enable} or @option{disable}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @var{branch_output} ...  @option{enable} or @option{disable}
++cycle-accurate instruction tracing.
++Before ETMv3, enabling this causes much extra data to be recorded.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{branch_output} ...  @option{enable} or @option{disable}.
++Disable this unless you need to try reconstructing the instruction
++trace stream without an image of the code.
+ @end itemize
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffn</A> Command {etm trigger_percent} percent
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at emph</A>{Buggy and effectively a NOP ... @var{percent} from 2..100}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {etm trigger_percent} [percent]
++This displays, or optionally changes, the trace port driver's
++behavior after the ETM's configured @emph{trigger} event fires.
++It controls how much more trace data is saved after the (single)
++trace trigger becomes active.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at itemize</A>
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> The default corresponds to @emph{trace around} usage,
++recording 50 percent data before the event and the rest
++afterwards.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> The minimum value of @var{percent} is 2 percent,
++recording almost exclusively data before the trigger.
++Such extreme @emph{trace before} usage can help figure out
++what caused that event to happen.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> The maximum value of @var{percent} is 100 percent,
++recording data almost exclusively after the event.
++This extreme @emph{trace after} usage might help sort out
++how the event caused trouble.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> itemize
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at c</A> REVISIT allow &quot;break&quot; too -- enter debug mode.
+ @end deffn
+ 
+ @subsection ETM Trace Operation
+
+Modified: trunk/src/target/etb.c
+===================================================================
+--- trunk/src/target/etb.c	2009-10-01 17:39:13 UTC (rev 2789)
++++ trunk/src/target/etb.c	2009-10-02 09:19:03 UTC (rev 2790)
+@@ -110,13 +110,13 @@
+ 
+ 	if ((retval = etb_read_reg(reg)) != ERROR_OK)
+ 	{
+-		LOG_ERROR(&quot;BUG: error scheduling etm register read&quot;);
++		LOG_ERROR(&quot;BUG: error scheduling ETB register read&quot;);
+ 		return retval;
+ 	}
+ 
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+ 	{
+-		LOG_ERROR(&quot;register read failed&quot;);
++		LOG_ERROR(&quot;ETB register read failed&quot;);
+ 		return retval;
+ 	}
+ 
+@@ -288,7 +288,7 @@
+ 
+ 	if ((retval = etb_write_reg(reg, value)) != ERROR_OK)
+ 	{
+-		LOG_ERROR(&quot;BUG: error scheduling etm register write&quot;);
++		LOG_ERROR(&quot;BUG: error scheduling ETB register write&quot;);
+ 		return retval;
+ 	}
+ 
+@@ -307,7 +307,7 @@
+ 
+ 	if ((retval = jtag_execute_queue()) != ERROR_OK)
+ 	{
+-		LOG_ERROR(&quot;register write failed&quot;);
++		LOG_ERROR(&quot;ETB: register write failed&quot;);
+ 		return retval;
+ 	}
+ 	return ERROR_OK;
+@@ -378,20 +378,20 @@
+ 
+ 	if (!target)
+ 	{
+-		LOG_ERROR(&quot;target '%s' not defined&quot;, args[0]);
++		LOG_ERROR(&quot;ETB: target '%s' not defined&quot;, args[0]);
+ 		return ERROR_FAIL;
+ 	}
+ 
+ 	if (arm7_9_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9) != ERROR_OK)
+ 	{
+-		command_print(cmd_ctx, &quot;current target isn't an ARM7/ARM9 target&quot;);
++		command_print(cmd_ctx, &quot;ETB: current target isn't an ARM7/ARM9 target&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 
+ 	tap = jtag_tap_by_string(args[1]);
+ 	if (tap == NULL)
+ 	{
+-		command_print(cmd_ctx, &quot;Tap: %s does not exist&quot;, args[1]);
++		command_print(cmd_ctx, &quot;ETB: TAP %s does not exist&quot;, args[1]);
+ 		return ERROR_FAIL;
+ 	}
+ 
+@@ -409,7 +409,7 @@
+ 	}
+ 	else
+ 	{
+-		LOG_ERROR(&quot;target has no ETM defined, ETB left unconfigured&quot;);
++		LOG_ERROR(&quot;ETM: target has no ETM defined, ETB left unconfigured&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 
+@@ -436,56 +436,53 @@
+ static trace_status_t etb_status(etm_context_t *etm_ctx)
+ {
+ 	etb_t *etb = etm_ctx-&gt;capture_driver_priv;
++	reg_t *control = &amp;etb-&gt;reg_cache-&gt;reg_list[ETB_CTRL];
++	reg_t *status = &amp;etb-&gt;reg_cache-&gt;reg_list[ETB_STATUS];
++	trace_status_t retval = 0;
++	int etb_timeout = 100;
+ 
+ 	etb-&gt;etm_ctx = etm_ctx;
+ 
+-	/* if tracing is currently idle, return this information */
+-	if (etm_ctx-&gt;capture_status == TRACE_IDLE)
+-	{
+-		return etm_ctx-&gt;capture_status;
+-	}
+-	else if (etm_ctx-&gt;capture_status &amp; TRACE_RUNNING)
+-	{
+-		reg_t *etb_status_reg = &amp;etb-&gt;reg_cache-&gt;reg_list[ETB_STATUS];
+-		int etb_timeout = 100;
++	/* read control and status registers */
++	etb_read_reg(control);
++	etb_read_reg(status);
++	jtag_execute_queue();
+ 
+-		/* trace is running, check the ETB status flags */
+-		etb_get_reg(etb_status_reg);
++	/* See if it's (still) active */
++	retval = buf_get_u32(control-&gt;value, 0, 1) ? TRACE_RUNNING : TRACE_IDLE;
+ 
+-		/* check Full bit to identify an overflow */
+-		if (buf_get_u32(etb_status_reg-&gt;value, 0, 1) == 1)
+-			etm_ctx-&gt;capture_status |= TRACE_OVERFLOWED;
++	/* check Full bit to identify wraparound/overflow */
++	if (buf_get_u32(status-&gt;value, 0, 1) == 1)
++		retval |= TRACE_OVERFLOWED;
+ 
+-		/* check Triggered bit to identify trigger condition */
+-		if (buf_get_u32(etb_status_reg-&gt;value, 1, 1) == 1)
+-			etm_ctx-&gt;capture_status |= TRACE_TRIGGERED;
++	/* check Triggered bit to identify trigger condition */
++	if (buf_get_u32(status-&gt;value, 1, 1) == 1)
++		retval |= TRACE_TRIGGERED;
+ 
+-		/* check AcqComp to identify trace completion */
+-		if (buf_get_u32(etb_status_reg-&gt;value, 2, 1) == 1)
+-		{
+-			while (etb_timeout-- &amp;&amp; (buf_get_u32(etb_status_reg-&gt;value, 3, 1) == 0))
+-			{
+-				/* wait for data formatter idle */
+-				etb_get_reg(etb_status_reg);
+-			}
++	/* check AcqComp to see if trigger counter dropped to zero */
++	if (buf_get_u32(status-&gt;value, 2, 1) == 1) {
++		/* wait for DFEmpty */
++		while (etb_timeout-- &amp;&amp; buf_get_u32(status-&gt;value, 3, 1) == 0)
++			etb_get_reg(status);
+ 
+-			if (etb_timeout == 0)
+-			{
+-				LOG_ERROR(&quot;AcqComp set but DFEmpty won't go high, ETB status: 0x%&quot; PRIx32 &quot;&quot;,
+-					buf_get_u32(etb_status_reg-&gt;value, 0, etb_status_reg-&gt;size));
+-			}
++		if (etb_timeout == 0)
++			LOG_ERROR(&quot;ETB:  DFEmpty won't go high, status 0x%02x&quot;,
++				(unsigned) buf_get_u32(status-&gt;value, 0, 4));
+ 
+-			if (!(etm_ctx-&gt;capture_status &amp;&amp; TRACE_TRIGGERED))
+-			{
+-				LOG_ERROR(&quot;trace completed, but no trigger condition detected&quot;);
+-			}
++		if (!(etm_ctx-&gt;capture_status &amp; TRACE_TRIGGERED))
++			LOG_WARNING(&quot;ETB: trace complete without triggering?&quot;);
+ 
+-			etm_ctx-&gt;capture_status &amp;= ~TRACE_RUNNING;
+-			etm_ctx-&gt;capture_status |= TRACE_COMPLETED;
+-		}
++		retval |= TRACE_COMPLETED;
+ 	}
+ 
+-	return etm_ctx-&gt;capture_status;
++	/* NOTE: using a trigger is optional; and at least ETB11 has a mode
++	 * where it can ignore the trigger counter.
++	 */
++
++	/* update recorded state */
++	etm_ctx-&gt;capture_status = retval;
++
++	return retval;
+ }
+ 
+ static int etb_read_trace(etm_context_t *etm_ctx)
+@@ -654,8 +651,10 @@
+ 		etb_ctrl_value |= 0x2;
+ 	}
+ 
+-	if ((etm_ctx-&gt;portmode &amp; ETM_PORT_MODE_MASK) == ETM_PORT_MUXED)
++	if ((etm_ctx-&gt;portmode &amp; ETM_PORT_MODE_MASK) == ETM_PORT_MUXED) {
++		LOG_ERROR(&quot;ETB: can't run in multiplexed mode&quot;);
+ 		return ERROR_ETM_PORTMODE_NOT_SUPPORTED;
++	}
+ 
+ 	trigger_count = (etb-&gt;ram_depth * etm_ctx-&gt;trigger_percent) / 100;
+ 
+
+Modified: trunk/src/target/etm.c
+===================================================================
+--- trunk/src/target/etm.c	2009-10-01 17:39:13 UTC (rev 2789)
++++ trunk/src/target/etm.c	2009-10-02 09:19:03 UTC (rev 2790)
+@@ -1567,6 +1567,7 @@
+ 	target_t *target;
+ 	armv4_5_common_t *armv4_5;
+ 	arm7_9_common_t *arm7_9;
++	etm_context_t *etm;
+ 	trace_status_t trace_status;
+ 
+ 	target = get_current_target(cmd_ctx);
+@@ -1582,28 +1583,56 @@
+ 		command_print(cmd_ctx, &quot;current target doesn't have an ETM configured&quot;);
+ 		return ERROR_OK;
+ 	}
++	etm = arm7_9-&gt;etm_ctx;
+ 
+-	trace_status = arm7_9-&gt;etm_ctx-&gt;capture_driver-&gt;status(arm7_9-&gt;etm_ctx);
++	/* ETM status */
++	if (etm-&gt;bcd_vers &gt;= 0x11) {
++		reg_t *reg;
+ 
++		reg = etm_reg_lookup(etm, ETM_STATUS);
++		if (!reg)
++			return ERROR_OK;
++		if (etm_get_reg(reg) == ERROR_OK) {
++			unsigned s = buf_get_u32(reg-&gt;value, 0, reg-&gt;size);
++
++			command_print(cmd_ctx, &quot;etm: %s%s%s%s&quot;,
++				/* bit(1) == progbit */
++				(etm-&gt;bcd_vers &gt;= 0x12)
++					? ((s &amp; (1 &lt;&lt; 1))
++						? &quot;disabled&quot; : &quot;enabled&quot;)
++					: &quot;?&quot;,
++				((s &amp; (1 &lt;&lt; 3)) &amp;&amp; etm-&gt;bcd_vers &gt;= 0x31)
++					? &quot; triggered&quot; : &quot;&quot;,
++				((s &amp; (1 &lt;&lt; 2)) &amp;&amp; etm-&gt;bcd_vers &gt;= 0x12)
++					? &quot; start/stop&quot; : &quot;&quot;,
++				((s &amp; (1 &lt;&lt; 0)) &amp;&amp; etm-&gt;bcd_vers &gt;= 0x11)
++					? &quot; untraced-overflow&quot; : &quot;&quot;);
++		} /* else ignore and try showing trace port status */
++	}
++
++	/* Trace Port Driver status */
++	trace_status = etm-&gt;capture_driver-&gt;status(etm);
+ 	if (trace_status == TRACE_IDLE)
+ 	{
+-		command_print(cmd_ctx, &quot;tracing is idle&quot;);
++		command_print(cmd_ctx, &quot;%s: idle&quot;, etm-&gt;capture_driver-&gt;name);
+ 	}
+ 	else
+ 	{
+ 		static char *completed = &quot; completed&quot;;
+ 		static char *running = &quot; is running&quot;;
+-		static char *overflowed = &quot;, trace overflowed&quot;;
+-		static char *triggered = &quot;, trace triggered&quot;;
++		static char *overflowed = &quot;, overflowed&quot;;
++		static char *triggered = &quot;, triggered&quot;;
+ 
+-		command_print(cmd_ctx, &quot;trace collection%s%s%s&quot;,
++		command_print(cmd_ctx, &quot;%s: trace collection%s%s%s&quot;,
++			etm-&gt;capture_driver-&gt;name,
+ 			(trace_status &amp; TRACE_RUNNING) ? running : completed,
+ 			(trace_status &amp; TRACE_OVERFLOWED) ? overflowed : &quot;&quot;,
+ 			(trace_status &amp; TRACE_TRIGGERED) ? triggered : &quot;&quot;);
+ 
+-		if (arm7_9-&gt;etm_ctx-&gt;trace_depth &gt; 0)
++		if (etm-&gt;trace_depth &gt; 0)
+ 		{
+-			command_print(cmd_ctx, &quot;%i frames of trace data read&quot;, (int)(arm7_9-&gt;etm_ctx-&gt;trace_depth));
++			command_print(cmd_ctx, &quot;%i frames of trace data read&quot;,
++					(int)(etm-&gt;trace_depth));
+ 		}
+ 	}
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001572.html">[Openocd-svn] r2789 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001574.html">[Openocd-svn] r2791 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1573">[ date ]</a>
+              <a href="thread.html#1573">[ thread ]</a>
+              <a href="subject.html#1573">[ subject ]</a>
+              <a href="author.html#1573">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

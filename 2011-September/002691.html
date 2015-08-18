@@ -1,0 +1,389 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-84-gdaa4147
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-84-gdaa4147&In-Reply-To=%3Cmailman.176.1331736157.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002690.html">
+   <LINK REL="Next"  HREF="002692.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-84-gdaa4147</H1>
+    <B>&#195;&#152;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-84-gdaa4147&In-Reply-To=%3Cmailman.176.1331736157.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-84-gdaa4147">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Sep 23 15:31:23 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002690.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-83-g508bc7c
+</A></li>
+        <LI>Next message: <A HREF="002692.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-85-g05b12e6
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2691">[ date ]</a>
+              <a href="thread.html#2691">[ thread ]</a>
+              <a href="subject.html#2691">[ subject ]</a>
+              <a href="author.html#2691">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  daa41473ab46308d17c2af13cdbebfb686a94344 (commit)
+      from  508bc7ca360719dd89a3fd3517732392bed8c16c (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit daa41473ab46308d17c2af13cdbebfb686a94344
+Author: Mathias K &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">kesmtp at freenet.de</A>&gt;
+Date:   Wed Sep 21 19:18:26 2011 +0200
+
+    add target events, run algorithm and default r/w buffer api
+    
+    Target events are added to get better gdb support. The run
+    algorithm functionality are implemented to support feature
+    fast flash write functionality. The new r/w buffer api is now
+    used to support the special memory address handling. The output
+    of the md command was fixed.
+
+diff --git a/src/target/dsp563xx.c b/src/target/dsp563xx.c
+index 5290b63..b7f23c7 100644
+--- a/src/target/dsp563xx.c
++++ b/src/target/dsp563xx.c
+@@ -25,6 +25,7 @@
+ 
+ #include &quot;target.h&quot;
+ #include &quot;target_type.h&quot;
++#include &quot;algorithm.h&quot;
+ #include &quot;register.h&quot;
+ #include &quot;dsp563xx.h&quot;
+ #include &quot;dsp563xx_once.h&quot;
+@@ -548,9 +549,14 @@ static int dsp563xx_reg_pc_read(struct target *target)
+ 	{
+ 		if ( (once_regs[ONCE_REG_IDX_OPABF11].reg &amp; 1) == 0 )
+ 		{
+-			LOG_DEBUG(&quot;%s conditional branch not supported yet&quot;, __FUNCTION__);
++			LOG_DEBUG(&quot;%s conditional branch not supported yet (0x%x 0x%x 0x%x)&quot;, __FUNCTION__,
++				(once_regs[ONCE_REG_IDX_OPABF11].reg &gt;&gt; 1),
++				once_regs[ONCE_REG_IDX_OPABDR].reg,
++				once_regs[ONCE_REG_IDX_OPABEX].reg);
+ 
+-			/* TODO: use disassembly to set correct pc offset */
++			/* TODO: use disassembly to set correct pc offset
++			 * read 2 words from OPABF11 and disasm the instruction
++			 */
+ 			dsp563xx-&gt;core_regs[DSP563XX_REG_IDX_PC] = (once_regs[ONCE_REG_IDX_OPABF11].reg &gt;&gt; 1) &amp; 0x00FFFFFF;
+ 		}
+ 		else
+@@ -995,7 +1001,8 @@ static int dsp563xx_jtag_debug_request(struct target *target)
+ static int dsp563xx_poll(struct target *target)
+ {
+ 	int err;
+-	uint32_t once_status;
++	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
++	uint32_t once_status=0;
+ 	int state;
+ 
+ 	state = dsp563xx_once_target_status(target-&gt;tap);
+@@ -1019,9 +1026,18 @@ static int dsp563xx_poll(struct target *target)
+ 			if ((err = dsp563xx_debug_init(target)) != ERROR_OK)
+ 				return err;
+ 
+-			target_call_event_callbacks(target, TARGET_EVENT_HALTED);
++			if ( once_status &amp; (DSP563XX_ONCE_OSCR_MBO|DSP563XX_ONCE_OSCR_SWO) )
++			{
++				target_call_event_callbacks(target, TARGET_EVENT_DEBUG_HALTED);
++			}
++			else
++			{
++				target_call_event_callbacks(target, TARGET_EVENT_HALTED);
++			}
+ 
+ 			LOG_DEBUG(&quot;target-&gt;state: %s (%x)&quot;, target_state_name(target),once_status);
++
++			LOG_INFO(&quot;halted: PC: 0x%x&quot;, dsp563xx-&gt;core_regs[DSP563XX_REG_IDX_PC] );
+ 		}
+ 	}
+ 
+@@ -1098,6 +1114,8 @@ static int dsp563xx_resume(struct target *target, int current, uint32_t address,
+ 
+ 	target-&gt;state = TARGET_RUNNING;
+ 
++	target_call_event_callbacks(target, TARGET_EVENT_DEBUG_RESUMED);
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -1205,6 +1223,13 @@ static int dsp563xx_step_ex(struct target *target, int current, uint32_t address
+ static int dsp563xx_step(struct target *target, int current, uint32_t address, int handle_breakpoints)
+ {
+ 	int err;
++	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
++
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		LOG_WARNING(&quot;target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
+ 
+ 	if ( (err=dsp563xx_step_ex(target, current, address, handle_breakpoints, 0)) != ERROR_OK )
+ 	{
+@@ -1214,6 +1239,8 @@ static int dsp563xx_step(struct target *target, int current, uint32_t address, i
+ 	target-&gt;debug_reason = DBG_REASON_SINGLESTEP;
+ 	target_call_event_callbacks(target, TARGET_EVENT_HALTED);
+ 
++	LOG_INFO(&quot;halted: PC: 0x%x&quot;, dsp563xx-&gt;core_regs[DSP563XX_REG_IDX_PC] );
++
+ 	return err;
+ }
+ 
+@@ -1274,8 +1301,10 @@ static int dsp563xx_deassert_reset(struct target *target)
+ 				return err;
+ 		}
+ 	}
+-
+-//      target-&gt;state = TARGET_RUNNING;
++	else
++	{
++		target-&gt;state = TARGET_RUNNING;
++	}
+ 
+ 	LOG_DEBUG(&quot;%s&quot;, __FUNCTION__);
+ 	return ERROR_OK;
+@@ -1287,6 +1316,97 @@ static int dsp563xx_soft_reset_halt(struct target *target)
+ 	return ERROR_OK;
+ }
+ 
++static int dsp563xx_run_algorithm(struct target *target,
++		int num_mem_params, struct mem_param *mem_params,
++		int num_reg_params, struct reg_param *reg_params,
++		uint32_t entry_point, uint32_t exit_point,
++		int timeout_ms, void *arch_info)
++{
++	int i;
++	int retvaltemp,retval = 0;
++	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
++
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		LOG_WARNING(&quot;target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	for (i = 0; i &lt; num_mem_params; i++)
++	{
++		if ((retval = target_write_buffer(target, mem_params[i].address, mem_params[i].size, mem_params[i].value)) != ERROR_OK)
++		{
++			return retval;
++		}
++	}
++
++	for (i = 0; i &lt; num_reg_params; i++)
++	{
++		struct reg *reg = register_get_by_name(dsp563xx-&gt;core_cache, reg_params[i].reg_name, 0);
++
++		if (!reg)
++		{
++			LOG_ERROR(&quot;BUG: register '%s' not found&quot;, reg_params[i].reg_name);
++			continue;
++		}
++
++		if (reg-&gt;size != reg_params[i].size)
++		{
++			LOG_ERROR(&quot;BUG: register '%s' size doesn't match reg_params[i].size&quot;, reg_params[i].reg_name);
++			continue;
++		}
++
++		if ((retval = dsp563xx_set_core_reg(reg, reg_params[i].value)) != ERROR_OK)
++		{
++			return retval;
++		}
++	}
++
++	/* exec */
++	if ((retval = target_resume(target, 0, entry_point, 1, 1)) != ERROR_OK)
++	{
++		return retval;
++	}
++
++	if ((retval = target_wait_state(target, TARGET_HALTED, timeout_ms)) != ERROR_OK)
++	{
++		return retval;
++	}
++
++	for (i = 0; i &lt; num_mem_params; i++)
++	{
++		if (mem_params[i].direction != PARAM_OUT)
++			if ((retvaltemp = target_read_buffer(target, mem_params[i].address, mem_params[i].size, mem_params[i].value)) != ERROR_OK)
++			{
++					retval = retvaltemp;
++			}
++	}
++
++	for (i = 0; i &lt; num_reg_params; i++)
++	{
++		if (reg_params[i].direction != PARAM_OUT)
++		{
++
++			struct reg *reg = register_get_by_name(dsp563xx-&gt;core_cache, reg_params[i].reg_name, 0);
++			if (!reg)
++			{
++				LOG_ERROR(&quot;BUG: register '%s' not found&quot;, reg_params[i].reg_name);
++				continue;
++			}
++
++			if (reg-&gt;size != reg_params[i].size)
++			{
++				LOG_ERROR(&quot;BUG: register '%s' size doesn't match reg_params[i].size&quot;, reg_params[i].reg_name);
++				continue;
++			}
++
++			buf_set_u32(reg_params[i].value, 0, 32, buf_get_u32(reg-&gt;value, 0, 32));
++		}
++	}
++
++	return ERROR_OK;
++}
++
+ /* global command context from openocd.c */
+ extern struct command_context *global_cmd_ctx;
+ 
+@@ -1416,6 +1536,21 @@ static int dsp563xx_read_memory(struct target *target, int mem_type, uint32_t ad
+ 	uint32_t i,i1;
+ 	uint8_t *buffer_y,*buffer_x;
+ 
++	/* if size equals zero we are called from target read memory
++	 * and have to handle the parameter here */
++	if ( (size == 0) &amp;&amp; (count != 0) )
++	{
++		size = count % 4;
++
++		if ( size )
++		{
++			LOG_DEBUG(&quot;size is not aligned to 4 byte&quot;);
++		}
++
++		count = (count - size) / 4;
++		size  = 4;
++	}
++
+ 	/* we only support 4 byte aligned data */
+ 	if ( (size != 4) || (!count) )
+ 	{
+@@ -1474,6 +1609,12 @@ static int dsp563xx_read_memory_default(struct target *target, uint32_t address,
+ 	return dsp563xx_read_memory(target, dsp563xx_get_default_memory(), address, size, count, buffer);
+ }
+ 
++static int dsp563xx_read_buffer_default(struct target *target, uint32_t address, uint32_t size, uint8_t * buffer)
++{
++
++	return dsp563xx_read_memory(target, dsp563xx_get_default_memory(), address, size, 0, buffer);
++}
++
+ static int dsp563xx_write_memory_core(struct target *target, int mem_type, uint32_t address, uint32_t size, uint32_t count, const uint8_t * buffer)
+ {
+ 	int err;
+@@ -1555,6 +1696,21 @@ static int dsp563xx_write_memory(struct target *target, int mem_type, uint32_t a
+ 	uint32_t i,i1;
+ 	uint8_t *buffer_y,*buffer_x;
+ 
++	/* if size equals zero we are called from target write memory
++	 * and have to handle the parameter here */
++	if ( (size == 0) &amp;&amp; (count != 0) )
++	{
++		size = count % 4;
++
++		if ( size )
++		{
++			LOG_DEBUG(&quot;size is not aligned to 4 byte&quot;);
++		}
++
++		count = (count - size) / 4;
++		size  = 4;
++	}
++
+ 	/* we only support 4 byte aligned data */
+ 	if ( (size != 4) || (!count) )
+ 	{
+@@ -1612,6 +1768,11 @@ static int dsp563xx_write_memory_default(struct target *target, uint32_t address
+ 	return dsp563xx_write_memory(target, dsp563xx_get_default_memory(), address, size, count, buffer);
+ }
+ 
++static int dsp563xx_write_buffer_default(struct target *target, uint32_t address, uint32_t size, const uint8_t * buffer)
++{
++	return dsp563xx_write_memory(target, dsp563xx_get_default_memory(), address, size, 0, buffer);
++}
++
+ static int dsp563xx_bulk_write_memory_default(struct target *target, uint32_t address, uint32_t count, const uint8_t *buffer)
+ {
+ 	return dsp563xx_write_memory(target, dsp563xx_get_default_memory(), address, 4, count, buffer);
+@@ -1667,7 +1828,7 @@ static void handle_md_output(struct command_context *cmd_ctx, struct target *tar
+ 	{
+ 		if (i % line_modulo == 0)
+ 		{
+-			output_len += snprintf(output + output_len, sizeof(output) - output_len, &quot;0x%8.8x: &quot;, (unsigned) (address + (i * size)));
++			output_len += snprintf(output + output_len, sizeof(output) - output_len, &quot;0x%8.8x: &quot;, (unsigned) (address + i));
+ 		}
+ 
+ 		uint32_t value = 0;
+@@ -1858,6 +2019,11 @@ struct target_type dsp563xx_target = {
+ 	.write_memory = dsp563xx_write_memory_default,
+ 	.bulk_write_memory = dsp563xx_bulk_write_memory_default,
+ 
++	.read_buffer = dsp563xx_read_buffer_default,
++	.write_buffer = dsp563xx_write_buffer_default,
++
++	.run_algorithm = dsp563xx_run_algorithm,
++
+ 	.add_breakpoint = dsp563xx_add_breakpoint,
+ 	.remove_breakpoint = dsp563xx_remove_breakpoint,
+ 	.add_watchpoint = dsp563xx_add_watchpoint,
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/dsp563xx.c |  180 +++++++++++++++++++++++++++++++++++++++++++++++--
+ 1 files changed, 173 insertions(+), 7 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002690.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-83-g508bc7c
+</A></li>
+	<LI>Next message: <A HREF="002692.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-85-g05b12e6
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2691">[ date ]</a>
+              <a href="thread.html#2691">[ thread ]</a>
+              <a href="subject.html#2691">[ subject ]</a>
+              <a href="author.html#2691">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

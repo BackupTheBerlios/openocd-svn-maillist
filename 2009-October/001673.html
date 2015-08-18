@@ -1,0 +1,753 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-413-g79f71fa
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.2.0-413-g79f71fa&In-Reply-To=%3CE1N1F6q-00059P-Ln%409j8yhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001672.html">
+   <LINK REL="Next"  HREF="001674.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-413-g79f71fa</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.2.0-413-g79f71fa&In-Reply-To=%3CE1N1F6q-00059P-Ln%409j8yhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-413-g79f71fa">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Fri Oct 23 10:02:51 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001672.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-411-g517e812
+</A></li>
+        <LI>Next message: <A HREF="001674.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-415-g0a1356c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1673">[ date ]</a>
+              <a href="thread.html#1673">[ thread ]</a>
+              <a href="subject.html#1673">[ subject ]</a>
+              <a href="author.html#1673">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  79f71fad58f3cd1a59142b65c3b79b145943b6e6 (commit)
+       via  814183a5c41cad14b83c29c9473084e6d1a11d9b (commit)
+      from  517e812de3782a6b592cb69416d1327a9b94ac9f (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 79f71fad58f3cd1a59142b65c3b79b145943b6e6
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Oct 23 01:02:22 2009 -0700
+
+    jtag: clean up TAP state name handling
+    
+    Some cosmetic cleanup, and switch to a single table mapping
+    between state names and symbols (vs two routines which only
+    share that state with difficulty).
+    
+    Get rid of TAP_NUM_STATES, and some related knowledge about
+    how TAP numbers are assigned.  Later on, this will help us
+    get rid of more such hardwired knowlege.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/jtag/interface.c b/src/jtag/interface.c
+index fcdb8ee..e475b48 100644
+--- a/src/jtag/interface.c
++++ b/src/jtag/interface.c
+@@ -73,20 +73,23 @@ tap_state_t tap_get_end_state()
+ 
+ int tap_move_ndx(tap_state_t astate)
+ {
+-	/* given a stable state, return the index into the tms_seqs[] array within tap_get_tms_path() */
++	/* given a stable state, return the index into the tms_seqs[]
++	 * array within tap_get_tms_path()
++	 */
+ 
+ 	int ndx;
+ 
+ 	switch (astate)
+ 	{
+ 	case TAP_RESET:		ndx = 0;			break;
++	case TAP_IDLE:		ndx = 1;			break;
+ 	case TAP_DRSHIFT:	ndx = 2;			break;
+ 	case TAP_DRPAUSE:	ndx = 3;			break;
+-	case TAP_IDLE:		ndx = 1;			break;
+ 	case TAP_IRSHIFT:	ndx = 4;			break;
+ 	case TAP_IRPAUSE:	ndx = 5;			break;
+ 	default:
+-		LOG_ERROR(&quot;fatal: unstable state \&quot;%s\&quot; used in tap_move_ndx()&quot;, tap_state_name(astate));
++		LOG_ERROR(&quot;FATAL: unstable state \&quot;%s\&quot; in tap_move_ndx()&quot;,
++				tap_state_name(astate));
+ 		exit(1);
+ 	}
+ 
+@@ -95,12 +98,7 @@ int tap_move_ndx(tap_state_t astate)
+ 
+ 
+ /* tap_move[i][j]: tap movement command to go from state i to state j
+- * 0: Test-Logic-Reset
+- * 1: Run-Test/Idle
+- * 2: Shift-DR
+- * 3: Pause-DR
+- * 4: Shift-IR
+- * 5: Pause-IR
++ * encodings of i and j are what tap_move_ndx() reports.
+  *
+  * DRSHIFT-&gt;DRSHIFT and IRSHIFT-&gt;IRSHIFT have to be caught in interface specific code
+  */
+@@ -108,7 +106,6 @@ struct tms_sequences
+ {
+ 	uint8_t	bits;
+ 	uint8_t	bit_count;
+-
+ };
+ 
+ /*
+@@ -333,47 +330,54 @@ tap_state_t tap_state_transition(tap_state_t cur_state, bool tms)
+ 	return new_state;
+ }
+ 
+-const char* tap_state_name(tap_state_t state)
++
++/* NOTE:  do not change these state names.  They're documented,
++ * and we rely on them to match SVF input (except for &quot;RUN/IDLE&quot;).
++ */
++static const struct name_mapping {
++	enum tap_state	symbol;
++	const char	*name;
++} tap_name_mapping[] = {
++	{ TAP_RESET,	&quot;RESET&quot;, },
++	{ TAP_IDLE,	&quot;RUN/IDLE&quot;, },
++	{ TAP_DRSELECT,	&quot;DRSELECT&quot;, },
++	{ TAP_DRCAPTURE,&quot;DRCAPTURE&quot;, },
++	{ TAP_DRSHIFT,	&quot;DRSHIFT&quot;, },
++	{ TAP_DREXIT1,	&quot;DREXIT1&quot;, },
++	{ TAP_DRPAUSE,	&quot;DRPAUSE&quot;, },
++	{ TAP_DREXIT2,	&quot;DREXIT2&quot;, },
++	{ TAP_DRUPDATE,	&quot;DRUPDATE&quot;, },
++	{ TAP_IRSELECT,	&quot;IRSELECT&quot;, },
++	{ TAP_IRCAPTURE,&quot;IRCAPTURE&quot;, },
++	{ TAP_IRSHIFT,	&quot;IRSHIFT&quot;, },
++	{ TAP_IREXIT1,	&quot;IREXIT1&quot;, },
++	{ TAP_IRPAUSE,	&quot;IRPAUSE&quot;, },
++	{ TAP_IREXIT2,	&quot;IREXIT2&quot;, },
++	{ TAP_IRUPDATE,	&quot;IRUPDATE&quot;, },
++
++	/* only for input:  accept standard SVF name */
++	{ TAP_IDLE,	&quot;IDLE&quot;, },
++};
++
++const char *tap_state_name(tap_state_t state)
+ {
+-	const char* ret;
++	unsigned i;
+ 
+-	switch (state)
+-	{
+-	case TAP_RESET:		ret = &quot;RESET&quot;;			break;
+-	case TAP_IDLE:		ret = &quot;RUN/IDLE&quot;;		break;
+-	case TAP_DRSELECT:	ret = &quot;DRSELECT&quot;;		break;
+-	case TAP_DRCAPTURE: ret = &quot;DRCAPTURE&quot;;		break;
+-	case TAP_DRSHIFT:	ret = &quot;DRSHIFT&quot;;			break;
+-	case TAP_DREXIT1:	ret = &quot;DREXIT1&quot;;			break;
+-	case TAP_DRPAUSE:	ret = &quot;DRPAUSE&quot;;			break;
+-	case TAP_DREXIT2:	ret = &quot;DREXIT2&quot;;			break;
+-	case TAP_DRUPDATE:	ret = &quot;DRUPDATE&quot;;		break;
+-	case TAP_IRSELECT:	ret = &quot;IRSELECT&quot;;		break;
+-	case TAP_IRCAPTURE: ret = &quot;IRCAPTURE&quot;;		break;
+-	case TAP_IRSHIFT:	ret = &quot;IRSHIFT&quot;;			break;
+-	case TAP_IREXIT1:	ret = &quot;IREXIT1&quot;;			break;
+-	case TAP_IRPAUSE:	ret = &quot;IRPAUSE&quot;;			break;
+-	case TAP_IREXIT2:	ret = &quot;IREXIT2&quot;;			break;
+-	case TAP_IRUPDATE:	ret = &quot;IRUPDATE&quot;;		break;
+-	default:				ret = &quot;???&quot;;
++	for (i = 0; i &lt; DIM(tap_name_mapping); i++) {
++		if (tap_name_mapping[i].symbol == state)
++			return tap_name_mapping[i].name;
+ 	}
+-
+-	return ret;
++	return &quot;???&quot;;
+ }
+ 
+ tap_state_t tap_state_by_name(const char *name)
+ {
+-	tap_state_t x;
+-
+-	/* standard SVF name is &quot;IDLE&quot; */
+-	if (0 == strcasecmp(name, &quot;IDLE&quot;))
+-		return TAP_IDLE;
++	unsigned i;
+ 
+-	for (x = 0 ; x &lt; TAP_NUM_STATES ; x++) {
++	for (i = 0; i &lt; DIM(tap_name_mapping); i++) {
+ 		/* be nice to the human */
+-		if (0 == strcasecmp(name, tap_state_name(x))) {
+-			return x;
+-		}
++		if (strcasecmp(name, tap_name_mapping[i].name) == 0)
++			return tap_name_mapping[i].symbol;
+ 	}
+ 	/* not found */
+ 	return TAP_INVALID;
+diff --git a/src/jtag/jtag.h b/src/jtag/jtag.h
+index 1dae00f..ca09f92 100644
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -57,13 +57,17 @@
+  *
+  * These definitions were gleaned from the ARM7TDMI-S Technical
+  * Reference Manual and validated against several other ARM core
+- * technical manuals.  tap_get_tms_path() is sensitive to this numbering
+- * and ordering of the TAP states; furthermore, some interfaces require
+- * specific numbers be used, as they are handed-off directly to their
+- * hardware implementations.
++ * technical manuals.
++ *
++ * FIXME some interfaces require specific numbers be used, as they
++ * are handed-off directly to their hardware implementations.
++ * Fix those drivers to map as appropriate ... then pick some
++ * sane set of numbers here (where 0/uninitialized == INVALID).
+  */
+ typedef enum tap_state
+ {
++	TAP_INVALID = -1,
++
+ #if BUILD_ZY1000
+ 	/* These are the old numbers. Leave as-is for now... */
+ 	TAP_RESET    = 0, TAP_IDLE = 8,
+@@ -72,7 +76,6 @@ typedef enum tap_state
+ 	TAP_IRSELECT = 9, TAP_IRCAPTURE = 10, TAP_IRSHIFT = 11, TAP_IREXIT1 = 12,
+ 	TAP_IRPAUSE  = 13, TAP_IREXIT2 = 14, TAP_IRUPDATE = 15,
+ 
+-	TAP_NUM_STATES = 16, TAP_INVALID = -1,
+ #else
+ 	/* Proper ARM recommended numbers */
+ 	TAP_DREXIT2 = 0x0,
+@@ -92,9 +95,6 @@ typedef enum tap_state
+ 	TAP_IRCAPTURE = 0xe,
+ 	TAP_RESET = 0x0f,
+ 
+-	TAP_NUM_STATES = 0x10,
+-
+-	TAP_INVALID = -1,
+ #endif
+ } tap_state_t;
+ 
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index e080279..6a6e3ae 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -1248,6 +1248,8 @@ static int handle_runtest_command(struct command_context_s *cmd_ctx,
+  * For &quot;irscan&quot; or &quot;drscan&quot; commands, the &quot;end&quot; (really, &quot;next&quot;) state
+  * should be stable ... and *NOT* a shift state, otherwise free-running
+  * jtag clocks could change the values latched by the update state.
++ * Not surprisingly, this is the same constraint as SVF; the &quot;irscan&quot;
++ * and &quot;drscan&quot; commands are a write-only subset of what SVF provides.
+  */
+ static bool scan_is_safe(tap_state_t state)
+ {
+@@ -1285,25 +1287,14 @@ static int handle_irscan_command(struct command_context_s *cmd_ctx, char *cmd, c
+ 	if (argc &gt;= 4) {
+ 		/* have at least one pair of numbers. */
+ 		/* is last pair the magic text? */
+-		if (0 == strcmp(&quot;-endstate&quot;, args[ argc - 2 ])) {
+-			const char *cpA;
+-			const char *cpS;
+-			cpA = args[ argc-1 ];
+-			for (endstate = 0 ; endstate &lt; TAP_NUM_STATES ; endstate++) {
+-				cpS = tap_state_name(endstate);
+-				if (0 == strcmp(cpA, cpS)) {
+-					break;
+-				}
+-			}
+-			if (endstate &gt;= TAP_NUM_STATES) {
++		if (strcmp(&quot;-endstate&quot;, args[argc - 2]) == 0) {
++			endstate = tap_state_by_name(args[argc - 1]);
++			if (endstate == TAP_INVALID)
+ 				return ERROR_COMMAND_SYNTAX_ERROR;
+-			} else {
+-				if (!scan_is_safe(endstate))
+-					LOG_WARNING(&quot;irscan with unsafe &quot;
+-							&quot;endstate \&quot;%s\&quot;&quot;, cpA);
+-				/* found - remove the last 2 args */
+-				argc -= 2;
+-			}
++			if (!scan_is_safe(endstate))
++				LOG_WARNING(&quot;unstable irscan endstate \&quot;%s\&quot;&quot;,
++						args[argc - 1]);
++			argc -= 2;
+ 		}
+ 	}
+ 
+
+commit 814183a5c41cad14b83c29c9473084e6d1a11d9b
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Oct 23 01:00:32 2009 -0700
+
+    SVF: clean up, mostly for TAP state name handling
+    
+     - Use the name mappings all the other code uses:
+        + name-to-state ... needed to add one special case
+        + state-to-name
+     - Improve various diagnostics:
+        + don't complain about a &quot;valid&quot; state when the issue
+          is actually that it must be &quot;stable&quot;
+        + say which command was affected
+     - Misc:
+        + make more private data and code be static
+        + use public DIM() not private dimof()
+        + shorten the affected lines
+    
+    Re the mappings, this means we're more generous in inputs we
+    accept, since case won't matter.  Also our output diagnostics
+    will be a smidgeon more informative, saying &quot;RUN/IDLE&quot; not
+    just &quot;IDLE&quot; (emphasizing that there can be side effects).
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/TODO b/TODO
+index 0d88812..180a9da 100644
+--- a/TODO
++++ b/TODO
+@@ -46,7 +46,6 @@ This section list issues that need to be resolved in the JTAG layer.
+ The following tasks have been suggested for cleaning up the JTAG layer:
+ 
+ - use tap_set_state everywhere to allow logging TAP state transitions
+-- rename other tap_states to use standard JTAG names (suggested by ML)
+ - Encapsulate cmd_queue_cur_state and related varaible handling.
+ - add slick 32 bit versions of jtag_add_xxx_scan() that avoids
+ buf_set_u32() calls and other evidence of poor impedance match between
+diff --git a/src/jtag/interface.c b/src/jtag/interface.c
+index e83a772..fcdb8ee 100644
+--- a/src/jtag/interface.c
++++ b/src/jtag/interface.c
+@@ -365,6 +365,10 @@ tap_state_t tap_state_by_name(const char *name)
+ {
+ 	tap_state_t x;
+ 
++	/* standard SVF name is &quot;IDLE&quot; */
++	if (0 == strcasecmp(name, &quot;IDLE&quot;))
++		return TAP_IDLE;
++
+ 	for (x = 0 ; x &lt; TAP_NUM_STATES ; x++) {
+ 		/* be nice to the human */
+ 		if (0 == strcasecmp(name, tap_state_name(x))) {
+diff --git a/src/jtag/interface.h b/src/jtag/interface.h
+index 899f163..afe2108 100644
+--- a/src/jtag/interface.h
++++ b/src/jtag/interface.h
+@@ -160,9 +160,6 @@ bool tap_is_state_stable(tap_state_t astate);
+  */
+ tap_state_t tap_state_transition(tap_state_t current_state, bool tms);
+ 
+-/// Provides user-friendly name lookup of TAP states.
+-tap_state_t tap_state_by_name(const char *name);
+-
+ /// Allow switching between old and new TMS tables. @see tap_get_tms_path
+ void tap_use_new_tms_table(bool use_new);
+ /// @returns True if new TMS table is active; false otherwise.
+diff --git a/src/jtag/jtag.h b/src/jtag/jtag.h
+index 7253c3e..1dae00f 100644
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -102,7 +102,10 @@ typedef enum tap_state
+  * Function tap_state_name
+  * Returns a string suitable for display representing the JTAG tap_state
+  */
+-const char* tap_state_name(tap_state_t state);
++const char *tap_state_name(tap_state_t state);
++
++/// Provides user-friendly name lookup of TAP states.
++tap_state_t tap_state_by_name(const char *name);
+ 
+ /// The current TAP state of the pending JTAG command queue.
+ extern tap_state_t cmd_queue_cur_state;
+diff --git a/src/svf/svf.c b/src/svf/svf.c
+index dfbbde4..dec4b19 100644
+--- a/src/svf/svf.c
++++ b/src/svf/svf.c
+@@ -55,7 +55,7 @@ typedef enum
+ 	TRST,
+ }svf_command_t;
+ 
+-const char *svf_command_name[14] =
++static const char *svf_command_name[14] =
+ {
+ 	&quot;ENDDR&quot;,
+ 	&quot;ENDIR&quot;,
+@@ -81,7 +81,7 @@ typedef enum
+ 	TRST_ABSENT
+ }trst_mode_t;
+ 
+-const char *svf_trst_mode_name[4] =
++static const char *svf_trst_mode_name[4] =
+ {
+ 	&quot;ON&quot;,
+ 	&quot;OFF&quot;,
+@@ -136,7 +136,6 @@ static const svf_statemove_t svf_statemoves[] =
+ 	{TAP_IRPAUSE,	TAP_IRPAUSE,	8,				{TAP_IRPAUSE, TAP_IREXIT2, TAP_IRUPDATE, TAP_DRSELECT, TAP_IRSELECT, TAP_IRCAPTURE, TAP_IREXIT1, TAP_IRPAUSE}}
+ };
+ 
+-char *svf_tap_state_name[TAP_NUM_STATES];
+ 
+ #define XXR_TDI						(1 &lt;&lt; 0)
+ #define XXR_TDO						(1 &lt;&lt; 1)
+@@ -169,8 +168,8 @@ typedef struct
+ 	svf_xxr_para_t sdr_para;
+ }svf_para_t;
+ 
+-svf_para_t svf_para;
+-const svf_para_t svf_para_init =
++static svf_para_t svf_para;
++static const svf_para_t svf_para_init =
+ {
+ //	frequency,	ir_end_state,	dr_end_state,	runtest_run_state,	runtest_end_state,	trst_mode
+ 	0,			TAP_IDLE,		TAP_IDLE,		TAP_IDLE,			TAP_IDLE,			TRST_Z,
+@@ -207,8 +206,6 @@ typedef struct
+ static svf_check_tdo_para_t *svf_check_tdo_para = NULL;
+ static int svf_check_tdo_para_index = 0;
+ 
+-#define dimof(a)					(sizeof(a) / sizeof((a)[0]))
+-
+ static int svf_read_command_from_file(int fd);
+ static int svf_check_tdo(void);
+ static int svf_add_check_para(uint8_t enabled, int buffer_offset, int bit_len);
+@@ -236,7 +233,7 @@ int svf_register_commands(struct command_context_s *cmd_ctx)
+ 	return ERROR_OK;
+ }
+ 
+-void svf_free_xxd_para(svf_xxr_para_t *para)
++static void svf_free_xxd_para(svf_xxr_para_t *para)
+ {
+ 	if (NULL != para)
+ 	{
+@@ -263,7 +260,7 @@ void svf_free_xxd_para(svf_xxr_para_t *para)
+ 	}
+ }
+ 
+-unsigned svf_get_mask_u32(int bitlen)
++static unsigned svf_get_mask_u32(int bitlen)
+ {
+ 	uint32_t bitmask;
+ 
+@@ -283,34 +280,6 @@ unsigned svf_get_mask_u32(int bitlen)
+ 	return bitmask;
+ }
+ 
+-static const char* tap_state_svf_name(tap_state_t state)
+-{
+-	const char* ret;
+-
+-	switch (state)
+-	{
+-	case TAP_RESET:		ret = &quot;RESET&quot;;		break;
+-	case TAP_IDLE:		ret = &quot;IDLE&quot;;		break;
+-	case TAP_DRSELECT:	ret = &quot;DRSELECT&quot;;	break;
+-	case TAP_DRCAPTURE: ret = &quot;DRCAPTURE&quot;;	break;
+-	case TAP_DRSHIFT:	ret = &quot;DRSHIFT&quot;;	break;
+-	case TAP_DREXIT1:	ret = &quot;DREXIT1&quot;;	break;
+-	case TAP_DRPAUSE:	ret = &quot;DRPAUSE&quot;;	break;
+-	case TAP_DREXIT2:	ret = &quot;DREXIT2&quot;;	break;
+-	case TAP_DRUPDATE:	ret = &quot;DRUPDATE&quot;;	break;
+-	case TAP_IRSELECT:	ret = &quot;IRSELECT&quot;;	break;
+-	case TAP_IRCAPTURE: ret = &quot;IRCAPTURE&quot;;	break;
+-	case TAP_IRSHIFT:	ret = &quot;IRSHIFT&quot;;	break;
+-	case TAP_IREXIT1:	ret = &quot;IREXIT1&quot;;	break;
+-	case TAP_IRPAUSE:	ret = &quot;IRPAUSE&quot;;	break;
+-	case TAP_IREXIT2:	ret = &quot;IREXIT2&quot;;	break;
+-	case TAP_IRUPDATE:	ret = &quot;IRUPDATE&quot;;	break;
+-	default:			ret = &quot;???&quot;;		break;
+-	}
+-
+-	return ret;
+-}
+-
+ int svf_add_statemove(tap_state_t state_to)
+ {
+ 	tap_state_t state_from = cmd_queue_cur_state;
+@@ -322,7 +291,7 @@ int svf_add_statemove(tap_state_t state_to)
+ 		return ERROR_OK;
+ 	}
+ 
+-	for (index = 0; index &lt; dimof(svf_statemoves); index++)
++	for (index = 0; index &lt; DIM(svf_statemoves); index++)
+ 	{
+ 		if ((svf_statemoves[index].from == state_from)
+ 			&amp;&amp; (svf_statemoves[index].to == state_to))
+@@ -337,7 +306,7 @@ int svf_add_statemove(tap_state_t state_to)
+ 			return ERROR_OK;
+ 		}
+ 	}
+-	LOG_ERROR(&quot;SVF: can not move to %s&quot;, tap_state_svf_name(state_to));
++	LOG_ERROR(&quot;SVF: can not move to %s&quot;, tap_state_name(state_to));
+ 	return ERROR_FAIL;
+ }
+ 
+@@ -426,10 +395,6 @@ static int handle_svf_command(struct command_context_s *cmd_ctx, char *cmd, char
+ 	svf_buffer_size = 2 * SVF_MAX_BUFFER_SIZE_TO_COMMIT;
+ 
+ 	memcpy(&amp;svf_para, &amp;svf_para_init, sizeof(svf_para));
+-	for (i = 0; i &lt; (int)dimof(svf_tap_state_name); i++)
+-	{
+-		svf_tap_state_name[i] = (char *)tap_state_svf_name(i);
+-	}
+ 
+ 	// TAP_RESET
+ 	jtag_add_tlr();
+@@ -625,11 +590,6 @@ bool svf_tap_state_is_stable(tap_state_t state)
+ 			|| (TAP_DRPAUSE == state) || (TAP_IRPAUSE == state);
+ }
+ 
+-static int svf_tap_state_is_valid(tap_state_t state)
+-{
+-	return state &gt;= 0 &amp;&amp; state &lt; TAP_NUM_STATES;
+-}
+-
+ static int svf_find_string_in_array(char *str, char **strs, int num_of_element)
+ {
+ 	int i;
+@@ -823,7 +783,12 @@ static int svf_run_command(struct command_context_s *cmd_ctx, char *cmd_str)
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	command = svf_find_string_in_array(argus[0], (char **)svf_command_name, dimof(svf_command_name));
++	/* NOTE: we're a bit loose here, because we ignore case in
++	 * TAP state names (instead of insisting on uppercase).
++	 */
++
++	command = svf_find_string_in_array(argus[0],
++			(char **)svf_command_name, DIM(svf_command_name));
+ 	switch (command)
+ 	{
+ 	case ENDDR:
+@@ -833,23 +798,28 @@ static int svf_run_command(struct command_context_s *cmd_ctx, char *cmd_str)
+ 			LOG_ERROR(&quot;invalid parameter of %s&quot;, argus[0]);
+ 			return ERROR_FAIL;
+ 		}
+-		i_tmp = svf_find_string_in_array(argus[1], (char **)svf_tap_state_name, dimof(svf_tap_state_name));
++
++		i_tmp = tap_state_by_name(argus[1]);
++
+ 		if (svf_tap_state_is_stable(i_tmp))
+ 		{
+ 			if (command == ENDIR)
+ 			{
+ 				svf_para.ir_end_state = i_tmp;
+-				LOG_DEBUG(&quot;\tir_end_state = %s&quot;, svf_tap_state_name[svf_para.ir_end_state]);
++				LOG_DEBUG(&quot;\tIR end_state = %s&quot;,
++						tap_state_name(i_tmp));
+ 			}
+ 			else
+ 			{
+ 				svf_para.dr_end_state = i_tmp;
+-				LOG_DEBUG(&quot;\tdr_end_state = %s&quot;, svf_tap_state_name[svf_para.dr_end_state]);
++				LOG_DEBUG(&quot;\tDR end_state = %s&quot;,
++						tap_state_name(i_tmp));
+ 			}
+ 		}
+ 		else
+ 		{
+-			LOG_ERROR(&quot;%s is not valid state&quot;, argus[1]);
++			LOG_ERROR(&quot;%s: %s is not a stable state&quot;,
++					argus[0], argus[1]);
+ 			return ERROR_FAIL;
+ 		}
+ 		break;
+@@ -1203,25 +1173,31 @@ static int svf_run_command(struct command_context_s *cmd_ctx, char *cmd_str)
+ 		min_time = 0;
+ 		max_time = 0;
+ 		i = 1;
++
+ 		// run_state
+-		i_tmp = svf_find_string_in_array(argus[i], (char **)svf_tap_state_name, dimof(svf_tap_state_name));
+-		if (svf_tap_state_is_valid(i_tmp))
++		i_tmp = tap_state_by_name(argus[i]);
++		if (i_tmp != TAP_INVALID)
+ 		{
+ 			if (svf_tap_state_is_stable(i_tmp))
+ 			{
+ 				svf_para.runtest_run_state = i_tmp;
+ 
+-				// When a run_state is specified, the new  run_state becomes the default end_state
++				/* When a run_state is specified, the new
++				 * run_state becomes the default end_state.
++				 */
+ 				svf_para.runtest_end_state = i_tmp;
+-				LOG_DEBUG(&quot;\trun_state = %s&quot;, svf_tap_state_name[svf_para.runtest_run_state]);
++				LOG_DEBUG(&quot;\trun_state = %s&quot;,
++						tap_state_name(i_tmp));
+ 				i++;
+ 			}
+ 			else
+ 			{
+-				LOG_ERROR(&quot;%s is not valid state&quot;, svf_tap_state_name[i_tmp]);
++				LOG_ERROR(&quot;%s: %s is not a stable state&quot;,
++					argus[0], tap_state_name(i_tmp));
+ 				return ERROR_FAIL;
+ 			}
+ 		}
++
+ 		// run_count run_clk
+ 		if (((i + 2) &lt;= num_of_argu) &amp;&amp; strcmp(argus[i + 1], &quot;SEC&quot;))
+ 		{
+@@ -1255,15 +1231,18 @@ static int svf_run_command(struct command_context_s *cmd_ctx, char *cmd_str)
+ 		// ENDSTATE end_state
+ 		if (((i + 2) &lt;= num_of_argu) &amp;&amp; !strcmp(argus[i], &quot;ENDSTATE&quot;))
+ 		{
+-			i_tmp = svf_find_string_in_array(argus[i + 1], (char **)svf_tap_state_name, dimof(svf_tap_state_name));
++			i_tmp = tap_state_by_name(argus[i + 1]);
++
+ 			if (svf_tap_state_is_stable(i_tmp))
+ 			{
+ 				svf_para.runtest_end_state = i_tmp;
+-				LOG_DEBUG(&quot;\tend_state = %s&quot;, svf_tap_state_name[svf_para.runtest_end_state]);
++				LOG_DEBUG(&quot;\tend_state = %s&quot;,
++					tap_state_name(i_tmp));
+ 			}
+ 			else
+ 			{
+-				LOG_ERROR(&quot;%s is not valid state&quot;, svf_tap_state_name[i_tmp]);
++				LOG_ERROR(&quot;%s: %s is not a stable state&quot;,
++					argus[0], tap_state_name(i_tmp));
+ 				return ERROR_FAIL;
+ 			}
+ 			i += 2;
+@@ -1301,8 +1280,8 @@ static int svf_run_command(struct command_context_s *cmd_ctx, char *cmd_str)
+ #else
+ 				if (svf_para.runtest_run_state != TAP_IDLE)
+ 				{
+-					// RUNTEST can only executed in TAP_IDLE
+-					LOG_ERROR(&quot;cannot runtest in %s state&quot;, svf_tap_state_name[svf_para.runtest_run_state]);
++					LOG_ERROR(&quot;cannot runtest in %s state&quot;,
++						tap_state_name(svf_para.runtest_run_state));
+ 					return ERROR_FAIL;
+ 				}
+ 
+@@ -1333,13 +1312,14 @@ static int svf_run_command(struct command_context_s *cmd_ctx, char *cmd_str)
+ 				return ERROR_FAIL;
+ 			}
+ 			num_of_argu--;		// num of path
+-			i_tmp = 1;			// path is from patameter 1
+-			for (i = 0; i &lt; num_of_argu; i++)
++			i_tmp = 1;		/* path is from parameter 1 */
++			for (i = 0; i &lt; num_of_argu; i++, i_tmp++)
+ 			{
+-				path[i] = svf_find_string_in_array(argus[i_tmp++], (char **)svf_tap_state_name, dimof(svf_tap_state_name));
+-				if (!svf_tap_state_is_valid(path[i]))
++				path[i] = tap_state_by_name(argus[i_tmp]);
++				if (path[i] == TAP_INVALID)
+ 				{
+-					LOG_ERROR(&quot;%s is not valid state&quot;, svf_tap_state_name[path[i]]);
++					LOG_ERROR(&quot;%s: %s is not a valid state&quot;,
++						argus[0], argus[i_tmp]);
+ 					free(path);
+ 					return ERROR_FAIL;
+ 				}
+@@ -1362,13 +1342,15 @@ static int svf_run_command(struct command_context_s *cmd_ctx, char *cmd_str)
+ 				if (svf_tap_state_is_stable(path[num_of_argu - 1]))
+ 				{
+ 					// last state MUST be stable state
+-					// TODO: call path_move
+ 					jtag_add_pathmove(num_of_argu, path);
+-					LOG_DEBUG(&quot;\tmove to %s by path_move&quot;, svf_tap_state_name[path[num_of_argu - 1]]);
++					LOG_DEBUG(&quot;\tmove to %s by path_move&quot;,
++						tap_state_name(path[num_of_argu - 1]));
+ 				}
+ 				else
+ 				{
+-					LOG_ERROR(&quot;%s is not valid state&quot;, svf_tap_state_name[path[num_of_argu - 1]]);
++					LOG_ERROR(&quot;%s: %s is not a stable state&quot;,
++						argus[0],
++						tap_state_name(path[num_of_argu - 1]));
+ 					free(path);
+ 					return ERROR_FAIL;
+ 				}
+@@ -1383,17 +1365,18 @@ static int svf_run_command(struct command_context_s *cmd_ctx, char *cmd_str)
+ 		else
+ 		{
+ 			// STATE stable_state
+-			state = svf_find_string_in_array(argus[1], (char **)svf_tap_state_name, dimof(svf_tap_state_name));
++			state = tap_state_by_name(argus[1]);
+ 			if (svf_tap_state_is_stable(state))
+ 			{
+ 				LOG_DEBUG(&quot;\tmove to %s by svf_add_statemove&quot;,
+-						svf_tap_state_name[state]);
++						tap_state_name(state));
+ 				/* FIXME handle statemove failures */
+ 				svf_add_statemove(state);
+ 			}
+ 			else
+ 			{
+-				LOG_ERROR(&quot;%s is not valid state&quot;, svf_tap_state_name[state]);
++				LOG_ERROR(&quot;%s: %s is not a stable state&quot;,
++					argus[0], tap_state_name(state));
+ 				return ERROR_FAIL;
+ 			}
+ 		}
+@@ -1411,7 +1394,9 @@ static int svf_run_command(struct command_context_s *cmd_ctx, char *cmd_str)
+ 			{
+ 				return ERROR_FAIL;
+ 			}
+-			i_tmp = svf_find_string_in_array(argus[1], (char **)svf_trst_mode_name, dimof(svf_trst_mode_name));
++			i_tmp = svf_find_string_in_array(argus[1],
++					(char **)svf_trst_mode_name,
++					DIM(svf_trst_mode_name));
+ 			switch (i_tmp)
+ 			{
+ 			case TRST_ON:
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ TODO                 |    1 -
+ src/jtag/interface.c |   84 +++++++++++++++++--------------
+ src/jtag/interface.h |    3 -
+ src/jtag/jtag.h      |   21 +++++---
+ src/jtag/tcl.c       |   27 +++-------
+ src/svf/svf.c        |  135 ++++++++++++++++++++++----------------------------
+ 6 files changed, 127 insertions(+), 144 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001672.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-411-g517e812
+</A></li>
+	<LI>Next message: <A HREF="001674.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-415-g0a1356c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1673">[ date ]</a>
+              <a href="thread.html#1673">[ thread ]</a>
+              <a href="subject.html#1673">[ subject ]</a>
+              <a href="author.html#1673">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

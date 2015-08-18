@@ -1,0 +1,137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1753 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1753%20-%20trunk/src/target&In-Reply-To=%3C200905120703.n4C73oRW020332%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000536.html">
+   <LINK REL="Next"  HREF="000538.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1753 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1753%20-%20trunk/src/target&In-Reply-To=%3C200905120703.n4C73oRW020332%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1753 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Tue May 12 09:03:50 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000536.html">[Openocd-svn] r1752 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000538.html">[Openocd-svn] r1754 - trunk/tools/rlink_make_speed_table
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#537">[ date ]</a>
+              <a href="thread.html#537">[ thread ]</a>
+              <a href="subject.html#537">[ subject ]</a>
+              <a href="author.html#537">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-05-12 09:03:50 +0200 (Tue, 12 May 2009)
+New Revision: 1753
+
+Modified:
+   trunk/src/target/arm7tdmi.c
+   trunk/src/target/arm9tdmi.c
+Log:
+fix memory corruption introduce in 1730
+
+Modified: trunk/src/target/arm7tdmi.c
+===================================================================
+--- trunk/src/target/arm7tdmi.c	2009-05-12 06:59:21 UTC (rev 1752)
++++ trunk/src/target/arm7tdmi.c	2009-05-12 07:03:50 UTC (rev 1753)
+@@ -244,9 +244,9 @@
+ 	}
+ }
+ 
+-static int arm7endianness(u8 *in, jtag_callback_data_t size, jtag_callback_data_t be, jtag_callback_data_t dummy)
++static int arm7endianness(u8 *in, jtag_callback_data_t size, jtag_callback_data_t be, jtag_callback_data_t captured)
+ {
+-	arm_endianness(in, in, (int)size, (int)be, 1);
++	arm_endianness((u8 *)captured, in, (int)size, (int)be, 1);
+ 	return ERROR_OK;
+ }
+ 
+@@ -274,11 +274,11 @@
+ 	fields[1].tap = jtag_info-&gt;tap;
+ 	fields[1].num_bits = 32;
+ 	fields[1].out_value = NULL;
+-	fields[1].in_value = (u8 *)in;
++	jtag_alloc_in_value32(&amp;fields[1]);
+ 
+ 	jtag_add_dr_scan(2, fields, TAP_INVALID);
+ 
+-	jtag_add_callback4(arm7endianness, in, (jtag_callback_data_t)size, (jtag_callback_data_t)be, (jtag_callback_data_t)NULL);
++	jtag_add_callback4(arm7endianness, in, (jtag_callback_data_t)size, (jtag_callback_data_t)be, (jtag_callback_data_t)fields[1].in_value);
+ 
+ 	jtag_add_runtest(0, TAP_INVALID);
+ 
+
+Modified: trunk/src/target/arm9tdmi.c
+===================================================================
+--- trunk/src/target/arm9tdmi.c	2009-05-12 06:59:21 UTC (rev 1752)
++++ trunk/src/target/arm9tdmi.c	2009-05-12 07:03:50 UTC (rev 1753)
+@@ -291,9 +291,9 @@
+ 
+ extern void arm_endianness(u8 *tmp, void *in, int size, int be, int flip);
+ 
+-static int arm9endianness(u8 *in, jtag_callback_data_t size, jtag_callback_data_t be, jtag_callback_data_t dummy)
++static int arm9endianness(u8 *in, jtag_callback_data_t size, jtag_callback_data_t be, jtag_callback_data_t captured)
+ {
+-	arm_endianness(in, in, (int)size, (int)be, 0);
++	arm_endianness((u8 *)captured, in, (int)size, (int)be, 0);
+ 	return ERROR_OK;
+ }
+ 
+@@ -317,7 +317,7 @@
+ 	fields[0].tap = jtag_info-&gt;tap;
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = NULL;
+-	fields[0].in_value = (u8 *)in;
++	jtag_alloc_in_value32(&amp;fields[0]);
+ 
+ 	fields[1].tap = jtag_info-&gt;tap;
+ 	fields[1].num_bits = 3;
+@@ -331,7 +331,7 @@
+ 
+ 	jtag_add_dr_scan(3, fields, TAP_INVALID);
+ 
+-	jtag_add_callback4(arm9endianness, in, (jtag_callback_data_t)size, (jtag_callback_data_t)be, 0);
++	jtag_add_callback4(arm9endianness, in, (jtag_callback_data_t)size, (jtag_callback_data_t)be, (jtag_callback_data_t)fields[0].in_value);
+ 
+ 	jtag_add_runtest(0, TAP_INVALID);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000536.html">[Openocd-svn] r1752 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000538.html">[Openocd-svn] r1754 - trunk/tools/rlink_make_speed_table
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#537">[ date ]</a>
+              <a href="thread.html#537">[ thread ]</a>
+              <a href="subject.html#537">[ subject ]</a>
+              <a href="author.html#537">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

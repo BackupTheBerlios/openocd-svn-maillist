@@ -1,0 +1,264 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2184 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2184%20-%20trunk/src/jtag&In-Reply-To=%3C200906110708.n5B789ab030575%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000967.html">
+   <LINK REL="Next"  HREF="000969.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2184 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2184%20-%20trunk/src/jtag&In-Reply-To=%3C200906110708.n5B789ab030575%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2184 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Thu Jun 11 09:08:09 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000967.html">[Openocd-svn] r2183 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="000969.html">[Openocd-svn] r2185 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#968">[ date ]</a>
+              <a href="thread.html#968">[ thread ]</a>
+              <a href="subject.html#968">[ subject ]</a>
+              <a href="author.html#968">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-11 09:08:03 +0200 (Thu, 11 Jun 2009)
+New Revision: 2184
+
+Modified:
+   trunk/src/jtag/core.c
+   trunk/src/jtag/jtag.h
+Log:
+Move jtag_add_statemove decl/body nearer jtag_add_pathmove.
+
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-06-11 06:19:37 UTC (rev 2183)
++++ trunk/src/jtag/core.c	2009-06-11 07:08:03 UTC (rev 2184)
+@@ -476,6 +476,50 @@
+ 	cmd_queue_cur_state = path[num_states - 1];
+ }
+ 
++int jtag_add_statemove(tap_state_t goal_state)
++{
++	tap_state_t cur_state = cmd_queue_cur_state;
++
++	LOG_DEBUG( &quot;cur_state=%s goal_state=%s&quot;,
++		tap_state_name(cur_state),
++		tap_state_name(goal_state) );
++
++
++	if (goal_state==cur_state )
++		;	/* nothing to do */
++	else if( goal_state==TAP_RESET )
++	{
++		jtag_add_tlr();
++	}
++	else if( tap_is_state_stable(cur_state) &amp;&amp; tap_is_state_stable(goal_state) )
++	{
++		unsigned tms_bits  = tap_get_tms_path(cur_state, goal_state);
++		unsigned tms_count = tap_get_tms_path_len(cur_state, goal_state);
++		tap_state_t moves[8];
++		assert(tms_count &lt; DIM(moves));
++
++		for (unsigned i = 0; i &lt; tms_count; i++, tms_bits &gt;&gt;= 1)
++		{
++			bool bit = tms_bits &amp; 1;
++
++			cur_state = tap_state_transition(cur_state, bit);
++			moves[i] = cur_state;
++		}
++
++		jtag_add_pathmove(tms_count, moves);
++	}
++	else if( tap_state_transition(cur_state, true)  == goal_state
++		||   tap_state_transition(cur_state, false) == goal_state )
++	{
++		jtag_add_pathmove(1, &amp;goal_state);
++	}
++
++	else
++		return ERROR_FAIL;
++
++	return ERROR_OK;
++}
++
+ void jtag_add_runtest(int num_cycles, tap_state_t state)
+ {
+ 	jtag_prelude(state);
+@@ -1249,50 +1293,6 @@
+ 	return jtag-&gt;srst_asserted(srst_asserted);
+ }
+ 
+-int jtag_add_statemove(tap_state_t goal_state)
+-{
+-	tap_state_t cur_state = cmd_queue_cur_state;
+-
+-	LOG_DEBUG( &quot;cur_state=%s goal_state=%s&quot;,
+-		tap_state_name(cur_state),
+-		tap_state_name(goal_state) );
+-
+-
+-	if (goal_state==cur_state )
+-		;	/* nothing to do */
+-	else if( goal_state==TAP_RESET )
+-	{
+-		jtag_add_tlr();
+-	}
+-	else if( tap_is_state_stable(cur_state) &amp;&amp; tap_is_state_stable(goal_state) )
+-	{
+-		unsigned tms_bits  = tap_get_tms_path(cur_state, goal_state);
+-		unsigned tms_count = tap_get_tms_path_len(cur_state, goal_state);
+-		tap_state_t moves[8];
+-		assert(tms_count &lt; DIM(moves));
+-
+-		for (unsigned i = 0; i &lt; tms_count; i++, tms_bits &gt;&gt;= 1)
+-		{
+-			bool bit = tms_bits &amp; 1;
+-
+-			cur_state = tap_state_transition(cur_state, bit);
+-			moves[i] = cur_state;
+-		}
+-
+-		jtag_add_pathmove(tms_count, moves);
+-	}
+-	else if( tap_state_transition(cur_state, true)  == goal_state
+-		||   tap_state_transition(cur_state, false) == goal_state )
+-	{
+-		jtag_add_pathmove(1, &amp;goal_state);
+-	}
+-
+-	else
+-		return ERROR_FAIL;
+-
+-	return ERROR_OK;
+-}
+-
+ enum reset_types jtag_get_reset_config(void)
+ {
+ 	return jtag_reset_config;
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-06-11 06:19:37 UTC (rev 2183)
++++ trunk/src/jtag/jtag.h	2009-06-11 07:08:03 UTC (rev 2184)
+@@ -508,6 +508,39 @@
+ extern void jtag_add_pathmove(int num_states, const tap_state_t* path);
+ 
+ /**
++ * jtag_add_statemove() moves from the current state to @a goal_state.
++ *
++ * @param goal_state The final TAP state.
++ * @return ERROR_OK on success, or an error code on failure.
++ *
++ * Moves from the current state to the goal \a state. 
++ *
++ * This needs to be handled according to the xsvf spec, see the XSTATE
++ * command description.  From the XSVF spec, pertaining to XSTATE:
++ *
++ * For special states known as stable states (Test-Logic-Reset,
++ * Run-Test/Idle, Pause-DR, Pause- IR), an XSVF interpreter follows
++ * predefined TAP state paths when the starting state is a stable state
++ * and when the XSTATE specifies a new stable state.  See the STATE
++ * command in the [Ref 5] for the TAP state paths between stable
++ * states.
++ *
++ * For non-stable states, XSTATE should specify a state that is only one
++ * TAP state transition distance from the current TAP state to avoid
++ * undefined TAP state paths. A sequence of multiple XSTATE commands can
++ * be issued to transition the TAP through a specific state path.
++ *
++ * @note Unless @c tms_bits holds a path that agrees with [Ref 5] in the
++ * above spec, then this code is not fully conformant to the xsvf spec.
++ * This puts a burden on tap_get_tms_path() function from the xsvf spec.
++ * If in doubt, you should confirm that that burden is being met.
++ *
++ * Otherwise, @a goal_state must be immediately reachable in one clock
++ * cycle, and does not need to be a stable state.
++ */
++extern int jtag_add_statemove(tap_state_t goal_state);
++
++/**
+  * Goes to TAP_IDLE (if we're not already there), cycle
+  * precisely num_cycles in the TAP_IDLE state, after which move
+  * to @a endstate (unless it is also TAP_IDLE).
+@@ -674,39 +707,6 @@
+ 		tap_state_t end_state);
+ 
+ 
+-/**
+- * jtag_add_statemove() moves from the current state to @a goal_state.
+- *
+- * @param goal_state The final TAP state.
+- * @return ERROR_OK on success, or an error code on failure.
+- *
+- * Moves from the current state to the goal \a state. 
+- *
+- * This needs to be handled according to the xsvf spec, see the XSTATE
+- * command description.  From the XSVF spec, pertaining to XSTATE:
+- *
+- * For special states known as stable states (Test-Logic-Reset,
+- * Run-Test/Idle, Pause-DR, Pause- IR), an XSVF interpreter follows
+- * predefined TAP state paths when the starting state is a stable state
+- * and when the XSTATE specifies a new stable state.  See the STATE
+- * command in the [Ref 5] for the TAP state paths between stable
+- * states.
+- *
+- * For non-stable states, XSTATE should specify a state that is only one
+- * TAP state transition distance from the current TAP state to avoid
+- * undefined TAP state paths. A sequence of multiple XSTATE commands can
+- * be issued to transition the TAP through a specific state path.
+- *
+- * @note Unless @c tms_bits holds a path that agrees with [Ref 5] in the
+- * above spec, then this code is not fully conformant to the xsvf spec.
+- * This puts a burden on tap_get_tms_path() function from the xsvf spec.
+- * If in doubt, you should confirm that that burden is being met.
+- *
+- * Otherwise, @a goal_state must be immediately reachable in one clock
+- * cycle, and does not need to be a stable state.
+- */
+-extern int jtag_add_statemove(tap_state_t goal_state);
+-
+ /// @returns the number of times the scan queue has been flushed
+ int jtag_get_flush_queue_count(void);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000967.html">[Openocd-svn] r2183 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="000969.html">[Openocd-svn] r2185 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#968">[ date ]</a>
+              <a href="thread.html#968">[ thread ]</a>
+              <a href="subject.html#968">[ subject ]</a>
+              <a href="author.html#968">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,248 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2754 - trunk/src/server
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2754%20-%20trunk/src/server&In-Reply-To=%3C200909240634.n8O6YPxj027134%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001536.html">
+   <LINK REL="Next"  HREF="001538.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2754 - trunk/src/server</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2754%20-%20trunk/src/server&In-Reply-To=%3C200909240634.n8O6YPxj027134%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2754 - trunk/src/server">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Thu Sep 24 08:34:25 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001536.html">[Openocd-svn] r2753 - trunk/src/helper
+</A></li>
+        <LI>Next message: <A HREF="001538.html">[Openocd-svn] r2755 - trunk/src/helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1537">[ date ]</a>
+              <a href="thread.html#1537">[ thread ]</a>
+              <a href="subject.html#1537">[ subject ]</a>
+              <a href="author.html#1537">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-09-24 08:34:23 +0200 (Thu, 24 Sep 2009)
+New Revision: 2754
+
+Modified:
+   trunk/src/server/gdb_server.c
+   trunk/src/server/gdb_server.h
+Log:
+When attaching GDB to OpenOCD, the target state is no longer affected.
+Added gdb_sync feature that allows GDB to sync up to target state.
+Issue &quot;monitor gdb_sync&quot; and the next stepi, will return immediately
+with updated register values to GDB.
+
+
+Modified: trunk/src/server/gdb_server.c
+===================================================================
+--- trunk/src/server/gdb_server.c	2009-09-23 22:03:41 UTC (rev 2753)
++++ trunk/src/server/gdb_server.c	2009-09-24 06:34:23 UTC (rev 2754)
+@@ -40,6 +40,8 @@
+ #define _DEBUG_GDB_IO_
+ #endif
+ 
++static gdb_connection_t *current_gdb_connection;
++
+ static int gdb_breakpoint_override;
+ static enum breakpoint_type gdb_breakpoint_override_type;
+ 
+@@ -750,6 +752,7 @@
+ 	gdb_connection-&gt;closed = 0;
+ 	gdb_connection-&gt;busy = 0;
+ 	gdb_connection-&gt;noack_mode = 0;
++	gdb_connection-&gt;sync = true;
+ 
+ 	/* send ACK to GDB for debug request */
+ 	gdb_write(connection, &quot;+&quot;, 1);
+@@ -767,30 +770,6 @@
+ 	/* register callback to be informed about target events */
+ 	target_register_event_callback(gdb_target_callback_event_handler, connection);
+ 
+-	/* a gdb session just attached, try to put the target in halt mode.
+-	 *
+-	 * DANGER!!!!
+-	 *
+-	 * If the halt fails(e.g. target needs a reset, JTAG communication not
+-	 * working, etc.), then the GDB connect will succeed as
+-	 * the get_gdb_reg_list() will lie and return a register list with
+-	 * dummy values.
+-	 *
+-	 * This allows GDB monitor commands to be run from a GDB init script to
+-	 * initialize the target
+-	 *
+-	 * Also, since the halt() is asynchronous target connect will be
+-	 * instantaneous and thus avoiding annoying timeout problems during
+-	 * connect.
+-	 */
+-	target_halt(gdb_service-&gt;target);
+-	/* FIX!!!! could extended-remote work better here?
+-	 *
+-	 *  wait a tiny bit for halted state or we just continue. The
+-	 * GDB register packet will then contain garbage
+-	 */
+-	target_wait_state(gdb_service-&gt;target, TARGET_HALTED, 500);
+-
+ 	/* remove the initial ACK from the incoming buffer */
+ 	if ((retval = gdb_get_char(connection, &amp;initial_ack)) != ERROR_OK)
+ 		return retval;
+@@ -1609,7 +1588,11 @@
+ 			/* We want to print all debug output to GDB connection */
+ 			log_add_callback(gdb_log_callback, connection);
+ 			target_call_timer_callbacks_now();
++			/* some commands need to know the GDB connection, make note of current
++			 * GDB connection. */
++			current_gdb_connection = gdb_connection;
+ 			command_run_line(cmd_ctx, cmd);
++			current_gdb_connection = NULL;
+ 			target_call_timer_callbacks_now();
+ 			log_remove_callback(gdb_log_callback, connection);
+ 			free(cmd);
+@@ -2107,20 +2090,52 @@
+ 				case 'c':
+ 				case 's':
+ 					{
+-						if (target-&gt;state != TARGET_HALTED)
++						int retval = ERROR_OK;
++
++						gdb_connection_t *gdb_con = connection-&gt;priv;
++						log_add_callback(gdb_log_callback, connection);
++
++						bool nostep = false;
++						if (target-&gt;state == TARGET_RUNNING)
+ 						{
+-							/* If the target isn't in the halted state, then we can't
++							LOG_WARNING(&quot;The target is already running. Halt target before stepi/continue.&quot;);
++							retval = target_halt(target);
++							if (retval == ERROR_OK)
++								retval = target_wait_state(target, TARGET_HALTED, 100);
++						} else if (target-&gt;state != TARGET_HALTED)
++						{
++							LOG_WARNING(&quot;The target is not in the halted nor running stated, stepi/continue ignored.&quot;);
++							nostep = true;
++						} else if ((packet[0] == 's') &amp;&amp; gdb_con-&gt;sync)
++						{
++							/* Hmm..... when you issue a continue in GDB, then a &quot;stepi&quot; is
++							 * sent by GDB first to OpenOCD, thus defeating the check to
++							 * make only the single stepping have the sync feature...
++							 */
++							nostep = true;
++							LOG_WARNING(&quot;stepi ignored. GDB will now fetch the register state from the target.&quot;);
++						}
++						gdb_con-&gt;sync = false;
++
++						if ((retval!=ERROR_OK) || nostep)
++						{
++							/* Either the target isn't in the halted state, then we can't
+ 							 * step/continue. This might be early setup, etc.
++							 *
++							 * Or we want to allow GDB to pick up a fresh set of
++							 * register values without modifying the target state.
++							 *
+ 							 */
+ 							gdb_sig_halted(connection);
++
++							/* stop forwarding log packets! */
++							log_remove_callback(gdb_log_callback, connection);
+ 						} else
+ 						{
+ 							/* We're running/stepping, in which case we can
+ 							 * forward log output until the target is halted
+ 							 */
+-							gdb_connection_t *gdb_con = connection-&gt;priv;
+ 							gdb_con-&gt;frontend_state = TARGET_RUNNING;
+-							log_add_callback(gdb_log_callback, connection);
+ 							target_call_event_callbacks(target, TARGET_EVENT_GDB_START);
+ 							int retval = gdb_step_continue_packet(connection, target, packet, packet_size);
+ 							if (retval != ERROR_OK)
+@@ -2255,6 +2270,25 @@
+ 	return ERROR_OK;
+ }
+ 
++int handle_gdb_sync_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	if (argc != 0)
++	{
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	if (current_gdb_connection == NULL)
++	{
++		command_print(cmd_ctx,
++				&quot;gdb_sync command can only be run from within gdb using \&quot;monitor gdb_sync\&quot;&quot;);
++		return ERROR_FAIL;
++	}
++
++	current_gdb_connection-&gt;sync = true;
++
++	return ERROR_OK;
++}
++
+ /* daemon configuration command gdb_port */
+ int handle_gdb_port_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
+@@ -2399,6 +2433,8 @@
+ 
+ int gdb_register_commands(command_context_t *command_context)
+ {
++	register_command(command_context, NULL, &quot;gdb_sync&quot;, handle_gdb_sync_command,
++			COMMAND_ANY, &quot;next stepi will return immediately allowing GDB fetch register state without affecting target state&quot;);
+ 	register_command(command_context, NULL, &quot;gdb_port&quot;, handle_gdb_port_command,
+ 			COMMAND_ANY, &quot;daemon configuration command gdb_port&quot;);
+ 	register_command(command_context, NULL, &quot;gdb_detach&quot;, handle_gdb_detach_command,
+
+Modified: trunk/src/server/gdb_server.h
+===================================================================
+--- trunk/src/server/gdb_server.h	2009-09-23 22:03:41 UTC (rev 2753)
++++ trunk/src/server/gdb_server.h	2009-09-24 06:34:23 UTC (rev 2754)
+@@ -43,6 +43,10 @@
+ 	int closed;
+ 	int busy;
+ 	int noack_mode;
++	bool sync; 	/* set flag to true if you want the next stepi to return immediately.
++	               allowing GDB to pick up a fresh set of register values from the target
++	               without modifying the target state. */
++
+ } gdb_connection_t;
+ 
+ typedef struct gdb_service_s
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001536.html">[Openocd-svn] r2753 - trunk/src/helper
+</A></li>
+	<LI>Next message: <A HREF="001538.html">[Openocd-svn] r2755 - trunk/src/helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1537">[ date ]</a>
+              <a href="thread.html#1537">[ thread ]</a>
+              <a href="subject.html#1537">[ subject ]</a>
+              <a href="author.html#1537">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

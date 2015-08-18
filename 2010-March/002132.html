@@ -1,0 +1,1418 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-49-g381ce43
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-49-g381ce43&In-Reply-To=%3CE1NmiUg-000528-GV%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002131.html">
+   <LINK REL="Next"  HREF="002133.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-49-g381ce43</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-49-g381ce43&In-Reply-To=%3CE1NmiUg-000528-GV%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-49-g381ce43">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Wed Mar  3 07:55:41 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002131.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-45-gd72e90a
+</A></li>
+        <LI>Next message: <A HREF="002133.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-50-g2119c0a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2132">[ date ]</a>
+              <a href="thread.html#2132">[ thread ]</a>
+              <a href="subject.html#2132">[ subject ]</a>
+              <a href="author.html#2132">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  381ce4308c60c54e3a03d97e883302909b834875 (commit)
+       via  61ee632dbc4dce5f4ce6f6dac537f488595917b9 (commit)
+       via  24b1426a728f2bac1b3828069fa13af2be6d9e94 (commit)
+       via  db6c994642f29b7d47abb4233494a606fbb65369 (commit)
+      from  d72e90ae4b070cc08799e800c111dd422ac6b1a4 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 381ce4308c60c54e3a03d97e883302909b834875
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Mar 2 22:49:36 2010 -0800
+
+    ADIv5: use new DAP ops for AP read/write
+    
+    Make ADIv5 internals use the two new transport-neutral calls for reading
+    and writing DP registers; and do the same for external callers.  Also,
+    bugfix some of their call sites to handle the fault returns, instead of
+    ignoring them.
+    
+    Remove most of the JTAG-specific calls, using their code as the bodies
+    of the JTAG-specific implementation for the new methods.
+    
+    NOTE that there's a remaining issue:  mem_ap_read_buf_u32() makes calls
+    which are JTAG-specific.  A later patch will need to remove those, so
+    JTAG-specific operations can be removed from this file, and so that SWD
+    support will be able to properly drop in as just a transport layer to the
+    ADIv5 infrastructure.  (The way read results are posted may need some more
+    attention in the transport-neutrality interface.)
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index 2d9ea0d..c5e0dd3 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -328,8 +328,16 @@ static int jtagdp_transaction_endcheck(struct swjdp_common *swjdp)
+ 
+ 			LOG_DEBUG(&quot;jtag-dp: CTRL/STAT 0x%&quot; PRIx32, ctrlstat);
+ 
+-			dap_ap_read_reg_u32(swjdp, AP_REG_CSW, &amp;mem_ap_csw);
+-			dap_ap_read_reg_u32(swjdp, AP_REG_TAR, &amp;mem_ap_tar);
++			retval = dap_queue_ap_read(swjdp,
++					AP_REG_CSW, &amp;mem_ap_csw);
++			if (retval != ERROR_OK)
++				return retval;
++
++			retval = dap_queue_ap_read(swjdp,
++					AP_REG_TAR, &amp;mem_ap_tar);
++			if (retval != ERROR_OK)
++				return retval;
++
+ 			if ((retval = dap_run(swjdp)) != ERROR_OK)
+ 				return retval;
+ 			LOG_ERROR(&quot;MEM_AP_CSW 0x%&quot; PRIx32 &quot;, MEM_AP_TAR 0x%&quot;
+@@ -375,79 +383,6 @@ void dap_ap_select(struct swjdp_common *swjdp,uint8_t apsel)
+ 	}
+ }
+ 
+-/** Select the AP register bank matching bits 7:4 of ap_reg. */
+-static int dap_ap_bankselect(struct swjdp_common *swjdp, uint32_t ap_reg)
+-{
+-	uint32_t select = (ap_reg &amp; 0x000000F0);
+-
+-	if (select != swjdp-&gt;ap_bank_value)
+-	{
+-		swjdp-&gt;ap_bank_value = select;
+-		select |= swjdp-&gt;apsel;
+-		return dap_queue_dp_write(swjdp, DP_SELECT, select);
+-	} else
+-		return ERROR_OK;
+-}
+-
+-/* FIXME remove dap_ap_{read,write}_reg() and dap_ap_write_reg_u32()
+- * ... these should become the bodies of the JTAG implementations of
+- * dap_queue_ap_{read,write}(), then all their current callers should
+- * switch over to the transport-neutral calls.
+- */
+-
+-static int dap_ap_write_reg(struct swjdp_common *swjdp,
+-		uint32_t reg_addr, uint8_t *out_value_buf)
+-{
+-	int retval;
+-
+-	retval = dap_ap_bankselect(swjdp, reg_addr);
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-	return adi_jtag_ap_write_check(swjdp, reg_addr, out_value_buf);
+-}
+-
+-/**
+- * Asynchronous (queued) AP register write.
+- *
+- * @param swjdp The DAP whose currently selected AP will be written.
+- * @param reg_addr Eight bit AP register address.
+- * @param value Word to be written at reg_addr
+- *
+- * @return ERROR_OK if the transaction was properly queued, else a fault code.
+- */
+-int dap_ap_write_reg_u32(struct swjdp_common *swjdp,
+-		uint32_t reg_addr, uint32_t value)
+-{
+-	uint8_t out_value_buf[4];
+-
+-	buf_set_u32(out_value_buf, 0, 32, value);
+-	return dap_ap_write_reg(swjdp,
+-			reg_addr, out_value_buf);
+-}
+-
+-/**
+- * Asynchronous (queued) AP register eread.
+- *
+- * @param swjdp The DAP whose currently selected AP will be read.
+- * @param reg_addr Eight bit AP register address.
+- * @param value Points to where the 32-bit (little-endian) word will be stored.
+- *
+- * @return ERROR_OK if the transaction was properly queued, else a fault code.
+- */
+-int dap_ap_read_reg_u32(struct swjdp_common *swjdp,
+-		uint32_t reg_addr, uint32_t *value)
+-{
+-	int retval;
+-
+-	retval = dap_ap_bankselect(swjdp, reg_addr);
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-	return adi_jtag_scan_inout_check_u32(swjdp, JTAG_DP_APACC, reg_addr,
+-			DPAP_READ, 0, value);
+-}
+-
+ /**
+  * Queue transactions setting up transfer parameters for the
+  * currently selected MEM-AP.
+@@ -475,7 +410,7 @@ int dap_setup_accessport(struct swjdp_common *swjdp, uint32_t csw, uint32_t tar)
+ 	if (csw != swjdp-&gt;ap_csw_value)
+ 	{
+ 		/* LOG_DEBUG(&quot;DAP: Set CSW %x&quot;,csw); */
+-		retval = dap_ap_write_reg_u32(swjdp, AP_REG_CSW, csw);
++		retval = dap_queue_ap_write(swjdp, AP_REG_CSW, csw);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+ 		swjdp-&gt;ap_csw_value = csw;
+@@ -483,7 +418,7 @@ int dap_setup_accessport(struct swjdp_common *swjdp, uint32_t csw, uint32_t tar)
+ 	if (tar != swjdp-&gt;ap_tar_value)
+ 	{
+ 		/* LOG_DEBUG(&quot;DAP: Set TAR %x&quot;,tar); */
+-		retval = dap_ap_write_reg_u32(swjdp, AP_REG_TAR, tar);
++		retval = dap_queue_ap_write(swjdp, AP_REG_TAR, tar);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+ 		swjdp-&gt;ap_tar_value = tar;
+@@ -518,7 +453,7 @@ int mem_ap_read_u32(struct swjdp_common *swjdp, uint32_t address,
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+-	return dap_ap_read_reg_u32(swjdp, AP_REG_BD0 | (address &amp; 0xC), value);
++	return dap_queue_ap_read(swjdp, AP_REG_BD0 | (address &amp; 0xC), value);
+ }
+ 
+ /**
+@@ -569,7 +504,7 @@ int mem_ap_write_u32(struct swjdp_common *swjdp, uint32_t address,
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+-	return dap_ap_write_reg_u32(swjdp, AP_REG_BD0 | (address &amp; 0xC),
++	return dap_queue_ap_write(swjdp, AP_REG_BD0 | (address &amp; 0xC),
+ 			value);
+ }
+ 
+@@ -645,7 +580,10 @@ int mem_ap_write_buf_u32(struct swjdp_common *swjdp, uint8_t *buffer, int count,
+ 
+ 		for (writecount = 0; writecount &lt; blocksize; writecount++)
+ 		{
+-			dap_ap_write_reg(swjdp, AP_REG_DRW, buffer + 4 * writecount);
++			retval = dap_queue_ap_write(swjdp, AP_REG_DRW,
++				*(uint32_t *) (buffer + 4 * writecount));
++			if (retval != ERROR_OK)
++				break;
+ 		}
+ 
+ 		if (dap_run(swjdp) == ERROR_OK)
+@@ -725,7 +663,11 @@ static int mem_ap_write_buf_packed_u16(struct swjdp_common *swjdp,
+ 				}
+ 
+ 				memcpy(&amp;outvalue, buffer, sizeof(uint32_t));
+-				dap_ap_write_reg_u32(swjdp, AP_REG_DRW, outvalue);
++				retval = dap_queue_ap_write(swjdp,
++						AP_REG_DRW, outvalue);
++				if (retval != ERROR_OK)
++					break;
++
+ 				if (dap_run(swjdp) != ERROR_OK)
+ 				{
+ 					LOG_WARNING(&quot;Block write error address &quot;
+@@ -759,7 +701,10 @@ int mem_ap_write_buf_u16(struct swjdp_common *swjdp, uint8_t *buffer, int count,
+ 		uint16_t svalue;
+ 		memcpy(&amp;svalue, buffer, sizeof(uint16_t));
+ 		uint32_t outvalue = (uint32_t)svalue &lt;&lt; 8 * (address &amp; 0x3);
+-		dap_ap_write_reg_u32(swjdp, AP_REG_DRW, outvalue);
++		retval = dap_queue_ap_write(swjdp, AP_REG_DRW, outvalue);
++		if (retval != ERROR_OK)
++			break;
++
+ 		retval = dap_run(swjdp);
+ 		if (retval != ERROR_OK)
+ 			break;
+@@ -822,7 +767,11 @@ static int mem_ap_write_buf_packed_u8(struct swjdp_common *swjdp,
+ 				}
+ 
+ 				memcpy(&amp;outvalue, buffer, sizeof(uint32_t));
+-				dap_ap_write_reg_u32(swjdp, AP_REG_DRW, outvalue);
++				retval = dap_queue_ap_write(swjdp,
++						AP_REG_DRW, outvalue);
++				if (retval != ERROR_OK)
++					break;
++
+ 				if (dap_run(swjdp) != ERROR_OK)
+ 				{
+ 					LOG_WARNING(&quot;Block write error address &quot;
+@@ -854,7 +803,10 @@ int mem_ap_write_buf_u8(struct swjdp_common *swjdp, uint8_t *buffer, int count,
+ 	{
+ 		dap_setup_accessport(swjdp, CSW_8BIT | CSW_ADDRINC_SINGLE, address);
+ 		uint32_t outvalue = (uint32_t)*buffer &lt;&lt; 8 * (address &amp; 0x3);
+-		dap_ap_write_reg_u32(swjdp, AP_REG_DRW, outvalue);
++		retval = dap_queue_ap_write(swjdp, AP_REG_DRW, outvalue);
++		if (retval != ERROR_OK)
++			break;
++
+ 		retval = dap_run(swjdp);
+ 		if (retval != ERROR_OK)
+ 			break;
+@@ -903,6 +855,13 @@ int mem_ap_read_buf_u32(struct swjdp_common *swjdp, uint8_t *buffer,
+ 		dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_SINGLE,
+ 				address);
+ 
++		/* FIXME remove these three calls to adi_jtag_dp_scan(),
++		 * so this routine becomes transport-neutral.  Be careful
++		 * not to cause performance problems with JTAG; would it
++		 * suffice to loop over dap_queue_ap_read(), or would that
++		 * be slower when JTAG is the chosen transport?
++		 */
++
+ 		/* Scan out first read */
+ 		adi_jtag_dp_scan(swjdp, JTAG_DP_APACC, AP_REG_DRW,
+ 				DPAP_READ, 0, NULL, NULL);
+@@ -992,7 +951,7 @@ static int mem_ap_read_buf_packed_u16(struct swjdp_common *swjdp,
+ 
+ 		do
+ 		{
+-			dap_ap_read_reg_u32(swjdp, AP_REG_DRW, &amp;invalue);
++			retval = dap_queue_ap_read(swjdp, AP_REG_DRW, &amp;invalue);
+ 			if (dap_run(swjdp) != ERROR_OK)
+ 			{
+ 				LOG_WARNING(&quot;Block read error address 0x%&quot; PRIx32 &quot;, count 0x%x&quot;, address, count);
+@@ -1037,7 +996,10 @@ int mem_ap_read_buf_u16(struct swjdp_common *swjdp, uint8_t *buffer,
+ 	while (count &gt; 0)
+ 	{
+ 		dap_setup_accessport(swjdp, CSW_16BIT | CSW_ADDRINC_SINGLE, address);
+-		dap_ap_read_reg_u32(swjdp, AP_REG_DRW, &amp;invalue);
++		retval = dap_queue_ap_read(swjdp, AP_REG_DRW, &amp;invalue);
++		if (retval != ERROR_OK)
++			break;
++
+ 		retval = dap_run(swjdp);
+ 		if (retval != ERROR_OK)
+ 			break;
+@@ -1094,7 +1056,7 @@ static int mem_ap_read_buf_packed_u8(struct swjdp_common *swjdp,
+ 
+ 		do
+ 		{
+-			dap_ap_read_reg_u32(swjdp, AP_REG_DRW, &amp;invalue);
++			retval = dap_queue_ap_read(swjdp, AP_REG_DRW, &amp;invalue);
+ 			if (dap_run(swjdp) != ERROR_OK)
+ 			{
+ 				LOG_WARNING(&quot;Block read error address 0x%&quot; PRIx32 &quot;, count 0x%x&quot;, address, count);
+@@ -1139,7 +1101,7 @@ int mem_ap_read_buf_u8(struct swjdp_common *swjdp, uint8_t *buffer,
+ 	while (count &gt; 0)
+ 	{
+ 		dap_setup_accessport(swjdp, CSW_8BIT | CSW_ADDRINC_SINGLE, address);
+-		dap_ap_read_reg_u32(swjdp, AP_REG_DRW, &amp;invalue);
++		retval = dap_queue_ap_read(swjdp, AP_REG_DRW, &amp;invalue);
+ 		retval = dap_run(swjdp);
+ 		if (retval != ERROR_OK)
+ 			break;
+@@ -1199,6 +1161,7 @@ static int jtag_dp_q_write(struct swjdp_common *dap, unsigned reg,
+ 			reg, DPAP_WRITE, data, NULL);
+ }
+ 
++/** Select the AP register bank matching bits 7:4 of reg. */
+ static int jtag_ap_q_bankselect(struct swjdp_common *dap, unsigned reg)
+ {
+ 	uint32_t select = reg &amp; 0x000000F0;
+@@ -1219,17 +1182,23 @@ static int jtag_ap_q_read(struct swjdp_common *dap, unsigned reg,
+ 
+ 	if (retval != ERROR_OK)
+ 		return retval;
+-	return dap_ap_read_reg_u32(dap, reg, data);
++
++	return adi_jtag_scan_inout_check_u32(dap, JTAG_DP_APACC, reg,
++			DPAP_READ, 0, data);
+ }
+ 
+ static int jtag_ap_q_write(struct swjdp_common *dap, unsigned reg,
+ 		uint32_t data)
+ {
+-	int retval = jtag_ap_q_bankselect(dap, reg);
++	uint8_t out_value_buf[4];
+ 
++	int retval = jtag_ap_q_bankselect(dap, reg);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+-	return dap_ap_write_reg_u32(dap, reg, data);
++
++	buf_set_u32(out_value_buf, 0, 32, data);
++
++	return adi_jtag_ap_write_check(dap, reg, out_value_buf);
+ }
+ 
+ static int jtag_ap_q_abort(struct swjdp_common *dap, uint8_t *ack)
+@@ -1355,8 +1324,8 @@ int ahbap_debugport_init(struct swjdp_common *swjdp)
+ 	 * Should it?  If the ROM address is valid, is this the right
+ 	 * place to scan the table and do any topology detection?
+ 	 */
+-	dap_ap_read_reg_u32(swjdp, AP_REG_IDR, &amp;idreg);
+-	dap_ap_read_reg_u32(swjdp, AP_REG_BASE, &amp;romaddr);
++	retval = dap_queue_ap_read(swjdp, AP_REG_IDR, &amp;idreg);
++	retval = dap_queue_ap_read(swjdp, AP_REG_BASE, &amp;romaddr);
+ 
+ 	LOG_DEBUG(&quot;MEM-AP #%d ID Register 0x%&quot; PRIx32
+ 		&quot;, Debug ROM Address 0x%&quot; PRIx32,
+@@ -1398,8 +1367,8 @@ int dap_info_command(struct command_context *cmd_ctx,
+ 
+ 	apselold = swjdp-&gt;apsel;
+ 	dap_ap_select(swjdp, apsel);
+-	dap_ap_read_reg_u32(swjdp, AP_REG_BASE, &amp;dbgbase);
+-	dap_ap_read_reg_u32(swjdp, AP_REG_IDR, &amp;apid);
++	retval = dap_queue_ap_read(swjdp, AP_REG_BASE, &amp;dbgbase);
++	retval = dap_queue_ap_read(swjdp, AP_REG_IDR, &amp;apid);
+ 	retval = dap_run(swjdp);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -1770,7 +1739,7 @@ DAP_COMMAND_HANDLER(dap_baseaddr_command)
+ 	 * though they're not common for now.  This should
+ 	 * use the ID register to verify it's a MEM-AP.
+ 	 */
+-	dap_ap_read_reg_u32(swjdp, AP_REG_BASE, &amp;baseaddr);
++	retval = dap_queue_ap_read(swjdp, AP_REG_BASE, &amp;baseaddr);
+ 	retval = dap_run(swjdp);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -1825,7 +1794,7 @@ DAP_COMMAND_HANDLER(dap_apsel_command)
+ 	}
+ 
+ 	dap_ap_select(swjdp, apsel);
+-	dap_ap_read_reg_u32(swjdp, AP_REG_IDR, &amp;apid);
++	retval = dap_queue_ap_read(swjdp, AP_REG_IDR, &amp;apid);
+ 	retval = dap_run(swjdp);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -1859,7 +1828,7 @@ DAP_COMMAND_HANDLER(dap_apid_command)
+ 	if (apselsave != apsel)
+ 		dap_ap_select(swjdp, apsel);
+ 
+-	dap_ap_read_reg_u32(swjdp, AP_REG_IDR, &amp;apid);
++	retval = dap_queue_ap_read(swjdp, AP_REG_IDR, &amp;apid);
+ 	retval = dap_run(swjdp);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+diff --git a/src/target/arm_adi_v5.h b/src/target/arm_adi_v5.h
+index e71feb9..e867b85 100644
+--- a/src/target/arm_adi_v5.h
++++ b/src/target/arm_adi_v5.h
+@@ -350,10 +350,6 @@ void dap_ap_select(struct swjdp_common *dap,uint8_t apsel);
+ /* Queued AP transactions */
+ int dap_setup_accessport(struct swjdp_common *swjdp,
+ 		uint32_t csw, uint32_t tar);
+-int dap_ap_write_reg_u32(struct swjdp_common *swjdp,
+-		uint32_t addr, uint32_t value);
+-int dap_ap_read_reg_u32(struct swjdp_common *swjdp,
+-		uint32_t addr, uint32_t *value);
+ 
+ /* Queued MEM-AP memory mapped single word transfers */
+ int mem_ap_read_u32(struct swjdp_common *swjdp, uint32_t address, uint32_t *value);
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index 7aec015..3178ce3 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -72,13 +72,19 @@ static int cortexm3_dap_read_coreregister_u32(struct swjdp_common *swjdp,
+ 
+ 	/* mem_ap_write_u32(swjdp, DCB_DCRSR, regnum); */
+ 	dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, DCB_DCRSR &amp; 0xFFFFFFF0);
+-	dap_ap_write_reg_u32(swjdp, AP_REG_BD0 | (DCB_DCRSR &amp; 0xC), regnum);
++	retval = dap_queue_ap_write(swjdp, AP_REG_BD0 | (DCB_DCRSR &amp; 0xC), regnum);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	/* mem_ap_read_u32(swjdp, DCB_DCRDR, value); */
+ 	dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, DCB_DCRDR &amp; 0xFFFFFFF0);
+-	dap_ap_read_reg_u32(swjdp, AP_REG_BD0 | (DCB_DCRDR &amp; 0xC), value);
++	retval = dap_queue_ap_read(swjdp, AP_REG_BD0 | (DCB_DCRDR &amp; 0xC), value);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	retval = dap_run(swjdp);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	/* restore DCB_DCRDR - this needs to be in a seperate
+ 	 * transaction otherwise the emulated DCC channel breaks */
+@@ -101,11 +107,13 @@ static int cortexm3_dap_write_coreregister_u32(struct swjdp_common *swjdp,
+ 
+ 	/* mem_ap_write_u32(swjdp, DCB_DCRDR, core_regs[i]); */
+ 	dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, DCB_DCRDR &amp; 0xFFFFFFF0);
+-	dap_ap_write_reg_u32(swjdp, AP_REG_BD0 | (DCB_DCRDR &amp; 0xC), value);
++	retval = dap_queue_ap_write(swjdp, AP_REG_BD0 | (DCB_DCRDR &amp; 0xC), value);
++	// XXX check retval
+ 
+ 	/* mem_ap_write_u32(swjdp, DCB_DCRSR, i | DCRSR_WnR); */
+ 	dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, DCB_DCRSR &amp; 0xFFFFFFF0);
+-	dap_ap_write_reg_u32(swjdp, AP_REG_BD0 | (DCB_DCRSR &amp; 0xC), regnum | DCRSR_WnR);
++	retval = dap_queue_ap_write(swjdp, AP_REG_BD0 | (DCB_DCRSR &amp; 0xC), regnum | DCRSR_WnR);
++	// XXX check retval
+ 
+ 	retval = dap_run(swjdp);
+ 
+
+commit 61ee632dbc4dce5f4ce6f6dac537f488595917b9
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Mar 2 22:46:38 2010 -0800
+
+    ADIv5: use new DAP ops for DP read/write
+    
+    Make ADIv5 internals use the two new transport-neutral calls for reading
+    and writing DP registers.  Also,  bugfix some of their call sites to
+    handle the fault returns, instead of ignoring them.
+    
+    Remove the old JTAG-specific calls, using their code as the bodies
+    of the JTAG-specific implementation for the new methods.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index daabd8b..2d9ea0d 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -350,25 +350,6 @@ static int jtagdp_transaction_endcheck(struct swjdp_common *swjdp)
+  *                                                                         *
+ ***************************************************************************/
+ 
+-/* FIXME remove dap_dp_{read,write}_reg() ... these should become the
+- * bodies of the JTAG implementations of dap_queue_dp_{read,write}() and
+- * callers should switch over to the transport-neutral calls.
+- */
+-
+-static int dap_dp_write_reg(struct swjdp_common *swjdp,
+-		uint32_t value, uint8_t reg_addr)
+-{
+-	return adi_jtag_scan_inout_check_u32(swjdp, JTAG_DP_DPACC,
+-			reg_addr, DPAP_WRITE, value, NULL);
+-}
+-
+-static int dap_dp_read_reg(struct swjdp_common *swjdp,
+-		uint32_t *value, uint8_t reg_addr)
+-{
+-	return adi_jtag_scan_inout_check_u32(swjdp, JTAG_DP_DPACC,
+-			reg_addr, DPAP_READ, 0, value);
+-}
+-
+ /**
+  * Select one of the APs connected to the specified DAP.  The
+  * selection is implicitly used with future AP transactions.
+@@ -403,7 +384,7 @@ static int dap_ap_bankselect(struct swjdp_common *swjdp, uint32_t ap_reg)
+ 	{
+ 		swjdp-&gt;ap_bank_value = select;
+ 		select |= swjdp-&gt;apsel;
+-		return dap_dp_write_reg(swjdp, select, DP_SELECT);
++		return dap_queue_dp_write(swjdp, DP_SELECT, select);
+ 	} else
+ 		return ERROR_OK;
+ }
+@@ -1207,13 +1188,15 @@ static int jtag_idcode_q_read(struct swjdp_common *dap,
+ static int jtag_dp_q_read(struct swjdp_common *dap, unsigned reg,
+ 		uint32_t *data)
+ {
+-	return dap_dp_read_reg(dap, data, reg);
++	return adi_jtag_scan_inout_check_u32(dap, JTAG_DP_DPACC,
++			reg, DPAP_READ, 0, data);
+ }
+ 
+ static int jtag_dp_q_write(struct swjdp_common *dap, unsigned reg,
+ 		uint32_t data)
+ {
+-	return dap_dp_write_reg(dap, data, reg);
++	return adi_jtag_scan_inout_check_u32(dap, JTAG_DP_DPACC,
++			reg, DPAP_WRITE, data, NULL);
+ }
+ 
+ static int jtag_ap_q_bankselect(struct swjdp_common *dap, unsigned reg)
+@@ -1307,14 +1290,27 @@ int ahbap_debugport_init(struct swjdp_common *swjdp)
+ 	dap_ap_select(swjdp, 0);
+ 
+ 	/* DP initialization */
+-	dap_dp_read_reg(swjdp, &amp;dummy, DP_CTRL_STAT);
+-	dap_dp_write_reg(swjdp, SSTICKYERR, DP_CTRL_STAT);
+-	dap_dp_read_reg(swjdp, &amp;dummy, DP_CTRL_STAT);
++
++	retval = dap_queue_dp_read(swjdp, DP_CTRL_STAT, &amp;dummy);
++	if (retval != ERROR_OK)
++		return retval;
++
++	retval = dap_queue_dp_write(swjdp, DP_CTRL_STAT, SSTICKYERR);
++	if (retval != ERROR_OK)
++		return retval;
++
++	retval = dap_queue_dp_read(swjdp, DP_CTRL_STAT, &amp;dummy);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	swjdp-&gt;dp_ctrl_stat = CDBGPWRUPREQ | CSYSPWRUPREQ;
++	retval = dap_queue_dp_write(swjdp, DP_CTRL_STAT, swjdp-&gt;dp_ctrl_stat);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+-	dap_dp_write_reg(swjdp, swjdp-&gt;dp_ctrl_stat, DP_CTRL_STAT);
+-	dap_dp_read_reg(swjdp, &amp;ctrlstat, DP_CTRL_STAT);
++	retval = dap_queue_dp_read(swjdp, DP_CTRL_STAT, &amp;ctrlstat);
++	if (retval != ERROR_OK)
++		return retval;
+ 	if ((retval = dap_run(swjdp)) != ERROR_OK)
+ 		return retval;
+ 
+@@ -1322,7 +1318,9 @@ int ahbap_debugport_init(struct swjdp_common *swjdp)
+ 	while (!(ctrlstat &amp; CDBGPWRUPACK) &amp;&amp; (cnt++ &lt; 10))
+ 	{
+ 		LOG_DEBUG(&quot;DAP: wait CDBGPWRUPACK&quot;);
+-		dap_dp_read_reg(swjdp, &amp;ctrlstat, DP_CTRL_STAT);
++		retval = dap_queue_dp_read(swjdp, DP_CTRL_STAT, &amp;ctrlstat);
++		if (retval != ERROR_OK)
++			return retval;
+ 		if ((retval = dap_run(swjdp)) != ERROR_OK)
+ 			return retval;
+ 		alive_sleep(10);
+@@ -1331,17 +1329,25 @@ int ahbap_debugport_init(struct swjdp_common *swjdp)
+ 	while (!(ctrlstat &amp; CSYSPWRUPACK) &amp;&amp; (cnt++ &lt; 10))
+ 	{
+ 		LOG_DEBUG(&quot;DAP: wait CSYSPWRUPACK&quot;);
+-		dap_dp_read_reg(swjdp, &amp;ctrlstat, DP_CTRL_STAT);
++		retval = dap_queue_dp_read(swjdp, DP_CTRL_STAT, &amp;ctrlstat);
++		if (retval != ERROR_OK)
++			return retval;
+ 		if ((retval = dap_run(swjdp)) != ERROR_OK)
+ 			return retval;
+ 		alive_sleep(10);
+ 	}
+ 
+-	dap_dp_read_reg(swjdp, &amp;dummy, DP_CTRL_STAT);
++	retval = dap_queue_dp_read(swjdp, DP_CTRL_STAT, &amp;dummy);
++	if (retval != ERROR_OK)
++		return retval;
+ 	/* With debug power on we can activate OVERRUN checking */
+ 	swjdp-&gt;dp_ctrl_stat = CDBGPWRUPREQ | CSYSPWRUPREQ | CORUNDETECT;
+-	dap_dp_write_reg(swjdp, swjdp-&gt;dp_ctrl_stat, DP_CTRL_STAT);
+-	dap_dp_read_reg(swjdp, &amp;dummy, DP_CTRL_STAT);
++	retval = dap_queue_dp_write(swjdp, DP_CTRL_STAT, swjdp-&gt;dp_ctrl_stat);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = dap_queue_dp_read(swjdp, DP_CTRL_STAT, &amp;dummy);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	/*
+ 	 * REVISIT this isn't actually *initializing* anything in an AP,
+
+commit 24b1426a728f2bac1b3828069fa13af2be6d9e94
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Mar 2 22:42:45 2010 -0800
+
+    ADIv5: use new dap_run() operation
+    
+    Make ADIv5 use one of the new transport-neutral interfaces: call
+    dap_run(), not jtagdp_transaction_endcheck().
+    
+    Also, make that old interface private; and bugfix some of its call
+    sites to handle the fault returns, instead of ignoring them.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index 735308a..daabd8b 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -213,7 +213,7 @@ static int adi_jtag_scan_inout_check_u32(struct swjdp_common *swjdp,
+ 	return retval;
+ }
+ 
+-int jtagdp_transaction_endcheck(struct swjdp_common *swjdp)
++static int jtagdp_transaction_endcheck(struct swjdp_common *swjdp)
+ {
+ 	int retval;
+ 	uint32_t ctrlstat;
+@@ -277,7 +277,7 @@ int jtagdp_transaction_endcheck(struct swjdp_common *swjdp)
+ 
+ 			adi_jtag_scan_inout_check_u32(swjdp, JTAG_DP_DPACC,
+ 					DP_CTRL_STAT, DPAP_READ, 0, &amp;ctrlstat);
+-			if ((retval = jtag_execute_queue()) != ERROR_OK)
++			if ((retval = dap_run(swjdp)) != ERROR_OK)
+ 				return retval;
+ 			swjdp-&gt;ack = swjdp-&gt;ack &amp; 0x7;
+ 		}
+@@ -323,20 +323,20 @@ int jtagdp_transaction_endcheck(struct swjdp_common *swjdp)
+ 						| SSTICKYERR, NULL);
+ 			adi_jtag_scan_inout_check_u32(swjdp, JTAG_DP_DPACC,
+ 					DP_CTRL_STAT, DPAP_READ, 0, &amp;ctrlstat);
+-			if ((retval = jtag_execute_queue()) != ERROR_OK)
++			if ((retval = dap_run(swjdp)) != ERROR_OK)
+ 				return retval;
+ 
+ 			LOG_DEBUG(&quot;jtag-dp: CTRL/STAT 0x%&quot; PRIx32, ctrlstat);
+ 
+ 			dap_ap_read_reg_u32(swjdp, AP_REG_CSW, &amp;mem_ap_csw);
+ 			dap_ap_read_reg_u32(swjdp, AP_REG_TAR, &amp;mem_ap_tar);
+-			if ((retval = jtag_execute_queue()) != ERROR_OK)
++			if ((retval = dap_run(swjdp)) != ERROR_OK)
+ 				return retval;
+ 			LOG_ERROR(&quot;MEM_AP_CSW 0x%&quot; PRIx32 &quot;, MEM_AP_TAR 0x%&quot;
+ 					PRIx32, mem_ap_csw, mem_ap_tar);
+ 
+ 		}
+-		if ((retval = jtag_execute_queue()) != ERROR_OK)
++		if ((retval = dap_run(swjdp)) != ERROR_OK)
+ 			return retval;
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+@@ -561,7 +561,7 @@ int mem_ap_read_atomic_u32(struct swjdp_common *swjdp, uint32_t address,
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+-	return jtagdp_transaction_endcheck(swjdp);
++	return dap_run(swjdp);
+ }
+ 
+ /**
+@@ -611,7 +611,7 @@ int mem_ap_write_atomic_u32(struct swjdp_common *swjdp, uint32_t address,
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+-	return jtagdp_transaction_endcheck(swjdp);
++	return dap_run(swjdp);
+ }
+ 
+ /*****************************************************************************
+@@ -667,7 +667,7 @@ int mem_ap_write_buf_u32(struct swjdp_common *swjdp, uint8_t *buffer, int count,
+ 			dap_ap_write_reg(swjdp, AP_REG_DRW, buffer + 4 * writecount);
+ 		}
+ 
+-		if (jtagdp_transaction_endcheck(swjdp) == ERROR_OK)
++		if (dap_run(swjdp) == ERROR_OK)
+ 		{
+ 			wcount = wcount - blocksize;
+ 			address = address + 4 * blocksize;
+@@ -681,6 +681,7 @@ int mem_ap_write_buf_u32(struct swjdp_common *swjdp, uint8_t *buffer, int count,
+ 		if (errorcount &gt; 1)
+ 		{
+ 			LOG_WARNING(&quot;Block write error address 0x%&quot; PRIx32 &quot;, wcount 0x%x&quot;, address, wcount);
++			/* REVISIT return the *actual* fault code */
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+ 	}
+@@ -744,11 +745,12 @@ static int mem_ap_write_buf_packed_u16(struct swjdp_common *swjdp,
+ 
+ 				memcpy(&amp;outvalue, buffer, sizeof(uint32_t));
+ 				dap_ap_write_reg_u32(swjdp, AP_REG_DRW, outvalue);
+-				if (jtagdp_transaction_endcheck(swjdp) != ERROR_OK)
++				if (dap_run(swjdp) != ERROR_OK)
+ 				{
+ 					LOG_WARNING(&quot;Block write error address &quot;
+ 						&quot;0x%&quot; PRIx32 &quot;, count 0x%x&quot;,
+ 						address, count);
++					/* REVISIT return *actual* fault code */
+ 					return ERROR_JTAG_DEVICE_ERROR;
+ 				}
+ 			}
+@@ -777,7 +779,10 @@ int mem_ap_write_buf_u16(struct swjdp_common *swjdp, uint8_t *buffer, int count,
+ 		memcpy(&amp;svalue, buffer, sizeof(uint16_t));
+ 		uint32_t outvalue = (uint32_t)svalue &lt;&lt; 8 * (address &amp; 0x3);
+ 		dap_ap_write_reg_u32(swjdp, AP_REG_DRW, outvalue);
+-		retval = jtagdp_transaction_endcheck(swjdp);
++		retval = dap_run(swjdp);
++		if (retval != ERROR_OK)
++			break;
++
+ 		count -= 2;
+ 		address += 2;
+ 		buffer += 2;
+@@ -837,11 +842,12 @@ static int mem_ap_write_buf_packed_u8(struct swjdp_common *swjdp,
+ 
+ 				memcpy(&amp;outvalue, buffer, sizeof(uint32_t));
+ 				dap_ap_write_reg_u32(swjdp, AP_REG_DRW, outvalue);
+-				if (jtagdp_transaction_endcheck(swjdp) != ERROR_OK)
++				if (dap_run(swjdp) != ERROR_OK)
+ 				{
+ 					LOG_WARNING(&quot;Block write error address &quot;
+ 						&quot;0x%&quot; PRIx32 &quot;, count 0x%x&quot;,
+ 						address, count);
++					/* REVISIT return *actual* fault code */
+ 					return ERROR_JTAG_DEVICE_ERROR;
+ 				}
+ 			}
+@@ -868,7 +874,10 @@ int mem_ap_write_buf_u8(struct swjdp_common *swjdp, uint8_t *buffer, int count,
+ 		dap_setup_accessport(swjdp, CSW_8BIT | CSW_ADDRINC_SINGLE, address);
+ 		uint32_t outvalue = (uint32_t)*buffer &lt;&lt; 8 * (address &amp; 0x3);
+ 		dap_ap_write_reg_u32(swjdp, AP_REG_DRW, outvalue);
+-		retval = jtagdp_transaction_endcheck(swjdp);
++		retval = dap_run(swjdp);
++		if (retval != ERROR_OK)
++			break;
++
+ 		count--;
+ 		address++;
+ 		buffer++;
+@@ -933,7 +942,7 @@ int mem_ap_read_buf_u32(struct swjdp_common *swjdp, uint8_t *buffer,
+ 		adi_jtag_dp_scan(swjdp, JTAG_DP_DPACC, DP_RDBUFF,
+ 				DPAP_READ, 0, buffer + 4 * readcount,
+ 				&amp;swjdp-&gt;ack);
+-		if (jtagdp_transaction_endcheck(swjdp) == ERROR_OK)
++		if (dap_run(swjdp) == ERROR_OK)
+ 		{
+ 			wcount = wcount - blocksize;
+ 			address += 4 * blocksize;
+@@ -948,6 +957,7 @@ int mem_ap_read_buf_u32(struct swjdp_common *swjdp, uint8_t *buffer,
+ 		{
+ 			LOG_WARNING(&quot;Block read error address 0x%&quot; PRIx32
+ 				&quot;, count 0x%x&quot;, address, count);
++			/* REVISIT return the *actual* fault code */
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+ 	}
+@@ -1002,9 +1012,10 @@ static int mem_ap_read_buf_packed_u16(struct swjdp_common *swjdp,
+ 		do
+ 		{
+ 			dap_ap_read_reg_u32(swjdp, AP_REG_DRW, &amp;invalue);
+-			if (jtagdp_transaction_endcheck(swjdp) != ERROR_OK)
++			if (dap_run(swjdp) != ERROR_OK)
+ 			{
+ 				LOG_WARNING(&quot;Block read error address 0x%&quot; PRIx32 &quot;, count 0x%x&quot;, address, count);
++				/* REVISIT return the *actual* fault code */
+ 				return ERROR_JTAG_DEVICE_ERROR;
+ 			}
+ 
+@@ -1046,7 +1057,10 @@ int mem_ap_read_buf_u16(struct swjdp_common *swjdp, uint8_t *buffer,
+ 	{
+ 		dap_setup_accessport(swjdp, CSW_16BIT | CSW_ADDRINC_SINGLE, address);
+ 		dap_ap_read_reg_u32(swjdp, AP_REG_DRW, &amp;invalue);
+-		retval = jtagdp_transaction_endcheck(swjdp);
++		retval = dap_run(swjdp);
++		if (retval != ERROR_OK)
++			break;
++
+ 		if (address &amp; 0x1)
+ 		{
+ 			for (i = 0; i &lt; 2; i++)
+@@ -1100,9 +1114,10 @@ static int mem_ap_read_buf_packed_u8(struct swjdp_common *swjdp,
+ 		do
+ 		{
+ 			dap_ap_read_reg_u32(swjdp, AP_REG_DRW, &amp;invalue);
+-			if (jtagdp_transaction_endcheck(swjdp) != ERROR_OK)
++			if (dap_run(swjdp) != ERROR_OK)
+ 			{
+ 				LOG_WARNING(&quot;Block read error address 0x%&quot; PRIx32 &quot;, count 0x%x&quot;, address, count);
++				/* REVISIT return the *actual* fault code */
+ 				return ERROR_JTAG_DEVICE_ERROR;
+ 			}
+ 
+@@ -1144,7 +1159,10 @@ int mem_ap_read_buf_u8(struct swjdp_common *swjdp, uint8_t *buffer,
+ 	{
+ 		dap_setup_accessport(swjdp, CSW_8BIT | CSW_ADDRINC_SINGLE, address);
+ 		dap_ap_read_reg_u32(swjdp, AP_REG_DRW, &amp;invalue);
+-		retval = jtagdp_transaction_endcheck(swjdp);
++		retval = dap_run(swjdp);
++		if (retval != ERROR_OK)
++			break;
++
+ 		*((uint8_t*)buffer) = (invalue &gt;&gt; 8 * (address &amp; 0x3));
+ 		count--;
+ 		address++;
+@@ -1297,7 +1315,7 @@ int ahbap_debugport_init(struct swjdp_common *swjdp)
+ 
+ 	dap_dp_write_reg(swjdp, swjdp-&gt;dp_ctrl_stat, DP_CTRL_STAT);
+ 	dap_dp_read_reg(swjdp, &amp;ctrlstat, DP_CTRL_STAT);
+-	if ((retval = jtag_execute_queue()) != ERROR_OK)
++	if ((retval = dap_run(swjdp)) != ERROR_OK)
+ 		return retval;
+ 
+ 	/* Check that we have debug power domains activated */
+@@ -1305,7 +1323,7 @@ int ahbap_debugport_init(struct swjdp_common *swjdp)
+ 	{
+ 		LOG_DEBUG(&quot;DAP: wait CDBGPWRUPACK&quot;);
+ 		dap_dp_read_reg(swjdp, &amp;ctrlstat, DP_CTRL_STAT);
+-		if ((retval = jtag_execute_queue()) != ERROR_OK)
++		if ((retval = dap_run(swjdp)) != ERROR_OK)
+ 			return retval;
+ 		alive_sleep(10);
+ 	}
+@@ -1314,7 +1332,7 @@ int ahbap_debugport_init(struct swjdp_common *swjdp)
+ 	{
+ 		LOG_DEBUG(&quot;DAP: wait CSYSPWRUPACK&quot;);
+ 		dap_dp_read_reg(swjdp, &amp;ctrlstat, DP_CTRL_STAT);
+-		if ((retval = jtag_execute_queue()) != ERROR_OK)
++		if ((retval = dap_run(swjdp)) != ERROR_OK)
+ 			return retval;
+ 		alive_sleep(10);
+ 	}
+@@ -1362,7 +1380,7 @@ is_dap_cid_ok(uint32_t cid3, uint32_t cid2, uint32_t cid1, uint32_t cid0)
+ int dap_info_command(struct command_context *cmd_ctx,
+ 		struct swjdp_common *swjdp, int apsel)
+ {
+-
++	int retval;
+ 	uint32_t dbgbase, apid;
+ 	int romtable_present = 0;
+ 	uint8_t mem_ap;
+@@ -1376,7 +1394,10 @@ int dap_info_command(struct command_context *cmd_ctx,
+ 	dap_ap_select(swjdp, apsel);
+ 	dap_ap_read_reg_u32(swjdp, AP_REG_BASE, &amp;dbgbase);
+ 	dap_ap_read_reg_u32(swjdp, AP_REG_IDR, &amp;apid);
+-	jtagdp_transaction_endcheck(swjdp);
++	retval = dap_run(swjdp);
++	if (retval != ERROR_OK)
++		return retval;
++
+ 	/* Now we read ROM table ID registers, ref. ARM IHI 0029B sec  */
+ 	mem_ap = ((apid&amp;0x10000) &amp;&amp; ((apid&amp;0x0F) != 0));
+ 	command_print(cmd_ctx, &quot;AP ID register 0x%8.8&quot; PRIx32, apid);
+@@ -1428,7 +1449,10 @@ int dap_info_command(struct command_context *cmd_ctx,
+ 		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000) | 0xFF8, &amp;cid2);
+ 		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000) | 0xFFC, &amp;cid3);
+ 		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000) | 0xFCC, &amp;memtype);
+-		jtagdp_transaction_endcheck(swjdp);
++		retval = dap_run(swjdp);
++		if (retval != ERROR_OK)
++			return retval;
++
+ 		if (!is_dap_cid_ok(cid3, cid2, cid1, cid0))
+ 			command_print(cmd_ctx, &quot;\tCID3 0x%2.2&quot; PRIx32
+ 					&quot;, CID2 0x%2.2&quot; PRIx32
+@@ -1741,7 +1765,10 @@ DAP_COMMAND_HANDLER(dap_baseaddr_command)
+ 	 * use the ID register to verify it's a MEM-AP.
+ 	 */
+ 	dap_ap_read_reg_u32(swjdp, AP_REG_BASE, &amp;baseaddr);
+-	retval = jtagdp_transaction_endcheck(swjdp);
++	retval = dap_run(swjdp);
++	if (retval != ERROR_OK)
++		return retval;
++
+ 	command_print(CMD_CTX, &quot;0x%8.8&quot; PRIx32, baseaddr);
+ 
+ 	if (apselsave != apsel)
+@@ -1793,7 +1820,10 @@ DAP_COMMAND_HANDLER(dap_apsel_command)
+ 
+ 	dap_ap_select(swjdp, apsel);
+ 	dap_ap_read_reg_u32(swjdp, AP_REG_IDR, &amp;apid);
+-	retval = jtagdp_transaction_endcheck(swjdp);
++	retval = dap_run(swjdp);
++	if (retval != ERROR_OK)
++		return retval;
++
+ 	command_print(CMD_CTX, &quot;ap %&quot; PRIi32 &quot; selected, identification register 0x%8.8&quot; PRIx32,
+ 			apsel, apid);
+ 
+@@ -1824,7 +1854,10 @@ DAP_COMMAND_HANDLER(dap_apid_command)
+ 		dap_ap_select(swjdp, apsel);
+ 
+ 	dap_ap_read_reg_u32(swjdp, AP_REG_IDR, &amp;apid);
+-	retval = jtagdp_transaction_endcheck(swjdp);
++	retval = dap_run(swjdp);
++	if (retval != ERROR_OK)
++		return retval;
++
+ 	command_print(CMD_CTX, &quot;0x%8.8&quot; PRIx32, apid);
+ 	if (apselsave != apsel)
+ 		dap_ap_select(swjdp, apselsave);
+diff --git a/src/target/arm_adi_v5.h b/src/target/arm_adi_v5.h
+index ec4a179..e71feb9 100644
+--- a/src/target/arm_adi_v5.h
++++ b/src/target/arm_adi_v5.h
+@@ -355,9 +355,6 @@ int dap_ap_write_reg_u32(struct swjdp_common *swjdp,
+ int dap_ap_read_reg_u32(struct swjdp_common *swjdp,
+ 		uint32_t addr, uint32_t *value);
+ 
+-/* Queued JTAG ops must be completed with jtagdp_transaction_endcheck() */
+-int jtagdp_transaction_endcheck(struct swjdp_common *swjdp);
+-
+ /* Queued MEM-AP memory mapped single word transfers */
+ int mem_ap_read_u32(struct swjdp_common *swjdp, uint32_t address, uint32_t *value);
+ int mem_ap_write_u32(struct swjdp_common *swjdp, uint32_t address, uint32_t value);
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index aecf371..7aec015 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -78,7 +78,7 @@ static int cortexm3_dap_read_coreregister_u32(struct swjdp_common *swjdp,
+ 	dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, DCB_DCRDR &amp; 0xFFFFFFF0);
+ 	dap_ap_read_reg_u32(swjdp, AP_REG_BD0 | (DCB_DCRDR &amp; 0xC), value);
+ 
+-	retval = jtagdp_transaction_endcheck(swjdp);
++	retval = dap_run(swjdp);
+ 
+ 	/* restore DCB_DCRDR - this needs to be in a seperate
+ 	 * transaction otherwise the emulated DCC channel breaks */
+@@ -107,7 +107,7 @@ static int cortexm3_dap_write_coreregister_u32(struct swjdp_common *swjdp,
+ 	dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, DCB_DCRSR &amp; 0xFFFFFFF0);
+ 	dap_ap_write_reg_u32(swjdp, AP_REG_BD0 | (DCB_DCRSR &amp; 0xC), regnum | DCRSR_WnR);
+ 
+-	retval = jtagdp_transaction_endcheck(swjdp);
++	retval = dap_run(swjdp);
+ 
+ 	/* restore DCB_DCRDR - this needs to be in a seperate
+ 	 * transaction otherwise the emulated DCC channel breaks */
+@@ -179,6 +179,7 @@ static int cortex_m3_single_step_core(struct target *target)
+ static int cortex_m3_endreset_event(struct target *target)
+ {
+ 	int i;
++	int retval;
+ 	uint32_t dcb_demcr;
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+ 	struct armv7m_common *armv7m = &amp;cortex_m3-&gt;armv7m;
+@@ -234,14 +235,16 @@ static int cortex_m3_endreset_event(struct target *target)
+ 		target_write_u32(target, dwt_list[i].dwt_comparator_address + 8,
+ 				dwt_list[i].function);
+ 	}
+-	jtagdp_transaction_endcheck(swjdp);
++	retval = dap_run(swjdp);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	register_cache_invalidate(cortex_m3-&gt;armv7m.core_cache);
+ 
+ 	/* make sure we have latest dhcsr flags */
+ 	mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
+ 
+-	return ERROR_OK;
++	return retval;
+ }
+ 
+ static int cortex_m3_examine_debug_reason(struct target *target)
+@@ -276,6 +279,7 @@ static int cortex_m3_examine_exception_reason(struct target *target)
+ 	uint32_t shcsr, except_sr, cfsr = -1, except_ar = -1;
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+ 	struct swjdp_common *swjdp = &amp;armv7m-&gt;swjdp_info;
++	int retval;
+ 
+ 	mem_ap_read_u32(swjdp, NVIC_SHCSR, &amp;shcsr);
+ 	switch (armv7m-&gt;exception_number)
+@@ -313,10 +317,13 @@ static int cortex_m3_examine_exception_reason(struct target *target)
+ 			except_sr = 0;
+ 			break;
+ 	}
+-	jtagdp_transaction_endcheck(swjdp);
+-	LOG_DEBUG(&quot;%s SHCSR 0x%&quot; PRIx32 &quot;, SR 0x%&quot; PRIx32 &quot;, CFSR 0x%&quot; PRIx32 &quot;, AR 0x%&quot; PRIx32 &quot;&quot;, armv7m_exception_string(armv7m-&gt;exception_number), \
+-		shcsr, except_sr, cfsr, except_ar);
+-	return ERROR_OK;
++	retval = dap_run(swjdp);
++	if (retval == ERROR_OK)
++		LOG_DEBUG(&quot;%s SHCSR 0x%&quot; PRIx32 &quot;, SR 0x%&quot; PRIx32
++			&quot;, CFSR 0x%&quot; PRIx32 &quot;, AR 0x%&quot; PRIx32,
++			armv7m_exception_string(armv7m-&gt;exception_number),
++			shcsr, except_sr, cfsr, except_ar);
++	return retval;
+ }
+ 
+ /* PSP is used in some thread modes */
+
+commit db6c994642f29b7d47abb4233494a606fbb65369
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Mar 2 22:41:59 2010 -0800
+
+    ARM: start abstracting ADIv5 transports (JTAG/SWD)
+    
+    To support both JTAG and SWD, ADIv5 needs DAP operations which are
+    transport-neutral, instead being of JTAG-specific.  This patch:
+    
+     - Defines such a transport-neutral interface, abstracting access
+       to DP and AP registers through a conceptual queue of operations.
+    
+     - Builds the first implementation of such a transport with the existing
+       JTAG-specific code.
+    
+    In contrast to the current JTAG-only interface, the interface adds
+    support for two previously-missing (and unused) DAP operations:
+    
+     - aborting the current AP transaction (untested);
+     - reading the IDCODE register (tested) ... required for SWD init.
+    
+    The choice of transports may be fixed at the chip, board, or JTAG/SWD
+    adapter level.  Or if all the relevant hardware supports both transport
+    options, the choice may be made at runtime, This patch provides basic
+    infrastructure to support whichever choice is made.
+    
+    The current &quot;JTAG-only&quot; transport choice policy will necessarily continue
+    for now, until SWD support becomes available in OpenOCD.  Later patches
+    start phasing out JTAG-specific calls in favor of transport-neutral calls.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index 115ccf1..735308a 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -350,6 +350,11 @@ int jtagdp_transaction_endcheck(struct swjdp_common *swjdp)
+  *                                                                         *
+ ***************************************************************************/
+ 
++/* FIXME remove dap_dp_{read,write}_reg() ... these should become the
++ * bodies of the JTAG implementations of dap_queue_dp_{read,write}() and
++ * callers should switch over to the transport-neutral calls.
++ */
++
+ static int dap_dp_write_reg(struct swjdp_common *swjdp,
+ 		uint32_t value, uint8_t reg_addr)
+ {
+@@ -403,6 +408,12 @@ static int dap_ap_bankselect(struct swjdp_common *swjdp, uint32_t ap_reg)
+ 		return ERROR_OK;
+ }
+ 
++/* FIXME remove dap_ap_{read,write}_reg() and dap_ap_write_reg_u32()
++ * ... these should become the bodies of the JTAG implementations of
++ * dap_queue_ap_{read,write}(), then all their current callers should
++ * switch over to the transport-neutral calls.
++ */
++
+ static int dap_ap_write_reg(struct swjdp_common *swjdp,
+ 		uint32_t reg_addr, uint8_t *out_value_buf)
+ {
+@@ -1143,6 +1154,107 @@ int mem_ap_read_buf_u8(struct swjdp_common *swjdp, uint8_t *buffer,
+ 	return retval;
+ }
+ 
++/*--------------------------------------------------------------------------*/
++
++static int jtag_idcode_q_read(struct swjdp_common *dap,
++		uint8_t *ack, uint32_t *data)
++{
++	struct arm_jtag *jtag_info = dap-&gt;jtag_info;
++	int retval;
++	struct scan_field fields[1];
++
++	jtag_set_end_state(TAP_IDLE);
++
++	/* This is a standard JTAG operation -- no DAP tweakage */
++	retval = arm_jtag_set_instr(jtag_info, JTAG_DP_IDCODE, NULL);
++	if (retval != ERROR_OK)
++		return retval;
++
++	fields[0].tap = jtag_info-&gt;tap;
++	fields[0].num_bits = 32;
++	fields[0].out_value = NULL;
++	fields[0].in_value = (void *) data;
++
++	jtag_add_dr_scan(1, fields, jtag_get_end_state());
++	retval = jtag_get_error();
++	if (retval != ERROR_OK)
++		return retval;
++
++	jtag_add_callback(arm_le_to_h_u32,
++			(jtag_callback_data_t) data);
++
++	return retval;
++}
++
++static int jtag_dp_q_read(struct swjdp_common *dap, unsigned reg,
++		uint32_t *data)
++{
++	return dap_dp_read_reg(dap, data, reg);
++}
++
++static int jtag_dp_q_write(struct swjdp_common *dap, unsigned reg,
++		uint32_t data)
++{
++	return dap_dp_write_reg(dap, data, reg);
++}
++
++static int jtag_ap_q_bankselect(struct swjdp_common *dap, unsigned reg)
++{
++	uint32_t select = reg &amp; 0x000000F0;
++
++	if (select == dap-&gt;ap_bank_value)
++		return ERROR_OK;
++	dap-&gt;ap_bank_value = select;
++
++	select |= dap-&gt;apsel;
++
++	return jtag_dp_q_write(dap, DP_SELECT, select);
++}
++
++static int jtag_ap_q_read(struct swjdp_common *dap, unsigned reg,
++		uint32_t *data)
++{
++	int retval = jtag_ap_q_bankselect(dap, reg);
++
++	if (retval != ERROR_OK)
++		return retval;
++	return dap_ap_read_reg_u32(dap, reg, data);
++}
++
++static int jtag_ap_q_write(struct swjdp_common *dap, unsigned reg,
++		uint32_t data)
++{
++	int retval = jtag_ap_q_bankselect(dap, reg);
++
++	if (retval != ERROR_OK)
++		return retval;
++	return dap_ap_write_reg_u32(dap, reg, data);
++}
++
++static int jtag_ap_q_abort(struct swjdp_common *dap, uint8_t *ack)
++{
++	/* for JTAG, this is the only valid ABORT register operation */
++	return adi_jtag_dp_scan_u32(dap, JTAG_DP_ABORT,
++			0, DPAP_WRITE, 1, NULL, ack);
++}
++
++static int jtag_dp_run(struct swjdp_common *dap)
++{
++	return jtagdp_transaction_endcheck(dap);
++}
++
++static const struct dap_ops jtag_dp_ops = {
++	.queue_idcode_read =	jtag_idcode_q_read,
++	.queue_dp_read =	jtag_dp_q_read,
++	.queue_dp_write =	jtag_dp_q_write,
++	.queue_ap_read =	jtag_ap_q_read,
++	.queue_ap_write =	jtag_ap_q_write,
++	.queue_ap_abort =	jtag_ap_q_abort,
++	.run =			jtag_dp_run,
++};
++
++/*--------------------------------------------------------------------------*/
++
+ /**
+  * Initialize a DAP.  This sets up the power domains, prepares the DP
+  * for further use, and arranges to use AP #0 for all AP operations
+@@ -1164,6 +1276,9 @@ int ahbap_debugport_init(struct swjdp_common *swjdp)
+ 
+ 	LOG_DEBUG(&quot; &quot;);
+ 
++	/* JTAG-DP or SWJ-DP, in JTAG mode */
++	swjdp-&gt;ops = &amp;jtag_dp_ops;
++
+ 	/* Default MEM-AP setup.
+ 	 *
+ 	 * REVISIT AP #0 may be an inappropriate default for this.
+diff --git a/src/target/arm_adi_v5.h b/src/target/arm_adi_v5.h
+index 5c5ca4f..ec4a179 100644
+--- a/src/target/arm_adi_v5.h
++++ b/src/target/arm_adi_v5.h
+@@ -124,10 +124,22 @@
+  * transport agent; and at least one Access Port (AP), controlling
+  * resource access.  Most common is a MEM-AP, for memory access.
+  *
++ * There are two basic DP transports: JTAG, and ARM's low pin-count SWD.
++ * Accordingly, this interface is responsible for hiding the transport
++ * differences so upper layer code can largely ignore them.
++ *
++ * When the chip is implemented with JTAG-DP or SW-DP, the transport is
++ * fixed as JTAG or SWD, respectively.  Chips incorporating SWJ-DP permit
++ * a choice made at board design time (by only using the SWD pins), or
++ * as part of setting up a debug session (if all the dual-role JTAG/SWD
++ * signals are available).
++ *
+  * @todo Rename &quot;swjdp_common&quot; as &quot;dap&quot;.  Use of SWJ-DP is optional!
+  */
+ struct swjdp_common
+ {
++	const struct dap_ops *ops;
++
+ 	struct arm_jtag *jtag_info;
+ 	/* Control config */
+ 	uint32_t dp_ctrl_stat;
+@@ -175,6 +187,157 @@ struct swjdp_common
+ 
+ };
+ 
++/**
++ * Transport-neutral representation of queued DAP transactions, supporting
++ * both JTAG and SWD transports.  All submitted transactions are logically
++ * queued, until the queue is executed by run().  Some implementations might
++ * execute transactions as soon as they're submitted, but no status is made
++ * availablue until run().
++ */
++struct dap_ops {
++	/** If the DAP transport isn't SWD, it must be JTAG.  Upper level
++	 * code may need to care about the difference in some cases.
++	 */
++	bool	is_swd;
++
++	/** Reads the DAP's IDCODe register. */
++	int (*queue_idcode_read)(struct swjdp_common *dap,
++			uint8_t *ack, uint32_t *data);
++
++	/** DP register read. */
++	int (*queue_dp_read)(struct swjdp_common *dap, unsigned reg,
++			uint32_t *data);
++	/** DP register write. */
++	int (*queue_dp_write)(struct swjdp_common *dap, unsigned reg,
++			uint32_t data);
++
++	/** AP register read. */
++	int (*queue_ap_read)(struct swjdp_common *dap, unsigned reg,
++			uint32_t *data);
++	/** AP register write. */
++	int (*queue_ap_write)(struct swjdp_common *dap, unsigned reg,
++			uint32_t data);
++	/** AP operation abort. */
++	int (*queue_ap_abort)(struct swjdp_common *dap, uint8_t *ack);
++
++	/** Executes all queued DAP operations. */
++	int (*run)(struct swjdp_common *dap);
++};
++
++/**
++ * Queue an IDCODE register read.  This is primarily useful for SWD
++ * transports, where it is required as part of link initialization.
++ * (For JTAG, this register is read as part of scan chain setup.)
++ *
++ * @param dap The DAP used for reading.
++ * @param ack Pointer to where transaction status will be stored.
++ * @param data Pointer saying where to store the IDCODE value.
++ *
++ * @return ERROR_OK for success, else a fault code.
++ */
++static inline int dap_queue_idcode_read(struct swjdp_common *dap,
++		uint8_t *ack, uint32_t *data)
++{
++	return dap-&gt;ops-&gt;queue_idcode_read(dap, ack, data);
++}
++
++/**
++ * Queue a DP register read.
++ * Note that not all DP registers are readable; also, that JTAG and SWD
++ * have slight differences in DP register support.
++ *
++ * @param dap The DAP used for reading.
++ * @param reg The two-bit number of the DP register being read.
++ * @param data Pointer saying where to store the register's value
++ * 	(in host endianness).
++ *
++ * @return ERROR_OK for success, else a fault code.
++ */
++static inline int dap_queue_dp_read(struct swjdp_common *dap,
++		unsigned reg, uint32_t *data)
++{
++	return dap-&gt;ops-&gt;queue_dp_read(dap, reg, data);
++}
++
++/**
++ * Queue a DP register write.
++ * Note that not all DP registers are writable; also, that JTAG and SWD
++ * have slight differences in DP register support.
++ *
++ * @param dap The DAP used for writing.
++ * @param reg The two-bit number of the DP register being written.
++ * @param data Value being written (host endianness)
++ *
++ * @return ERROR_OK for success, else a fault code.
++ */
++static inline int dap_queue_dp_write(struct swjdp_common *dap,
++		unsigned reg, uint32_t data)
++{
++	return dap-&gt;ops-&gt;queue_dp_write(dap, reg, data);
++}
++
++/**
++ * Queue an AP register read.
++ *
++ * @param dap The DAP used for reading.
++ * @param reg The number of the AP register being read.
++ * @param data Pointer saying where to store the register's value
++ * 	(in host endianness).
++ *
++ * @return ERROR_OK for success, else a fault code.
++ */
++static inline int dap_queue_ap_read(struct swjdp_common *dap,
++		unsigned reg, uint32_t *data)
++{
++	return dap-&gt;ops-&gt;queue_ap_read(dap, reg, data);
++}
++
++/**
++ * Queue an AP register write.
++ *
++ * @param dap The DAP used for writing.
++ * @param reg The number of the AP register being written.
++ * @param data Value being written (host endianness)
++ *
++ * @return ERROR_OK for success, else a fault code.
++ */
++static inline int dap_queue_ap_write(struct swjdp_common *dap,
++		unsigned reg, uint32_t data)
++{
++	return dap-&gt;ops-&gt;queue_ap_write(dap, reg, data);
++}
++
++/**
++ * Queue an AP abort operation.  The current AP transaction is aborted,
++ * including any update of the transaction counter.  The AP is left in
++ * an unknown state (so it must be re-initialized).  For use only after
++ * the AP has reported WAIT status for an extended period.
++ *
++ * @param dap The DAP used for writing.
++ * @param ack Pointer to where transaction status will be stored.
++ *
++ * @return ERROR_OK for success, else a fault code.
++ */
++static inline int dap_queue_ap_abort(struct swjdp_common *dap, uint8_t *ack)
++{
++	return dap-&gt;ops-&gt;queue_ap_abort(dap, ack);
++}
++
++/**
++ * Perform all queued DAP operations, and clear any errors posted in the
++ * CTRL_STAT register when they are done.  Note that if more than one AP
++ * operation will be queued, one of the first operations in the queue
++ * should probably enable CORUNDETECT in the CTRL/STAT register.
++ *
++ * @param dap The DAP used.
++ *
++ * @return ERROR_OK for success, else a fault code.
++ */
++static inline int dap_run(struct swjdp_common *dap)
++{
++	return dap-&gt;ops-&gt;run(dap);
++}
++
+ /** Accessor for currently selected DAP-AP number (0..255) */
+ static inline uint8_t dap_ap_get_select(struct swjdp_common *swjdp)
+ {
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm_adi_v5.c |  401 +++++++++++++++++++++++++++++++----------------
+ src/target/arm_adi_v5.h |  170 +++++++++++++++++++-
+ src/target/cortex_m3.c  |   39 +++--
+ 3 files changed, 452 insertions(+), 158 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002131.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-45-gd72e90a
+</A></li>
+	<LI>Next message: <A HREF="002133.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-50-g2119c0a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2132">[ date ]</a>
+              <a href="thread.html#2132">[ thread ]</a>
+              <a href="subject.html#2132">[ subject ]</a>
+              <a href="author.html#2132">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

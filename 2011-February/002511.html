@@ -1,0 +1,919 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-737-g5ca7cbe
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-737-g5ca7cbe&In-Reply-To=%3CE1PlIP3-0005gz-Ev%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002510.html">
+   <LINK REL="Next"  HREF="002512.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-737-g5ca7cbe</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-737-g5ca7cbe&In-Reply-To=%3CE1PlIP3-0005gz-Ev%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-737-g5ca7cbe">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Feb  4 10:56:30 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002510.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-736-g75cdbff
+</A></li>
+        <LI>Next message: <A HREF="002512.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-738-g706284a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2511">[ date ]</a>
+              <a href="thread.html#2511">[ thread ]</a>
+              <a href="subject.html#2511">[ subject ]</a>
+              <a href="author.html#2511">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  5ca7cbe2d232fcaff32598af1ef5e962e704c004 (commit)
+      from  75cdbff5aa93d93e414cb22d413f41fb38a076bb (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 5ca7cbe2d232fcaff32598af1ef5e962e704c004
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Mon Jan 31 12:32:07 2011 +0100
+
+    stm32x: add support for STM32F20x
+    
+    ready for wider testing and comments on basic erase + programming.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/contrib/loaders/flash/stm32f2xxx.S b/contrib/loaders/flash/stm32f2xxx.S
+new file mode 100644
+index 0000000..49c821b
+--- /dev/null
++++ b/contrib/loaders/flash/stm32f2xxx.S
+@@ -0,0 +1,63 @@
++/***************************************************************************
++ *   Copyright (C) 2010 by Spencer Oliver                                  *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">spen at spen-soft.co.uk</A>                                                  *
++ *                                                                         *
++ *   Copyright (C) 2011 &#195;&#152;yvind Harboe                                      *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++
++// Build : arm-eabi-gcc -c stm32f2xxx.S
++	.text
++	.syntax unified
++	.cpu cortex-m3
++	.thumb
++	.thumb_func
++	.global write
++
++/*
++	r0 - source address
++	r1 - target address
++	r2 - count (halfword-16bit)
++	r3 - result out
++	r4 - flash base
++*/
++
++#define STM32_FLASH_CR_OFFSET	0x10			/* offset of CR register in FLASH struct */
++#define STM32_FLASH_SR_OFFSET	0x0c			/* offset of CR register in FLASH struct */
++
++write:
++
++write_half_word:
++	ldr		r3, STM32_PROG16
++	str		r3, [r4, #STM32_FLASH_CR_OFFSET]
++	ldrh 	r3, [r0], #0x02						/* read one half-word from src, increment ptr */
++	strh 	r3, [r1], #0x02						/* write one half-word from src, increment ptr */
++busy:
++	ldr 	r3, [r4, #STM32_FLASH_SR_OFFSET]
++	tst 	r3, #0x10000						/* BSY (bit0) == 1 =&gt; operation in progress */
++	beq 	busy								/* wait more... */
++	tst		r3, #0xf0							/* PGSERR | PGPERR | PGAERR | WRPERR */
++	bne		exit								/* fail... */
++	subs	r2, r2, #0x01						/* decrement counter */
++	bne		write_half_word						/* write next half-word if anything left */
++exit:
++	bkpt	#0x00
++
++
++STM32_PROG16: .word 0x101 						/* PG | PSIZE_16*/
+diff --git a/src/flash/nor/Makefile.am b/src/flash/nor/Makefile.am
+index 42707e0..95bd313 100644
+--- a/src/flash/nor/Makefile.am
++++ b/src/flash/nor/Makefile.am
+@@ -25,6 +25,7 @@ NOR_DRIVERS = \
+ 	stmsmi.c \
+ 	stellaris.c \
+ 	stm32x.c \
++	stm32f2xxx.c \
+ 	str7x.c \
+ 	str9x.c \
+ 	str9xpec.c \
+diff --git a/src/flash/nor/drivers.c b/src/flash/nor/drivers.c
+index f4479f6..5489419 100644
+--- a/src/flash/nor/drivers.c
++++ b/src/flash/nor/drivers.c
+@@ -33,6 +33,7 @@ extern struct flash_driver aduc702x_flash;
+ extern struct flash_driver stellaris_flash;
+ extern struct flash_driver str9xpec_flash;
+ extern struct flash_driver stm32x_flash;
++extern struct flash_driver stm32xf2xxx_flash;
+ extern struct flash_driver tms470_flash;
+ extern struct flash_driver ecosflash_flash;
+ extern struct flash_driver ocl_flash;
+@@ -60,6 +61,7 @@ static struct flash_driver *flash_drivers[] = {
+ 	&amp;stellaris_flash,
+ 	&amp;str9xpec_flash,
+ 	&amp;stm32x_flash,
++	&amp;stm32xf2xxx_flash,
+ 	&amp;tms470_flash,
+ 	&amp;ecosflash_flash,
+ 	&amp;ocl_flash,
+diff --git a/src/flash/nor/stm32f2xxx.c b/src/flash/nor/stm32f2xxx.c
+new file mode 100644
+index 0000000..2ccf531
+--- /dev/null
++++ b/src/flash/nor/stm32f2xxx.c
+@@ -0,0 +1,712 @@
++/***************************************************************************
++ *   Copyright (C) 2005 by Dominic Rath                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
++ *                                                                         *
++ *   Copyright (C) 2008 by Spencer Oliver                                  *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">spen at spen-soft.co.uk</A>                                                  *
++ *                                                                         *
++ *   Copyright (C) 2011 &#195;&#152;yvind Harboe                                      *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;imp.h&quot;
++#include &lt;helper/binarybuffer.h&gt;
++#include &lt;target/algorithm.h&gt;
++#include &lt;target/armv7m.h&gt;
++
++/* Regarding performance:
++ *
++ * Short story - it might be best to leave the performance at
++ * current levels.
++ *
++ * You may see a jump in speed if you change to using
++ * 32bit words for the block programming.
++ *
++ * Its a shame you cannot use the double word as its
++ * even faster - but you require external VPP for that mode.
++ *
++ * Having said all that 16bit writes give us the widest vdd
++ * operating range, so may be worth adding a note to that effect.
++ *
++ */
++
++
++/* Danger!!!! The STM32F1xxxx and STM32F2xxxx series actually have
++ * quite different flash controllers.
++ *
++ * What's more scary is that the names of the registers and their
++ * addresses are the same, but the actual bits and what they do are
++ * can be very different.
++ *
++ * To reduce testing complexity and dangers of regressions,
++ * a seperate file is used for stm32fx2222.
++ *
++ * 1mByte part with 4 x 16, 1 x 64, 7 x 128kBytes sectors
++ *
++ * What's the protection page size???
++ *
++ * Tested with STM3220F-EVAL board.
++ *
++ * STM32F21xx series for reference.
++ *
++ * RM0033
++ * <A HREF="http://www.st.com/internet/mcu/product/250192.jsp">http://www.st.com/internet/mcu/product/250192.jsp</A>
++ *
++ * PM0059
++ * www.st.com/internet/com/TECHNICAL_RESOURCES/TECHNICAL_LITERATURE/PROGRAMMING_MANUAL/CD00233952.pdf
++ *
++ * STM32F1xxx series - notice that this code was copy, pasted and knocked
++ * into a stm32f2xxx driver, so in case something has been converted or
++ * bugs haven't been fixed, here are the original manuals:
++ *
++ * RM0008 - Reference manual
++ *
++ * RM0042, the Flash programming manual for low-, medium- high-density and
++ * connectivity line STM32F10xxx devices
++ *
++ * PM0068, the Flash programming manual for XL-density STM32F10xxx devices.
++ *
++ */
++
++ // Erase time can be as high as 1000ms, 10x this and it's toast...
++#define FLASH_ERASE_TIMEOUT 10000
++#define FLASH_WRITE_TIMEOUT 5
++
++
++#define STM32_FLASH_BASE	0x40023c00
++#define STM32_FLASH_ACR		0x40023c00
++#define STM32_FLASH_KEYR	0x40023c04
++#define STM32_FLASH_OPTKEYR	0x40023c08
++#define STM32_FLASH_SR		0x40023c0C
++#define STM32_FLASH_CR		0x40023c10
++#define STM32_FLASH_OPTCR	0x40023c14
++#define STM32_FLASH_OBR		0x40023c1C
++
++
++
++/* option byte location */
++
++#define STM32_OB_RDP		0x1FFFF800
++#define STM32_OB_USER		0x1FFFF802
++#define STM32_OB_DATA0		0x1FFFF804
++#define STM32_OB_DATA1		0x1FFFF806
++#define STM32_OB_WRP0		0x1FFFF808
++#define STM32_OB_WRP1		0x1FFFF80A
++#define STM32_OB_WRP2		0x1FFFF80C
++#define STM32_OB_WRP3		0x1FFFF80E
++
++/* FLASH_CR register bits */
++
++#define FLASH_PG		(1 &lt;&lt; 0)
++#define FLASH_SER		(1 &lt;&lt; 1)
++#define FLASH_MER		(1 &lt;&lt; 2)
++#define FLASH_STRT		(1 &lt;&lt; 16)
++#define FLASH_PSIZE_8	(0 &lt;&lt; 8)
++#define FLASH_PSIZE_16	(1 &lt;&lt; 8)
++#define FLASH_PSIZE_32	(2 &lt;&lt; 8)
++#define FLASH_PSIZE_64	(3 &lt;&lt; 8)
++#define FLASH_SNB(a) 	((a) &lt;&lt; 3)
++#define FLASH_LOCK		(1 &lt;&lt; 31)
++
++/* FLASH_SR register bits */
++
++#define FLASH_BSY		(1 &lt;&lt; 16)
++#define FLASH_PGSERR	(1 &lt;&lt; 7) // Programming sequence error
++#define FLASH_PGPERR	(1 &lt;&lt; 6) // Programming parallelism error
++#define FLASH_PGAERR	(1 &lt;&lt; 5) // Programming alignment error
++#define FLASH_WRPERR	(1 &lt;&lt; 4) // Write protection error
++#define FLASH_OPERR		(1 &lt;&lt; 1) // Operation error
++
++#define FLASH_ERROR (FLASH_PGSERR | FLASH_PGPERR | FLASH_PGAERR| FLASH_WRPERR| FLASH_OPERR)
++
++/* STM32_FLASH_OBR bit definitions (reading) */
++
++#define OPT_ERROR		0
++#define OPT_READOUT		1
++#define OPT_RDWDGSW		2
++#define OPT_RDRSTSTOP	3
++#define OPT_RDRSTSTDBY	4
++#define OPT_BFB2		5	/* dual flash bank only */
++
++/* register unlock keys */
++
++#define KEY1			0x45670123
++#define KEY2			0xCDEF89AB
++
++struct stm32x_flash_bank
++{
++	struct working_area *write_algorithm;
++	int probed;
++};
++
++
++/* flash bank stm32x &lt;base&gt; &lt;size&gt; 0 0 &lt;target#&gt;
++ */
++FLASH_BANK_COMMAND_HANDLER(stm32x_flash_bank_command)
++{
++	struct stm32x_flash_bank *stm32x_info;
++
++	if (CMD_ARGC &lt; 6)
++	{
++		LOG_WARNING(&quot;incomplete flash_bank stm32x configuration&quot;);
++		return ERROR_FLASH_BANK_INVALID;
++	}
++
++	stm32x_info = malloc(sizeof(struct stm32x_flash_bank));
++	bank-&gt;driver_priv = stm32x_info;
++
++	stm32x_info-&gt;write_algorithm = NULL;
++	stm32x_info-&gt;probed = 0;
++
++	return ERROR_OK;
++}
++
++static inline int stm32x_get_flash_reg(struct flash_bank *bank, uint32_t reg)
++{
++	return reg;
++}
++
++static inline int stm32x_get_flash_status(struct flash_bank *bank, uint32_t *status)
++{
++	struct target *target = bank-&gt;target;
++	return target_read_u32(target, stm32x_get_flash_reg(bank, STM32_FLASH_SR), status);
++}
++
++static int stm32x_wait_status_busy(struct flash_bank *bank, int timeout)
++{
++	struct target *target = bank-&gt;target;
++	uint32_t status;
++	int retval = ERROR_OK;
++
++	/* wait for busy to clear */
++	for (;;)
++	{
++		retval = stm32x_get_flash_status(bank, &amp;status);
++		if (retval != ERROR_OK)
++			return retval;
++		LOG_DEBUG(&quot;status: 0x%&quot; PRIx32 &quot;&quot;, status);
++		if ((status &amp; FLASH_BSY) == 0)
++			break;
++		if (timeout-- &lt;= 0)
++		{
++			LOG_ERROR(&quot;timed out waiting for flash&quot;);
++			return ERROR_FAIL;
++		}
++		alive_sleep(1);
++	}
++
++
++	if (status &amp; FLASH_WRPERR)
++	{
++		LOG_ERROR(&quot;stm32x device protected&quot;);
++		retval = ERROR_FAIL;
++	}
++
++	/* Clear but report errors */
++	if (status &amp; FLASH_ERROR)
++	{
++		/* If this operation fails, we ignore it and report the original
++		 * retval
++		 */
++		target_write_u32(target, stm32x_get_flash_reg(bank, STM32_FLASH_SR),
++				status &amp; FLASH_ERROR);
++	}
++	return retval;
++}
++
++static int stm32x_unlock_reg(struct target *target)
++{
++	/* unlock flash registers */
++	int retval = target_write_u32(target, STM32_FLASH_KEYR, KEY1);
++	if (retval != ERROR_OK)
++		return retval;
++
++	retval = target_write_u32(target, STM32_FLASH_KEYR, KEY2);
++	if (retval != ERROR_OK)
++		return retval;
++	return ERROR_OK;
++}
++
++static int stm32x_protect_check(struct flash_bank *bank)
++{
++	return ERROR_OK;
++}
++
++static int stm32x_erase(struct flash_bank *bank, int first, int last)
++{
++	struct target *target = bank-&gt;target;
++	int i;
++
++	if (bank-&gt;target-&gt;state != TARGET_HALTED)
++	{
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	int retval;
++	retval = stm32x_unlock_reg(target);
++	if (retval != ERROR_OK)
++		return retval;
++
++	/*
++	Sector Erase
++	To erase a sector, follow the procedure below:
++	1. Check that no Flash memory operation is ongoing by checking the BSY bit in the
++	  FLASH_SR register
++	2. Set the SER bit and select the sector (out of the 12 sectors in the main memory block)
++	  you wish to erase (SNB) in the FLASH_CR register
++	3. Set the STRT bit in the FLASH_CR register
++	4. Wait for the BSY bit to be cleared
++	 */
++
++	for (i = first; i &lt;= last; i++)
++	{
++		retval = target_write_u32(target,
++				stm32x_get_flash_reg(bank, STM32_FLASH_CR), FLASH_SER | FLASH_SNB(i) | FLASH_STRT);
++		if (retval != ERROR_OK)
++			return retval;
++
++		retval = stm32x_wait_status_busy(bank, FLASH_ERASE_TIMEOUT);
++		if (retval != ERROR_OK)
++			return retval;
++
++		bank-&gt;sectors[i].is_erased = 1;
++	}
++
++	retval = target_write_u32(target, stm32x_get_flash_reg(bank, STM32_FLASH_CR), FLASH_LOCK);
++	if (retval != ERROR_OK)
++		return retval;
++
++	return ERROR_OK;
++}
++
++static int stm32x_protect(struct flash_bank *bank, int set, int first, int last)
++{
++	return ERROR_OK;
++}
++
++static int stm32x_write_block(struct flash_bank *bank, uint8_t *buffer,
++		uint32_t offset, uint32_t count)
++{
++	struct stm32x_flash_bank *stm32x_info = bank-&gt;driver_priv;
++	struct target *target = bank-&gt;target;
++	uint32_t buffer_size = 16384;
++	struct working_area *source;
++	uint32_t address = bank-&gt;base + offset;
++	struct reg_param reg_params[5];
++	struct armv7m_algorithm armv7m_info;
++	int retval = ERROR_OK;
++
++	/* see contib/loaders/flash/stm32x.s for src */
++
++	static const uint16_t stm32x_flash_write_code_16[] = {
++//	00000000 &lt;write&gt;:
++	   0x4b07, //     	ldr	r3, [pc, #28]	(20 &lt;STM32_PROG16&gt;)
++	   0x6123,  //    	str	r3, [r4, #16]
++       0xf830, 0x3b02, 	//ldrh.w	r3, [r0], #2
++       0xf821, 0x3b02, 	//strh.w	r3, [r1], #2
++
++	//0000000c &lt;busy&gt;:
++	0x68e3,      	//ldr	r3, [r4, #12]
++0xf413, 0x3f80, // 	tst.w	r3, #65536	; 0x10000
++0xd0fb,      	//beq.n	c &lt;busy&gt;
++0xf013, 0x0ff0, 	//tst.w	r3, #240	; 0xf0
++0xd101,      	//bne.n	1e &lt;exit&gt;
++0x3a01,      	//subs	r2, #1
++0xd1f0,      	//bne.n	0 &lt;write&gt;
++	            	   	//0000001e &lt;exit&gt;:
++	0xbe00, //      	bkpt	0x0000
++
++	//00000020 &lt;STM32_PROG16&gt;:
++	0x0101, 0x0000, // 	.word	0x00000101
++
++	};
++
++	// Flip endian
++	uint8_t stm32x_flash_write_code[sizeof(stm32x_flash_write_code_16)*2];
++	for (unsigned i = 0; i &lt; sizeof(stm32x_flash_write_code_16) / 2; i++)
++	{
++		stm32x_flash_write_code[i*2 + 0] = stm32x_flash_write_code_16[i] &amp; 0xff;
++		stm32x_flash_write_code[i*2 + 1] = (stm32x_flash_write_code_16[i] &gt;&gt; 8) &amp; 0xff;
++	}
++
++	if (target_alloc_working_area(target, sizeof(stm32x_flash_write_code),
++			&amp;stm32x_info-&gt;write_algorithm) != ERROR_OK)
++	{
++		LOG_WARNING(&quot;no working area available, can't do block memory writes&quot;);
++		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	};
++
++	if ((retval = target_write_buffer(target, stm32x_info-&gt;write_algorithm-&gt;address,
++			sizeof(stm32x_flash_write_code),
++			(uint8_t*)stm32x_flash_write_code)) != ERROR_OK)
++		return retval;
++
++	/* memory buffer */
++	while (target_alloc_working_area_try(target, buffer_size, &amp;source) != ERROR_OK)
++	{
++		buffer_size /= 2;
++		if (buffer_size &lt;= 256)
++		{
++			/* if we already allocated the writing code, but failed to get a
++			 * buffer, free the algorithm */
++			if (stm32x_info-&gt;write_algorithm)
++				target_free_working_area(target, stm32x_info-&gt;write_algorithm);
++
++			LOG_WARNING(&quot;no large enough working area available, can't do block memory writes&quot;);
++			return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++		}
++	};
++
++	armv7m_info.common_magic = ARMV7M_COMMON_MAGIC;
++	armv7m_info.core_mode = ARMV7M_MODE_ANY;
++
++	init_reg_param(&amp;reg_params[0], &quot;r0&quot;, 32, PARAM_OUT);
++	init_reg_param(&amp;reg_params[1], &quot;r1&quot;, 32, PARAM_OUT);
++	init_reg_param(&amp;reg_params[2], &quot;r2&quot;, 32, PARAM_OUT);
++	init_reg_param(&amp;reg_params[3], &quot;r3&quot;, 32, PARAM_IN_OUT);
++	init_reg_param(&amp;reg_params[4], &quot;r4&quot;, 32, PARAM_OUT);
++
++	while (count &gt; 0)
++	{
++		uint32_t thisrun_count = (count &gt; (buffer_size / 2)) ?
++				(buffer_size / 2) : count;
++
++		if ((retval = target_write_buffer(target, source-&gt;address,
++				thisrun_count * 2, buffer)) != ERROR_OK)
++			break;
++
++		buf_set_u32(reg_params[0].value, 0, 32, source-&gt;address);
++		buf_set_u32(reg_params[1].value, 0, 32, address);
++		buf_set_u32(reg_params[2].value, 0, 32, thisrun_count);
++		// R3 is a return value only
++		buf_set_u32(reg_params[4].value, 0, 32, STM32_FLASH_BASE);
++
++		if ((retval = target_run_algorithm(target, 0, NULL,
++				sizeof(reg_params) / sizeof(*reg_params),
++				reg_params,
++				stm32x_info-&gt;write_algorithm-&gt;address,
++				0,
++				10000, &amp;armv7m_info)) != ERROR_OK)
++		{
++			LOG_ERROR(&quot;error executing stm32x flash write algorithm&quot;);
++			break;
++		}
++
++		uint32_t error = buf_get_u32(reg_params[3].value, 0, 32) &amp; FLASH_ERROR;
++
++		if (error &amp; FLASH_WRPERR)
++		{
++			LOG_ERROR(&quot;flash memory write protected&quot;);
++		}
++
++		if (error != 0)
++		{
++			LOG_ERROR(&quot;flash write failed = %08x&quot;, error);
++			/* Clear but report errors */
++			target_write_u32(target, STM32_FLASH_SR, error);
++			retval = ERROR_FAIL;
++			break;
++		}
++
++		buffer += thisrun_count * 2;
++		address += thisrun_count * 2;
++		count -= thisrun_count;
++	}
++
++	target_free_working_area(target, source);
++	target_free_working_area(target, stm32x_info-&gt;write_algorithm);
++
++	destroy_reg_param(&amp;reg_params[0]);
++	destroy_reg_param(&amp;reg_params[1]);
++	destroy_reg_param(&amp;reg_params[2]);
++	destroy_reg_param(&amp;reg_params[3]);
++	destroy_reg_param(&amp;reg_params[4]);
++
++	return retval;
++}
++
++static int stm32x_write(struct flash_bank *bank, uint8_t *buffer,
++		uint32_t offset, uint32_t count)
++{
++	struct target *target = bank-&gt;target;
++	uint32_t words_remaining = (count / 2);
++	uint32_t bytes_remaining = (count &amp; 0x00000001);
++	uint32_t address = bank-&gt;base + offset;
++	uint32_t bytes_written = 0;
++	int retval;
++
++	if (bank-&gt;target-&gt;state != TARGET_HALTED)
++	{
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	if (offset &amp; 0x1)
++	{
++		LOG_WARNING(&quot;offset 0x%&quot; PRIx32 &quot; breaks required 2-byte alignment&quot;, offset);
++		return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
++	}
++
++	retval = stm32x_unlock_reg(target);
++	if (retval != ERROR_OK)
++		return retval;
++
++	/* multiple half words (2-byte) to be programmed? */
++	if (words_remaining &gt; 0)
++	{
++		/* try using a block write */
++		if ((retval = stm32x_write_block(bank, buffer, offset, words_remaining)) != ERROR_OK)
++		{
++			if (retval == ERROR_TARGET_RESOURCE_NOT_AVAILABLE)
++			{
++				/* if block write failed (no sufficient working area),
++				 * we use normal (slow) single dword accesses */
++				LOG_WARNING(&quot;couldn't use block writes, falling back to single memory accesses&quot;);
++			}
++		}
++		else
++		{
++			buffer += words_remaining * 2;
++			address += words_remaining * 2;
++			words_remaining = 0;
++		}
++	}
++
++	if ((retval != ERROR_OK) &amp;&amp; (retval != ERROR_TARGET_RESOURCE_NOT_AVAILABLE))
++		return retval;
++
++	/*
++	Standard programming
++	The Flash memory programming sequence is as follows:
++	1. Check that no main Flash memory operation is ongoing by checking the BSY bit in the
++	  FLASH_SR register.
++	2. Set the PG bit in the FLASH_CR register
++	3. Perform the data write operation(s) to the desired memory address (inside main
++	  memory block or OTP area):
++	&#226;&#128;&#147; &#226;&#128;&#147; Half-word access in case of x16 parallelism
++	&#226;&#128;&#147; Word access in case of x32 parallelism
++	&#226;&#128;&#147;
++	4.
++	Byte access in case of x8 parallelism
++	Double word access in case of x64 parallelism
++	Wait for the BSY bit to be cleared
++	*/
++	while (words_remaining &gt; 0)
++	{
++		uint16_t value;
++		memcpy(&amp;value, buffer + bytes_written, sizeof(uint16_t));
++
++		retval = target_write_u32(target, stm32x_get_flash_reg(bank, STM32_FLASH_CR),
++				FLASH_PG | FLASH_PSIZE_16);
++		if (retval != ERROR_OK)
++			return retval;
++
++		retval = target_write_u16(target, address, value);
++		if (retval != ERROR_OK)
++			return retval;
++
++		retval = stm32x_wait_status_busy(bank, FLASH_WRITE_TIMEOUT);
++		if (retval != ERROR_OK)
++			return retval;
++
++		bytes_written += 2;
++		words_remaining--;
++		address += 2;
++	}
++
++	if (bytes_remaining)
++	{
++		retval = target_write_u32(target, stm32x_get_flash_reg(bank, STM32_FLASH_CR),
++				FLASH_PG | FLASH_PSIZE_8);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = target_write_u8(target, address, buffer[bytes_written]);
++		if (retval != ERROR_OK)
++			return retval;
++
++		retval = stm32x_wait_status_busy(bank, FLASH_WRITE_TIMEOUT);
++		if (retval != ERROR_OK)
++			return retval;
++	}
++
++	return target_write_u32(target, STM32_FLASH_CR, FLASH_LOCK);
++}
++
++static void setup_sector(struct flash_bank *bank, int start, int num, int size)
++{
++	for (int i = start; i &lt; (start + num) ; i++)
++	{
++		bank-&gt;sectors[i].offset = bank-&gt;size;
++		bank-&gt;sectors[i].size = size;
++		bank-&gt;size += bank-&gt;sectors[i].size;
++	}
++}
++
++static int stm32x_probe(struct flash_bank *bank)
++{
++	struct target *target = bank-&gt;target;
++	struct stm32x_flash_bank *stm32x_info = bank-&gt;driver_priv;
++	int i;
++	uint16_t num_pages;
++	uint32_t device_id;
++	uint32_t base_address = 0x08000000;
++
++	stm32x_info-&gt;probed = 0;
++
++	/* read stm32 device id register */
++	int retval = target_read_u32(target, 0xE0042000, &amp;device_id);
++	if (retval != ERROR_OK)
++		return retval;
++	LOG_INFO(&quot;device id = 0x%08&quot; PRIx32 &quot;&quot;, device_id);
++
++	/* get flash size from target. */
++	retval = target_read_u16(target, 0x1FFFF7E0, &amp;num_pages);
++	if (retval != ERROR_OK)
++	{
++		LOG_WARNING(&quot;failed reading flash size, default to max target family&quot;);
++		/* failed reading flash size, default to max target family */
++		num_pages = 0xffff;
++	}
++
++	if ((device_id &amp; 0x7ff) != 0x411)
++	{
++		LOG_WARNING(&quot;Cannot identify target as a STM32 family, try the other STM32 drivers.&quot;);
++		return ERROR_FAIL;
++	}
++
++	/* sectors sizes vary, handle this in a different code path
++	 * than the rest.
++	 */
++	// Uhhh.... what to use here?
++
++	/* calculate numbers of pages*/
++	num_pages = 4 + 1 + 7;
++
++	if (bank-&gt;sectors)
++	{
++		free(bank-&gt;sectors);
++		bank-&gt;sectors = NULL;
++	}
++
++	bank-&gt;base = base_address;
++	bank-&gt;num_sectors = num_pages;
++	bank-&gt;sectors = malloc(sizeof(struct flash_sector) * num_pages);
++
++	bank-&gt;size = 0;
++	setup_sector(bank, 0, 4, 16 * 1024);
++	setup_sector(bank, 4, 1, 64 * 1024);
++	setup_sector(bank, 4+1, 7, 128 * 1024);
++
++	for (i = 0; i &lt; num_pages; i++)
++	{
++		bank-&gt;sectors[i].is_erased = -1;
++		bank-&gt;sectors[i].is_protected = 0;
++	}
++
++	LOG_INFO(&quot;flash size = %dkBytes&quot;, bank-&gt;size / 1024);
++
++	stm32x_info-&gt;probed = 1;
++
++	return ERROR_OK;
++}
++
++static int stm32x_auto_probe(struct flash_bank *bank)
++{
++	struct stm32x_flash_bank *stm32x_info = bank-&gt;driver_priv;
++	if (stm32x_info-&gt;probed)
++		return ERROR_OK;
++	return stm32x_probe(bank);
++}
++
++static int get_stm32x_info(struct flash_bank *bank, char *buf, int buf_size)
++{
++	struct target *target = bank-&gt;target;
++	uint32_t device_id;
++	int printed;
++
++	/* read stm32 device id register */
++	int retval = target_read_u32(target, 0xE0042000, &amp;device_id);
++	if (retval != ERROR_OK)
++		return retval;
++
++	if ((device_id &amp; 0x7ff) == 0x411)
++	{
++		printed = snprintf(buf, buf_size, &quot;stm32x (1mByte part) - Rev: &quot;);
++		buf += printed;
++		buf_size -= printed;
++
++		switch (device_id &gt;&gt; 16)
++		{
++			case 0x1000:
++				snprintf(buf, buf_size, &quot;A&quot;);
++				break;
++
++			case 0x2000:
++				snprintf(buf, buf_size, &quot;B&quot;);
++				break;
++
++			case 0x1001:
++				snprintf(buf, buf_size, &quot;Z&quot;);
++				break;
++
++			default:
++				snprintf(buf, buf_size, &quot;unknown&quot;);
++				break;
++		}
++	}
++	else
++	{
++		snprintf(buf, buf_size, &quot;Cannot identify target as a stm32x\n&quot;);
++		return ERROR_FAIL;
++	}
++
++	return ERROR_OK;
++}
++
++static const struct command_registration stm32x_exec_command_handlers[] = {
++	COMMAND_REGISTRATION_DONE
++};
++
++static const struct command_registration stm32x_command_handlers[] = {
++	{
++		.name = &quot;stm32f2xxx&quot;,
++		.mode = COMMAND_ANY,
++		.help = &quot;stm32f2xxx flash command group&quot;,
++		.chain = stm32x_exec_command_handlers,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++struct flash_driver stm32xf2xxx_flash = {
++	.name = &quot;stm32f2xxx&quot;,
++	.commands = stm32x_command_handlers,
++	.flash_bank_command = stm32x_flash_bank_command,
++	.erase = stm32x_erase,
++	.protect = stm32x_protect,
++	.write = stm32x_write,
++	.read = default_flash_read,
++	.probe = stm32x_probe,
++	.auto_probe = stm32x_auto_probe,
++	.erase_check = default_flash_mem_blank_check,
++	.protect_check = stm32x_protect_check,
++	.info = get_stm32x_info,
++};
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ contrib/loaders/flash/{stm32x.S =&gt; stm32f2xxx.S} |   21 +-
+ src/flash/nor/Makefile.am                        |    1 +
+ src/flash/nor/drivers.c                          |    2 +
+ src/flash/nor/stm32f2xxx.c                       |  712 ++++++++++++++++++++++
+ 4 files changed, 728 insertions(+), 8 deletions(-)
+ copy contrib/loaders/flash/{stm32x.S =&gt; stm32f2xxx.S} (80%)
+ create mode 100644 src/flash/nor/stm32f2xxx.c
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002510.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-736-g75cdbff
+</A></li>
+	<LI>Next message: <A HREF="002512.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-738-g706284a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2511">[ date ]</a>
+              <a href="thread.html#2511">[ thread ]</a>
+              <a href="subject.html#2511">[ subject ]</a>
+              <a href="author.html#2511">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

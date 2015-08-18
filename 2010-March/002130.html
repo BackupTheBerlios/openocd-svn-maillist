@@ -1,0 +1,257 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-44-g53b3d4d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-44-g53b3d4d&In-Reply-To=%3CE1NmbAi-0004Jp-Ey%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002129.html">
+   <LINK REL="Next"  HREF="002131.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-44-g53b3d4d</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-44-g53b3d4d&In-Reply-To=%3CE1NmbAi-0004Jp-Ey%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-44-g53b3d4d">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Wed Mar  3 00:06:34 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002129.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-43-g5b31186
+</A></li>
+        <LI>Next message: <A HREF="002131.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-45-gd72e90a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2130">[ date ]</a>
+              <a href="thread.html#2130">[ thread ]</a>
+              <a href="subject.html#2130">[ subject ]</a>
+              <a href="author.html#2130">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  53b3d4dd53eebbf03f481dc59e4bc0259911864a (commit)
+      from  5b311865788009445a1457f62204899a4aa1c7b3 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 53b3d4dd53eebbf03f481dc59e4bc0259911864a
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Mar 2 15:00:14 2010 -0800
+
+    LPC1768 updates, IAR board support
+    
+    Fix some issues with the generic LPC1768 config file:
+    
+     - Handle the post-reset clock config:  4 MHz internal RC, no PLL.
+       This affects flash and JTAG clocking.
+    
+     - Remove JTAG adapter config; they don't all support trst_and_srst
+    
+     - Remove the rest of the bogus &quot;reset-init&quot; event handler.
+    
+     - Allow explicit CCLK configuration, instead of assuming 12 MHz;
+       some boards will use 100 Mhz (or the post-reset 4 MHz).
+    
+     - Simplify: rely on defaults for endianness and IR-Capture value
+    
+     - Update some comments too
+    
+    Build on those fixes to make a trivial config for the IAR LPC1768
+    kickstart board (by Olimex) start working.
+    
+    Also, add doxygen to the lpc2000 flash driver, primarily to note a
+    configuration problem with driver: it wrongly assumes the core clock
+    rate never changes.  Configs that are safe for updating flash after
+    &quot;reset halt&quot; will thus often be unsafe later ... e.g. for LPC1768,
+    after switching to use PLL0 at 100 MHz.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/NEWS b/NEWS
+index 56c697f..4fef5b2 100644
+--- a/NEWS
++++ b/NEWS
+@@ -18,6 +18,7 @@ Flash Layer:
+ 
+ 
+ Board, Target, and Interface Configuration Scripts:
++	Support IAR LPC1768 kickstart board (by Olimex)
+ 
+ Core Jim/TCL Scripting:
+ 
+diff --git a/src/flash/nor/lpc2000.c b/src/flash/nor/lpc2000.c
+index 6674f17..438ab54 100644
+--- a/src/flash/nor/lpc2000.c
++++ b/src/flash/nor/lpc2000.c
+@@ -33,7 +33,15 @@
+ #include &lt;target/armv7m.h&gt;
+ 
+ 
+-/* flash programming support for NXP LPC17xx and LPC2xxx devices
++/**
++ * @file
++ * flash programming support for NXP LPC17xx and LPC2xxx devices.
++ *
++ * @todo Provide a way to update CCLK after declaring the flash bank.
++ * The value which is correct after chip reset will rarely still work
++ * right after the clocks switch to use the PLL (e.g. 4MHz --&gt; 100 MHz).
++ */
++/*
+  * currently supported devices:
+  * variant 1 (lpc2000_v1):
+  * - 2104 | 5 | 6
+diff --git a/tcl/board/iar_lpc1768.cfg b/tcl/board/iar_lpc1768.cfg
+new file mode 100644
+index 0000000..b8fd026
+--- /dev/null
++++ b/tcl/board/iar_lpc1768.cfg
+@@ -0,0 +1,17 @@
++# Board from IAR KickStart Kit for LPC1768
++# See www.iar.com and also
++# <A HREF="http://www.olimex.com/dev/lpc-1766stk.html">http://www.olimex.com/dev/lpc-1766stk.html</A>
++#
++
++source [find target/lpc1768.cfg]
++
++# The chip has just been reset.
++#
++$_TARGETNAME configure -event reset-init {
++	# FIXME update the core clock to run at 100 MHz;
++	# and update JTAG clocking similarly; then
++	# make CCLK match,
++
++	flash probe 0
++}
++
+diff --git a/tcl/target/lpc1768.cfg b/tcl/target/lpc1768.cfg
+index f0093ad..182fb89 100644
+--- a/tcl/target/lpc1768.cfg
++++ b/tcl/target/lpc1768.cfg
+@@ -1,4 +1,4 @@
+-# NXP LPC1768 Cortex-M3 with 512kB Flash and 32kB+32kB Local On-Chip SRAM, clocked with 4MHz internal RC oscillator
++# NXP LPC1768 Cortex-M3 with 512kB Flash and 32kB+32kB Local On-Chip SRAM,
+ 
+ if { [info exists CHIPNAME] } {
+ 	set  _CHIPNAME $CHIPNAME
+@@ -6,12 +6,18 @@ if { [info exists CHIPNAME] } {
+ 	set  _CHIPNAME lpc1768
+ }
+ 
+-if { [info exists ENDIAN] } {
+-	set  _ENDIAN $ENDIAN
++# After reset the chip is clocked by the ~4MHz internal RC oscillator.
++# When board-specific code (reset-init handler or device firmware)
++# configures another oscillator and/or PLL0, set CCLK to match; if
++# you don't, then flash erase and write operations may misbehave.
++# (The ROM code doing those updates cares about core clock speed...)
++#
++# CCLK is the core clock frequency in KHz
++if { [info exists CCLK ] } {
++	set _CCLK $CCLK
+ } else {
+-	set  _ENDIAN little
++	set _CCLK 4000
+ }
+-
+ if { [info exists CPUTAPID ] } {
+ 	set _CPUTAPID $CPUTAPID
+ } else {
+@@ -23,29 +29,25 @@ jtag_nsrst_delay 200
+ jtag_ntrst_delay 200
+ 
+ # LPC2000 &amp; LPC1700 -&gt; SRST causes TRST
+-reset_config trst_and_srst srst_pulls_trst
++reset_config srst_pulls_trst
+ 
+-jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_CPUTAPID
++jtag newtap $_CHIPNAME cpu -irlen 4 -expected-id $_CPUTAPID
+ 
+ set _TARGETNAME $_CHIPNAME.cpu
+-target create $_TARGETNAME cortex_m3 -endian $_ENDIAN -chain-position $_TARGETNAME
+-
+-# LPC1768 has 32kB of SRAM on its main system bus (so-called Local On-Chip SRAM)
+-$_TARGETNAME configure -work-area-phys 0x10000000 -work-area-size 0x8000 -work-area-backup 0
++target create $_TARGETNAME cortex_m3 -chain-position $_TARGETNAME
+ 
+-# REVISIT is there any good reason to have this reset-init event handler??
+-# Normally they should set up (board-specific) clocking then probe the flash...
+-$_TARGETNAME configure -event reset-init {
+-	# Force NVIC.VTOR to point to flash at 0 ...
+-	# WHY?  This is it's reset value; we run right after reset!!
+-	mwb 0xE000ED08 0x00
+-}
+-
+-# LPC1768 has 512kB of user-available FLASH (bootloader is located in separate dedicated region).
+-# flash bank lpc1700 &lt;base&gt; &lt;size&gt; 0 0 &lt;target#&gt; &lt;variant&gt; &lt;cclk&gt; [calc_checksum]
++# LPC1768 has 32kB of SRAM In the ARMv7-M &quot;Code&quot; area (at 0x10000000)
++# and 32K more on AHB, in the ARMv7-M &quot;SRAM&quot; area, (at 0x2007c000).
++$_TARGETNAME configure -work-area-phys 0x10000000 -work-area-size 0x8000
+ 
++# LPC1768 has 512kB of flash memory, managed by ROM code (including a
++# boot loader which verifies the flash exception table's checksum).
+ set _FLASHNAME $_CHIPNAME.flash
+-flash bank $_FLASHNAME lpc2000 0x0 0x80000 0 0 $_TARGETNAME lpc1700 12000 calc_checksum
+-
+-# 4MHz / 6 = 666kHz, so use 500
+-jtag_khz 500
++flash bank $_FLASHNAME lpc2000 0x0 0x80000 0 0 $_TARGETNAME \
++	lpc1700 $_CCLK calc_checksum
++
++# JTAG clock should be CCLK/6 (unless using adaptive clocking)
++# CCLK is 4 MHz after reset, and until board-specific code (like
++# a reset-init handler) speeds it up.
++jtag_rclk [ expr 4000 / 6 ]
++$_TARGETNAME configure -event reset-start { jtag_rclk [ expr 4000 / 6]  }
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ NEWS                      |    1 +
+ src/flash/nor/lpc2000.c   |   10 +++++++-
+ tcl/board/iar_lpc1768.cfg |   17 ++++++++++++++
+ tcl/target/lpc1768.cfg    |   52 +++++++++++++++++++++++---------------------
+ 4 files changed, 54 insertions(+), 26 deletions(-)
+ create mode 100644 tcl/board/iar_lpc1768.cfg
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002129.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-43-g5b31186
+</A></li>
+	<LI>Next message: <A HREF="002131.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-45-gd72e90a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2130">[ date ]</a>
+              <a href="thread.html#2130">[ thread ]</a>
+              <a href="subject.html#2130">[ subject ]</a>
+              <a href="author.html#2130">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

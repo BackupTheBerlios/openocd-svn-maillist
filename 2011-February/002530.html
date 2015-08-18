@@ -1,0 +1,146 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-769-g6ddcee7
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-769-g6ddcee7&In-Reply-To=%3Cmailman.15.1331736153.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002529.html">
+   <LINK REL="Next"  HREF="002531.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-769-g6ddcee7</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-769-g6ddcee7&In-Reply-To=%3Cmailman.15.1331736153.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-769-g6ddcee7">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Thu Feb 24 23:21:22 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002529.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-768-g47b5829
+</A></li>
+        <LI>Next message: <A HREF="002531.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-771-g95de667
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2530">[ date ]</a>
+              <a href="thread.html#2530">[ thread ]</a>
+              <a href="subject.html#2530">[ subject ]</a>
+              <a href="author.html#2530">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  6ddcee7d20ee873f1c214736c22f29d9781dded4 (commit)
+      from  47b5829db40459650866488ab46008fd8b7e191c (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 6ddcee7d20ee873f1c214736c22f29d9781dded4
+Author: Mathias K &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">kesmtp at freenet.de</A>&gt;
+Date:   Thu Feb 24 13:00:59 2011 +0100
+
+    ft2232: fix possible read buffer overflow
+    
+    This patch fix a possible read buffer overflow in ft2232_execute_queue.
+    Also the correct read queue size for libftdi and libftd2xx was added and
+    and tested.
+    In function ft2232_write a uninitialized value was initialized because we
+    don't know if this value was set in the ftdi api call.
+
+diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+index 9024f8e..a84d069 100644
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -373,6 +373,12 @@ static int             require_send;
+ 	a comment would have been nice.
+ */
+ 
++#if BUILD_FT2232_FTD2XX == 1
++#define FT2232_BUFFER_READ_QUEUE_SIZE	(64*64)
++#else
++#define FT2232_BUFFER_READ_QUEUE_SIZE	(64*4)
++#endif
++
+ #define FT2232_BUFFER_SIZE 131072
+ 
+ static uint8_t*             ft2232_buffer = NULL;
+@@ -499,7 +505,7 @@ static int ft2232_write(uint8_t* buf, int size, uint32_t* bytes_written)
+ {
+ #if BUILD_FT2232_FTD2XX == 1
+ 	FT_STATUS status;
+-	DWORD dw_bytes_written;
++	DWORD dw_bytes_written = 0;
+ 	if ((status = FT_Write(ftdih, buf, size, &amp;dw_bytes_written)) != FT_OK)
+ 	{
+ 		*bytes_written = dw_bytes_written;
+@@ -2081,12 +2087,20 @@ static int ft2232_execute_queue(void)
+ 
+ 	while (cmd)
+ 	{
++		/* fill the write buffer with the desired command */
+ 		if (ft2232_execute_command(cmd) != ERROR_OK)
+ 			retval = ERROR_JTAG_QUEUE_FAILED;
+-		/* Start reading input before FT2232 TX buffer fills up */
++		/* Start reading input before FT2232 TX buffer fills up.
++		 * Sometimes this happens because we don't know the
++		 * length of the last command before we execute it. So
++		 * we simple inform the user.
++		 */
+ 		cmd = cmd-&gt;next;
+-		if (ft2232_expect_read &gt; 256)
++
++		if (ft2232_expect_read &gt;= FT2232_BUFFER_READ_QUEUE_SIZE )
+ 		{
++			if (ft2232_expect_read &gt; (FT2232_BUFFER_READ_QUEUE_SIZE+1) )
++				LOG_WARNING(&quot;read buffer size looks to high&quot;);
+ 			if (ft2232_send_and_recv(first_unsent, cmd) != ERROR_OK)
+ 				retval = ERROR_JTAG_QUEUE_FAILED;
+ 			first_unsent = cmd;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/drivers/ft2232.c |   20 +++++++++++++++++---
+ 1 files changed, 17 insertions(+), 3 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002529.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-768-g47b5829
+</A></li>
+	<LI>Next message: <A HREF="002531.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-771-g95de667
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2530">[ date ]</a>
+              <a href="thread.html#2530">[ thread ]</a>
+              <a href="subject.html#2530">[ subject ]</a>
+              <a href="author.html#2530">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,161 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-559-g338a674
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-559-g338a674&In-Reply-To=%3CE1ND2kf-0004Zf-Sx%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001855.html">
+   <LINK REL="Next"  HREF="001857.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-559-g338a674</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-559-g338a674&In-Reply-To=%3CE1ND2kf-0004Zf-Sx%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-559-g338a674">zwelch at users.sourceforge.net
+       </A><BR>
+    <I>Tue Nov 24 22:16:44 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001855.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-558-g5507b5f
+</A></li>
+        <LI>Next message: <A HREF="001857.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-563-gb621090
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1856">[ date ]</a>
+              <a href="thread.html#1856">[ thread ]</a>
+              <a href="subject.html#1856">[ subject ]</a>
+              <a href="author.html#1856">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  338a674faa96ae321560efa3f1b1e8122d61aac4 (commit)
+      from  5507b5f430e3d6bef00a7ffcd51df29c13d7477e (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 338a674faa96ae321560efa3f1b1e8122d61aac4
+Author: Andreas Fritiofson &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">andreas.fritiofson at gmail.com</A>&gt;
+Date:   Tue Nov 24 21:24:06 2009 +0100
+
+    improve alloc_vprintf
+    
+    The previous implementation was unnecessarily complex. Get rid of the loops,
+    let vsnprintf() tell us directly how much storage we need and allocate that. A
+    second pass writes the actual string. Also add a va_end() that was missing.
+    This should be much faster for large strings and less wasteful for small ones.
+    
+    A quirk that has been retained is that some callers patch in a newline at the
+    end of the returned string and depend on alloc_vprintf to allocate at least
+    one byte extra.
+    
+    Signed-off-by: Andreas Fritiofson &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">andreas.fritiofson at gmail.com</A>&gt;
+    Signed-off-by: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+
+diff --git a/src/helper/log.c b/src/helper/log.c
+index caaed42..2dcf7bb 100644
+--- a/src/helper/log.c
++++ b/src/helper/log.c
+@@ -395,37 +395,26 @@ int log_remove_callback(log_callback_fn fn, void *priv)
+ /* return allocated string w/printf() result */
+ char *alloc_vprintf(const char *fmt, va_list ap)
+ {
+-	/* no buffer at the beginning, force realloc to do the job */
+-	char *string = NULL;
+-
+-	/* start with buffer size suitable for typical messages */
+-	int size = 128;
+-
+-	for (;;)
+-	{
+-		char *t = string;
+-		va_list ap_copy;
+-		int ret;
+-		string = realloc(string, size);
+-		if (string == NULL)
+-		{
+-			if (t != NULL)
+-				free(t);
+-			return NULL;
+-		}
++	va_list ap_copy;
++	int len;
++	char *string;
+ 
+-		va_copy(ap_copy, ap);
++	/* determine the length of the buffer needed */
++	va_copy(ap_copy, ap);
++	len = vsnprintf(NULL, 0, fmt, ap_copy);
++	va_end(ap_copy);
+ 
+-		ret = vsnprintf(string, size, fmt, ap_copy);
+-		/* NB! The result of the vsnprintf() might be an *EMPTY* string! */
+-		if ((ret &gt;= 0) &amp;&amp; ((ret + 1) &lt; size))
+-			break;
++	/* allocate and make room for terminating zero. */
++	/* FIXME: The old version always allocated at least one byte extra and
++	 * other code depend on that. They should be probably be fixed, but for
++	 * now reserve the extra byte. */
++	string = malloc(len + 2);
++	if (string == NULL)
++		return NULL;
+ 
+-		/* there was just enough or not enough space, allocate more in the next round */
+-		size *= 2; /* double the buffer size */
+-	}
++	/* do the real work */
++	vsnprintf(string, len + 1, fmt, ap);
+ 
+-	/* the returned buffer is by principle guaranteed to be at least one character longer */
+ 	return string;
+ }
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/helper/log.c |   43 ++++++++++++++++---------------------------
+ 1 files changed, 16 insertions(+), 27 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001855.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-558-g5507b5f
+</A></li>
+	<LI>Next message: <A HREF="001857.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-563-gb621090
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1856">[ date ]</a>
+              <a href="thread.html#1856">[ thread ]</a>
+              <a href="subject.html#1856">[ subject ]</a>
+              <a href="author.html#1856">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

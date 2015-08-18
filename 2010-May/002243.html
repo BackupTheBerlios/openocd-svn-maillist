@@ -1,0 +1,208 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-251-gdc464ad
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-251-gdc464ad&In-Reply-To=%3CE1OEHAv-0003u5-53%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002242.html">
+   <LINK REL="Next"  HREF="002244.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-251-gdc464ad</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-251-gdc464ad&In-Reply-To=%3CE1OEHAv-0003u5-53%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-251-gdc464ad">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Tue May 18 09:25:11 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002242.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-250-gfafed75
+</A></li>
+        <LI>Next message: <A HREF="002244.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-252-ge92b203
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2243">[ date ]</a>
+              <a href="thread.html#2243">[ thread ]</a>
+              <a href="subject.html#2243">[ subject ]</a>
+              <a href="author.html#2243">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  dc464ad88e7b7c5e0014a1784edcdb2fdcb448fd (commit)
+      from  fafed75d9831c8038c5504fc94e941f0ee9770e5 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit dc464ad88e7b7c5e0014a1784edcdb2fdcb448fd
+Author: Jon Povey &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">jon.povey at racelogic.co.uk</A>&gt;
+Date:   Mon May 17 16:16:22 2010 +0900
+
+    NAND/davinci: Fix segfault for hwecc4_infix reads
+    
+    Page reads using hwecc4_infix layout segfaulted for check_bad_blocks because
+    the read assumed a valid data buffer, which check_bad_blocks does not use
+    (it only passes a 6 byte buffer for the start of OOB).
+    
+    This version copes with undersized or missing data or oob buffers and uses
+    random read commands within the page to skip unwanted areas of data/OOB for
+    speed.
+    
+    NOTE: Running check_bad_blocks with this layout will be reading infix
+    OOB locations, not manufacturer bad block markers. This means that if you
+    check blocks written in infix layout they will appear good, but manufacturer-
+    marked bad blocks may also appear good.
+    If you want to scan for manufactuer-marked bad blocks, you need to enable
+    raw_access before running check_bad_blocks, or use the non-infix layout.
+    
+    Signed-off-by: Jon Povey &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">jon.povey at racelogic.co.uk</A>&gt;
+    CC: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/flash/nand/davinci.c b/src/flash/nand/davinci.c
+index 96cbfea..90219c6 100644
+--- a/src/flash/nand/davinci.c
++++ b/src/flash/nand/davinci.c
+@@ -338,6 +338,27 @@ static void davinci_write_pagecmd(struct nand_device *nand, uint8_t cmd, uint32_
+ 		target_write_u8(target, info-&gt;addr, page &gt;&gt; 24);
+ }
+ 
++static int davinci_seek_column(struct nand_device *nand, uint16_t column)
++{
++	struct davinci_nand *info = nand-&gt;controller_priv;
++	struct target *target = info-&gt;target;
++
++	/* Random read, we must have issued a page read already */
++	target_write_u8(target, info-&gt;cmd, NAND_CMD_RNDOUT);
++
++	target_write_u8(target, info-&gt;addr, column);
++
++	if (nand-&gt;page_size &gt; 512) {
++		target_write_u8(target, info-&gt;addr, column &gt;&gt; 8);
++		target_write_u8(target, info-&gt;cmd, NAND_CMD_RNDOUTSTART);
++	}
++
++	if (!davinci_nand_ready(nand, 100))
++		return ERROR_NAND_OPERATION_TIMEOUT;
++
++	return ERROR_OK;
++}
++
+ static int davinci_writepage_tail(struct nand_device *nand,
+ 		uint8_t *oob, uint32_t oob_size)
+ {
+@@ -599,6 +620,10 @@ static int davinci_write_page_ecc4infix(struct nand_device *nand, uint32_t page,
+ static int davinci_read_page_ecc4infix(struct nand_device *nand, uint32_t page,
+ 		uint8_t *data, uint32_t data_size, uint8_t *oob, uint32_t oob_size)
+ {
++	int read_size;
++	int want_col, at_col;
++	int ret;
++
+ 	davinci_write_pagecmd(nand, NAND_CMD_READ0, page);
+ 
+ 	/* large page devices need a start command */
+@@ -610,18 +635,43 @@ static int davinci_read_page_ecc4infix(struct nand_device *nand, uint32_t page,
+ 
+ 	/* NOTE:  not bothering to compute and use ECC data for now */
+ 
+-	do {
+-		/* write 512 bytes */
+-		davinci_read_block_data(nand, data, 512);
+-		data += 512;
+-		data_size -= 512;
+-
+-		/* read this &quot;out-of-band&quot; data -- infix */
+-		davinci_read_block_data(nand, oob, 16);
+-		oob += 16;
+-		oob_size -= 16;
+-	} while (data_size);
+-
++	want_col = 0;
++	at_col = 0;
++	while ((data &amp;&amp; data_size) || (oob &amp;&amp; oob_size)) {
++
++		if (data &amp;&amp; data_size) {
++			if (want_col != at_col) {
++				/* Reads are slow, so seek past them when we can */
++				ret  = davinci_seek_column(nand, want_col);
++				if (ret != ERROR_OK)
++					return ret;
++				at_col = want_col;
++			}
++			/* read 512 bytes or data_size, whichever is smaller*/
++			read_size = data_size &gt; 512 ? 512 : data_size;
++			davinci_read_block_data(nand, data, read_size);
++			data += read_size;
++			data_size -= read_size;
++			at_col += read_size;
++		}
++		want_col += 512;
++
++		if (oob &amp;&amp; oob_size) {
++			if (want_col != at_col) {
++				ret  = davinci_seek_column(nand, want_col);
++				if (ret != ERROR_OK)
++					return ret;
++				at_col = want_col;
++			}
++			/* read this &quot;out-of-band&quot; data -- infix */
++			read_size = oob_size &gt; 16 ? 16 : oob_size;
++			davinci_read_block_data(nand, oob, read_size);
++			oob += read_size;
++			oob_size -= read_size;
++			at_col += read_size;
++		}
++		want_col += 16;
++	}
+ 	return ERROR_OK;
+ }
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nand/davinci.c |   74 ++++++++++++++++++++++++++++++++++++++-------
+ 1 files changed, 62 insertions(+), 12 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002242.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-250-gfafed75
+</A></li>
+	<LI>Next message: <A HREF="002244.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-252-ge92b203
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2243">[ date ]</a>
+              <a href="thread.html#2243">[ thread ]</a>
+              <a href="subject.html#2243">[ subject ]</a>
+              <a href="author.html#2243">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

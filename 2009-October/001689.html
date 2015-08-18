@@ -1,0 +1,322 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-439-g68937ca
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.2.0-439-g68937ca&In-Reply-To=%3CE1N2fw6-0005Wv-FW%40cj8yhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001688.html">
+   <LINK REL="Next"  HREF="001690.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-439-g68937ca</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.2.0-439-g68937ca&In-Reply-To=%3CE1N2fw6-0005Wv-FW%40cj8yhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-439-g68937ca">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Tue Oct 27 07:53:41 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001688.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-436-g1020569
+</A></li>
+        <LI>Next message: <A HREF="001690.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-441-g993fe4a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1689">[ date ]</a>
+              <a href="thread.html#1689">[ thread ]</a>
+              <a href="subject.html#1689">[ subject ]</a>
+              <a href="author.html#1689">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  68937cadfb42026b4c8b2c9e43acaf3fb409c4db (commit)
+       via  068a6c7895607a6af6758ad18bace683f6b7499d (commit)
+       via  ee8e93cb836bc01581329c5685c888c4d85e6c1b (commit)
+      from  1020569b9ffa5073df0966b519f05dd492bfa460 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 68937cadfb42026b4c8b2c9e43acaf3fb409c4db
+Author: Nicolas Pitre &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">nico at fluxnic.net</A>&gt;
+Date:   Tue Oct 27 01:14:34 2009 -0400
+
+    ARM: fix Thumb mode handling when single-stepping register based branch insns
+    
+    Currently, OpenOCD is always caching the PC value without the T bit.
+    This means that assignment to the PC register must clear that bit and set
+    the processor state to Thumb when it is set.  And when the PC register
+    value is transferred to another register or stored into memory then
+    the T bit must be restored.
+    
+    Discussion: It is arguable if OpenOCd should have preserved the original
+    PC value which would have greatly simplified this code.  The processor
+    state could then be obtained simply by getting at bit 0 of the PC.  This
+    however would require special handling elsewhere instead since the T bit
+    is not always relevant (like when PC is used with ALU insns or as an index
+    with some addressing modes).  It is unclear which way would be simpler in
+    the end.
+    
+    Signed-off-by: Nicolas Pitre &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">nico at marvell.com</A>&gt;
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_simulator.c b/src/target/arm_simulator.c
+index 5af2c12..c50a52c 100644
+--- a/src/target/arm_simulator.c
++++ b/src/target/arm_simulator.c
+@@ -380,7 +380,8 @@ int arm_simulate_step_core(target_t *target, uint32_t *dry_run_pc, struct arm_si
+ 			else if (instruction.type == ARM_BL)
+ 			{
+ 				uint32_t old_pc = sim-&gt;get_reg(sim, 15);
+-				sim-&gt;set_reg_mode(sim, 14, old_pc + 4);
++				int T = (sim-&gt;get_state(sim) == ARMV4_5_STATE_THUMB);
++				sim-&gt;set_reg_mode(sim, 14, old_pc + 4 + T);
+ 				sim-&gt;set_reg(sim, 15, target);
+ 			}
+ 			else if (instruction.type == ARM_BX)
+@@ -398,7 +399,8 @@ int arm_simulate_step_core(target_t *target, uint32_t *dry_run_pc, struct arm_si
+ 			else if (instruction.type == ARM_BLX)
+ 			{
+ 				uint32_t old_pc = sim-&gt;get_reg(sim, 15);
+-				sim-&gt;set_reg_mode(sim, 14, old_pc + 4);
++				int T = (sim-&gt;get_state(sim) == ARMV4_5_STATE_THUMB);
++				sim-&gt;set_reg_mode(sim, 14, old_pc + 4 + T);
+ 
+ 				if (target &amp; 0x1)
+ 				{
+@@ -465,24 +467,24 @@ int arm_simulate_step_core(target_t *target, uint32_t *dry_run_pc, struct arm_si
+ 		if (dry_run_pc)
+ 		{
+ 			if (instruction.info.data_proc.Rd == 15)
+-			{
+-				*dry_run_pc = Rd;
+-				return ERROR_OK;
+-			}
++				*dry_run_pc = Rd &amp; ~1;
+ 			else
+-			{
+ 				*dry_run_pc = current_pc + instruction_size;
+-			}
+ 
+ 			return ERROR_OK;
+ 		}
+ 		else
+ 		{
++			if (instruction.info.data_proc.Rd == 15) {
++				sim-&gt;set_reg_mode(sim, 15, Rd &amp; ~1);
++				if (Rd &amp; 1)
++					sim-&gt;set_state(sim, ARMV4_5_STATE_THUMB);
++				else
++					sim-&gt;set_state(sim, ARMV4_5_STATE_ARM);
++				return ERROR_OK;
++			}
+ 			sim-&gt;set_reg_mode(sim, instruction.info.data_proc.Rd, Rd);
+ 			LOG_WARNING(&quot;no updating of flags yet&quot;);
+-
+-			if (instruction.info.data_proc.Rd == 15)
+-				return ERROR_OK;
+ 		}
+ 	}
+ 	/* compare instructions (CMP, CMN, TST, TEQ) */
+@@ -566,15 +568,9 @@ int arm_simulate_step_core(target_t *target, uint32_t *dry_run_pc, struct arm_si
+ 		if (dry_run_pc)
+ 		{
+ 			if (instruction.info.load_store.Rd == 15)
+-			{
+-				*dry_run_pc = load_value;
+-				return ERROR_OK;
+-			}
++				*dry_run_pc = load_value &amp; ~1;
+ 			else
+-			{
+ 				*dry_run_pc = current_pc + instruction_size;
+-			}
+-
+ 			return ERROR_OK;
+ 		}
+ 		else
+@@ -584,10 +580,16 @@ int arm_simulate_step_core(target_t *target, uint32_t *dry_run_pc, struct arm_si
+ 			{
+ 				sim-&gt;set_reg_mode(sim, instruction.info.load_store.Rn, modified_address);
+ 			}
+-			sim-&gt;set_reg_mode(sim, instruction.info.load_store.Rd, load_value);
+ 
+-			if (instruction.info.load_store.Rd == 15)
++			if (instruction.info.load_store.Rd == 15) {
++				sim-&gt;set_reg_mode(sim, 15, load_value &amp; ~1);
++				if (load_value &amp; 1)
++					sim-&gt;set_state(sim, ARMV4_5_STATE_THUMB);
++				else
++					sim-&gt;set_state(sim, ARMV4_5_STATE_ARM);
+ 				return ERROR_OK;
++			}
++			sim-&gt;set_reg_mode(sim, instruction.info.load_store.Rd, load_value);
+ 		}
+ 	}
+ 	/* load multiple instruction */
+@@ -636,7 +638,7 @@ int arm_simulate_step_core(target_t *target, uint32_t *dry_run_pc, struct arm_si
+ 		{
+ 			if (instruction.info.load_store_multiple.register_list &amp; 0x8000)
+ 			{
+-				*dry_run_pc = load_values[15];
++				*dry_run_pc = load_values[15] &amp; ~1;
+ 				return ERROR_OK;
+ 			}
+ 		}
+@@ -657,7 +659,16 @@ int arm_simulate_step_core(target_t *target, uint32_t *dry_run_pc, struct arm_si
+ 			{
+ 				if (instruction.info.load_store_multiple.register_list &amp; (1 &lt;&lt; i))
+ 				{
+-					sim-&gt;set_reg_mode(sim, i, load_values[i]);
++					if (i == 15) {
++						uint32_t val = load_values[i];
++					sim-&gt;set_reg_mode(sim, i, val &amp; ~1);
++					if (val &amp; 1)
++						sim-&gt;set_state(sim, ARMV4_5_STATE_THUMB);
++					else
++						sim-&gt;set_state(sim, ARMV4_5_STATE_ARM);
++					} else {
++						sim-&gt;set_reg_mode(sim, i, load_values[i]);
++					}
+ 				}
+ 			}
+ 
+
+commit 068a6c7895607a6af6758ad18bace683f6b7499d
+Author: Nicolas Pitre &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">nico at fluxnic.net</A>&gt;
+Date:   Tue Oct 27 01:14:33 2009 -0400
+
+    ARM: allow proper single stepping of Thumb BL and BLX instructions
+    
+    Whenever an unconditional branch with the H bits set to 0b10 is met, the
+    offset must be combined with the offset from the following opcode and not
+    ignored like it is now.
+    
+    A comment in evaluate_b_bl_blx_thumb() suggests that the Thumb2 decoder
+    would be a simpler solution.  That might be true when single-stepping of
+    Thumb2 code is implemented.  But for now this appears to be the simplest
+    solution to fix Thumb1 support.
+    
+    Signed-off-by: Nicolas Pitre &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">nico at marvell.com</A>&gt;
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_simulator.c b/src/target/arm_simulator.c
+index 646baea..5af2c12 100644
+--- a/src/target/arm_simulator.c
++++ b/src/target/arm_simulator.c
+@@ -332,6 +332,18 @@ int arm_simulate_step_core(target_t *target, uint32_t *dry_run_pc, struct arm_si
+ 
+ 			return ERROR_OK;
+ 		}
++
++		/* Deal with 32-bit BL/BLX */
++		if ((opcode &amp; 0xf800) == 0xf000) {
++			uint32_t high = instruction.info.b_bl_bx_blx.target_address;
++			retval = target_read_u16(target, current_pc+2, &amp;opcode);
++			if (retval != ERROR_OK)
++				return retval;
++			retval = thumb_evaluate_opcode(opcode, current_pc, &amp;instruction);
++			if (retval != ERROR_OK)
++				return retval;
++			instruction.info.b_bl_bx_blx.target_address += high;
++		}
+ 	}
+ 
+ 	/* examine instruction type */
+
+commit ee8e93cb836bc01581329c5685c888c4d85e6c1b
+Author: Nicolas Pitre &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">nico at fluxnic.net</A>&gt;
+Date:   Tue Oct 27 01:14:32 2009 -0400
+
+    ARM: call thumb_pass_branch_condition() only for actual branch opcodes
+    
+    Calling it first with every opcodes and then testing if the opcode
+    was indeed a branch instruction is wasteful and rather strange.
+    If ever thumb_pass_branch_condition() has side effects (say, like
+    printing a debugging traces) then the result would be garbage for most
+    Thumb instructions which have no condition code.
+    
+    While at it, let's make the nearby code more readable by reducing some of
+    the redundant brace noise and reworking the error handling construct.
+    
+    Signed-off-by: Nicolas Pitre &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">nico at marvell.com</A>&gt;
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_simulator.c b/src/target/arm_simulator.c
+index e2f49c3..646baea 100644
+--- a/src/target/arm_simulator.c
++++ b/src/target/arm_simulator.c
+@@ -309,19 +309,17 @@ int arm_simulate_step_core(target_t *target, uint32_t *dry_run_pc, struct arm_si
+ 	{
+ 		uint16_t opcode;
+ 
+-		if ((retval = target_read_u16(target, current_pc, &amp;opcode)) != ERROR_OK)
+-		{
++		retval = target_read_u16(target, current_pc, &amp;opcode);
++		if (retval != ERROR_OK)
+ 			return retval;
+-		}
+-		if ((retval = thumb_evaluate_opcode(opcode, current_pc, &amp;instruction)) != ERROR_OK)
+-		{
++		retval = thumb_evaluate_opcode(opcode, current_pc, &amp;instruction);
++		 if (retval != ERROR_OK)
+ 			return retval;
+-			}
+ 		instruction_size = 2;
+ 
+ 		/* check condition code (only for branch instructions) */
+-		if ((!thumb_pass_branch_condition(sim-&gt;get_cpsr(sim, 0, 32), opcode)) &amp;&amp;
+-			(instruction.type == ARM_B))
++		if (instruction.type == ARM_B &amp;&amp;
++		    !thumb_pass_branch_condition(sim-&gt;get_cpsr(sim, 0, 32), opcode))
+ 		{
+ 			if (dry_run_pc)
+ 			{
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm_simulator.c |   81 +++++++++++++++++++++++++++----------------
+ 1 files changed, 51 insertions(+), 30 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001688.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-436-g1020569
+</A></li>
+	<LI>Next message: <A HREF="001690.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-441-g993fe4a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1689">[ date ]</a>
+              <a href="thread.html#1689">[ thread ]</a>
+              <a href="subject.html#1689">[ subject ]</a>
+              <a href="author.html#1689">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

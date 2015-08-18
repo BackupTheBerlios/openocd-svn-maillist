@@ -1,0 +1,372 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2161 - in trunk/src: jtag jtag/rlink jtag/zy1000	target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2161%20-%20in%20trunk/src%3A%20jtag%20jtag/rlink%20jtag/zy1000%0A%09target&In-Reply-To=%3C200906090840.n598ehNx020691%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000944.html">
+   <LINK REL="Next"  HREF="000946.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2161 - in trunk/src: jtag jtag/rlink jtag/zy1000	target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2161%20-%20in%20trunk/src%3A%20jtag%20jtag/rlink%20jtag/zy1000%0A%09target&In-Reply-To=%3C200906090840.n598ehNx020691%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2161 - in trunk/src: jtag jtag/rlink jtag/zy1000	target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun  9 10:40:43 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000944.html">[Openocd-svn] r2160 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000946.html">[Openocd-svn] r2162 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#945">[ date ]</a>
+              <a href="thread.html#945">[ thread ]</a>
+              <a href="subject.html#945">[ subject ]</a>
+              <a href="author.html#945">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-09 10:40:31 +0200 (Tue, 09 Jun 2009)
+New Revision: 2161
+
+Modified:
+   trunk/src/jtag/amt_jtagaccel.c
+   trunk/src/jtag/bitbang.c
+   trunk/src/jtag/bitq.c
+   trunk/src/jtag/core.c
+   trunk/src/jtag/dummy.c
+   trunk/src/jtag/ft2232.c
+   trunk/src/jtag/jtag.h
+   trunk/src/jtag/rlink/rlink.c
+   trunk/src/jtag/tcl.c
+   trunk/src/jtag/zy1000/zy1000.c
+   trunk/src/target/arm7_9_common.c
+   trunk/src/target/cortex_m3.c
+   trunk/src/target/mips_m4k.c
+Log:
+Encapsulate jtag_reset_config using accessors:
+- Update handle_reset_config_command in tcl.c to use new helpers.
+- Replace direct accesses in JTAG interface and target drivers.
+
+
+Modified: trunk/src/jtag/amt_jtagaccel.c
+===================================================================
+--- trunk/src/jtag/amt_jtagaccel.c	2009-06-09 08:40:23 UTC (rev 2160)
++++ trunk/src/jtag/amt_jtagaccel.c	2009-06-09 08:40:31 UTC (rev 2161)
+@@ -500,6 +500,7 @@
+ 
+ 	amt_jtagaccel_speed(jtag_get_speed());
+ 
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 	if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
+ 		aw_control_rst &amp;= ~0x8;
+ 	else
+
+Modified: trunk/src/jtag/bitbang.c
+===================================================================
+--- trunk/src/jtag/bitbang.c	2009-06-09 08:40:23 UTC (rev 2160)
++++ trunk/src/jtag/bitbang.c	2009-06-09 08:40:31 UTC (rev 2161)
+@@ -258,7 +258,7 @@
+ #ifdef _DEBUG_JTAG_IO_
+ 				LOG_DEBUG(&quot;reset trst: %i srst %i&quot;, cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
+ #endif
+-				if ((cmd-&gt;cmd.reset-&gt;trst == 1) || (cmd-&gt;cmd.reset-&gt;srst &amp;&amp; (jtag_reset_config &amp; RESET_SRST_PULLS_TRST)))
++				if ((cmd-&gt;cmd.reset-&gt;trst == 1) || (cmd-&gt;cmd.reset-&gt;srst &amp;&amp; (jtag_get_reset_config() &amp; RESET_SRST_PULLS_TRST)))
+ 				{
+ 					tap_set_state(TAP_RESET);
+ 				}
+
+Modified: trunk/src/jtag/bitq.c
+===================================================================
+--- trunk/src/jtag/bitq.c	2009-06-09 08:40:23 UTC (rev 2160)
++++ trunk/src/jtag/bitq.c	2009-06-09 08:40:31 UTC (rev 2161)
+@@ -298,7 +298,7 @@
+ #ifdef _DEBUG_JTAG_IO_
+ 			LOG_DEBUG(&quot;reset trst: %i srst %i&quot;, cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
+ #endif
+-			if ( (cmd-&gt;cmd.reset-&gt;trst == 1) || ( cmd-&gt;cmd.reset-&gt;srst &amp;&amp; (jtag_reset_config &amp; RESET_SRST_PULLS_TRST) ) )
++			if ( (cmd-&gt;cmd.reset-&gt;trst == 1) || ( cmd-&gt;cmd.reset-&gt;srst &amp;&amp; (jtag_get_reset_config() &amp; RESET_SRST_PULLS_TRST) ) )
+ 			{
+ 				tap_set_state(TAP_RESET);
+ 			}
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-06-09 08:40:23 UTC (rev 2160)
++++ trunk/src/jtag/core.c	2009-06-09 08:40:31 UTC (rev 2161)
+@@ -1262,6 +1262,15 @@
+ 	return ERROR_OK;
+ }
+ 
++enum reset_types jtag_get_reset_config(void)
++{
++	return jtag_reset_config;
++}
++void jtag_set_reset_config(enum reset_types type)
++{
++	jtag_reset_config = type;
++}
++
+ int jtag_get_trst(void)
+ {
+ 	return jtag_trst;
+
+Modified: trunk/src/jtag/dummy.c
+===================================================================
+--- trunk/src/jtag/dummy.c	2009-06-09 08:40:23 UTC (rev 2160)
++++ trunk/src/jtag/dummy.c	2009-06-09 08:40:31 UTC (rev 2161)
+@@ -123,7 +123,7 @@
+ {
+ 	dummy_clock = 0;
+ 
+-	if (trst || (srst &amp;&amp; (jtag_reset_config &amp; RESET_SRST_PULLS_TRST)))
++	if (trst || (srst &amp;&amp; (jtag_get_reset_config() &amp; RESET_SRST_PULLS_TRST)))
+ 		dummy_state = TAP_RESET;
+ 
+ 	LOG_DEBUG(&quot;reset to: %s&quot;, tap_state_name(dummy_state) );
+
+Modified: trunk/src/jtag/ft2232.c
+===================================================================
+--- trunk/src/jtag/ft2232.c	2009-06-09 08:40:23 UTC (rev 2160)
++++ trunk/src/jtag/ft2232.c	2009-06-09 08:40:31 UTC (rev 2161)
+@@ -1193,6 +1193,7 @@
+ 
+ static void usbjtag_reset(int trst, int srst)
+ {
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 	if (trst == 1)
+ 	{
+ 		if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
+@@ -1232,6 +1233,7 @@
+ 
+ static void jtagkey_reset(int trst, int srst)
+ {
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 	if (trst == 1)
+ 	{
+ 		if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
+@@ -1273,6 +1275,7 @@
+ 
+ static void olimex_jtag_reset(int trst, int srst)
+ {
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 	if (trst == 1)
+ 	{
+ 		if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
+@@ -2155,6 +2158,7 @@
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 	if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
+ 	{
+ 		low_direction &amp;= ~nTRSTnOE; /* nTRST input */
+@@ -2229,6 +2233,7 @@
+ 	high_output    = 0x0;
+ 	high_direction = 0x0c;
+ 
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 	if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
+ 	{
+ 		LOG_ERROR(&quot;can't set nTRSTOE to push-pull on the Dicarlo jtag&quot;);
+@@ -2307,6 +2312,7 @@
+ 	high_output    = 0x0;
+ 	high_direction = 0x0f;
+ 
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 	if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
+ 	{
+ 		high_output |= nTRSTnOE;
+@@ -2373,6 +2379,7 @@
+ 	high_output    = 0x0;
+ 	high_direction = 0x0f;
+ 
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 	if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
+ 	{
+ 		high_output |= nTRSTnOE;
+@@ -2944,6 +2951,7 @@
+ 	nTRST		= 0x10;
+ 	nSRST		= 0x20;
+ 
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 	if ((jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN) != 0) {
+ 		low_direction	&amp;= ~nTRST;	/* nTRST high impedance */
+ 	}
+@@ -2991,6 +2999,7 @@
+ 		low_output	&amp;= ~nTRST;
+ 	}
+ 	else if (trst == 0) {
++		enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 		if ((jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN) != 0)
+ 			low_direction	&amp;= ~nTRST;
+ 		else
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-06-09 08:40:23 UTC (rev 2160)
++++ trunk/src/jtag/jtag.h	2009-06-09 08:40:31 UTC (rev 2161)
+@@ -277,7 +277,8 @@
+ 	RESET_SRST_PUSH_PULL  = 0x20,
+ };
+ 
+-extern enum reset_types jtag_reset_config;
++enum reset_types jtag_get_reset_config(void);
++void jtag_set_reset_config(enum reset_types type);
+ 
+ /**
+  * Initialize interface upon startup.  Return a successful no-op upon
+
+Modified: trunk/src/jtag/rlink/rlink.c
+===================================================================
+--- trunk/src/jtag/rlink/rlink.c	2009-06-09 08:40:23 UTC (rev 2160)
++++ trunk/src/jtag/rlink/rlink.c	2009-06-09 08:40:31 UTC (rev 2161)
+@@ -1419,7 +1419,7 @@
+ #ifdef _DEBUG_JTAG_IO_
+ 				LOG_DEBUG(&quot;reset trst: %i srst %i&quot;, cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
+ #endif
+-				if ((cmd-&gt;cmd.reset-&gt;trst == 1) || (cmd-&gt;cmd.reset-&gt;srst &amp;&amp; (jtag_reset_config &amp; RESET_SRST_PULLS_TRST)))
++				if ((cmd-&gt;cmd.reset-&gt;trst == 1) || (cmd-&gt;cmd.reset-&gt;srst &amp;&amp; (jtag_get_reset_config() &amp; RESET_SRST_PULLS_TRST)))
+ 				{
+ 					tap_set_state(TAP_RESET);
+ 				}
+
+Modified: trunk/src/jtag/tcl.c
+===================================================================
+--- trunk/src/jtag/tcl.c	2009-06-09 08:40:23 UTC (rev 2160)
++++ trunk/src/jtag/tcl.c	2009-06-09 08:40:31 UTC (rev 2161)
+@@ -921,8 +921,10 @@
+ 	}
+ 
+ 	/* clear previous values of those bits, save new values */
+-	jtag_reset_config &amp;= ~mask;
+-	jtag_reset_config |= new_cfg;
++	enum reset_types old_cfg = jtag_get_reset_config();
++	old_cfg &amp;= ~mask;
++	new_cfg |= old_cfg;
++	jtag_set_reset_config(new_cfg);
+ 
+ 	return ERROR_OK;
+ }
+
+Modified: trunk/src/jtag/zy1000/zy1000.c
+===================================================================
+--- trunk/src/jtag/zy1000/zy1000.c	2009-06-09 08:40:23 UTC (rev 2160)
++++ trunk/src/jtag/zy1000/zy1000.c	2009-06-09 08:40:31 UTC (rev 2161)
+@@ -164,7 +164,7 @@
+ 		ZY1000_POKE(ZY1000_JTAG_BASE+0x10, 0x00000002);
+ 	}
+ 
+-	if (trst||(srst&amp;&amp;(jtag_reset_config &amp; RESET_SRST_PULLS_TRST)))
++	if (trst||(srst&amp;&amp;(jtag_get_reset_config() &amp; RESET_SRST_PULLS_TRST)))
+ 	{
+ 		waitIdle();
+ 		/* we're now in the RESET state until trst is deasserted */
+
+Modified: trunk/src/target/arm7_9_common.c
+===================================================================
+--- trunk/src/target/arm7_9_common.c	2009-06-09 08:40:23 UTC (rev 2160)
++++ trunk/src/target/arm7_9_common.c	2009-06-09 08:40:31 UTC (rev 2161)
+@@ -905,6 +905,7 @@
+ 			{
+ 				if (target-&gt;reset_halt)
+ 				{
++					enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 					if ((jtag_reset_config &amp; RESET_SRST_PULLS_TRST)==0)
+ 					{
+ 						check_pc = 1;
+@@ -975,6 +976,7 @@
+ 	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
+ 		  Jim_Nvp_value2name_simple( nvp_target_state,target-&gt;state)-&gt;name);
+ 
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 	if (!(jtag_reset_config &amp; RESET_HAS_SRST))
+ 	{
+ 		LOG_ERROR(&quot;Can't assert SRST&quot;);
+@@ -1047,6 +1049,7 @@
+ 	/* deassert reset lines */
+ 	jtag_add_reset(0, 0);
+ 
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 	if (target-&gt;reset_halt&amp;&amp;(jtag_reset_config &amp; RESET_SRST_PULLS_TRST)!=0)
+ 	{
+ 		LOG_WARNING(&quot;srst pulls trst - can not reset into halted mode. Issuing halt after reset.&quot;);
+
+Modified: trunk/src/target/cortex_m3.c
+===================================================================
+--- trunk/src/target/cortex_m3.c	2009-06-09 08:40:23 UTC (rev 2160)
++++ trunk/src/target/cortex_m3.c	2009-06-09 08:40:31 UTC (rev 2161)
+@@ -544,7 +544,7 @@
+ 
+ 	if (target-&gt;state == TARGET_RESET)
+ 	{
+-		if ((jtag_reset_config &amp; RESET_SRST_PULLS_TRST) &amp;&amp; jtag_get_srst())
++		if ((jtag_get_reset_config() &amp; RESET_SRST_PULLS_TRST) &amp;&amp; jtag_get_srst())
+ 		{
+ 			LOG_ERROR(&quot;can't request a halt while in reset if nSRST pulls nTRST&quot;);
+ 			return ERROR_TARGET_FAILURE;
+@@ -753,6 +753,7 @@
+ 	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
+ 		Jim_Nvp_value2name_simple( nvp_target_state, target-&gt;state )-&gt;name );
+ 
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 	if (!(jtag_reset_config &amp; RESET_HAS_SRST))
+ 	{
+ 		LOG_ERROR(&quot;Can't assert SRST&quot;);
+
+Modified: trunk/src/target/mips_m4k.c
+===================================================================
+--- trunk/src/target/mips_m4k.c	2009-06-09 08:40:23 UTC (rev 2160)
++++ trunk/src/target/mips_m4k.c	2009-06-09 08:40:31 UTC (rev 2161)
+@@ -235,7 +235,7 @@
+ 
+ 	if (target-&gt;state == TARGET_RESET)
+ 	{
+-		if ((jtag_reset_config &amp; RESET_SRST_PULLS_TRST) &amp;&amp; jtag_get_srst())
++		if ((jtag_get_reset_config() &amp; RESET_SRST_PULLS_TRST) &amp;&amp; jtag_get_srst())
+ 		{
+ 			LOG_ERROR(&quot;can't request a halt while in reset if nSRST pulls nTRST&quot;);
+ 			return ERROR_TARGET_FAILURE;
+@@ -267,6 +267,7 @@
+ 	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
+ 		Jim_Nvp_value2name_simple( nvp_target_state, target-&gt;state )-&gt;name);
+ 
++	enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 	if (!(jtag_reset_config &amp; RESET_HAS_SRST))
+ 	{
+ 		LOG_ERROR(&quot;Can't assert SRST&quot;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000944.html">[Openocd-svn] r2160 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000946.html">[Openocd-svn] r2162 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#945">[ date ]</a>
+              <a href="thread.html#945">[ thread ]</a>
+              <a href="subject.html#945">[ subject ]</a>
+              <a href="author.html#945">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1626 - trunk/src/flash
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1626%20-%20trunk/src/flash&In-Reply-To=%3C200905070022.n470M8QR021151%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000409.html">
+   <LINK REL="Next"  HREF="000411.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1626 - trunk/src/flash</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1626%20-%20trunk/src/flash&In-Reply-To=%3C200905070022.n470M8QR021151%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1626 - trunk/src/flash">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Thu May  7 02:22:08 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000409.html">[Openocd-svn] r1625 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="000411.html">[Openocd-svn] r1627 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#410">[ date ]</a>
+              <a href="thread.html#410">[ thread ]</a>
+              <a href="subject.html#410">[ subject ]</a>
+              <a href="author.html#410">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-07 02:21:59 +0200 (Thu, 07 May 2009)
+New Revision: 1626
+
+Modified:
+   trunk/src/flash/pic32mx.c
+   trunk/src/flash/stm32x.c
+Log:
+Fix stm32x and pic32mx flash pointer cast alignment warnings, simplify their last word handling.
+
+Modified: trunk/src/flash/pic32mx.c
+===================================================================
+--- trunk/src/flash/pic32mx.c	2009-05-06 23:31:50 UTC (rev 1625)
++++ trunk/src/flash/pic32mx.c	2009-05-07 00:21:59 UTC (rev 1626)
+@@ -463,9 +463,10 @@
+ 
+ 	while(count &gt; 0)
+ 	{
+-		u32 status;
++		u32 value;
++		memcpy(&amp;value, buffer, sizeof(u32));
+ 
+-		status = pic32mx_write_word(bank, address, *(u32*)buffer);
++		u32 status = pic32mx_write_word(bank, address, value);
+ 		if( status &amp; NVMCON_NVMERR ) {
+ 			LOG_ERROR(&quot;Flash write error NVMERR (status=0x%08x)&quot;, status);
+ 			retval = ERROR_FLASH_OPERATION_FAILED;
+@@ -568,8 +569,10 @@
+ 
+ 	while (words_remaining &gt; 0)
+ 	{
+-		status = pic32mx_write_word(bank, address, *(u32*)(buffer + bytes_written));
++		u32 value;
++		memcpy(&amp;value, buffer + bytes_written, sizeof(u32));
+ 
++		status = pic32mx_write_word(bank, address, value);
+ 		if( status &amp; NVMCON_NVMERR )
+ 			return ERROR_FLASH_OPERATION_FAILED;
+ 		if( status &amp; NVMCON_LVDERR )
+@@ -582,19 +585,10 @@
+ 
+ 	if (bytes_remaining)
+ 	{
+-		u8 last_word[4] = {0xff, 0xff, 0xff, 0xff};
+-		int i = 0;
++		u32 value = 0xffffffff;
++		memcpy(&amp;value, buffer + bytes_written, bytes_remaining);
+ 
+-		while(bytes_remaining &gt; 0)
+-		{
+-			/* Assumes little endian */
+-			last_word[i++] = *(buffer + bytes_written);
+-			bytes_remaining--;
+-			bytes_written++;
+-		}
+-
+-		status = pic32mx_write_word(bank, address, *(u32*)last_word);
+-
++		status = pic32mx_write_word(bank, address, value);
+ 		if( status &amp; NVMCON_NVMERR )
+ 			return ERROR_FLASH_OPERATION_FAILED;
+ 		if( status &amp; NVMCON_LVDERR )
+
+Modified: trunk/src/flash/stm32x.c
+===================================================================
+--- trunk/src/flash/stm32x.c	2009-05-06 23:31:50 UTC (rev 1625)
++++ trunk/src/flash/stm32x.c	2009-05-07 00:21:59 UTC (rev 1626)
+@@ -658,8 +658,11 @@
+ 
+ 	while (words_remaining &gt; 0)
+ 	{
++		u16 value;
++		memcpy(&amp;value, buffer + bytes_written, sizeof(u16));
++
+ 		target_write_u32(target, STM32_FLASH_CR, FLASH_PG);
+-		target_write_u16(target, address, *(u16*)(buffer + bytes_written));
++		target_write_u16(target, address, value);
+ 		
+ 		status = stm32x_wait_status_busy(bank, 5);
+ 		
+@@ -681,18 +684,11 @@
+ 	
+ 	if (bytes_remaining)
+ 	{
+-		u8 last_halfword[2] = {0xff, 0xff};
+-		int i = 0;
+-				
+-		while(bytes_remaining &gt; 0)
+-		{
+-			last_halfword[i++] = *(buffer + bytes_written); 
+-			bytes_remaining--;
+-			bytes_written++;
+-		}
+-		
++		u16 value = 0xffff;
++		memcpy(&amp;value, buffer + bytes_written, bytes_remaining);
++
+ 		target_write_u32(target, STM32_FLASH_CR, FLASH_PG);
+-		target_write_u16(target, address, *(u16*)last_halfword);
++		target_write_u16(target, address, value);
+ 		
+ 		status = stm32x_wait_status_busy(bank, 5);
+ 		
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000409.html">[Openocd-svn] r1625 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="000411.html">[Openocd-svn] r1627 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#410">[ date ]</a>
+              <a href="thread.html#410">[ thread ]</a>
+              <a href="subject.html#410">[ subject ]</a>
+              <a href="author.html#410">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

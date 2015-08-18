@@ -1,0 +1,189 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2718 - trunk/doc
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2718%20-%20trunk/doc&In-Reply-To=%3C200909170756.n8H7uQkw031442%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001500.html">
+   <LINK REL="Next"  HREF="001505.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2718 - trunk/doc</H1>
+    <B>dbrownell at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2718%20-%20trunk/doc&In-Reply-To=%3C200909170756.n8H7uQkw031442%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2718 - trunk/doc">dbrownell at mail.berlios.de
+       </A><BR>
+    <I>Thu Sep 17 09:56:26 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001500.html">[Openocd-svn] r2717 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001505.html">[Openocd-svn] r2719 - in trunk: doc src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1504">[ date ]</a>
+              <a href="thread.html#1504">[ thread ]</a>
+              <a href="subject.html#1504">[ subject ]</a>
+              <a href="author.html#1504">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: dbrownell
+Date: 2009-09-17 09:56:24 +0200 (Thu, 17 Sep 2009)
+New Revision: 2718
+
+Modified:
+   trunk/doc/openocd.texi
+Log:
+Doc update:  mention how ARM's WFI instruction affects
+JTAG clocking by gating the core clock, and workarounds.
+Most details are with the &quot;halt&quot; command, which is one
+of the first places this issue will be noticed.
+
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-09-16 18:18:38 UTC (rev 2717)
++++ trunk/doc/openocd.texi	2009-09-17 07:56:24 UTC (rev 2718)
+@@ -1055,7 +1055,19 @@
+ Before your @code{reset-init} handler has set up
+ the PLLs and clocking, you may need to use
+ a low JTAG clock rate; then you'd increase it later.
+-(The rule of thumb for ARM-based processors is 1/8 the CPU clock.)
++For most ARM-based processors the fastest JTAG <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">clock at footnote</A>{A FAQ
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at uref</A>{<A HREF="http://www.arm.com/support/faqdev/4170.html">http://www.arm.com/support/faqdev/4170.html</A>} gives details.}
++is one sixth of the CPU clock; or one eighth for ARM11 cores.
++Consult chip documentation to determine the peak JTAG clock rate,
++which might be less than that.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at quotation</A> Warning
++On most ARMs, JTAG clock detection is coupled to the core clock, so
++software using a @option{wait for interrupt} operation blocks JTAG access.
++Adaptive clocking provides a partial workaround, but a more complete
++solution just avoids using that instruction with JTAG debuggers.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> quotation
++
+ If the board supports adaptive clocking, use the @command{jtag_rclk}
+ command, in case your board is used with JTAG adapter which
+ also supports it.  Otherwise use @command{jtag_khz}.
+@@ -1785,9 +1797,10 @@
+ speeds.  The speed actually used won't be faster
+ than the speed specified.
+ 
+-As a rule of thumb, if you specify a clock rate make
+-sure the JTAG clock is no more than @math{1/6th CPU-Clock}.
+-This is especially true for synthesized cores (ARMxxx-S).
++Chip data sheets generally include a top JTAG clock rate.
++The actual rate is often a function of a CPU core clock,
++and is normally less than that peak rate.
++For example, most ARM cores accept at most one sixth of the CPU clock.
+ 
+ Speed 0 (khz) selects RTCK method.
+ @xref{FAQ RTCK}.
+@@ -1799,6 +1812,7 @@
+ @end deffn
+ 
+ @defun jtag_rclk fallback_speed_kHz
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at cindex</A> adaptive clocking
+ @cindex RTCK
+ This Tcl proc (defined in @file{startup.tcl}) attempts to enable RTCK/RCLK.
+ If that fails (maybe the interface, board, or target doesn't
+@@ -4321,6 +4335,31 @@
+ or 5 seconds if there is no parameter, for the target to halt
+ (and enter debug mode).
+ Using 0 as the @var{ms} parameter prevents OpenOCD from waiting.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at quotation</A> Warning
++On ARM cores, software using the @emph{wait for interrupt} operation
++often blocks the JTAG access needed by a @command{halt} command.
++This is because that operation also puts the core into a low
++power mode by gating the core clock;
++but the core clock is needed to detect JTAG clock transitions.
++
++One partial workaround uses adaptive clocking:  when the core is
++interrupted the operation completes, then JTAG clocks are accepted
++at least until the interrupt handler completes.
++However, this workaround is often unusable since the processor, board,
++and JTAG adapter must all support adaptive JTAG clocking.
++Also, it can't work until an interrupt is issued.
++
++A more complete workaround is to not use that operation while you
++work with a JTAG debugger.
++Tasking environments generaly have idle loops where the body is the
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at emph</A>{wait for interrupt} operation.
++(On older cores, it is a coprocessor action;
++newer cores have a @option{wfi} instruction.)
++Such loops can just remove that operation, at the cost of higher
++power consumption (because the CPU is needlessly clocked).
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> quotation
++
+ @end deffn
+ 
+ @deffn Command resume [address]
+@@ -5984,9 +6023,10 @@
+ 
+ In most simple terms: Often the JTAG clock must be 1/10 to 1/12 of
+ the target clock speed. But what that ``magic division'' is varies
+-depending on the chips on your board. @b{ARM rule of thumb} Most ARM
+-based systems require an 8:1 division. @b{Xilinx rule of thumb} is
+-1/12 the clock speed.
++depending on the chips on your board.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{ARM rule of thumb} Most ARM based systems require an 6:1 division;
++ARM11 cores use an 8:1 division.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{Xilinx rule of thumb} is 1/12 the clock speed.
+ 
+ Note: Many FTDI2232C based JTAG dongles are limited to 6MHz.
+ 
+@@ -5999,11 +6039,18 @@
+ sleep''. If you are careful - 98% of your problems can be debugged
+ this way.
+ 
++Note that on ARM you may need to avoid using the @emph{wait for interrupt}
++operation in your idle loops even if you don't otherwise change the CPU
++clock rate.
++That operation gates the CPU clock, and thus the JTAG clock; which
++prevents JTAG access.  One consequence is not being able to @command{halt}
++cores which are executing that @emph{wait for interrupt} operation.
++
+ To set the JTAG frequency use the command:
+ 
+ @example
+-        # Example: 1.234MHz
+-        jtag_khz 1234
++# Example: 1.234MHz
++jtag_khz 1234
+ @end example
+ 
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001500.html">[Openocd-svn] r2717 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001505.html">[Openocd-svn] r2719 - in trunk: doc src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1504">[ date ]</a>
+              <a href="thread.html#1504">[ thread ]</a>
+              <a href="subject.html#1504">[ subject ]</a>
+              <a href="author.html#1504">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

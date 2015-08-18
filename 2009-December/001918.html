@@ -1,0 +1,145 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-845-g24551b7
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-845-g24551b7&In-Reply-To=%3CE1NGScK-0004pW-Nz%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001917.html">
+   <LINK REL="Next"  HREF="001919.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-845-g24551b7</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-845-g24551b7&In-Reply-To=%3CE1NGScK-0004pW-Nz%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-845-g24551b7">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Dec  4 08:30:15 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001917.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-844-ged59dfc
+</A></li>
+        <LI>Next message: <A HREF="001919.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-846-ga535d2f
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1918">[ date ]</a>
+              <a href="thread.html#1918">[ thread ]</a>
+              <a href="subject.html#1918">[ subject ]</a>
+              <a href="author.html#1918">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  24551b7b92725fb2b26d042c2e88330e3d1d4d21 (commit)
+      from  ed59dfc80aa6fc48a0894c8e46cee675f38ac949 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 24551b7b92725fb2b26d042c2e88330e3d1d4d21
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Fri Dec 4 08:20:38 2009 +0100
+
+    zy1000: FPGA revC wip
+    
+    The bug in revC register memory access is pretty much
+    cornered now.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/zy1000/jtag_minidriver.h b/src/jtag/zy1000/jtag_minidriver.h
+index afbea13..536c677 100644
+--- a/src/jtag/zy1000/jtag_minidriver.h
++++ b/src/jtag/zy1000/jtag_minidriver.h
+@@ -18,6 +18,7 @@
+  ***************************************************************************/
+ 
+ #include &lt;cyg/hal/hal_io.h&gt;             // low level i/o
++#include &lt;cyg/hal/hal_intr.h&gt;             // low level i/o
+ 
+ //#define VERBOSE(a) a
+ #define VERBOSE(a)
+@@ -31,10 +32,16 @@ int  diag_printf(const char *fmt, ...);
+ #define ZY1000_PEEK(a, b) HAL_READ_UINT32(a, b); diag_printf(&quot;peek 0x%08x = 0x%08x\n&quot;, a, b)
+ #else
+ #define ZY1000_PEEK(a, b) HAL_READ_UINT32(a, b)
+-#define ZY1000_POKE(a, b) HAL_WRITE_UINT32(a, b);\
+- {/* This will flush the bridge FIFO. Overflowed bridge FIFO fails. We must \
+- flush every &quot;often&quot;. No precise system has been found, but 4 seems solid. \
+-  */ \
++
++#ifdef CYGPKG_HAL_NIOS2
++#define ZY1000_POKE(a, b) \
++		 {/* This will flush the bridge FIFO. Overflowed bridge FIFO fails. We must \
++		 flush every &quot;often&quot;. No precise system has been found, but 4 seems solid. \
++		  This code goes away once the FPGA has been fixed. */ \
++\
++CYG_INTERRUPT_STATE _old_; \
++HAL_DISABLE_INTERRUPTS(_old_); \
++HAL_WRITE_UINT32(a, b);\
+  static int overflow_counter = 0; \
+    if (++overflow_counter &gt;= 1) \
+    { \
+@@ -42,7 +49,14 @@ int  diag_printf(const char *fmt, ...);
+ 	   cyg_uint32 empty; ZY1000_PEEK(ZY1000_JTAG_BASE + 0x10, empty); \
+ 	   overflow_counter = 0; \
+    } \
+- }
++   /* NB! interrupts must be restored *after* read */ \
++   HAL_RESTORE_INTERRUPTS(_old_); \
++}\
++
++#else
++#define ZY1000_POKE(a, b) HAL_WRITE_UINT32(a, b)
++#endif
++
+ #endif
+ 
+ // FIFO empty?
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/zy1000/jtag_minidriver.h |   24 +++++++++++++++++++-----
+ 1 files changed, 19 insertions(+), 5 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001917.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-844-ged59dfc
+</A></li>
+	<LI>Next message: <A HREF="001919.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-846-ga535d2f
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1918">[ date ]</a>
+              <a href="thread.html#1918">[ thread ]</a>
+              <a href="subject.html#1918">[ subject ]</a>
+              <a href="author.html#1918">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

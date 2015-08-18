@@ -1,0 +1,196 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-181-gff5deee
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-181-gff5deee&In-Reply-To=%3CE1NdCMU-0000bd-Qn%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002089.html">
+   <LINK REL="Next"  HREF="002091.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-181-gff5deee</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-181-gff5deee&In-Reply-To=%3CE1NdCMU-0000bd-Qn%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-181-gff5deee">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Fri Feb  5 01:47:51 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002089.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-180-g3ea9e62
+</A></li>
+        <LI>Next message: <A HREF="002091.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-182-g41d0901
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2090">[ date ]</a>
+              <a href="thread.html#2090">[ thread ]</a>
+              <a href="subject.html#2090">[ subject ]</a>
+              <a href="author.html#2090">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  ff5deeeeaa4f394931e3c5ccfb4cfd33beda0743 (commit)
+      from  3ea9e62189205cfa84a04ec6955aaf1f5184a937 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit ff5deeeeaa4f394931e3c5ccfb4cfd33beda0743
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Thu Feb 4 14:39:51 2010 -0800
+
+    ARMv7-M: make DAP commands verify target is an ARMv7-M
+    
+    Init the ARMv7-M magic number.  Define predicate verifying it.
+    Use it to resolve a lurking bug/FIXME:  make sure the ARMv7-M
+    specific DAP ops reject non-ARMv7-M targets.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/armv7m.c b/src/target/armv7m.c
+index edfcdf9..9fe705a 100644
+--- a/src/target/armv7m.c
++++ b/src/target/armv7m.c
+@@ -538,7 +538,7 @@ struct reg_cache *armv7m_build_reg_cache(struct target *target)
+ /** Sets up target as a generic ARMv7-M core */
+ int armv7m_init_arch_info(struct target *target, struct armv7m_common *armv7m)
+ {
+-	/* register arch-specific functions */
++	armv7m-&gt;common_magic = ARMV7M_COMMON_MAGIC;
+ 
+ 	target-&gt;arch_info = armv7m;
+ 	armv7m-&gt;read_core_reg = armv7m_read_core_reg;
+@@ -737,8 +737,6 @@ int armv7m_maybe_skip_bkpt_inst(struct target *target, bool *inst_found)
+ /*
+  * Only stuff below this line should need to verify that its target
+  * is an ARMv7-M node.
+- *
+- * FIXME yet none of it _does_ verify target types yet!
+  */
+ 
+ 
+@@ -752,6 +750,11 @@ COMMAND_HANDLER(handle_dap_baseaddr_command)
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+ 	struct swjdp_common *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 
++	if (!is_armv7m(armv7m)) {
++		command_print(CMD_CTX, &quot;current target isn't an ARM7-M&quot;);
++		return ERROR_TARGET_INVALID;
++	}
++
+ 	return CALL_COMMAND_HANDLER(dap_baseaddr_command, swjdp);
+ }
+ 
+@@ -765,6 +768,11 @@ COMMAND_HANDLER(handle_dap_apid_command)
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+ 	struct swjdp_common *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 
++	if (!is_armv7m(armv7m)) {
++		command_print(CMD_CTX, &quot;current target isn't an ARM7-M&quot;);
++		return ERROR_TARGET_INVALID;
++	}
++
+ 	return CALL_COMMAND_HANDLER(dap_apid_command, swjdp);
+ }
+ 
+@@ -774,6 +782,11 @@ COMMAND_HANDLER(handle_dap_apsel_command)
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+ 	struct swjdp_common *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 
++	if (!is_armv7m(armv7m)) {
++		command_print(CMD_CTX, &quot;current target isn't an ARM7-M&quot;);
++		return ERROR_TARGET_INVALID;
++	}
++
+ 	return CALL_COMMAND_HANDLER(dap_apsel_command, swjdp);
+ }
+ 
+@@ -783,6 +796,11 @@ COMMAND_HANDLER(handle_dap_memaccess_command)
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+ 	struct swjdp_common *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 
++	if (!is_armv7m(armv7m)) {
++		command_print(CMD_CTX, &quot;current target isn't an ARM7-M&quot;);
++		return ERROR_TARGET_INVALID;
++	}
++
+ 	return CALL_COMMAND_HANDLER(dap_memaccess_command, swjdp);
+ }
+ 
+@@ -794,6 +812,11 @@ COMMAND_HANDLER(handle_dap_info_command)
+ 	struct swjdp_common *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	uint32_t apsel;
+ 
++	if (!is_armv7m(armv7m)) {
++		command_print(CMD_CTX, &quot;current target isn't an ARM7-M&quot;);
++		return ERROR_TARGET_INVALID;
++	}
++
+ 	switch (CMD_ARGC) {
+ 	case 0:
+ 		apsel = swjdp-&gt;apsel;
+diff --git a/src/target/armv7m.h b/src/target/armv7m.h
+index 9787e30..b6be1d2 100644
+--- a/src/target/armv7m.h
++++ b/src/target/armv7m.h
+@@ -131,6 +131,11 @@ target_to_armv7m(struct target *target)
+ 	return target-&gt;arch_info;
+ }
+ 
++static inline bool is_armv7m(struct armv7m_common *armv7m)
++{
++	return armv7m-&gt;common_magic == ARMV7M_COMMON_MAGIC;
++}
++
+ struct armv7m_algorithm
+ {
+ 	int common_magic;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/armv7m.c |   29 ++++++++++++++++++++++++++---
+ src/target/armv7m.h |    5 +++++
+ 2 files changed, 31 insertions(+), 3 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002089.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-180-g3ea9e62
+</A></li>
+	<LI>Next message: <A HREF="002091.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-182-g41d0901
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2090">[ date ]</a>
+              <a href="thread.html#2090">[ thread ]</a>
+              <a href="subject.html#2090">[ subject ]</a>
+              <a href="author.html#2090">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

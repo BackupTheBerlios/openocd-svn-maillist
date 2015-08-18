@@ -1,0 +1,1973 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1548 - in trunk/src: flash target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1548%20-%20in%20trunk/src%3A%20flash%20target&In-Reply-To=%3C200904271935.n3RJZaV4018126%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000331.html">
+   <LINK REL="Next"  HREF="000333.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1548 - in trunk/src: flash target</H1>
+    <B>oharboe at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1548%20-%20in%20trunk/src%3A%20flash%20target&In-Reply-To=%3C200904271935.n3RJZaV4018126%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1548 - in trunk/src: flash target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Mon Apr 27 21:35:36 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000331.html">[Openocd-svn] r1547 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="000333.html">[Openocd-svn] r1549 - in trunk: src/jtag src/server/httpd	src/target src/target/target	testing/examples/SAM7X256Test/prj testing/examples/STM32-103
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#332">[ date ]</a>
+              <a href="thread.html#332">[ thread ]</a>
+              <a href="subject.html#332">[ subject ]</a>
+              <a href="author.html#332">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-04-27 21:35:31 +0200 (Mon, 27 Apr 2009)
+New Revision: 1548
+
+Modified:
+   trunk/src/flash/avrf.c
+   trunk/src/flash/avrf.h
+   trunk/src/target/avrt.c
+   trunk/src/target/avrt.h
+Log:
+SimonQian &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">simonqian at simonqian.com</A>&gt; fix warnings(which stops compilation) and some bugs
+
+Modified: trunk/src/flash/avrf.c
+===================================================================
+--- trunk/src/flash/avrf.c	2009-04-27 16:08:25 UTC (rev 1547)
++++ trunk/src/flash/avrf.c	2009-04-27 19:35:31 UTC (rev 1548)
+@@ -1,500 +1,500 @@
+-/***************************************************************************
+- *   Copyright (C) 2009 by Simon Qian                                      *
+- *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">SimonQian at SimonQian.com</A>                                               *
+- *                                                                         *
+- *   This program is free software; you can redistribute it and/or modify  *
+- *   it under the terms of the GNU General Public License as published by  *
+- *   the Free Software Foundation; either version 2 of the License, or     *
+- *   (at your option) any later version.                                   *
+- *                                                                         *
+- *   This program is distributed in the hope that it will be useful,       *
+- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+- *   GNU General Public License for more details.                          *
+- *                                                                         *
+- *   You should have received a copy of the GNU General Public License     *
+- *   along with this program; if not, write to the                         *
+- *   Free Software Foundation, Inc.,                                       *
+- *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+- ***************************************************************************/
+-#ifdef HAVE_CONFIG_H
+-#include &quot;config.h&quot;
+-#endif
+-
+-#include &quot;replacements.h&quot;
+-
+-#include &quot;avrf.h&quot;
+-#include &quot;avrt.h&quot;
+-#include &quot;flash.h&quot;
+-#include &quot;target.h&quot;
+-#include &quot;log.h&quot;
+-#include &quot;algorithm.h&quot;
+-#include &quot;binarybuffer.h&quot;
+-
+-#include &lt;stdlib.h&gt;
+-#include &lt;string.h&gt;
+-
+-/* AVR_JTAG_Instructions */
+-#define AVR_JTAG_INS_LEN							4
+-// Public Instructions:
+-#define AVR_JTAG_INS_EXTEST							0x00
+-#define AVR_JTAG_INS_IDCODE							0x01
+-#define AVR_JTAG_INS_SAMPLE_PRELOAD					0x02
+-#define AVR_JTAG_INS_BYPASS							0x0F
+-// AVR Specified Public Instructions:
+-#define AVR_JTAG_INS_AVR_RESET						0x0C
+-#define AVR_JTAG_INS_PROG_ENABLE					0x04
+-#define AVR_JTAG_INS_PROG_COMMANDS					0x05
+-#define AVR_JTAG_INS_PROG_PAGELOAD					0x06
+-#define AVR_JTAG_INS_PROG_PAGEREAD					0x07
+-
+-// Data Registers:
+-#define AVR_JTAG_REG_Bypass_Len						1
+-#define AVR_JTAG_REG_DeviceID_Len					32
+-
+-#define AVR_JTAG_REG_Reset_Len						1
+-#define AVR_JTAG_REG_JTAGID_Len						32
+-#define AVR_JTAG_REG_ProgrammingEnable_Len			16
+-#define AVR_JTAG_REG_ProgrammingCommand_Len			15
+-#define AVR_JTAG_REG_FlashDataByte_Len				16
+-
+-avrf_type_t avft_chips_info[] = 
+-{
+-//	 name,			chip_id,	flash_page_size,	flash_page_num,	eeprom_page_size,	eeprom_page_num
+-	{&quot;atmega128&quot;,	0x9702,		256,				512,			8,					512},
+-};
+-
+-static int avrf_register_commands(struct command_context_s *cmd_ctx);
+-static int avrf_flash_bank_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc, struct flash_bank_s *bank);
+-static int avrf_erase(struct flash_bank_s *bank, int first, int last);
+-static int avrf_protect(struct flash_bank_s *bank, int set, int first, int last);
+-static int avrf_write(struct flash_bank_s *bank, u8 *buffer, u32 offset, u32 count);
+-static int avrf_probe(struct flash_bank_s *bank);
+-static int avrf_auto_probe(struct flash_bank_s *bank);
+-//static int avrf_handle_part_id_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-static int avrf_protect_check(struct flash_bank_s *bank);
+-static int avrf_info(struct flash_bank_s *bank, char *buf, int buf_size);
+-
+-static int avrf_handle_mass_erase_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-
+-extern int avr_jtag_sendinstr(jtag_tap_t *tap, u8 *ir_in, u8 ir_out);
+-extern int avr_jtag_senddat(jtag_tap_t *tap, u32 *dr_in, u32 dr_out, int len);
+-
+-extern int mcu_write_ir(jtag_tap_t *tap, u8 *ir_in, u8 *ir_out, int ir_len, int rti);
+-extern int mcu_write_dr(jtag_tap_t *tap, u8 *ir_in, u8 *ir_out, int dr_len, int rti);
+-extern int mcu_write_ir_u8(jtag_tap_t *tap, u8 *ir_in, u8 ir_out, int ir_len, int rti);
+-extern int mcu_write_dr_u8(jtag_tap_t *tap, u8 *ir_in, u8 ir_out, int dr_len, int rti);
+-extern int mcu_write_ir_u16(jtag_tap_t *tap, u16 *ir_in, u16 ir_out, int ir_len, int rti);
+-extern int mcu_write_dr_u16(jtag_tap_t *tap, u16 *ir_in, u16 ir_out, int dr_len, int rti);
+-extern int mcu_write_ir_u32(jtag_tap_t *tap, u32 *ir_in, u32 ir_out, int ir_len, int rti);
+-extern int mcu_write_dr_u32(jtag_tap_t *tap, u32 *ir_in, u32 ir_out, int dr_len, int rti);
+-extern int mcu_execute_queue(void);
+-
+-flash_driver_t avr_flash =
+-{
+-	.name = &quot;avr&quot;,
+-	.register_commands = avrf_register_commands,
+-	.flash_bank_command = avrf_flash_bank_command,
+-	.erase = avrf_erase,
+-	.protect = avrf_protect,
+-	.write = avrf_write,
+-	.probe = avrf_probe,
+-	.auto_probe = avrf_auto_probe,
+-	.erase_check = default_flash_mem_blank_check,
+-	.protect_check = avrf_protect_check,
+-	.info = avrf_info
+-};
+-
+-/* avr program functions */
+-static int avr_jtag_reset(avr_common_t *avr, u32 reset)
+-{
+-	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_AVR_RESET);
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, reset ,AVR_JTAG_REG_Reset_Len);
+-	
+-	return ERROR_OK;
+-}
+-
+-static int avr_jtag_read_jtagid(avr_common_t *avr, u32 *id)
+-{
+-	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_IDCODE);
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, id, 0, AVR_JTAG_REG_JTAGID_Len);
+-	
+-	return ERROR_OK;
+-}
+-
+-static int avr_jtagprg_enterprogmode(avr_common_t *avr)
+-{
+-	avr_jtag_reset(avr, 1);
+-	
+-	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_PROG_ENABLE);
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0xA370, AVR_JTAG_REG_ProgrammingEnable_Len);
+-	
+-	return ERROR_OK;
+-}
+-
+-static int avr_jtagprg_leaveprogmode(avr_common_t *avr)
+-{
+-	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_PROG_COMMANDS);
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x2300, AVR_JTAG_REG_ProgrammingCommand_Len);
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3300, AVR_JTAG_REG_ProgrammingCommand_Len);
+-
+-	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_PROG_ENABLE);
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0, AVR_JTAG_REG_ProgrammingEnable_Len);
+-
+-	avr_jtag_reset(avr, 0);
+-	
+-	return ERROR_OK;
+-}
+-
+-static int avr_jtagprg_chiperase(avr_common_t *avr)
+-{
+-	u32 poll_value;
+-	
+-	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_PROG_COMMANDS);
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x2380, AVR_JTAG_REG_ProgrammingCommand_Len);
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3180, AVR_JTAG_REG_ProgrammingCommand_Len);
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3380, AVR_JTAG_REG_ProgrammingCommand_Len);
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3380, AVR_JTAG_REG_ProgrammingCommand_Len);
+-	
+-	do{
+-		poll_value = 0;
+-		avr_jtag_senddat(avr-&gt;jtag_info.tap, &amp;poll_value, 0x3380, AVR_JTAG_REG_ProgrammingCommand_Len);
+-		if (ERROR_OK != mcu_execute_queue())
+-		{
+-			return ERROR_FAIL;
+-		}
+-		LOG_DEBUG(&quot;poll_value = 0x%04X&quot;, poll_value);
+-	}while(!(poll_value &amp; 0x0200));
+-	
+-	return ERROR_OK;
+-}
+-
+-static int avr_jtagprg_writeflashpage(avr_common_t *avr, u8 *page_buf, u32 buf_size, u32 addr, u32 page_size)
+-{
+-	u32 i, poll_value;
+-	
+-	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_PROG_COMMANDS);
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x2310, AVR_JTAG_REG_ProgrammingCommand_Len);
+-	
+-	// load addr high byte
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x0700 | ((addr &gt;&gt; 9) &amp; 0xFF), AVR_JTAG_REG_ProgrammingCommand_Len);
+-	
+-	// load addr low byte
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x0300 | ((addr &gt;&gt; 1) &amp; 0xFF), AVR_JTAG_REG_ProgrammingCommand_Len);
+-	
+-	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_PROG_PAGELOAD);
+-	
+-	for (i = 0; i &lt; page_size; i++)
+-	{
+-		if (i &lt; buf_size)
+-		{
+-			avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, page_buf[i], 8);
+-		}
+-		else
+-		{
+-			avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0xFF, 8);
+-		}
+-	}
+-	
+-	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_PROG_COMMANDS);
+-	
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3700, AVR_JTAG_REG_ProgrammingCommand_Len);
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3500, AVR_JTAG_REG_ProgrammingCommand_Len);
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3700, AVR_JTAG_REG_ProgrammingCommand_Len);
+-	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3700, AVR_JTAG_REG_ProgrammingCommand_Len);
+-	
+-	do{
+-		poll_value = 0;
+-		avr_jtag_senddat(avr-&gt;jtag_info.tap, &amp;poll_value, 0x3700, AVR_JTAG_REG_ProgrammingCommand_Len);
+-		if (ERROR_OK != mcu_execute_queue())
+-		{
+-			return ERROR_FAIL;
+-		}
+-		LOG_DEBUG(&quot;poll_value = 0x%04X&quot;, poll_value);
+-	}while(!(poll_value &amp; 0x0200));
+-	
+-	return ERROR_OK;
+-}
+-
+-/* interface command */
+-static int avrf_register_commands(struct command_context_s *cmd_ctx)
+-{
+-	command_t *avr_cmd = register_command(cmd_ctx, NULL, &quot;avr&quot;, NULL, COMMAND_ANY, &quot;avr flash specific commands&quot;);
+-	
+-	register_command(cmd_ctx, avr_cmd, &quot;mass_erase&quot;, avrf_handle_mass_erase_command, COMMAND_EXEC,
+-					 &quot;mass erase device&quot;);
+-	
+-	return ERROR_OK;
+-}
+-
+-static int avrf_flash_bank_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc, struct flash_bank_s *bank)
+-{
+-	avrf_flash_bank_t *avrf_info;
+-	
+-	if (argc &lt; 6)
+-	{
+-		LOG_WARNING(&quot;incomplete flash_bank avr configuration&quot;);
+-		return ERROR_FLASH_BANK_INVALID;
+-	}
+-	
+-	avrf_info = malloc(sizeof(avrf_flash_bank_t));
+-	bank-&gt;driver_priv = avrf_info;
+-	
+-	avrf_info-&gt;probed = 0;
+-	
+-	return ERROR_OK;
+-}
+-
+-static int avrf_erase(struct flash_bank_s *bank, int first, int last)
+-{
+-	LOG_INFO(__FUNCTION__);
+-	return ERROR_OK;
+-}
+-
+-static int avrf_protect(struct flash_bank_s *bank, int set, int first, int last)
+-{
+-	LOG_INFO(__FUNCTION__);
+-	return ERROR_OK;
+-}
+-
+-static int avrf_write(struct flash_bank_s *bank, u8 *buffer, u32 offset, u32 count)
+-{
+-	target_t *target = bank-&gt;target;
+-	avr_common_t *avr = target-&gt;arch_info;
+-	u32 cur_size, cur_buffer_size, page_size;
+-	
+-	if (bank-&gt;target-&gt;state != TARGET_HALTED)
+-	{
+-		LOG_ERROR(&quot;Target not halted&quot;);
+-		return ERROR_TARGET_NOT_HALTED;
+-	}
+-	
+-	page_size = bank-&gt;sectors[0].size;
+-	if ((offset % page_size) != 0)
+-	{
+-		LOG_WARNING(&quot;offset 0x%x breaks required %d-byte alignment&quot;, offset, page_size);
+-		return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
+-	}
+-	
+-	LOG_DEBUG(&quot;offset is 0x%08X&quot;, offset);
+-	LOG_DEBUG(&quot;count is %d&quot;, count);
+-	
+-	if (ERROR_OK != avr_jtagprg_enterprogmode(avr))
+-	{
+-		return ERROR_FAIL;
+-	}
+-	
+-	cur_size = 0;
+-	while(count &gt; 0)
+-	{
+-		if (count &gt; page_size)
+-		{
+-			cur_buffer_size = page_size;
+-		}
+-		else
+-		{
+-			cur_buffer_size = count;
+-		}
+-		avr_jtagprg_writeflashpage(avr, buffer + cur_size, cur_buffer_size, offset + cur_size, page_size);
+-		count -= cur_buffer_size;
+-		cur_size += cur_buffer_size;
+-		
+-		keep_alive();
+-	}
+-	
+-	return avr_jtagprg_leaveprogmode(avr);
+-}
+-
+-#define EXTRACT_MFG(X)  (((X) &amp; 0xffe) &gt;&gt; 1)
+-#define EXTRACT_PART(X) (((X) &amp; 0xffff000) &gt;&gt; 12)
+-#define EXTRACT_VER(X)  (((X) &amp; 0xf0000000) &gt;&gt; 28)
+-static int avrf_probe(struct flash_bank_s *bank)
+-{
+-	target_t *target = bank-&gt;target;
+-	avrf_flash_bank_t *avrf_info = bank-&gt;driver_priv;
+-	avr_common_t *avr = target-&gt;arch_info;
+-	avrf_type_t *avr_info;
+-	int i;
+-	u32 device_id;
+-	
+-	if (bank-&gt;target-&gt;state != TARGET_HALTED)
+-	{
+-		LOG_ERROR(&quot;Target not halted&quot;);
+-		return ERROR_TARGET_NOT_HALTED;
+-	}
+-
+-	avrf_info-&gt;probed = 0;
+-	
+-	avr_jtag_read_jtagid(avr, &amp;device_id);
+-	if (ERROR_OK != mcu_execute_queue())
+-	{
+-		return ERROR_FAIL;
+-	}
+-	
+-	LOG_INFO( &quot;device id = 0x%08x&quot;, device_id );
+-	if (EXTRACT_MFG(device_id) != 0x1F)
+-	{
+-		LOG_ERROR(&quot;0x%X is invalid Manufacturer for avr, 0x%X is expected&quot;, EXTRACT_MFG(device_id), 0x1F);
+-	}
+-	
+-	for (i = 0; i &lt; (int)(sizeof(avft_chips_info) / sizeof(avft_chips_info[0])); i++)
+-	{
+-		if (avft_chips_info[i].chip_id == EXTRACT_PART(device_id))
+-		{
+-			avr_info = &amp;avft_chips_info[i];
+-			LOG_INFO(&quot;target device is %s&quot;, avr_info-&gt;name);
+-			break;
+-		}
+-	}
+-	
+-	if (i &lt; (int)(sizeof(avft_chips_info) / sizeof(avft_chips_info[0])))
+-	{
+-		// chip found
+-		bank-&gt;base = 0x00000000;
+-		bank-&gt;size = (avr_info-&gt;flash_page_size * avr_info-&gt;flash_page_num);
+-		bank-&gt;num_sectors = avr_info-&gt;flash_page_num;
+-		bank-&gt;sectors = malloc(sizeof(flash_sector_t) * avr_info-&gt;flash_page_num);
+-		
+-		for (i = 0; i &lt; avr_info-&gt;flash_page_num; i++)
+-		{
+-			bank-&gt;sectors[i].offset = i * avr_info-&gt;flash_page_size;
+-			bank-&gt;sectors[i].size = avr_info-&gt;flash_page_size;
+-			bank-&gt;sectors[i].is_erased = -1;
+-			bank-&gt;sectors[i].is_protected = 1;
+-		}
+-		
+-		avrf_info-&gt;probed = 1;
+-		return ERROR_OK;
+-	}
+-	else
+-	{
+-		// chip not supported
+-		LOG_ERROR(&quot;0x%X is not support for avr&quot;, EXTRACT_PART(device_id));
+-		
+-		avrf_info-&gt;probed = 1;
+-		return ERROR_FAIL;
+-	}
+-}
+-
+-static int avrf_auto_probe(struct flash_bank_s *bank)
+-{
+-	avrf_flash_bank_t *avrf_info = bank-&gt;driver_priv;
+-	if (avrf_info-&gt;probed)
+-		return ERROR_OK;
+-	return avrf_probe(bank);
+-}
+-
+-static int avrf_protect_check(struct flash_bank_s *bank)
+-{
+-	LOG_INFO(__FUNCTION__);
+-	return ERROR_OK;
+-}
+-
+-static int avrf_info(struct flash_bank_s *bank, char *buf, int buf_size)
+-{
+-	target_t *target = bank-&gt;target;
+-	avr_common_t *avr = target-&gt;arch_info;
+-	avrf_type_t *avr_info;
+-	int i;
+-	u32 device_id;
+-	
+-	if (bank-&gt;target-&gt;state != TARGET_HALTED)
+-	{
+-		LOG_ERROR(&quot;Target not halted&quot;);
+-		return ERROR_TARGET_NOT_HALTED;
+-	}
+-	
+-	avr_jtag_read_jtagid(avr, &amp;device_id);
+-	if (ERROR_OK != mcu_execute_queue())
+-	{
+-		return ERROR_FAIL;
+-	}
+-	
+-	LOG_INFO( &quot;device id = 0x%08x&quot;, device_id );
+-	if (EXTRACT_MFG(device_id) != 0x1F)
+-	{
+-		LOG_ERROR(&quot;0x%X is invalid Manufacturer for avr, 0x%X is expected&quot;, EXTRACT_MFG(device_id), 0x1F);
+-	}
+-	
+-	for (i = 0; i &lt; (int)(sizeof(avft_chips_info) / sizeof(avft_chips_info[0])); i++)
+-	{
+-		if (avft_chips_info[i].chip_id == EXTRACT_PART(device_id))
+-		{
+-			avr_info = &amp;avft_chips_info[i];
+-			LOG_INFO(&quot;target device is %s&quot;, avr_info-&gt;name);
+-			
+-			return ERROR_OK;
+-		}
+-	}
+-	
+-	if (i &lt; (int)(sizeof(avft_chips_info) / sizeof(avft_chips_info[0])))
+-	{
+-		// chip found
+-		snprintf(buf, buf_size, &quot;%s - Rev: 0x%X&quot;, avr_info-&gt;name, EXTRACT_VER(device_id));
+-		return ERROR_OK;
+-	}
+-	else
+-	{
+-		// chip not supported
+-		snprintf(buf, buf_size, &quot;Cannot identify target as a avr\n&quot;);
+-		return ERROR_FLASH_OPERATION_FAILED;
+-	}
+-}
+-
+-static int avrf_mass_erase(struct flash_bank_s *bank)
+-{
+-	target_t *target = bank-&gt;target;
+-	avr_common_t *avr = target-&gt;arch_info;
+-	
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		LOG_ERROR(&quot;Target not halted&quot;);
+-		return ERROR_TARGET_NOT_HALTED;
+-	}
+-	
+-	if ((ERROR_OK != avr_jtagprg_enterprogmode(avr))
+-		|| (ERROR_OK != avr_jtagprg_chiperase(avr))
+-		|| (ERROR_OK != avr_jtagprg_leaveprogmode(avr)))
+-	{
+-		return ERROR_FAIL;
+-	}
+-	
+-	return ERROR_OK;
+-}
+-
+-static int avrf_handle_mass_erase_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+-{
+-	flash_bank_t *bank;
+-	int i;
+-	
+-	if (argc &lt; 1)
+-	{
+-		command_print(cmd_ctx, &quot;avr mass_erase &lt;bank&gt;&quot;);
+-		return ERROR_OK;	
+-	}
+-	
+-	bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
+-	if (!bank)
+-	{
+-		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
+-		return ERROR_OK;
+-	}
+-	
+-	if (avrf_mass_erase(bank) == ERROR_OK)
+-	{
+-		/* set all sectors as erased */
+-		for (i = 0; i &lt; bank-&gt;num_sectors; i++)
+-		{
+-			bank-&gt;sectors[i].is_erased = 1;
+-		}
+-		
+-		command_print(cmd_ctx, &quot;avr mass erase complete&quot;);
+-	}
+-	else
+-	{
+-		command_print(cmd_ctx, &quot;avr mass erase failed&quot;);
+-	}
+-	
+-	LOG_DEBUG(__FUNCTION__);
+-	return ERROR_OK;
+-}
++/***************************************************************************
++ *   Copyright (C) 2009 by Simon Qian                                      *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">SimonQian at SimonQian.com</A>                                               *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;replacements.h&quot;
++
++#include &quot;avrf.h&quot;
++#include &quot;avrt.h&quot;
++#include &quot;flash.h&quot;
++#include &quot;target.h&quot;
++#include &quot;log.h&quot;
++#include &quot;algorithm.h&quot;
++#include &quot;binarybuffer.h&quot;
++
++#include &lt;stdlib.h&gt;
++#include &lt;string.h&gt;
++
++/* AVR_JTAG_Instructions */
++#define AVR_JTAG_INS_LEN							4
++// Public Instructions:
++#define AVR_JTAG_INS_EXTEST							0x00
++#define AVR_JTAG_INS_IDCODE							0x01
++#define AVR_JTAG_INS_SAMPLE_PRELOAD					0x02
++#define AVR_JTAG_INS_BYPASS							0x0F
++// AVR Specified Public Instructions:
++#define AVR_JTAG_INS_AVR_RESET						0x0C
++#define AVR_JTAG_INS_PROG_ENABLE					0x04
++#define AVR_JTAG_INS_PROG_COMMANDS					0x05
++#define AVR_JTAG_INS_PROG_PAGELOAD					0x06
++#define AVR_JTAG_INS_PROG_PAGEREAD					0x07
++
++// Data Registers:
++#define AVR_JTAG_REG_Bypass_Len						1
++#define AVR_JTAG_REG_DeviceID_Len					32
++
++#define AVR_JTAG_REG_Reset_Len						1
++#define AVR_JTAG_REG_JTAGID_Len						32
++#define AVR_JTAG_REG_ProgrammingEnable_Len			16
++#define AVR_JTAG_REG_ProgrammingCommand_Len			15
++#define AVR_JTAG_REG_FlashDataByte_Len				16
++
++avrf_type_t avft_chips_info[] = 
++{
++//	 name,			chip_id,	flash_page_size,	flash_page_num,	eeprom_page_size,	eeprom_page_num
++	{&quot;atmega128&quot;,	0x9702,		256,				512,			8,					512},
++};
++
++static int avrf_register_commands(struct command_context_s *cmd_ctx);
++static int avrf_flash_bank_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc, struct flash_bank_s *bank);
++static int avrf_erase(struct flash_bank_s *bank, int first, int last);
++static int avrf_protect(struct flash_bank_s *bank, int set, int first, int last);
++static int avrf_write(struct flash_bank_s *bank, u8 *buffer, u32 offset, u32 count);
++static int avrf_probe(struct flash_bank_s *bank);
++static int avrf_auto_probe(struct flash_bank_s *bank);
++//static int avrf_handle_part_id_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++static int avrf_protect_check(struct flash_bank_s *bank);
++static int avrf_info(struct flash_bank_s *bank, char *buf, int buf_size);
++
++static int avrf_handle_mass_erase_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++
++extern int avr_jtag_sendinstr(jtag_tap_t *tap, u8 *ir_in, u8 ir_out);
++extern int avr_jtag_senddat(jtag_tap_t *tap, u32 *dr_in, u32 dr_out, int len);
++
++extern int mcu_write_ir(jtag_tap_t *tap, u8 *ir_in, u8 *ir_out, int ir_len, int rti);
++extern int mcu_write_dr(jtag_tap_t *tap, u8 *ir_in, u8 *ir_out, int dr_len, int rti);
++extern int mcu_write_ir_u8(jtag_tap_t *tap, u8 *ir_in, u8 ir_out, int ir_len, int rti);
++extern int mcu_write_dr_u8(jtag_tap_t *tap, u8 *ir_in, u8 ir_out, int dr_len, int rti);
++extern int mcu_write_ir_u16(jtag_tap_t *tap, u16 *ir_in, u16 ir_out, int ir_len, int rti);
++extern int mcu_write_dr_u16(jtag_tap_t *tap, u16 *ir_in, u16 ir_out, int dr_len, int rti);
++extern int mcu_write_ir_u32(jtag_tap_t *tap, u32 *ir_in, u32 ir_out, int ir_len, int rti);
++extern int mcu_write_dr_u32(jtag_tap_t *tap, u32 *ir_in, u32 ir_out, int dr_len, int rti);
++extern int mcu_execute_queue(void);
++
++flash_driver_t avr_flash =
++{
++	.name = &quot;avr&quot;,
++	.register_commands = avrf_register_commands,
++	.flash_bank_command = avrf_flash_bank_command,
++	.erase = avrf_erase,
++	.protect = avrf_protect,
++	.write = avrf_write,
++	.probe = avrf_probe,
++	.auto_probe = avrf_auto_probe,
++	.erase_check = default_flash_mem_blank_check,
++	.protect_check = avrf_protect_check,
++	.info = avrf_info
++};
++
++/* avr program functions */
++static int avr_jtag_reset(avr_common_t *avr, u32 reset)
++{
++	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_AVR_RESET);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, reset ,AVR_JTAG_REG_Reset_Len);
++	
++	return ERROR_OK;
++}
++
++static int avr_jtag_read_jtagid(avr_common_t *avr, u32 *id)
++{
++	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_IDCODE);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, id, 0, AVR_JTAG_REG_JTAGID_Len);
++	
++	return ERROR_OK;
++}
++
++static int avr_jtagprg_enterprogmode(avr_common_t *avr)
++{
++	avr_jtag_reset(avr, 1);
++	
++	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_PROG_ENABLE);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0xA370, AVR_JTAG_REG_ProgrammingEnable_Len);
++	
++	return ERROR_OK;
++}
++
++static int avr_jtagprg_leaveprogmode(avr_common_t *avr)
++{
++	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_PROG_COMMANDS);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x2300, AVR_JTAG_REG_ProgrammingCommand_Len);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3300, AVR_JTAG_REG_ProgrammingCommand_Len);
++
++	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_PROG_ENABLE);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0, AVR_JTAG_REG_ProgrammingEnable_Len);
++
++	avr_jtag_reset(avr, 0);
++	
++	return ERROR_OK;
++}
++
++static int avr_jtagprg_chiperase(avr_common_t *avr)
++{
++	u32 poll_value;
++	
++	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_PROG_COMMANDS);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x2380, AVR_JTAG_REG_ProgrammingCommand_Len);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3180, AVR_JTAG_REG_ProgrammingCommand_Len);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3380, AVR_JTAG_REG_ProgrammingCommand_Len);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3380, AVR_JTAG_REG_ProgrammingCommand_Len);
++	
++	do{
++		poll_value = 0;
++		avr_jtag_senddat(avr-&gt;jtag_info.tap, &amp;poll_value, 0x3380, AVR_JTAG_REG_ProgrammingCommand_Len);
++		if (ERROR_OK != mcu_execute_queue())
++		{
++			return ERROR_FAIL;
++		}
++		LOG_DEBUG(&quot;poll_value = 0x%04X&quot;, poll_value);
++	}while(!(poll_value &amp; 0x0200));
++	
++	return ERROR_OK;
++}
++
++static int avr_jtagprg_writeflashpage(avr_common_t *avr, u8 *page_buf, u32 buf_size, u32 addr, u32 page_size)
++{
++	u32 i, poll_value;
++	
++	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_PROG_COMMANDS);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x2310, AVR_JTAG_REG_ProgrammingCommand_Len);
++	
++	// load addr high byte
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x0700 | ((addr &gt;&gt; 9) &amp; 0xFF), AVR_JTAG_REG_ProgrammingCommand_Len);
++	
++	// load addr low byte
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x0300 | ((addr &gt;&gt; 1) &amp; 0xFF), AVR_JTAG_REG_ProgrammingCommand_Len);
++	
++	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_PROG_PAGELOAD);
++	
++	for (i = 0; i &lt; page_size; i++)
++	{
++		if (i &lt; buf_size)
++		{
++			avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, page_buf[i], 8);
++		}
++		else
++		{
++			avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0xFF, 8);
++		}
++	}
++	
++	avr_jtag_sendinstr(avr-&gt;jtag_info.tap, NULL, AVR_JTAG_INS_PROG_COMMANDS);
++	
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3700, AVR_JTAG_REG_ProgrammingCommand_Len);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3500, AVR_JTAG_REG_ProgrammingCommand_Len);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3700, AVR_JTAG_REG_ProgrammingCommand_Len);
++	avr_jtag_senddat(avr-&gt;jtag_info.tap, NULL, 0x3700, AVR_JTAG_REG_ProgrammingCommand_Len);
++	
++	do{
++		poll_value = 0;
++		avr_jtag_senddat(avr-&gt;jtag_info.tap, &amp;poll_value, 0x3700, AVR_JTAG_REG_ProgrammingCommand_Len);
++		if (ERROR_OK != mcu_execute_queue())
++		{
++			return ERROR_FAIL;
++		}
++		LOG_DEBUG(&quot;poll_value = 0x%04X&quot;, poll_value);
++	}while(!(poll_value &amp; 0x0200));
++	
++	return ERROR_OK;
++}
++
++/* interface command */
++static int avrf_register_commands(struct command_context_s *cmd_ctx)
++{
++	command_t *avr_cmd = register_command(cmd_ctx, NULL, &quot;avr&quot;, NULL, COMMAND_ANY, &quot;avr flash specific commands&quot;);
++	
++	register_command(cmd_ctx, avr_cmd, &quot;mass_erase&quot;, avrf_handle_mass_erase_command, COMMAND_EXEC,
++					 &quot;mass erase device&quot;);
++	
++	return ERROR_OK;
++}
++
++static int avrf_flash_bank_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc, struct flash_bank_s *bank)
++{
++	avrf_flash_bank_t *avrf_info;
++	
++	if (argc &lt; 6)
++	{
++		LOG_WARNING(&quot;incomplete flash_bank avr configuration&quot;);
++		return ERROR_FLASH_BANK_INVALID;
++	}
++	
++	avrf_info = malloc(sizeof(avrf_flash_bank_t));
++	bank-&gt;driver_priv = avrf_info;
++	
++	avrf_info-&gt;probed = 0;
++	
++	return ERROR_OK;
++}
++
++static int avrf_erase(struct flash_bank_s *bank, int first, int last)
++{
++	LOG_INFO(__FUNCTION__);
++	return ERROR_OK;
++}
++
++static int avrf_protect(struct flash_bank_s *bank, int set, int first, int last)
++{
++	LOG_INFO(__FUNCTION__);
++	return ERROR_OK;
++}
++
++static int avrf_write(struct flash_bank_s *bank, u8 *buffer, u32 offset, u32 count)
++{
++	target_t *target = bank-&gt;target;
++	avr_common_t *avr = target-&gt;arch_info;
++	u32 cur_size, cur_buffer_size, page_size;
++	
++	if (bank-&gt;target-&gt;state != TARGET_HALTED)
++	{
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++	
++	page_size = bank-&gt;sectors[0].size;
++	if ((offset % page_size) != 0)
++	{
++		LOG_WARNING(&quot;offset 0x%x breaks required %d-byte alignment&quot;, offset, page_size);
++		return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
++	}
++	
++	LOG_DEBUG(&quot;offset is 0x%08X&quot;, offset);
++	LOG_DEBUG(&quot;count is %d&quot;, count);
++	
++	if (ERROR_OK != avr_jtagprg_enterprogmode(avr))
++	{
++		return ERROR_FAIL;
++	}
++	
++	cur_size = 0;
++	while(count &gt; 0)
++	{
++		if (count &gt; page_size)
++		{
++			cur_buffer_size = page_size;
++		}
++		else
++		{
++			cur_buffer_size = count;
++		}
++		avr_jtagprg_writeflashpage(avr, buffer + cur_size, cur_buffer_size, offset + cur_size, page_size);
++		count -= cur_buffer_size;
++		cur_size += cur_buffer_size;
++		
++		keep_alive();
++	}
++	
++	return avr_jtagprg_leaveprogmode(avr);
++}
++
++#define EXTRACT_MFG(X)  (((X) &amp; 0xffe) &gt;&gt; 1)
++#define EXTRACT_PART(X) (((X) &amp; 0xffff000) &gt;&gt; 12)
++#define EXTRACT_VER(X)  (((X) &amp; 0xf0000000) &gt;&gt; 28)
++static int avrf_probe(struct flash_bank_s *bank)
++{
++	target_t *target = bank-&gt;target;
++	avrf_flash_bank_t *avrf_info = bank-&gt;driver_priv;
++	avr_common_t *avr = target-&gt;arch_info;
++	avrf_type_t *avr_info = NULL;
++	int i;
++	u32 device_id;
++	
++	if (bank-&gt;target-&gt;state != TARGET_HALTED)
++	{
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	avrf_info-&gt;probed = 0;
++	
++	avr_jtag_read_jtagid(avr, &amp;device_id);
++	if (ERROR_OK != mcu_execute_queue())
++	{
++		return ERROR_FAIL;
++	}
++	
++	LOG_INFO( &quot;device id = 0x%08x&quot;, device_id );
++	if (EXTRACT_MFG(device_id) != 0x1F)
++	{
++		LOG_ERROR(&quot;0x%X is invalid Manufacturer for avr, 0x%X is expected&quot;, EXTRACT_MFG(device_id), 0x1F);
++	}
++	
++	for (i = 0; i &lt; (int)(sizeof(avft_chips_info) / sizeof(avft_chips_info[0])); i++)
++	{
++		if (avft_chips_info[i].chip_id == EXTRACT_PART(device_id))
++		{
++			avr_info = &amp;avft_chips_info[i];
++			LOG_INFO(&quot;target device is %s&quot;, avr_info-&gt;name);
++			break;
++		}
++	}
++	
++	if (avr_info != NULL)
++	{
++		// chip found
++		bank-&gt;base = 0x00000000;
++		bank-&gt;size = (avr_info-&gt;flash_page_size * avr_info-&gt;flash_page_num);
++		bank-&gt;num_sectors = avr_info-&gt;flash_page_num;
++		bank-&gt;sectors = malloc(sizeof(flash_sector_t) * avr_info-&gt;flash_page_num);
++		
++		for (i = 0; i &lt; avr_info-&gt;flash_page_num; i++)
++		{
++			bank-&gt;sectors[i].offset = i * avr_info-&gt;flash_page_size;
++			bank-&gt;sectors[i].size = avr_info-&gt;flash_page_size;
++			bank-&gt;sectors[i].is_erased = -1;
++			bank-&gt;sectors[i].is_protected = 1;
++		}
++		
++		avrf_info-&gt;probed = 1;
++		return ERROR_OK;
++	}
++	else
++	{
++		// chip not supported
++		LOG_ERROR(&quot;0x%X is not support for avr&quot;, EXTRACT_PART(device_id));
++		
++		avrf_info-&gt;probed = 1;
++		return ERROR_FAIL;
++	}
++}
++
++static int avrf_auto_probe(struct flash_bank_s *bank)
++{
++	avrf_flash_bank_t *avrf_info = bank-&gt;driver_priv;
++	if (avrf_info-&gt;probed)
++		return ERROR_OK;
++	return avrf_probe(bank);
++}
++
++static int avrf_protect_check(struct flash_bank_s *bank)
++{
++	LOG_INFO(__FUNCTION__);
++	return ERROR_OK;
++}
++
++static int avrf_info(struct flash_bank_s *bank, char *buf, int buf_size)
++{
++	target_t *target = bank-&gt;target;
++	avr_common_t *avr = target-&gt;arch_info;
++	avrf_type_t *avr_info = NULL;
++	int i;
++	u32 device_id;
++	
++	if (bank-&gt;target-&gt;state != TARGET_HALTED)
++	{
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++	
++	avr_jtag_read_jtagid(avr, &amp;device_id);
++	if (ERROR_OK != mcu_execute_queue())
++	{
++		return ERROR_FAIL;
++	}
++	
++	LOG_INFO( &quot;device id = 0x%08x&quot;, device_id );
++	if (EXTRACT_MFG(device_id) != 0x1F)
++	{
++		LOG_ERROR(&quot;0x%X is invalid Manufacturer for avr, 0x%X is expected&quot;, EXTRACT_MFG(device_id), 0x1F);
++	}
++	
++	for (i = 0; i &lt; (int)(sizeof(avft_chips_info) / sizeof(avft_chips_info[0])); i++)
++	{
++		if (avft_chips_info[i].chip_id == EXTRACT_PART(device_id))
++		{
++			avr_info = &amp;avft_chips_info[i];
++			LOG_INFO(&quot;target device is %s&quot;, avr_info-&gt;name);
++			
++			break;
++		}
++	}
++	
++	if (avr_info != NULL)
++	{
++		// chip found
++		snprintf(buf, buf_size, &quot;%s - Rev: 0x%X&quot;, avr_info-&gt;name, EXTRACT_VER(device_id));
++		return ERROR_OK;
++	}
++	else
++	{
++		// chip not supported
++		snprintf(buf, buf_size, &quot;Cannot identify target as a avr\n&quot;);
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++}
++
++static int avrf_mass_erase(struct flash_bank_s *bank)
++{
++	target_t *target = bank-&gt;target;
++	avr_common_t *avr = target-&gt;arch_info;
++	
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++	
++	if ((ERROR_OK != avr_jtagprg_enterprogmode(avr))
++		|| (ERROR_OK != avr_jtagprg_chiperase(avr))
++		|| (ERROR_OK != avr_jtagprg_leaveprogmode(avr)))
++	{
++		return ERROR_FAIL;
++	}
++	
++	return ERROR_OK;
++}
++
++static int avrf_handle_mass_erase_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	flash_bank_t *bank;
++	int i;
++	
++	if (argc &lt; 1)
++	{
++		command_print(cmd_ctx, &quot;avr mass_erase &lt;bank&gt;&quot;);
++		return ERROR_OK;	
++	}
++	
++	bank = get_flash_bank_by_num(strtoul(args[0], NULL, 0));
++	if (!bank)
++	{
++		command_print(cmd_ctx, &quot;flash bank '#%s' is out of bounds&quot;, args[0]);
++		return ERROR_OK;
++	}
++	
++	if (avrf_mass_erase(bank) == ERROR_OK)
++	{
++		/* set all sectors as erased */
++		for (i = 0; i &lt; bank-&gt;num_sectors; i++)
++		{
++			bank-&gt;sectors[i].is_erased = 1;
++		}
++		
++		command_print(cmd_ctx, &quot;avr mass erase complete&quot;);
++	}
++	else
++	{
++		command_print(cmd_ctx, &quot;avr mass erase failed&quot;);
++	}
++	
++	LOG_DEBUG(__FUNCTION__);
++	return ERROR_OK;
++}
+
+
+Property changes on: trunk/src/flash/avrf.c
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/src/flash/avrf.h
+===================================================================
+--- trunk/src/flash/avrf.h	2009-04-27 16:08:25 UTC (rev 1547)
++++ trunk/src/flash/avrf.h	2009-04-27 19:35:31 UTC (rev 1548)
+@@ -1,39 +1,39 @@
+-/***************************************************************************
+- *   Copyright (C) 2009 by Simon Qian                                      *
+- *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">SimonQian at SimonQian.com</A>                                               *
+- *                                                                         *
+- *   This program is free software; you can redistribute it and/or modify  *
+- *   it under the terms of the GNU General Public License as published by  *
+- *   the Free Software Foundation; either version 2 of the License, or     *
+- *   (at your option) any later version.                                   *
+- *                                                                         *
+- *   This program is distributed in the hope that it will be useful,       *
+- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+- *   GNU General Public License for more details.                          *
+- *                                                                         *
+- *   You should have received a copy of the GNU General Public License     *
+- *   along with this program; if not, write to the                         *
+- *   Free Software Foundation, Inc.,                                       *
+- *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+- ***************************************************************************/
+-#ifndef AVRF_H
+-#define AVRF_H
+-
+-typedef struct avrf_type_s
+-{
+-	char name[15];
+-	u16 chip_id;
+-	int flash_page_size;
+-	int flash_page_num;
+-	int eeprom_page_size;
+-	int eeprom_page_num;
+-} avrf_type_t;
+-
+-typedef struct avrf_flash_bank_s
+-{
+-	int ppage_size;
+-	int probed;
+-} avrf_flash_bank_t;
+-
+-#endif /* AVRF_H */
++/***************************************************************************
++ *   Copyright (C) 2009 by Simon Qian                                      *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">SimonQian at SimonQian.com</A>                                               *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifndef AVRF_H
++#define AVRF_H
++
++typedef struct avrf_type_s
++{
++	char name[15];
++	u16 chip_id;
++	int flash_page_size;
++	int flash_page_num;
++	int eeprom_page_size;
++	int eeprom_page_num;
++} avrf_type_t;
++
++typedef struct avrf_flash_bank_s
++{
++	int ppage_size;
++	int probed;
++} avrf_flash_bank_t;
++
++#endif /* AVRF_H */
+
+
+Property changes on: trunk/src/flash/avrf.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/src/target/avrt.c
+===================================================================
+--- trunk/src/target/avrt.c	2009-04-27 16:08:25 UTC (rev 1547)
++++ trunk/src/target/avrt.c	2009-04-27 19:35:31 UTC (rev 1548)
+@@ -1,354 +1,354 @@
+-/***************************************************************************
+- *   Copyright (C) 2009 by Simon Qian                                      *
+- *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">SimonQian at SimonQian.com</A>                                               *
+- *                                                                         *
+- *   This program is free software; you can redistribute it and/or modify  *
+- *   it under the terms of the GNU General Public License as published by  *
+- *   the Free Software Foundation; either version 2 of the License, or     *
+- *   (at your option) any later version.                                   *
+- *                                                                         *
+- *   This program is distributed in the hope that it will be useful,       *
+- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+- *   GNU General Public License for more details.                          *
+- *                                                                         *
+- *   You should have received a copy of the GNU General Public License     *
+- *   along with this program; if not, write to the                         *
+- *   Free Software Foundation, Inc.,                                       *
+- *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+- ***************************************************************************/
+-#ifdef HAVE_CONFIG_H
+-#include &quot;config.h&quot;
+-#endif
+-
+-#include &quot;replacements.h&quot;
+-
+-#include &quot;avrt.h&quot;
+-
+-#include &quot;register.h&quot;
+-#include &quot;target.h&quot;
+-#include &quot;log.h&quot;
+-#include &quot;jtag.h&quot;
+-#include &quot;binarybuffer.h&quot;
+-#include &quot;time_support.h&quot;
+-#include &quot;breakpoints.h&quot;
+-#include &quot;fileio.h&quot;
+-
+-#include &lt;stdlib.h&gt;
+-#include &lt;string.h&gt;
+-
+-#include &lt;sys/types.h&gt;
+-#include &lt;unistd.h&gt;
+-#include &lt;errno.h&gt;
+-
+-#define AVR_JTAG_INS_LEN							4
+-
+-/* cli handling */
+-int avr_register_commands(struct command_context_s *cmd_ctx);
+-
+-/* forward declarations */
+-int avr_target_create(struct target_s *target, Jim_Interp *interp);
+-int avr_init_target(struct command_context_s *cmd_ctx, struct target_s *target);
+-int avr_quit(void);
+-
+-int avr_arch_state(struct target_s *target);
+-int avr_poll(target_t *target);
+-int avr_halt(target_t *target);
+-int avr_resume(struct target_s *target, int current, u32 address, int handle_breakpoints, int debug_execution);
+-int avr_step(struct target_s *target, int current, u32 address, int handle_breakpoints);
+-
+-int avr_assert_reset(target_t *target);
+-int avr_deassert_reset(target_t *target);
+-int avr_soft_reset_halt(struct target_s *target);
+-
+-/* IR and DR functions */
+-int avr_jtag_sendinstr(jtag_tap_t *tap, u8 *ir_in, u8 ir_out);
+-int avr_jtag_senddat(jtag_tap_t *tap, u32 *dr_in, u32 dr_out, int len);
+-
+-int mcu_write_ir(jtag_tap_t *tap, u8 *ir_in, u8 *ir_out, int ir_len, int rti);
+-int mcu_write_dr(jtag_tap_t *tap, u8 *dr_in, u8 *dr_out, int dr_len, int rti);
+-int mcu_write_ir_u8(jtag_tap_t *tap, u8 *ir_in, u8 ir_out, int ir_len, int rti);
+-int mcu_write_dr_u8(jtag_tap_t *tap, u8 *ir_in, u8 ir_out, int dr_len, int rti);
+-int mcu_write_ir_u16(jtag_tap_t *tap, u16 *ir_in, u16 ir_out, int ir_len, int rti);
+-int mcu_write_dr_u16(jtag_tap_t *tap, u16 *ir_in, u16 ir_out, int dr_len, int rti);
+-int mcu_write_ir_u32(jtag_tap_t *tap, u32 *ir_in, u32 ir_out, int ir_len, int rti);
+-int mcu_write_dr_u32(jtag_tap_t *tap, u32 *ir_in, u32 ir_out, int dr_len, int rti);
+-int mcu_execute_queue(void);
+-
+-target_type_t avr_target =
+-{
+-	.name = &quot;avr&quot;,
+-
+-	.poll = avr_poll,
+-	.arch_state = avr_arch_state,
+-
+-	.target_request_data = NULL,
+-
+-	.halt = avr_halt,
+-	.resume = avr_resume,
+-	.step = avr_step,
+-
+-	.assert_reset = avr_assert_reset,
+-	.deassert_reset = avr_deassert_reset,
+-	.soft_reset_halt = avr_soft_reset_halt,
+-/*
+-	.get_gdb_reg_list = avr_get_gdb_reg_list,
+-
+-	.read_memory = avr_read_memory,
+-	.write_memory = avr_write_memory,
+-	.bulk_write_memory = avr_bulk_write_memory,
+-	.checksum_memory = avr_checksum_memory,
+-	.blank_check_memory = avr_blank_check_memory,
+-
+-	.run_algorithm = avr_run_algorithm,
+-
+-	.add_breakpoint = avr_add_breakpoint,
+-	.remove_breakpoint = avr_remove_breakpoint,
+-	.add_watchpoint = avr_add_watchpoint,
+-	.remove_watchpoint = avr_remove_watchpoint,
+-*/
+-	.register_commands = avr_register_commands,
+-	.target_create = avr_target_create,
+-	.init_target = avr_init_target,
+-	.quit = avr_quit,
+-/*
+-	.virt2phys = avr_virt2phys,
+-	.mmu = avr_mmu
+-*/
+-};
+-
+-int avr_register_commands(struct command_context_s *cmd_ctx)
+-{
+-	LOG_DEBUG(__FUNCTION__);
+-	return ERROR_OK;
+-}
+-
+-int avr_target_create(struct target_s *target, Jim_Interp *interp)
+-{
+-	avr_common_t *avr = calloc(1, sizeof(avr_common_t));
+-	
+-	avr-&gt;jtag_info.tap = target-&gt;tap;
+-	target-&gt;arch_info = avr;
+-	
+-	return ERROR_OK;
+-}
+-
+-int avr_init_target(struct command_context_s *cmd_ctx, struct target_s *target)
+-{
+-	LOG_DEBUG(__FUNCTION__);
+-	return ERROR_OK;
+-}
+-
+-int avr_quit(void)
+-{
+-	LOG_DEBUG(__FUNCTION__);
+-	return ERROR_OK;
+-}
+-
+-int avr_arch_state(struct target_s *target)
+-{
+-	LOG_DEBUG(__FUNCTION__);
+-	return ERROR_OK;
+-}
+-
+-int avr_poll(target_t *target)
+-{
+-	if ((target-&gt;state == TARGET_RUNNING) || (target-&gt;state == TARGET_DEBUG_RUNNING))
+-	{
+-		target-&gt;state = TARGET_HALTED;
+-	}
+-	
+-	LOG_DEBUG(__FUNCTION__);
+-	return ERROR_OK;
+-}
+-
+-int avr_halt(target_t *target)
+-{
+-	LOG_DEBUG(__FUNCTION__);
+-	return ERROR_OK;
+-}
+-
+-int avr_resume(struct target_s *target, int current, u32 address, int handle_breakpoints, int debug_execution)
+-{
+-	LOG_DEBUG(__FUNCTION__);
+-	return ERROR_OK;
+-}
+-
+-int avr_step(struct target_s *target, int current, u32 address, int handle_breakpoints)
+-{
+-	LOG_DEBUG(__FUNCTION__);
+-	return ERROR_OK;
+-}
+-
+-int avr_assert_reset(target_t *target)
+-{
+-	target-&gt;state = TARGET_RESET;
+-	
+-	LOG_DEBUG(__FUNCTION__);
+-	return ERROR_OK;
+-}
+-
+-int avr_deassert_reset(target_t *target)
+-{
+-	target-&gt;state = TARGET_RUNNING;
+-	
+-	LOG_DEBUG(__FUNCTION__);
+-	return ERROR_OK;
+-}
+-
+-int avr_soft_reset_halt(struct target_s *target)
+-{
+-	LOG_DEBUG(__FUNCTION__);
+-	return ERROR_OK;
+-}
+-
+-int avr_jtag_senddat(jtag_tap_t *tap, u32* dr_in, u32 dr_out, int len)
+-{
+-	return mcu_write_dr_u32(tap, dr_in, dr_out, len, 1);
+-}
+-
+-int avr_jtag_sendinstr(jtag_tap_t *tap, u8 *ir_in, u8 ir_out)
+-{
+-	return mcu_write_ir_u8(tap, ir_in, ir_out, AVR_JTAG_INS_LEN, 1);
+-}
+-
+-/* IR and DR functions */
+-int mcu_write_ir(jtag_tap_t *tap, u8 *ir_in, u8 *ir_out, int ir_len, int rti)
+-{
+-	if (NULL == tap)
+-	{
+-		LOG_ERROR(&quot;invalid tap&quot;);
+-		return ERROR_FAIL;
+-	}
+-	if (ir_len != tap-&gt;ir_length)
+-	{
+-		LOG_ERROR(&quot;invalid ir_len&quot;);
+-		return ERROR_FAIL;
+-	}
+-	
+-	{
+-		scan_field_t field[1];
+-		
+-		field[0].tap = tap;
+-		field[0].num_bits = tap-&gt;ir_length;
+-		field[0].out_value = ir_out;
+-		field[0].out_mask = NULL;
+-		field[0].in_value = ir_in;
+-		field[0].in_check_value = NULL;
+-		field[0].in_check_mask = NULL;
+-		field[0].in_handler = NULL;
+-		field[0].in_handler_priv = NULL;
+-		jtag_add_plain_ir_scan(sizeof(field) / sizeof(field[0]), field, TAP_IDLE);
+-	}
+-	
+-	return ERROR_OK;
+-}
+-
+-int mcu_write_dr(jtag_tap_t *tap, u8 *dr_in, u8 *dr_out, int dr_len, int rti)
+-{
+-	if (NULL == tap)
+-	{
+-		LOG_ERROR(&quot;invalid tap&quot;);
+-		return ERROR_FAIL;
+-	}
+-	
+-	{
+-		scan_field_t field[1];
+-		
+-		field[0].tap = tap;
+-		field[0].num_bits = dr_len;
+-		field[0].out_value = dr_out;
+-		field[0].out_mask = NULL;
+-		field[0].in_value = dr_in;
+-		field[0].in_check_value = NULL;
+-		field[0].in_check_mask = NULL;
+-		field[0].in_handler = NULL;
+-		field[0].in_handler_priv = NULL;
+-		jtag_add_plain_dr_scan(sizeof(field) / sizeof(field[0]), field, TAP_IDLE);
+-	}
+-	
+-	return ERROR_OK;
+-}
+-
+-int mcu_write_ir_u8(jtag_tap_t *tap, u8 *ir_in, u8 ir_out, int ir_len, int rti)
+-{
+-	if (ir_len &gt; 8)
+-	{
+-		LOG_ERROR(&quot;ir_len overflow, maxium is 8&quot;);
+-		return ERROR_FAIL;
+-	}
+-	
+-	mcu_write_ir(tap, ir_in, &amp;ir_out, ir_len, rti);
+-	
+-	return ERROR_OK;
+-}
+-
+-int mcu_write_dr_u8(jtag_tap_t *tap, u8 *dr_in, u8 dr_out, int dr_len, int rti)
+-{
+-	if (dr_len &gt; 8)
+-	{
+-		LOG_ERROR(&quot;dr_len overflow, maxium is 8&quot;);
+-		return ERROR_FAIL;
+-	}
+-	
+-	mcu_write_dr(tap, dr_in, &amp;dr_out, dr_len, rti);
+-	
+-	return ERROR_OK;
+-}
+-
+-int mcu_write_ir_u16(jtag_tap_t *tap, u16 *ir_in, u16 ir_out, int ir_len, int rti)
+-{
+-	if (ir_len &gt; 16)
+-	{
+-		LOG_ERROR(&quot;ir_len overflow, maxium is 16&quot;);
+-		return ERROR_FAIL;
+-	}
+-	
+-	mcu_write_ir(tap, (u8*)ir_in, (u8*)&amp;ir_out, ir_len, rti);
+-	
+-	return ERROR_OK;
+-}
+-
+-int mcu_write_dr_u16(jtag_tap_t *tap, u16 *dr_in, u16 dr_out, int dr_len, int rti)
+-{
+-	if (dr_len &gt; 16)
+-	{
+-		LOG_ERROR(&quot;dr_len overflow, maxium is 16&quot;);
+-		return ERROR_FAIL;
+-	}
+-	
+-	mcu_write_dr(tap, (u8*)dr_in, (u8*)&amp;dr_out, dr_len, rti);
+-	
+-	return ERROR_OK;
+-}
+-
+-int mcu_write_ir_u32(jtag_tap_t *tap, u32 *ir_in, u32 ir_out, int ir_len, int rti)
+-{
+-	if (ir_len &gt; 32)
+-	{
+-		LOG_ERROR(&quot;ir_len overflow, maxium is 32&quot;);
+-		return ERROR_FAIL;
+-	}
+-	
+-	mcu_write_ir(tap, (u8*)ir_in, (u8*)&amp;ir_out, ir_len, rti);
+-	
+-	return ERROR_OK;
+-}
+-
+-int mcu_write_dr_u32(jtag_tap_t *tap, u32 *dr_in, u32 dr_out, int dr_len, int rti)
+-{
+-	if (dr_len &gt; 32)
+-	{
+-		LOG_ERROR(&quot;dr_len overflow, maxium is 32&quot;);
+-		return ERROR_FAIL;
+-	}
+-	
+-	mcu_write_dr(tap, (u8*)dr_in, (u8*)&amp;dr_out, dr_len, rti);
+-	
+-	return ERROR_OK;
+-}
+-
+-int mcu_execute_queue(void)
+-{
+-	return jtag_execute_queue();
+-}
++/***************************************************************************
++ *   Copyright (C) 2009 by Simon Qian                                      *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">SimonQian at SimonQian.com</A>                                               *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;replacements.h&quot;
++
++#include &quot;avrt.h&quot;
++
++#include &quot;register.h&quot;
++#include &quot;target.h&quot;
++#include &quot;log.h&quot;
++#include &quot;jtag.h&quot;
++#include &quot;binarybuffer.h&quot;
++#include &quot;time_support.h&quot;
++#include &quot;breakpoints.h&quot;
++#include &quot;fileio.h&quot;
++
++#include &lt;stdlib.h&gt;
++#include &lt;string.h&gt;
++
++#include &lt;sys/types.h&gt;
++#include &lt;unistd.h&gt;
++#include &lt;errno.h&gt;
++
++#define AVR_JTAG_INS_LEN							4
++
++/* cli handling */
++int avr_register_commands(struct command_context_s *cmd_ctx);
++
++/* forward declarations */
++int avr_target_create(struct target_s *target, Jim_Interp *interp);
++int avr_init_target(struct command_context_s *cmd_ctx, struct target_s *target);
++int avr_quit(void);
++
++int avr_arch_state(struct target_s *target);
++int avr_poll(target_t *target);
++int avr_halt(target_t *target);
++int avr_resume(struct target_s *target, int current, u32 address, int handle_breakpoints, int debug_execution);
++int avr_step(struct target_s *target, int current, u32 address, int handle_breakpoints);
++
++int avr_assert_reset(target_t *target);
++int avr_deassert_reset(target_t *target);
++int avr_soft_reset_halt(struct target_s *target);
++
++/* IR and DR functions */
++int avr_jtag_sendinstr(jtag_tap_t *tap, u8 *ir_in, u8 ir_out);
++int avr_jtag_senddat(jtag_tap_t *tap, u32 *dr_in, u32 dr_out, int len);
++
++int mcu_write_ir(jtag_tap_t *tap, u8 *ir_in, u8 *ir_out, int ir_len, int rti);
++int mcu_write_dr(jtag_tap_t *tap, u8 *dr_in, u8 *dr_out, int dr_len, int rti);
++int mcu_write_ir_u8(jtag_tap_t *tap, u8 *ir_in, u8 ir_out, int ir_len, int rti);
++int mcu_write_dr_u8(jtag_tap_t *tap, u8 *ir_in, u8 ir_out, int dr_len, int rti);
++int mcu_write_ir_u16(jtag_tap_t *tap, u16 *ir_in, u16 ir_out, int ir_len, int rti);
++int mcu_write_dr_u16(jtag_tap_t *tap, u16 *ir_in, u16 ir_out, int dr_len, int rti);
++int mcu_write_ir_u32(jtag_tap_t *tap, u32 *ir_in, u32 ir_out, int ir_len, int rti);
++int mcu_write_dr_u32(jtag_tap_t *tap, u32 *ir_in, u32 ir_out, int dr_len, int rti);
++int mcu_execute_queue(void);
++
++target_type_t avr_target =
++{
++	.name = &quot;avr&quot;,
++
++	.poll = avr_poll,
++	.arch_state = avr_arch_state,
++
++	.target_request_data = NULL,
++
++	.halt = avr_halt,
++	.resume = avr_resume,
++	.step = avr_step,
++
++	.assert_reset = avr_assert_reset,
++	.deassert_reset = avr_deassert_reset,
++	.soft_reset_halt = avr_soft_reset_halt,
++/*
++	.get_gdb_reg_list = avr_get_gdb_reg_list,
++
++	.read_memory = avr_read_memory,
++	.write_memory = avr_write_memory,
++	.bulk_write_memory = avr_bulk_write_memory,
++	.checksum_memory = avr_checksum_memory,
++	.blank_check_memory = avr_blank_check_memory,
++
++	.run_algorithm = avr_run_algorithm,
++
++	.add_breakpoint = avr_add_breakpoint,
++	.remove_breakpoint = avr_remove_breakpoint,
++	.add_watchpoint = avr_add_watchpoint,
++	.remove_watchpoint = avr_remove_watchpoint,
++*/
++	.register_commands = avr_register_commands,
++	.target_create = avr_target_create,
++	.init_target = avr_init_target,
++	.quit = avr_quit,
++/*
++	.virt2phys = avr_virt2phys,
++	.mmu = avr_mmu
++*/
++};
++
++int avr_register_commands(struct command_context_s *cmd_ctx)
++{
++	LOG_DEBUG(__FUNCTION__);
++	return ERROR_OK;
++}
++
++int avr_target_create(struct target_s *target, Jim_Interp *interp)
++{
++	avr_common_t *avr = calloc(1, sizeof(avr_common_t));
++	
++	avr-&gt;jtag_info.tap = target-&gt;tap;
++	target-&gt;arch_info = avr;
++	
++	return ERROR_OK;
++}
++
++int avr_init_target(struct command_context_s *cmd_ctx, struct target_s *target)
++{
++	LOG_DEBUG(__FUNCTION__);
++	return ERROR_OK;
++}
++
++int avr_quit(void)
++{
++	LOG_DEBUG(__FUNCTION__);
++	return ERROR_OK;
++}
++
++int avr_arch_state(struct target_s *target)
++{
++	LOG_DEBUG(__FUNCTION__);
++	return ERROR_OK;
++}
++
++int avr_poll(target_t *target)
++{
++	if ((target-&gt;state == TARGET_RUNNING) || (target-&gt;state == TARGET_DEBUG_RUNNING))
++	{
++		target-&gt;state = TARGET_HALTED;
++	}
++	
++	LOG_DEBUG(__FUNCTION__);
++	return ERROR_OK;
++}
++
++int avr_halt(target_t *target)
++{
++	LOG_DEBUG(__FUNCTION__);
++	return ERROR_OK;
++}
++
++int avr_resume(struct target_s *target, int current, u32 address, int handle_breakpoints, int debug_execution)
++{
++	LOG_DEBUG(__FUNCTION__);
++	return ERROR_OK;
++}
++
++int avr_step(struct target_s *target, int current, u32 address, int handle_breakpoints)
++{
++	LOG_DEBUG(__FUNCTION__);
++	return ERROR_OK;
++}
++
++int avr_assert_reset(target_t *target)
++{
++	target-&gt;state = TARGET_RESET;
++	
++	LOG_DEBUG(__FUNCTION__);
++	return ERROR_OK;
++}
++
++int avr_deassert_reset(target_t *target)
++{
++	target-&gt;state = TARGET_RUNNING;
++	
++	LOG_DEBUG(__FUNCTION__);
++	return ERROR_OK;
++}
++
++int avr_soft_reset_halt(struct target_s *target)
++{
++	LOG_DEBUG(__FUNCTION__);
++	return ERROR_OK;
++}
++
++int avr_jtag_senddat(jtag_tap_t *tap, u32* dr_in, u32 dr_out, int len)
++{
++	return mcu_write_dr_u32(tap, dr_in, dr_out, len, 1);
++}
++
++int avr_jtag_sendinstr(jtag_tap_t *tap, u8 *ir_in, u8 ir_out)
++{
++	return mcu_write_ir_u8(tap, ir_in, ir_out, AVR_JTAG_INS_LEN, 1);
++}
++
++/* IR and DR functions */
++int mcu_write_ir(jtag_tap_t *tap, u8 *ir_in, u8 *ir_out, int ir_len, int rti)
++{
++	if (NULL == tap)
++	{
++		LOG_ERROR(&quot;invalid tap&quot;);
++		return ERROR_FAIL;
++	}
++	if (ir_len != tap-&gt;ir_length)
++	{
++		LOG_ERROR(&quot;invalid ir_len&quot;);
++		return ERROR_FAIL;
++	}
++	
++	{
++		scan_field_t field[1];
++		
++		field[0].tap = tap;
++		field[0].num_bits = tap-&gt;ir_length;
++		field[0].out_value = ir_out;
++		field[0].out_mask = NULL;
++		field[0].in_value = ir_in;
++		field[0].in_check_value = NULL;
++		field[0].in_check_mask = NULL;
++		field[0].in_handler = NULL;
++		field[0].in_handler_priv = NULL;
++		jtag_add_plain_ir_scan(sizeof(field) / sizeof(field[0]), field, TAP_IDLE);
++	}
++	
++	return ERROR_OK;
++}
++
++int mcu_write_dr(jtag_tap_t *tap, u8 *dr_in, u8 *dr_out, int dr_len, int rti)
++{
++	if (NULL == tap)
++	{
++		LOG_ERROR(&quot;invalid tap&quot;);
++		return ERROR_FAIL;
++	}
++	
++	{
++		scan_field_t field[1];
++		
++		field[0].tap = tap;
++		field[0].num_bits = dr_len;
++		field[0].out_value = dr_out;
++		field[0].out_mask = NULL;
++		field[0].in_value = dr_in;
++		field[0].in_check_value = NULL;
++		field[0].in_check_mask = NULL;
++		field[0].in_handler = NULL;
++		field[0].in_handler_priv = NULL;
++		jtag_add_plain_dr_scan(sizeof(field) / sizeof(field[0]), field, TAP_IDLE);
++	}
++	
++	return ERROR_OK;
++}
++
++int mcu_write_ir_u8(jtag_tap_t *tap, u8 *ir_in, u8 ir_out, int ir_len, int rti)
++{
++	if (ir_len &gt; 8)
++	{
++		LOG_ERROR(&quot;ir_len overflow, maxium is 8&quot;);
++		return ERROR_FAIL;
++	}
++	
++	mcu_write_ir(tap, ir_in, &amp;ir_out, ir_len, rti);
++	
++	return ERROR_OK;
++}
++
++int mcu_write_dr_u8(jtag_tap_t *tap, u8 *dr_in, u8 dr_out, int dr_len, int rti)
++{
++	if (dr_len &gt; 8)
++	{
++		LOG_ERROR(&quot;dr_len overflow, maxium is 8&quot;);
++		return ERROR_FAIL;
++	}
++	
++	mcu_write_dr(tap, dr_in, &amp;dr_out, dr_len, rti);
++	
++	return ERROR_OK;
++}
++
++int mcu_write_ir_u16(jtag_tap_t *tap, u16 *ir_in, u16 ir_out, int ir_len, int rti)
++{
++	if (ir_len &gt; 16)
++	{
++		LOG_ERROR(&quot;ir_len overflow, maxium is 16&quot;);
++		return ERROR_FAIL;
++	}
++	
++	mcu_write_ir(tap, (u8*)ir_in, (u8*)&amp;ir_out, ir_len, rti);
++	
++	return ERROR_OK;
++}
++
++int mcu_write_dr_u16(jtag_tap_t *tap, u16 *dr_in, u16 dr_out, int dr_len, int rti)
++{
++	if (dr_len &gt; 16)
++	{
++		LOG_ERROR(&quot;dr_len overflow, maxium is 16&quot;);
++		return ERROR_FAIL;
++	}
++	
++	mcu_write_dr(tap, (u8*)dr_in, (u8*)&amp;dr_out, dr_len, rti);
++	
++	return ERROR_OK;
++}
++
++int mcu_write_ir_u32(jtag_tap_t *tap, u32 *ir_in, u32 ir_out, int ir_len, int rti)
++{
++	if (ir_len &gt; 32)
++	{
++		LOG_ERROR(&quot;ir_len overflow, maxium is 32&quot;);
++		return ERROR_FAIL;
++	}
++	
++	mcu_write_ir(tap, (u8*)ir_in, (u8*)&amp;ir_out, ir_len, rti);
++	
++	return ERROR_OK;
++}
++
++int mcu_write_dr_u32(jtag_tap_t *tap, u32 *dr_in, u32 dr_out, int dr_len, int rti)
++{
++	if (dr_len &gt; 32)
++	{
++		LOG_ERROR(&quot;dr_len overflow, maxium is 32&quot;);
++		return ERROR_FAIL;
++	}
++	
++	mcu_write_dr(tap, (u8*)dr_in, (u8*)&amp;dr_out, dr_len, rti);
++	
++	return ERROR_OK;
++}
++
++int mcu_execute_queue(void)
++{
++	return jtag_execute_queue();
++}
+
+
+Property changes on: trunk/src/target/avrt.c
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/src/target/avrt.h
+===================================================================
+--- trunk/src/target/avrt.h	2009-04-27 16:08:25 UTC (rev 1547)
++++ trunk/src/target/avrt.h	2009-04-27 19:35:31 UTC (rev 1548)
+@@ -1,33 +1,33 @@
+-/***************************************************************************
+- *   Copyright (C) 2009 by Simon Qian                                      *
+- *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">SimonQian at SimonQian.com</A>                                               *
+- *                                                                         *
+- *   This program is free software; you can redistribute it and/or modify  *
+- *   it under the terms of the GNU General Public License as published by  *
+- *   the Free Software Foundation; either version 2 of the License, or     *
+- *   (at your option) any later version.                                   *
+- *                                                                         *
+- *   This program is distributed in the hope that it will be useful,       *
+- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+- *   GNU General Public License for more details.                          *
+- *                                                                         *
+- *   You should have received a copy of the GNU General Public License     *
+- *   along with this program; if not, write to the                         *
+- *   Free Software Foundation, Inc.,                                       *
+- *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+- ***************************************************************************/
+-#ifndef AVRT_H
+-#define AVRT_H
+-
+-typedef struct mcu_jtag_s
+-{
+-	jtag_tap_t *tap;
+-} mcu_jtag_t;
+-
+-typedef struct avr_common_s
+-{
+-	mcu_jtag_t jtag_info;
+-} avr_common_t;
+-
+-#endif /* AVRT_H */
++/***************************************************************************
++ *   Copyright (C) 2009 by Simon Qian                                      *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">SimonQian at SimonQian.com</A>                                               *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifndef AVRT_H
++#define AVRT_H
++
++typedef struct mcu_jtag_s
++{
++	jtag_tap_t *tap;
++} mcu_jtag_t;
++
++typedef struct avr_common_s
++{
++	mcu_jtag_t jtag_info;
++} avr_common_t;
++
++#endif /* AVRT_H */
+
+
+Property changes on: trunk/src/target/avrt.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000331.html">[Openocd-svn] r1547 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="000333.html">[Openocd-svn] r1549 - in trunk: src/jtag src/server/httpd	src/target src/target/target	testing/examples/SAM7X256Test/prj testing/examples/STM32-103
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#332">[ date ]</a>
+              <a href="thread.html#332">[ thread ]</a>
+              <a href="subject.html#332">[ subject ]</a>
+              <a href="author.html#332">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

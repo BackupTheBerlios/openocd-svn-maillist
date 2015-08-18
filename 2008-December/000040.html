@@ -1,0 +1,3979 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1258 - in trunk: . doc src src/jtag src/jtag/rlink	tools tools/rlink_make_speed_table tools/st7_dtc_as
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1258%20-%20in%20trunk%3A%20.%20doc%20src%20src/jtag%20src/jtag/rlink%0A%09tools%20tools/rlink_make_speed_table%20tools/st7_dtc_as&In-Reply-To=%3C200812190425.mBJ4PepK005937%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000039.html">
+   <LINK REL="Next"  HREF="000041.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1258 - in trunk: . doc src src/jtag src/jtag/rlink	tools tools/rlink_make_speed_table tools/st7_dtc_as</H1>
+    <B>kc8apf at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1258%20-%20in%20trunk%3A%20.%20doc%20src%20src/jtag%20src/jtag/rlink%0A%09tools%20tools/rlink_make_speed_table%20tools/st7_dtc_as&In-Reply-To=%3C200812190425.mBJ4PepK005937%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1258 - in trunk: . doc src src/jtag src/jtag/rlink	tools tools/rlink_make_speed_table tools/st7_dtc_as">kc8apf at mail.berlios.de
+       </A><BR>
+    <I>Fri Dec 19 05:25:40 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000039.html">[Openocd-svn] r1257 - trunk/src trunk/src/jtag	zy1000/trunk/build/tcl
+</A></li>
+        <LI>Next message: <A HREF="000041.html">[Openocd-svn] r1259 - trunk/src/helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#40">[ date ]</a>
+              <a href="thread.html#40">[ thread ]</a>
+              <a href="subject.html#40">[ subject ]</a>
+              <a href="author.html#40">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kc8apf
+Date: 2008-12-19 05:25:22 +0100 (Fri, 19 Dec 2008)
+New Revision: 1258
+
+Added:
+   trunk/src/jtag/rlink/
+   trunk/src/jtag/rlink/Makefile
+   trunk/src/jtag/rlink/call.m4
+   trunk/src/jtag/rlink/dtc_cmd.h
+   trunk/src/jtag/rlink/ep1_cmd.h
+   trunk/src/jtag/rlink/init.m4
+   trunk/src/jtag/rlink/rlink.c
+   trunk/src/jtag/rlink/rlink.h
+   trunk/src/jtag/rlink/rlink_speed_table.c
+   trunk/src/jtag/rlink/st7.h
+   trunk/tools/
+   trunk/tools/rlink_make_speed_table/
+   trunk/tools/rlink_make_speed_table/rlink_make_speed_table
+   trunk/tools/rlink_make_speed_table/rlink_make_speed_table.pl
+   trunk/tools/st7_dtc_as/
+   trunk/tools/st7_dtc_as/st7_dtc_as
+   trunk/tools/st7_dtc_as/st7_dtc_as.pl
+Modified:
+   trunk/configure.in
+   trunk/doc/openocd.texi
+   trunk/src/Makefile.am
+   trunk/src/jtag/Makefile.am
+   trunk/src/jtag/jtag.c
+Log:
+- rlink interface support from Lou Deluxe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lou.openocd012 at fixit.nospammail.net</A>&gt;
+
+
+Modified: trunk/configure.in
+===================================================================
+--- trunk/configure.in	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/configure.in	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -116,6 +116,10 @@
+   AS_HELP_STRING([--enable-jlink], [Enable building support for the Segger J-Link JTAG Programmer]),
+   [build_jlink=$enableval], [build_jlink=no])
+ 
++AC_ARG_ENABLE(rlink,
++  AS_HELP_STRING([--enable-rlink], [Enable building support for the Raisonance RLink JTAG Programmer]),
++  [build_rlink=$enableval], [build_rlink=no])
++
+ AC_ARG_WITH(ftd2xx,
+         [AS_HELP_STRING(--with-ftd2xx,
+            [Where libftd2xx can be found &lt;default=search&gt;])],
+@@ -286,6 +290,12 @@
+   AC_DEFINE(BUILD_JLINK, 0, [0 if you don't want the J-Link JTAG driver.])
+ fi
+ 
++if test $build_rlink = yes; then
++  AC_DEFINE(BUILD_RLINK, 1, [1 if you want the RLink JTAG driver.])
++else
++  AC_DEFINE(BUILD_RLINK, 0, [0 if you don't want the RLink JTAG driver.])
++fi
++
+ AM_CONFIG_HEADER(config.h)
+ AM_INIT_AUTOMAKE(openocd, 1.0)
+ 
+@@ -307,6 +317,7 @@
+ AM_CONDITIONAL(USBPROG, test $build_usbprog = yes)
+ AM_CONDITIONAL(OOCD_TRACE, test $build_oocd_trace = yes)
+ AM_CONDITIONAL(JLINK, test $build_jlink = yes)
++AM_CONDITIONAL(RLINK, test $build_rlink = yes)
+ AM_CONDITIONAL(IS_CYGWIN, test $is_cygwin = yes)
+ AM_CONDITIONAL(IS_MINGW, test $is_mingw = yes)
+ AM_CONDITIONAL(IS_WIN32, test $is_win32 = yes)
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/doc/openocd.texi	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -218,6 +218,8 @@
+ @option{--enable-presto_ftd2xx}
+ @item
+ @option{--enable-jlink}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A>
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{--enable-rlink}
+ @end itemize
+ 
+ If you want to access the parallel port using the PPDEV interface you have to specify
+@@ -322,6 +324,18 @@
+ @* Link: @url{<A HREF="http://www.iar.com/website1/1.0.1.0/369/1/index.php">http://www.iar.com/website1/1.0.1.0/369/1/index.php</A>}
+ @end itemize
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at section</A> USB RLINK based
++Raisonance has an adapter called @b{RLink}.  It exists in a stripped-down form on the STM32 Primer, permanently attached to the JTAG lines.  It also exists on the STM32 Primer2, but that is wired for SWD and not JTAG, thus not supported.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at itemize</A> @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @b{Raisonance RLink}
++@* Link: @url{<A HREF="http://www.raisonance.com/products/RLink.php">http://www.raisonance.com/products/RLink.php</A>}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @b{STM32 Primer}
++@* Link: @url{<A HREF="http://www.stm32circle.com/resources/stm32primer.php">http://www.stm32circle.com/resources/stm32primer.php</A>}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @b{STM32 Primer2}
++@* Link: @url{<A HREF="http://www.stm32circle.com/resources/stm32primer2.php">http://www.stm32circle.com/resources/stm32primer2.php</A>}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> itemize
++
+ @section USB Other
+ @itemize @bullet
+ @item @b{USBprog}
+@@ -1017,6 +1031,11 @@
+ # jlink interface
+ interface jlink
+ @end verbatim
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{A Raisonance RLink}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at verbatim</A>
++# rlink interface
++interface rlink
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> verbatim
+ @b{Parallel Port}
+ @verbatim
+ interface parport
+@@ -1066,6 +1085,9 @@
+ 
+ @item @b{jlink}
+ @* Segger jlink usb adapter
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @b{rlink}
++@* Raisonance RLink usb adapter
+ @comment - End parameters
+ @end itemize
+ @comment - End Interface
+@@ -1247,6 +1269,7 @@
+ @item ft2232: 6MHz / (@var{number}+1)
+ @item amt jtagaccel: 8 / 2**@var{number}
+ @item jlink: maximum speed in kHz (0-12000), 0 will use RTCK
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> rlink: 24MHz / @var{number}, but only for certain values of @var{number}
+ @comment end speed list.
+ @end itemize
+ 
+
+Modified: trunk/src/Makefile.am
+===================================================================
+--- trunk/src/Makefile.am	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/src/Makefile.am	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -47,9 +47,13 @@
+ if JLINK
+ LIBUSB = -lusb
+ else
++if RLINK
++LIBUSB = -lusb
++else
+ LIBUSB =
+ endif
+ endif
++endif
+ 
+ if IS_WIN32
+ if FTD2XXDIR
+
+Modified: trunk/src/jtag/Makefile.am
+===================================================================
+--- trunk/src/jtag/Makefile.am	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/src/jtag/Makefile.am	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -99,7 +99,13 @@
+ JLINKFILES =
+ endif
+ 
++if RLINK
++RLINKFILES = rlink/rlink.c rlink/rlink_speed_table.c
++else
++RLINKFILES =
++endif
++
+ libjtag_a_SOURCES = jtag.c $(BITBANGFILES) $(PARPORTFILES) $(DUMMYFILES) $(FT2232FILES) $(AMTJTAGACCELFILES) $(EP93XXFILES) \
+-	$(AT91RM9200FILES) $(GW16012FILES) $(BITQFILES) $(PRESTOFILES) $(USBPROGFILES) $(ECOSBOARDFILES) $(JLINKFILES)
++	$(AT91RM9200FILES) $(GW16012FILES) $(BITQFILES) $(PRESTOFILES) $(USBPROGFILES) $(ECOSBOARDFILES) $(JLINKFILES) $(RLINKFILES)
+ 
+ noinst_HEADERS = bitbang.h jtag.h
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/src/jtag/jtag.c	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -196,6 +196,10 @@
+ 	extern jtag_interface_t jlink_interface;
+ #endif
+ 
++#if BUILD_RLINK == 1
++	extern jtag_interface_t rlink_interface;
++#endif
++
+ jtag_interface_t *jtag_interfaces[] = {
+ #if BUILD_ECOSBOARD == 1
+ 	&amp;zy1000_interface,
+@@ -233,6 +237,9 @@
+ #if BUILD_JLINK == 1
+ 	&amp;jlink_interface,
+ #endif
++#if BUILD_RLINK == 1
++	&amp;rlink_interface,
++#endif
+ 	NULL,
+ };
+ 
+
+Added: trunk/src/jtag/rlink/Makefile
+===================================================================
+--- trunk/src/jtag/rlink/Makefile	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/src/jtag/rlink/Makefile	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -0,0 +1,73 @@
++#***************************************************************************
++#*   Copyright (C) 2008 Lou Deluxe                                         *
++#*   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lou.openocd012 at fixit.nospammail.net</A>                                   *
++#*                                                                         *
++#*   This program is free software; you can redistribute it and/or modify  *
++#*   it under the terms of the GNU General Public License as published by  *
++#*   the Free Software Foundation; either version 2 of the License, or     *
++#*   (at your option) any later version.                                   *
++#*                                                                         *
++#*   This program is distributed in the hope that it will be useful,       *
++#*   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++#*   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++#*   GNU General Public License for more details.                          *
++#*                                                                         *
++#*   You should have received a copy of the GNU General Public License     *
++#*   along with this program; if not, write to the                         *
++#*   Free Software Foundation, Inc.,                                       *
++#*   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++#***************************************************************************
++
++TOP = ../../..
++INTERFACE_NAME = rlink
++
++PERL = perl
++M4 = m4
++
++TARGETDIR = ${TOP}/src/target
++TOOLSDIR = ${TOP}/tools
++
++MAKE_SPEED_TABLE = ${TOOLSDIR}/rlink_make_speed_table/rlink_make_speed_table
++ST7_DTC_AS = ${TOOLSDIR}/st7_dtc_as/st7_dtc_as
++
++OPENOCD = ${TOP}/src/openocd
++OPENOCD_CONFIG = -s ${TARGETDIR}
++OPENOCD_CONFIG += -f interface/rlink.cfg
++OPENOCD_CONFIG += -f board/stm32f10x_128k_eval.cfg
++
++PATCHFILE = /tmp/openocd_${INTERFACE_NAME}.diff.gz
++
++# relative to ${TOP}
++SVNADDFILES =
++SVNADDFILES += src/target/interface/rlink.cfg
++SVNADDFILES += src/jtag/${INTERFACE_NAME}.c
++SVNADDFILES += src/jtag/${INTERFACE_NAME}
++
++PRESCALERS = 64 11 8 2
++
++DTCFILES =
++DTCFILES += $(addsuffix _init.dtc, ${PRESCALERS})
++DTCFILES += $(addsuffix _call.dtc, ${PRESCALERS})
++
++default: rlink_speed_table.c clean
++
++%_init.fsm: init.m4
++	${M4} -P -DSHIFTER_PRESCALER=`echo &quot;$@&quot; | sed -e's/_.*//'` $&lt; &gt; $@
++
++%_call.fsm: call.m4
++	${M4} -P -DSHIFTER_PRESCALER=`echo &quot;$@&quot; | sed -e's/_.*//'` $&lt; &gt; $@
++
++%.dtc: %.fsm
++	${ST7_DTC_AS} -b -o $@ -i $&lt; &gt; /dev/null
++
++rlink_speed_table.c: ${DTCFILES}
++	${MAKE_SPEED_TABLE} ${PRESCALERS} &gt; $@ || rm $@
++
++clean:
++	-rm *.dtc *.fsm
++
++distclean: clean
++
++test: default
++	(cd ${TOP} &amp;&amp; (rm src/jtag/${INTERFACE_NAME}.o; ${MAKE}))
++	${OPENOCD} -d0 ${OPENOCD_CONFIG} -c init -c 'poll off'
+
+
+Property changes on: trunk/src/jtag/rlink/Makefile
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/src/jtag/rlink/call.m4
+===================================================================
+--- trunk/src/jtag/rlink/call.m4	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/src/jtag/rlink/call.m4	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -0,0 +1,485 @@
++m4_divert(`-1')
++/***************************************************************************
++ *   Copyright (C) 2008 Lou Deluxe                                         *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lou.openocd012 at fixit.nospammail.net</A>                                   *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++m4_dnl Setup and hold times depend on SHIFTER_PRESCALER
++m4_define(`SETUP_DELAY_CYCLES', m4_eval(`('SHIFTER_PRESCALER` + 1) / 2'))
++m4_define(`HOLD_DELAY_CYCLES', m4_eval(`'SHIFTER_PRESCALER` / 2'))
++
++m4_dnl Some macros to make nybble handling a little easier
++m4_define(`m4_high_nybble', `m4_eval(`(($1) &gt;&gt; 4) &amp; 0xf')')
++m4_define(`m4_low_nybble', `m4_eval(`($1) &amp; 0xf')')
++
++m4_dnl A macro to generate a number of NOPs depending on the argument
++m4_define(`m4_0_to_5_nops', `m4_ifelse(m4_eval(`($1) &gt;= 1'), 1, `	NOP
++'m4_ifelse(m4_eval(`($1) &gt;= 2'), 1, `	NOP
++'m4_ifelse(m4_eval(`($1) &gt;= 3'), 1, `	NOP
++'m4_ifelse(m4_eval(`($1) &gt;= 4'), 1, `	NOP
++'m4_ifelse(m4_eval(`($1) &gt;= 5'), 1, `	NOP
++')))))')
++
++
++m4_dnl Some macros to facilitate bit-banging delays.
++m4_dnl There are 3 of them.  One for self-contained delays, and two for those which must be split between setup and loop to keep from disturbing A at delay time.
++m4_dnl The argument passed to any of them is the number of cycles which the delay should consume.
++
++m4_dnl This one is self-contained.
++
++m4_define(`m4_delay',
++`; delay (m4_eval($1) cycles)'
++`m4_ifelse(m4_eval(`('$1`) &lt; 6'), 1,
++	m4_0_to_5_nops($1)
++,
++	m4_ifelse(m4_eval(`(('$1`) - 3) % 2'), 1, `	NOP')
++	A.H = m4_high_nybble(`(('$1`) - 3) / 2')
++	A.L = m4_low_nybble(`(('$1`) - 3) / 2')
++	Y = A
++	DECY
++	JP -1
++)')
++
++
++m4_dnl These are the setup and loop parts of the split delay.
++m4_dnl The argument passed to both must match for the result to make sense.
++m4_dnl The setup does not figure into the delay.  It takes 3 cycles when a loop is used and none if nops are used.
++
++m4_define(`m4_delay_setup',
++`; delay setup (m4_eval($1) cycles)'
++`m4_ifelse(m4_eval(`('$1`) &lt; 6'), 0, `	'
++	A.H = m4_high_nybble(`('$1`) / 2')
++	A.L = m4_low_nybble(`('$1`) / 2')
++	Y = A
++)')
++	
++m4_define(`m4_delay_loop',
++`; delay loop (m4_eval($1) cycles)'
++`m4_ifelse(m4_eval(`('$1`) &lt; 6'), 1,
++	m4_0_to_5_nops($1)
++,
++	m4_ifelse(m4_eval(`('$1`) % 2'), 1, `	NOP')
++	DECY
++	JP -1
++)')
++
++m4_dnl These are utility macros for use with delays.  Specifically, there is code below which needs some predictability in code size for relative jumps to reach.  The m4_delay macro generates an extra NOP when an even delay is needed, and the m4_delay_loop macro generates an extra NOP when an odd delay is needed.  Using this for the argument to the respective macro rounds up the argument so that the extra NOP will not be generated.  There is also logic built in to cancel the rounding when the result is small enough that a loop would not be generated.
++	
++m4_define(`m4_delay_loop_round_up', `m4_ifelse(m4_eval($1` &lt; 6'), 1, $1, m4_eval(`(('$1`) + 1) / 2 * 2'))')
++m4_define(`m4_delay_round_up', `m4_ifelse(m4_eval($1` &lt; 6'), 1, $1, m4_eval(`(('$1`) / 2 * 2) + 1'))')
++
++
++m4_divert(`0')m4_dnl
++
++;------------------------------------------------------------------------------
++:opcode_error
++; This is at address 0x00 in case of empty LUT entries
++	STATUS STOP ERROR
++
++;------------------------------------------------------------------------------
++; Command interpreter at address 0x01 because it is branched to a lot and having it be 0x01 means we can use X for it, which is already used for other purposes which want it to be 1.
++; Assumes X is 1
++; Assumes ADR_BUFFER0 points to the next command byte
++; Stores the current command byte in CMP01
++
++:command_interpreter
++	A = DATA_BUFFER0
++	ADR_BUFFER0 += X
++	CMP01 = A	; store the current command for later
++
++	EXCHANGE	; put MSN into LSN
++	A.H = 0xc	; lookup table at 0x1550 + 0xc0 = 0x1610
++
++	; branch to address in lookup table
++	Y = A 
++	A = &lt;Y&gt;
++	BRANCH
++
++;------------------------------------------------------------------------------
++; LUT for high nybble
++
++;LUT; c0 opcode_error
++;LUT; c1 opcode_shift_tdi_andor_tms_bytes
++;LUT; c2 opcode_shift_tdi_andor_tms_bytes
++;LUT; c3 opcode_shift_tdi_andor_tms_bytes
++;LUT; c4 opcode_shift_tdo_bytes
++;LUT; c5 opcode_error
++;LUT; c6 opcode_shift_tdio_bytes
++;LUT; c7 opcode_error
++;LUT; c8 opcode_shift_tms_tdi_bit_pair
++;LUT; c9 opcode_shift_tms_bits
++;LUT; ca opcode_error
++;LUT; cb opcode_error
++;LUT; cc opcode_error
++;LUT; cd opcode_error
++;LUT; ce opcode_shift_tdio_bits
++;LUT; cf opcode_stop
++
++
++;------------------------------------------------------------------------------
++; USB/buffer handling
++;
++
++;ENTRY; download entry_download
++
++opcode_stop:
++opcode_next_buffer:
++	; pointer to completion flag
++	A.H = 0xf
++	A.L = 0xf
++	Y = A
++
++	A = OR_MPEG	; buffer indicator from previous iteration
++	&lt;Y&gt; = A		; either indicator will have bit 0 set
++	BSET 1		; was buffer 1 previously current?
++;	A.H = 0		; already zero from OR_MPEG
++	JP opcode_next_buffer_0
++
++opcode_next_buffer_1:
++	A.L = 0x1	; ack buffer 0
++	BUFFER_MNGT = A
++;	A.H = 0x0	; already zero from BUFFER_MNGT
++	A.L = 0x3	; Input buffer 1 = 0x1850 (0x0300)
++	JP +4
++
++opcode_next_buffer_0:
++	A.L = 0x2	; ack buffer 1
++	BUFFER_MNGT = A
++entry_download:
++	A = X		; Input buffer 0 = 0x1650 (0x0100)
++
++	ADR_BUFFER01 = A
++	OR_MPEG = A	; store for next iteration
++
++	A.L = 0x0
++	BUFFER_MNGT = A	; finish acking previous buffer
++	Y = A
++	ADR_BUFFER00 = A
++	ADR_BUFFER11 = A
++
++	A.H = 0x4	; Output buffer = 0x1590 (0x0040)
++	ADR_BUFFER10 = A
++
++	EXCHANGE	; 0x04
++	X = A		; for the spin loop below
++
++	; pointer to status in shared memory
++	DECY		; setting to 0 above and decrementing here saves a byte
++
++	; wait until a command buffer is available
++	A = BUFFER_MNGT	; spin while neither of bits 2 or 3 are set
++	CP A&lt;X		; this is slightly faster and smaller than trying to AND and compare the result, and it lets us just use the nybble-swapped 0x40 from the output buffer setup.
++	JP -2
++	&lt;Y&gt; = A		; update status once done spinning
++
++	; restore X, since we used it
++;	A.H = 0	; high nybble of BUFFER_MNGT will always be 0 the way we use it
++	A.L = 1
++	X = A
++
++	; go to command interpreter
++	BRANCH
++
++
++;;------------------------------------------------------------------------------
++;:opcode_stop
++;;
++;
++;	; Ack buffer 0 in download mode
++;	A.L = 0x1
++;	BUFFER_MNGT = A
++;	
++;	STATUS STOP
++
++
++;------------------------------------------------------------------------------
++:opcode_shift_tdi_andor_tms_bytes
++;
++
++	A = CMP01	; bits 3..0 contain the number of bytes to shift - 1
++	A.H = 0
++	Y = A		; loop counter 
++
++	A = CMP01
++	EXCHANGE
++	CMP01 = A	; we're interested in bits in the high nybble
++
++opcode_shift_tdi_andor_tms_bytes__loop:
++
++; set tdi to supplied byte or zero
++	A = CMP01
++	BSET 1
++	JP +4
++	A.H = 0
++	A.L = 0
++	JP +3
++	A = DATA_BUFFER0
++	ADR_BUFFER0 += X
++	SHIFT_MPEG = A
++
++; set tms to supplied byte or zero
++	A = CMP01
++	BCLR 0
++	JP +5
++	A = DATA_BUFFER0
++	ADR_BUFFER0 += X
++	SHIFT_CARD = A
++	SHIFT CARD OUT=&gt;PIN0
++
++; run both shifters as nearly simultaneously as possible
++	SHIFT MPEG OUT=&gt;PIN1
++
++	A = CTRL_FCI
++	EXCHANGE
++	BCLR 3
++	JP -3
++
++	DECY
++	JP opcode_shift_tdi_andor_tms_bytes__loop
++
++	A = X
++	BRANCH
++
++
++;------------------------------------------------------------------------------
++:opcode_shift_tdo_bytes
++;
++
++	A = CMP01	; bits 3..0 contain the number of bytes to shift - 1
++	A.H = 0
++	Y = A		; loop counter 
++
++opcode_shift_tdo_bytes__loop:
++	SHIFT MPEG PIN0=&gt;IN
++
++	A = CTRL_FCI
++	EXCHANGE
++	BCLR 3
++	JP -3
++
++	; put shifted byte into output buffer
++	A = SHIFT_MPEG
++	DATA_BUFFER1 = A
++	ADR_BUFFER1 += X
++
++	DECY
++	JP opcode_shift_tdo_bytes__loop
++
++	A = X
++	BRANCH
++
++
++;------------------------------------------------------------------------------
++:opcode_shift_tdio_bytes
++;
++
++	A = CMP01	; bits 3..0 contain the number of bytes to shift - 1
++	A.H = 0
++	CMP10 = A	; byte loop counter
++
++	A.H = opcode_shift_tdio_bytes__sub_return
++	A.L = opcode_shift_tdio_bytes__sub_return
++	CMP00 = A	; return address
++
++opcode_shift_tdio_bytes__loop:
++	A.H = 0
++	A.L = 7
++	CMP11 = A		; always use 8 bits
++
++	JP sub_shift_tdio_bits
++opcode_shift_tdio_bytes__sub_return:
++	
++	A = CMP10	; byte loop counter
++	CP A=&gt;X
++	CLC
++	A -= X
++	CMP10 = A
++	JP opcode_shift_tdio_bytes__loop
++
++	A = X
++;DR_MPEG = A ; return TCK low, as str912 reset halt seems to require it
++	BRANCH
++
++
++;------------------------------------------------------------------------------
++:opcode_shift_tdio_bits
++;
++
++	A = CMP01	; bits 2..0 contain the number of bits to shift - 1
++	A.H = 0
++	BCLR 3		; set TMS=1 if bit 3 was set
++	CMP11 = A	; bit loop counter 
++
++	A.H = opcode_shift_tdio_bits__sub_return
++	A.L = opcode_shift_tdio_bits__sub_return
++	CMP00 = A	; return address
++
++	JP sub_shift_tdio_bits
++	A.L = 0x1	; TMS=1
++	DR_CARD = A
++	JP sub_shift_tdio_bits
++opcode_shift_tdio_bits__sub_return:
++	
++	A = X
++;DR_MPEG = A ; return TCK low, as str912 reset halt seems to require it
++	BRANCH
++
++
++;------------------------------------------------------------------------------
++:sub_shift_tdio_bits
++;
++
++	A = DATA_BUFFER0	; get byte from input buffer
++	ADR_BUFFER0 += X
++	MASK = A		; put it in MASK where bit routine will use it
++
++:sub_shift_tdio_bits__loop
++m4_delay_setup(m4_delay_loop_round_up(SETUP_DELAY_CYCLES - 1))
++
++	A = MASK	; shift TDO into and TDI out of MASK via carry
++	A += MASK
++	MASK = A
++
++	; shifting out TDI
++	A.L = 0x2	; TCK=0, TDI=1
++	CP CARRY
++	JP +2
++	A.L = 0x0	; TCK=0, TDI=0
++	DR_MPEG = A
++
++m4_delay_loop(m4_delay_loop_round_up(SETUP_DELAY_CYCLES - 1))
++
++	BSET 2		; TCK high
++	DR_MPEG = A 
++
++	A = DR_MPEG	; set carry bit to TDO 
++	CLC
++	BCLR 0
++	JP +2
++	SEC
++
++m4_delay(HOLD_DELAY_CYCLES - 10)
++
++	A = CMP11	; bit loop counter
++	Y = A		; use Y to avoid corrupting carry bit with subtract
++	DECY
++	A = Y
++	CMP11 = A
++	JP :sub_shift_tdio_bits__loop
++
++	; shift last TDO bit into result
++	A = MASK
++	A += MASK
++	DATA_BUFFER1 = A
++	ADR_BUFFER1 += X
++
++	A = CMP00	; return to caller
++	BRANCH
++
++
++;------------------------------------------------------------------------------
++:opcode_shift_tms_tdi_bit_pair
++;
++
++; set TMS line manually
++	A = CMP01	; bits 3..0 contain TDI and TMS bits and whether to return TDO
++	BSET 0		; TMS bit
++	A.L = 0x1	; TMS=1
++	JP +2
++	A.L = 0x0	; TMS=0
++	DR_CARD = A
++
++; stuff command buffer with bitmap of single TDI bit
++	A = CMP01
++	BSET 1		; TDI bit
++	A.H = 0x8	; TDI=1
++	JP +2
++	A.H = 0x0	; TDI=0
++	ADR_BUFFER0 -= X
++	DATA_BUFFER0 = A
++
++	A.H = 0
++	A.L = 0
++	CMP11 = A	; bit loop counter (only doing one bit)
++
++	A.H = opcode_shift_tms_tdi_bit_pair__sub_return
++	A.L = opcode_shift_tms_tdi_bit_pair__sub_return
++	CMP00 = A	; return address
++
++; jump this way due to relative jump range issues
++	A.H = sub_shift_tdio_bits
++	A.L = sub_shift_tdio_bits
++	BRANCH
++opcode_shift_tms_tdi_bit_pair__sub_return:
++
++	A = CMP01
++	BSET 3		; bit says whether to return TDO
++	JP +2
++	ADR_BUFFER1 -= X	; subroutine returns it, so undo that
++	
++	A = X
++	DR_MPEG = A ; return TCK low, as str912 reset halt seems to require it
++	BRANCH
++
++
++;------------------------------------------------------------------------------
++:opcode_shift_tms_bits
++;
++
++	A = CMP01	; bits 3..0 contain the number of bits to shift - 1 (only 1-8 bits is valid... no checking, just improper operation)
++	A.H = 0
++	CMP11 = A	; bit loop counter 
++
++	A = DATA_BUFFER0	; get byte from input buffer
++	ADR_BUFFER0 += X
++	MASK = A		; The byte we'll be shifting
++
++:opcode_shift_tms_bits__loop
++m4_delay_setup(SETUP_DELAY_CYCLES - 1)
++
++	A = MASK	; shift TMS out of MASK via carry
++	A += MASK
++	MASK = A
++
++	; shifting out TMS
++	A.L = 0x1	; TCK=0, TDI=0, TMS=1
++	CP CARRY
++	JP +2
++	A.L = 0x0	; TCK=0, TDI=0, TMS=0
++	DR_CARD = A
++	DR_MPEG = A
++
++m4_delay_loop(SETUP_DELAY_CYCLES - 1)
++
++	BSET 2		; TCK high
++	DR_MPEG = A 
++
++m4_delay(HOLD_DELAY_CYCLES - 10)
++
++	A = CMP11	; bit loop counter
++	CP A=&gt;X
++	CLC
++	A -= X
++	CMP11 = A
++	JP :opcode_shift_tms_bits__loop
++
++	A = X
++	DR_MPEG = A ; return TCK low, as str912 reset halt seems to require it
++	BRANCH
++
++
+
+Added: trunk/src/jtag/rlink/dtc_cmd.h
+===================================================================
+--- trunk/src/jtag/rlink/dtc_cmd.h	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/src/jtag/rlink/dtc_cmd.h	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -0,0 +1,66 @@
++/***************************************************************************
++ *   Copyright (C) 2008 Lou Deluxe                                         *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lou.openocd012 at fixit.nospammail.net</A>                                   *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++/* A command position with the high nybble of 0x0 is reserved for an error condition.  If executed, it stops the DTC and raises the ERROR flag */
++
++#define DTC_CMD_SHIFT_TMS_BYTES(bytes)	((0x1 &lt;&lt; 4) | ((bytes) - 1))
++/* Shift 1-16 bytes out TMS. TDI is 0. */
++/* Bytes to shift follow. */
++
++#define DTC_CMD_SHIFT_TDI_BYTES(bytes)	((0x2 &lt;&lt; 4) | ((bytes) - 1))
++/* Shift 1-16 bytes out TDI. TMS is 0. */
++/* Bytes to shift follow. */
++
++#define DTC_CMD_SHIFT_TDI_AND_TMS_BYTES(bytes)	((0x3 &lt;&lt; 4) | ((bytes) - 1))
++/* Shift 1-16 byte pairs out TDI and TMS. */
++/* Byte pairs to shift follow in TDI, TMS order. */
++
++#define DTC_CMD_SHIFT_TDO_BYTES(bytes)	((0x4 &lt;&lt; 4) | ((bytes) - 1))
++/* Shift 1-16 bytes in TDO. TMS is unaffected. */
++/* Reply buffer contains bytes shifted in. */
++
++#define DTC_CMD_SHIFT_TDIO_BYTES(bytes)	((0x6 &lt;&lt; 4) | ((bytes) - 1))
++/* Shift 1-16 bytes out TDI and in TDO. TMS is unaffected. */
++
++#define DTC_CMD_SHIFT_TMS_TDI_BIT_PAIR(tms, tdi, tdo)	((0x8 &lt;&lt; 4) | (	\
++		(tms) ? (1 &lt;&lt; 0) : 0	\
++	) | (	\
++		(tdi) ? (1 &lt;&lt; 1) : 0	\
++	) | (	\
++		(tdo) ? (1 &lt;&lt; 3) : 0	\
++	))
++/* Single bit shift. */
++/* tms and tdi are the levels shifted out on TMS and TDI, respectively. */
++/* tdo indicates whether a byte will be returned in the reply buffer with its least significant bit set to reflect TDO */
++/* Care should be taken when tdo is zero, as the underlying code actually does put that byte in the reply buffer.  Setting tdo to zero just moves the pointer back.  The result is that if this command is executed when the reply buffer is already full, a byte will be written erroneously to memory not belonging to the reply buffer.  This could be worked around at the expense of DTC code space and speed. */
++
++#define DTC_CMD_SHIFT_TMS_BITS(bits)	((0x9 &lt;&lt; 4) | ((bits) - 1))
++/* Shift 1-8 bits out TMS. */
++/* Bits to be shifted out are left justified in the following byte. */
++
++#define DTC_CMD_SHIFT_TDIO_BITS(bits)	((0xe &lt;&lt; 4) | ((bits) - 1))
++/* Shift 1-8 bits out TDI and in TDO, TMS is unaffected. */
++/* Bits to be shifted out are left justified in the following byte. */
++/* Bits shifted in are right justified in the byte placed in the reply buffer. */
++
++
++#define DTC_CMD_STOP			(0xf &lt;&lt; 4)
++/* Stop processing the command buffer and wait for the next one. */
++/* A shared status byte is updated with bit 0 set when this has happened, and it is cleared when a new command buffer becomes ready.  The host can poll that byte to see when it is safe to read a reply. */
+
+
+Property changes on: trunk/src/jtag/rlink/dtc_cmd.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/src/jtag/rlink/ep1_cmd.h
+===================================================================
+--- trunk/src/jtag/rlink/ep1_cmd.h	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/src/jtag/rlink/ep1_cmd.h	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -0,0 +1,57 @@
++/***************************************************************************
++ *   Copyright (C) 2008 Lou Deluxe                                         *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lou.openocd012 at fixit.nospammail.net</A>                                   *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++/*
++ * Command opcodes that can be sent over endpoint 1.
++ * This codifies information provided by Rob Brown &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">rob at cobbleware.com</A>&gt;.
++ * The buffer can contain several of these, but only one which returns data.
++ * Some of these opcodes have arguments, which follow immediately.
++ * If shorter than the packet size, trailing positions should be zero-filled.
++ */
++
++/* LED update enables:
++ *  When enabled, each LED is updated automatically.
++ *  When not enabled, each LED can be controlled manually with EP1_CMD_SET_PORTD_LEDS.
++ */
++#define EP1_CMD_LEDUE_BOTH				(0x05)
++/* EP1_CMD_LEDUE_NONE has the side effect of turning the LEDs on */
++#define EP1_CMD_LEDUE_NONE				(0x06)
++#define EP1_CMD_LEDUE_ERROR				(0x17)
++#define EP1_CMD_LEDUE_BUSY				(0x18)
++
++#define EP1_CMD_DTC_STOP				(0x0b)
++#define EP1_CMD_DTC_LOAD				(0x0c)
++#define EP1_CMD_DTC_CALL				(0x0d)
++#define EP1_CMD_SET_UPLOAD				(0x0f)
++#define EP1_CMD_SET_DOWNLOAD			(0x10)
++#define EP1_CMD_DTC_WAIT				(0x12)
++#define EP1_CMD_DTC_GET_STATUS			(0x15)
++/* a quick way to just read back one byte */
++#define EP1_CMD_DTC_GET_CACHED_STATUS	(0x16)
++
++/* Writes upper 2 bits port D with argument */
++#define EP1_CMD_SET_PORTD_UPPER			(0x19)
++/* Writes lower 2 bits (BUSY and ERROR) of port D with argument */
++#define EP1_CMD_SET_PORTD_LEDS			(0x1a)
++
++#define EP1_CMD_MEMORY_READ				(0x28)
++#define EP1_CMD_MEMORY_WRITE			(0x29)
++#define EP1_CMD_GET_FWREV				(0xfe)
++#define EP1_CMD_GET_SERIAL				(0xff)
+
+
+Property changes on: trunk/src/jtag/rlink/ep1_cmd.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/src/jtag/rlink/init.m4
+===================================================================
+--- trunk/src/jtag/rlink/init.m4	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/src/jtag/rlink/init.m4	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -0,0 +1,74 @@
++m4_divert(`-1')
++/***************************************************************************
++ *   Copyright (C) 2008 Lou Deluxe                                         *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lou.openocd012 at fixit.nospammail.net</A>                                   *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++m4_undefine(`CTRL_MPEG_L')
++m4_undefine(`CTRL_CARD_L')
++
++m4_ifelse(SHIFTER_PRESCALER, 1, `
++	m4_define(`CTRL_MPEG_L', `m4_eval(`0x8 | 0x0')')
++')
++m4_ifelse(SHIFTER_PRESCALER, 2, `
++	m4_define(`CTRL_MPEG_L', `m4_eval(`0x8 | 0x2')')
++	m4_define(`CTRL_CARD_L', `m4_eval(`0x8 | 0x1')')
++')
++m4_ifelse(SHIFTER_PRESCALER, 8, `
++	m4_define(`CTRL_MPEG_L', `m4_eval(`0x8 | 0x3')')
++')
++m4_ifelse(SHIFTER_PRESCALER, 11, `
++	m4_define(`CTRL_MPEG_L', `m4_eval(`0x8 | 0x4')')
++')
++m4_ifelse(SHIFTER_PRESCALER, 64, `
++	m4_define(`CTRL_MPEG_L', `m4_eval(`0x8 | 0x7')')
++')
++
++m4_ifdef(`CTRL_MPEG_L',,`
++	m4_errprint(`SHIFTER_PRESCALER was not defined with a supported value
++')	m4_m4exit(`1')
++')
++
++m4_divert(`0')m4_dnl
++
++init:
++	A.H = 0
++
++	A.L = 0
++
++	DR_MPEG = A	; TDI and TCK start out low
++	DR_CARD = A	; TMS starts out low
++
++	A.L = 0x6
++
++	CTRL_FCI = A	; MPEG and CARD driven by FCI
++	DDR_MPEG = A	; TDI and TCK are outputs
++
++	A.L = 0x1
++
++	X = A		; X == 1
++	DDR_CARD = A	; TMS is output
++
++	A.L = CTRL_MPEG_L
++	CTRL_MPEG = A
++m4_ifdef(`CTRL_CARD_L',
++`	A.L = 'CTRL_CARD_L`
++')m4_dnl
++	CTRL_CARD = A
++
++	STATUS STOP
+
+Added: trunk/src/jtag/rlink/rlink.c
+===================================================================
+--- trunk/src/jtag/rlink/rlink.c	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/src/jtag/rlink/rlink.c	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -0,0 +1,1808 @@
++/***************************************************************************
++ *   Copyright (C) 2005 by Dominic Rath                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
++ *                                                                         *
++ *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
++ *                                                                         *
++ *   Copyright (C) 2008 Rob Brown, Lou Deluxe                              *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">rob at cobbleware.com</A>, <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lou.openocd012 at fixit.nospammail.net</A>               *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++/* system includes */
++#include &lt;errno.h&gt;
++#include &lt;string.h&gt;
++#include &lt;usb.h&gt;
++
++/* project specific includes */
++#include &quot;log.h&quot;
++#include &quot;types.h&quot;
++#include &quot;jtag.h&quot;
++#include &quot;configuration.h&quot;
++#include &quot;rlink.h&quot;
++#include &quot;st7.h&quot;
++#include &quot;ep1_cmd.h&quot;
++#include &quot;dtc_cmd.h&quot;
++
++
++/* This feature is made useless by running the DTC all the time.  When automatic, the LED is on whenever the DTC is running.  Otherwise, USB messages are sent to turn it on and off. */
++#undef AUTOMATIC_BUSY_LED
++
++/* This feature may require derating the speed due to reduced hold time. */
++#undef USE_HARDWARE_SHIFTER_FOR_TMS
++
++
++#define INTERFACE_NAME		&quot;RLink&quot;
++
++#define USB_IDVENDOR		(0x138e)
++#define USB_IDPRODUCT		(0x9000)
++
++#define USB_EP1OUT_ADDR		(0x01)
++#define USB_EP1OUT_SIZE		(16)
++#define USB_EP1IN_ADDR		(USB_EP1OUT_ADDR | 0x80)
++#define USB_EP1IN_SIZE		(USB_EP1OUT_SIZE)
++
++#define USB_EP2OUT_ADDR		(0x02)
++#define USB_EP2OUT_SIZE		(64)
++#define USB_EP2IN_ADDR		(USB_EP2OUT_ADDR | 0x80)
++#define USB_EP2IN_SIZE		(USB_EP2OUT_SIZE)
++#define USB_EP2BANK_SIZE	(512)
++
++#define USB_TIMEOUT_MS		(3 * 1000)
++
++#define DTC_STATUS_POLL_BYTE	(ST7_USB_BUF_EP0OUT + 0xff)
++
++
++/* Symbolic names for some pins */
++#define ST7_PA_NJTAG_TRST		ST7_PA1
++#define ST7_PA_NRLINK_RST		ST7_PA3
++#define ST7_PA_NLINE_DRIVER_ENABLE	ST7_PA5
++
++/* mask for negative-logic pins */
++#define ST7_PA_NUNASSERTED	(0	\
++	| ST7_PA_NJTAG_TRST	\
++	| ST7_PA_NRLINK_RST	\
++	| ST7_PA_NLINE_DRIVER_ENABLE	\
++)
++
++#define ST7_PD_NBUSY_LED		ST7_PD0
++#define ST7_PD_NERROR_LED		ST7_PD1
++#define ST7_PD_NRUN_LED			ST7_PD7
++
++#define ST7_PE_ADAPTER_SENSE_IN		ST7_PE3
++#define ST7_PE_ADAPTER_SENSE_OUT	ST7_PE4
++
++static usb_dev_handle *pHDev;
++
++
++/*
++ * ep1 commands are up to USB_EP1OUT_SIZE bytes in length.
++ * This function takes care of zeroing the unused bytes before sending the packet.
++ * Any reply packet is not handled by this function.
++ */
++static
++int
++ep1_generic_commandl(
++	usb_dev_handle	*pHDev,
++	size_t		length,
++	...
++) {
++	uint8_t		usb_buffer[USB_EP1OUT_SIZE];
++	uint8_t		*usb_buffer_p;
++	va_list		ap;
++	int		usb_ret;
++
++	if(length &gt; sizeof(usb_buffer)) {
++		length = sizeof(usb_buffer);
++	}
++
++	usb_buffer_p = usb_buffer;
++
++	va_start(ap, length);
++	while(length &gt; 0) {
++		*usb_buffer_p++ = va_arg(ap, int);
++		length--;
++	}
++	
++	memset(
++		usb_buffer_p,
++		0,
++		sizeof(usb_buffer) - (usb_buffer_p - usb_buffer)
++	);
++
++	usb_ret = usb_bulk_write(
++		pHDev,
++		USB_EP1OUT_ADDR,
++		usb_buffer, sizeof(usb_buffer),
++		USB_TIMEOUT_MS
++	);
++
++	return(usb_ret);
++}
++
++
++
++#if 0
++static
++ssize_t
++ep1_memory_read(
++	usb_dev_handle	*pHDev,
++	uint16_t	addr,
++	size_t		length,
++	uint8_t		*buffer
++) {
++	uint8_t		usb_buffer[USB_EP1OUT_SIZE];
++	int		usb_ret;
++	size_t		remain;
++	ssize_t		count;
++
++	usb_buffer[0] = EP1_CMD_MEMORY_READ;
++	memset(
++		usb_buffer + 4,
++		0,
++		sizeof(usb_buffer) - 4
++	);
++
++	remain = length;
++	count = 0;
++
++	while(remain) {
++		if(remain &gt; sizeof(usb_buffer)) {
++			length = sizeof(usb_buffer);
++		} else {
++			length = remain;
++		}
++
++		usb_buffer[1] = addr &gt;&gt; 8;
++		usb_buffer[2] = addr;
++		usb_buffer[3] = length;
++
++      		usb_ret = usb_bulk_write(
++			pHDev, USB_EP1OUT_ADDR,
++			usb_buffer, sizeof(usb_buffer),
++			USB_TIMEOUT_MS
++		);
++
++		if(usb_ret &lt; sizeof(usb_buffer)) {
++			break;
++		}
++		
++		usb_ret = usb_bulk_read(
++			pHDev, USB_EP1IN_ADDR,
++			buffer, length,
++			USB_TIMEOUT_MS
++		);
++
++		if(usb_ret &lt; length) {
++			break;
++		}
++		
++		addr += length;
++		buffer += length;
++		count += length;
++		remain -= length;
++	}
++
++	return(count);
++}
++#endif
++
++
++
++static
++ssize_t
++ep1_memory_write(
++	usb_dev_handle	*pHDev,
++	uint16_t	addr,
++	size_t		length,
++	uint8_t	const	*buffer
++) {
++	uint8_t		usb_buffer[USB_EP1OUT_SIZE];
++	int		usb_ret;
++	size_t		remain;
++	ssize_t		count;
++
++	usb_buffer[0] = EP1_CMD_MEMORY_WRITE;
++
++	remain = length;
++	count = 0;
++
++	while(remain) {
++		if(remain &gt; (sizeof(usb_buffer) - 4)) {
++			length = (sizeof(usb_buffer) - 4);
++		} else {
++			length = remain;
++		}
++
++		usb_buffer[1] = addr &gt;&gt; 8;
++		usb_buffer[2] = addr;
++		usb_buffer[3] = length;
++		memcpy(
++			usb_buffer + 4,
++			buffer,
++			length
++		);
++		memset(
++			usb_buffer + 4 + length,
++			0,
++			sizeof(usb_buffer) - 4 - length
++		);
++
++      		usb_ret = usb_bulk_write(
++			pHDev, USB_EP1OUT_ADDR,
++			usb_buffer, sizeof(usb_buffer),
++			USB_TIMEOUT_MS
++		);
++
++		if(usb_ret &lt; sizeof(usb_buffer)) {
++			break;
++		}
++		
++		addr += length;
++		buffer += length;
++		count += length;
++		remain -= length;
++	}
++
++	return(count);
++}
++
++
++#if 0
++static
++ssize_t
++ep1_memory_writel(
++	usb_dev_handle	*pHDev,
++	uint16_t	addr,
++	size_t		length,
++	...
++) {
++	uint8_t		buffer[USB_EP1OUT_SIZE - 4];
++	uint8_t		*buffer_p;
++	va_list		ap;
++	size_t		remain;
++
++	if(length &gt; sizeof(buffer)) {
++		length = sizeof(buffer);
++	}
++
++	remain = length;
++	buffer_p = buffer;
++
++	va_start(ap, length);
++	while(remain &gt; 0) {
++		*buffer_p++ = va_arg(ap, int);
++		remain--;
++	}
++
++	return(ep1_memory_write(pHDev, addr, length, buffer));
++}
++#endif
++
++
++#define DTCLOAD_COMMENT		(0)
++#define DTCLOAD_ENTRY		(1)
++#define DTCLOAD_LOAD		(2)
++#define DTCLOAD_RUN			(3)
++#define DTCLOAD_LUT_START	(4)
++#define DTCLOAD_LUT			(5)
++
++#define DTC_LOAD_BUFFER		ST7_USB_BUF_EP2UIDO
++
++/* This gets set by the DTC loader */
++static uint8_t dtc_entry_download;
++
++
++/* The buffer is specially formatted to represent a valid image to load into the DTC. */
++static
++int
++dtc_load_from_buffer(
++	usb_dev_handle	*pHDev,
++	const u8		*buffer,
++	size_t			length
++) {
++	struct header_s {
++		u8	type;
++		u8	length;
++	};
++
++	int				usb_err;
++	struct header_s	*header;
++	u8				lut_start = 0xc0;
++
++	dtc_entry_download = 0;
++
++	/* Stop the DTC before loading anything. */
++	usb_err = ep1_generic_commandl(
++		pHDev, 1,
++		EP1_CMD_DTC_STOP
++	);
++	if(usb_err &lt; 0) return(usb_err);
++
++	while(length) {
++		if(length &lt; sizeof(*header)) {
++			LOG_ERROR(&quot;Malformed DTC image\n&quot;);
++			exit(1);
++		}
++		
++		header = (struct header_s *)buffer;
++		buffer += sizeof(*header);
++		length -= sizeof(*header);
++
++		if(length &lt; header-&gt;length + 1) {
++			LOG_ERROR(&quot;Malformed DTC image\n&quot;);
++			exit(1);
++		}
++		
++		switch(header-&gt;type) {
++			case DTCLOAD_COMMENT:
++				break;
++
++			case DTCLOAD_ENTRY:
++				/* store entry addresses somewhere */
++				if(!strncmp(&quot;download&quot;, buffer + 1, 8)) {
++					dtc_entry_download = buffer[0];
++				}
++				break;
++
++			case DTCLOAD_LOAD:
++   				/* Send the DTC program to ST7 RAM. */
++				usb_err = ep1_memory_write(
++					pHDev,
++					DTC_LOAD_BUFFER,
++					header-&gt;length + 1, buffer
++				);
++				if(usb_err &lt; 0) return(usb_err);
++
++				/* Load it into the DTC. */
++				usb_err = ep1_generic_commandl(
++					pHDev, 3,
++					EP1_CMD_DTC_LOAD,
++						(DTC_LOAD_BUFFER &gt;&gt; 8),
++						DTC_LOAD_BUFFER
++				);
++				if(usb_err &lt; 0) return(usb_err);
++
++				break;
++
++			case DTCLOAD_RUN:
++				usb_err = ep1_generic_commandl(
++					pHDev, 3,
++					EP1_CMD_DTC_CALL,
++						buffer[0],
++					EP1_CMD_DTC_WAIT
++				);
++				if(usb_err &lt; 0) return(usb_err);
++
++				break;
++
++			case DTCLOAD_LUT_START:
++				lut_start = buffer[0];
++				break;
++		
++			case DTCLOAD_LUT:
++   				usb_err = ep1_memory_write(
++					pHDev,
++					ST7_USB_BUF_EP0OUT + lut_start,
++					header-&gt;length + 1, buffer
++				);
++				if(usb_err &lt; 0) return(usb_err);
++				break;
++
++			default:
++				LOG_ERROR(&quot;Invalid DTC image record type: 0x%02x\n&quot;, header-&gt;type);
++				exit(1);
++				break;
++		}
++		
++		buffer += (header-&gt;length + 1);
++		length -= (header-&gt;length + 1);
++	}
++
++	return(0);
++}
++
++
++/*
++ * Start the DTC running in download mode (waiting for 512 byte command packets on ep2).
++ */
++static
++int
++dtc_start_download(
++) {
++	int	usb_err;
++	u8	ep2txr;
++
++	/* set up for download mode and make sure EP2 is set up to transmit */
++	usb_err = ep1_generic_commandl(
++		pHDev, 7,
++		 
++		EP1_CMD_DTC_STOP,
++		EP1_CMD_SET_UPLOAD,
++		EP1_CMD_SET_DOWNLOAD,
++		EP1_CMD_MEMORY_READ,	/* read EP2TXR for its data toggle */
++			ST7_EP2TXR &gt;&gt; 8,
++			ST7_EP2TXR,
++			1
++	);
++	if(usb_err &lt; 0) return(usb_err);
++
++	/* read back ep2txr */
++	usb_err = usb_bulk_read(
++		pHDev, USB_EP1IN_ADDR,
++		&amp;ep2txr, 1,
++		USB_TIMEOUT_MS
++	);
++	if(usb_err &lt; 0) return(usb_err);
++
++	usb_err = ep1_generic_commandl(
++		pHDev, 13,
++		 
++		EP1_CMD_MEMORY_WRITE,	/* preinitialize poll byte */
++			DTC_STATUS_POLL_BYTE &gt;&gt; 8,
++			DTC_STATUS_POLL_BYTE,
++			1,
++			0x00,
++		EP1_CMD_MEMORY_WRITE,	/* set EP2IN to return data */
++			ST7_EP2TXR &gt;&gt; 8,
++			ST7_EP2TXR,
++			1,
++			(ep2txr &amp; ST7_EP2TXR_DTOG_TX) | ST7_EP2TXR_STAT_VALID,
++		EP1_CMD_DTC_CALL,	/* start running the DTC */
++			dtc_entry_download,
++		EP1_CMD_DTC_GET_CACHED_STATUS
++	);
++	if(usb_err &lt; 0) return(usb_err);
++
++	/* wait for completion */
++	usb_err = usb_bulk_read(
++		pHDev, USB_EP1IN_ADDR,
++		&amp;ep2txr, 1,
++		USB_TIMEOUT_MS
++	);
++
++	return(usb_err);
++}
++
++
++static
++int
++dtc_run_download(
++	usb_dev_handle	*pHDev,
++	u8	*command_buffer,
++	int	command_buffer_size,
++	u8	*reply_buffer,
++	int	reply_buffer_size
++) {
++	u8	ep2_buffer[USB_EP2IN_SIZE];
++	int	usb_err;
++	int	i;
++
++	LOG_DEBUG(&quot;: %d/%d\n&quot;, command_buffer_size, reply_buffer_size);
++
++	usb_err = usb_bulk_write(
++		pHDev,
++		USB_EP2OUT_ADDR,
++		command_buffer, USB_EP2BANK_SIZE,
++		USB_TIMEOUT_MS
++	);
++	if(usb_err &lt; 0) return(usb_err);
++
++
++	/* Wait for DTC to finish running command buffer */
++	for(i = 5;;) {
++		usb_err = ep1_generic_commandl(
++			pHDev, 4,
++
++			EP1_CMD_MEMORY_READ,
++				DTC_STATUS_POLL_BYTE &gt;&gt; 8,
++				DTC_STATUS_POLL_BYTE,
++				1
++		);
++		if(usb_err &lt; 0) return(usb_err);
++
++		usb_err = usb_bulk_read(
++			pHDev,
++			USB_EP1IN_ADDR,
++			ep2_buffer, 1,
++			USB_TIMEOUT_MS
++		);
++		if(usb_err &lt; 0) return(usb_err);
++
++		if(ep2_buffer[0] &amp; 0x01) break;
++
++		if(!--i) {
++			LOG_ERROR(&quot;%s, %d: too many retries waiting for DTC status\n&quot;,
++				__FILE__, __LINE__
++			);
++			return(-ETIMEDOUT);
++		}
++	}
++
++
++	if(!reply_buffer) reply_buffer_size = 0;
++	if(reply_buffer_size) {
++		usb_err = usb_bulk_read(
++			pHDev,
++			USB_EP2IN_ADDR,
++			ep2_buffer, sizeof(ep2_buffer),
++			USB_TIMEOUT_MS
++		);
++
++		if(usb_err &lt; (int)sizeof(ep2_buffer)) {
++			LOG_ERROR(&quot;%s, %d: Read of endpoint 2 returned %d\n&quot;,
++				__FILE__, __LINE__, usb_err
++			);
++			return(usb_err);
++		}
++
++		memcpy(reply_buffer, ep2_buffer, reply_buffer_size);
++
++	}
++
++	return(usb_err);
++}
++
++
++/*
++ * The dtc reply queue is a singly linked list that describes what to do with the reply packet that comes from the DTC.  Only SCAN_IN and SCAN_IO generate these entries.
++ */
++
++typedef
++struct dtc_reply_queue_entry_s {
++	struct dtc_reply_queue_entry_s	*next;
++	jtag_command_t	*cmd;	/* the command that resulted in this entry */
++
++	struct {
++		u8		*buffer;	/* the scan buffer */
++		int		size;		/* size of the scan buffer in bits */
++		int		offset;		/* how many bits were already done before this? */
++		int		length;		/* how many bits are processed in this operation? */
++		enum scan_type	type;		/* SCAN_IN/SCAN_OUT/SCAN_IO */
++	} scan;
++} dtc_reply_queue_entry_t;
++
++
++/*
++ * The dtc_queue consists of a buffer of pending commands and a reply queue.
++ * rlink_scan and tap_state_run add to the command buffer and maybe to the reply queue.
++ */
++
++static
++struct {
++	dtc_reply_queue_entry_t	*rq_head;
++	dtc_reply_queue_entry_t	*rq_tail;
++	int			cmd_index;
++	int			reply_index;
++	u8			cmd_buffer[USB_EP2BANK_SIZE];
++} dtc_queue;
++
++
++/*
++ * The tap state queue is for accumulating TAP state changes wiithout needlessly flushing the dtc_queue.  When it fills or is run, it adds the accumulated bytes to the dtc_queue.
++ */
++
++static
++struct {
++	int	length;
++	u32	buffer;
++} tap_state_queue;
++
++
++
++static
++int
++dtc_queue_init(
++) {
++	dtc_queue.rq_head = NULL;
++	dtc_queue.rq_tail = NULL;
++	dtc_queue.cmd_index = 0;
++	dtc_queue.reply_index = 0;
++	return(0);
++}
++
++
++static
++inline
++dtc_reply_queue_entry_t *
++dtc_queue_enqueue_reply(
++	enum scan_type	type,
++	u8				*buffer,
++	int				size,
++	int				offset,
++	int				length,
++	jtag_command_t	*cmd
++) {
++	dtc_reply_queue_entry_t	*rq_entry;
++
++	rq_entry = malloc(sizeof(dtc_reply_queue_entry_t));
++	if(rq_entry != NULL) {
++		rq_entry-&gt;scan.type = type;
++		rq_entry-&gt;scan.buffer = buffer;
++		rq_entry-&gt;scan.size = size;
++		rq_entry-&gt;scan.offset = offset;
++		rq_entry-&gt;scan.length = length;
++		rq_entry-&gt;cmd = cmd;
++		rq_entry-&gt;next = NULL;
++
++		if(dtc_queue.rq_head == NULL)
++			dtc_queue.rq_head = rq_entry;
++		else
++			dtc_queue.rq_tail-&gt;next = rq_entry;
++
++		dtc_queue.rq_tail = rq_entry;
++	}
++
++	return(rq_entry);
++}
++
++
++/*
++ * Running the queue means that any pending command buffer is run and any reply data dealt with.  The command buffer is then cleared for subsequent processing.
++ * The queue is automatically run by append when it is necessary to get space for the append.
++*/
++
++static
++int
++dtc_queue_run(
++) {
++	dtc_reply_queue_entry_t	*rq_p, *rq_next;
++	int			retval;
++	int			usb_err;
++	int			bit_cnt;
++	int			x;
++	u8			*dtc_p, *tdo_p;
++	u8			dtc_mask, tdo_mask;
++	u8			reply_buffer[USB_EP2IN_SIZE];
++
++	retval = ERROR_OK;
++
++	if(dtc_queue.cmd_index &lt; 1) return(retval);
++
++	dtc_queue.cmd_buffer[dtc_queue.cmd_index++] = DTC_CMD_STOP;
++
++	/* run the cmd */
++	if(dtc_queue.rq_head == NULL) {
++		usb_err = dtc_run_download(pHDev,
++			dtc_queue.cmd_buffer, dtc_queue.cmd_index,
++			NULL, 0
++		);	
++		if(usb_err &lt; 0) {
++			LOG_ERROR(&quot;dtc_run_download: %s\n&quot;, usb_strerror());
++			exit(1);
++		}
++	} else {
++		usb_err = dtc_run_download(pHDev,
++			dtc_queue.cmd_buffer, dtc_queue.cmd_index,
++			reply_buffer, dtc_queue.reply_index
++		);	
++		if(usb_err &lt; 0) {
++			LOG_ERROR(&quot;dtc_run_download: %s\n&quot;, usb_strerror());
++			exit(1);
++		} else {
++			/* process the reply, which empties the reply queue and frees its entries */
++			dtc_p = reply_buffer;
++
++			/* The rigamarole with the masks and doing it bit-by-bit is due to the fact that the scan buffer is LSb-first and the DTC code is MSb-first for hardware reasons.   It was that or craft a function to do the reversal, and that wouldn't work with bit-stuffing (supplying extra bits to use mostly byte operations), or any other scheme which would throw the byte alignment off. */
++
++			for(
++				rq_p = dtc_queue.rq_head;
++				rq_p != NULL;
++				rq_p = rq_next
++			) {
++				tdo_p = rq_p-&gt;scan.buffer + (rq_p-&gt;scan.offset / 8);
++				tdo_mask = 1 &lt;&lt; (rq_p-&gt;scan.offset % 8);
++
++
++				bit_cnt = rq_p-&gt;scan.length;
++				if(bit_cnt &gt;= 8) {
++					/* bytes */
++
++					dtc_mask = 1 &lt;&lt; (8 - 1);
++
++					for(
++						;
++						bit_cnt;
++						bit_cnt--
++					) {
++						if(*dtc_p &amp; dtc_mask) {
++							*tdo_p |= tdo_mask;
++						} else {
++							*tdo_p &amp;=~ tdo_mask;
++						}
++						
++						dtc_mask &gt;&gt;= 1;
++						if(dtc_mask == 0) {
++							dtc_p++;
++							dtc_mask = 1 &lt;&lt; (8 - 1);
++						}
++
++						tdo_mask &lt;&lt;= 1;
++						if(tdo_mask == 0) {
++							tdo_p++;
++							tdo_mask = 1;
++						}
++					}
++				} else {
++					/*  extra bits or last bit */
++
++					x = *dtc_p++;
++					if((
++						rq_p-&gt;scan.type == SCAN_IN
++					) &amp;&amp; (
++						rq_p-&gt;scan.offset != rq_p-&gt;scan.size - 1
++					)) {
++						/* extra bits were sent as a full byte with padding on the end */
++						dtc_mask = 1 &lt;&lt; (8 - 1);
++					} else {
++						dtc_mask = 1 &lt;&lt; (bit_cnt - 1);
++					}
++
++					for(
++						;
++						bit_cnt;
++						bit_cnt--
++					) {
++						if(x &amp; dtc_mask) {
++							*tdo_p |= tdo_mask;
++						} else {
++							*tdo_p &amp;=~ tdo_mask;
++						}
++
++						dtc_mask &gt;&gt;= 1;
++
++						tdo_mask &lt;&lt;= 1;
++						if(tdo_mask == 0) {
++							tdo_p++;
++							tdo_mask = 1;
++						}
++								
++					}
++				}
++
++				if((rq_p-&gt;scan.offset + rq_p-&gt;scan.length) &gt;= rq_p-&gt;scan.size) {
++					/* feed scan buffer back into openocd and free it */
++					if(jtag_read_buffer(rq_p-&gt;scan.buffer, rq_p-&gt;cmd-&gt;cmd.scan) != ERROR_OK) {
++						 retval = ERROR_JTAG_QUEUE_FAILED;
++					}
++					free(rq_p-&gt;scan.buffer);
++				}
++
++				rq_next = rq_p-&gt;next;
++				free(rq_p);
++			}
++			dtc_queue.rq_head = NULL;
++			dtc_queue.rq_tail = NULL;
++		}
++
++	}
++
++
++	/* reset state for new appends */
++	dtc_queue.cmd_index = 0;
++	dtc_queue.reply_index = 0;
++
++	return(retval);
++}
++
++
++
++static
++int
++tap_state_queue_init(
++) {
++	tap_state_queue.length = 0;
++	tap_state_queue.buffer = 0;
++	return(0);
++}
++
++
++static
++int
++tap_state_queue_run(
++) {
++	int	i;
++	int	bits;
++	u8	byte;
++	int	retval;
++
++	retval = 0;
++	if(!tap_state_queue.length) return(retval);
++	bits = 1;
++	byte = 0;
++	for(i = tap_state_queue.length; i--;) {
++		
++		byte &lt;&lt;= 1;
++		if(tap_state_queue.buffer &amp; 1) {
++			byte |= 1;
++		}
++		if((bits &gt;= 8) || !i) {
++			byte &lt;&lt;= (8 - bits);
++
++			/* make sure there's room for stop, byte op, and one byte */
++			if(dtc_queue.cmd_index &gt;= (sizeof(dtc_queue.cmd_buffer) - (1 + 1 + 1))) {
++				dtc_queue.cmd_buffer[dtc_queue.cmd_index++] =
++					DTC_CMD_STOP;
++				dtc_queue_run();
++			}
++
++#ifdef USE_HARDWARE_SHIFTER_FOR_TMS
++			if(bits == 8) {
++				dtc_queue.cmd_buffer[dtc_queue.cmd_index++] =
++					DTC_CMD_SHIFT_TMS_BYTES(1);
++			} else {
++#endif
++				dtc_queue.cmd_buffer[dtc_queue.cmd_index++] =
++					DTC_CMD_SHIFT_TMS_BITS(bits);
++#ifdef USE_HARDWARE_SHIFTER_FOR_TMS
++			}
++#endif
++
++			dtc_queue.cmd_buffer[dtc_queue.cmd_index++] =
++				byte;
++
++			byte = 0;
++			bits = 1;
++		} else {
++			bits++;
++		}
++
++		tap_state_queue.buffer &gt;&gt;= 1;
++	}
++	retval = tap_state_queue_init();
++	return(retval);
++}
++
++
++static
++int
++tap_state_queue_append(
++	u8	tms
++) {
++	int	retval;
++
++	if(tap_state_queue.length &gt;= sizeof(tap_state_queue.buffer) * 8) {
++		retval = tap_state_queue_run();
++		if(retval != 0) return(retval);
++	}
++
++	if(tms) {
++		tap_state_queue.buffer |= (1 &lt;&lt; tap_state_queue.length);
++	}
++	tap_state_queue.length++;
++
++	return(0);
++}
++
++
++static
++void rlink_end_state(enum tap_state state)
++{
++	if (tap_move_map[state] != -1)
++		end_state = state;
++	else
++	{
++		LOG_ERROR(&quot;BUG: %i is not a valid end state&quot;, state);
++		exit(-1);
++	}
++}
++
++
++static
++void rlink_state_move(void) {
++
++	int i=0, tms=0;
++	u8 tms_scan = TAP_MOVE(cur_state, end_state);
++
++	for (i = 0; i &lt; 7; i++)
++	{
++		tms = (tms_scan &gt;&gt; i) &amp; 1;
++		tap_state_queue_append(tms);
++	}
++
++	cur_state = end_state;
++}
++
++static
++void rlink_path_move(pathmove_command_t *cmd)
++{
++	int num_states = cmd-&gt;num_states;
++	int state_count;
++	int tms = 0;
++
++	state_count = 0;
++	while (num_states)
++	{
++		if (tap_transitions[cur_state].low == cmd-&gt;path[state_count])
++		{
++			tms = 0;
++		}
++		else if (tap_transitions[cur_state].high == cmd-&gt;path[state_count])
++		{
++			tms = 1;
++		}
++		else
++		{
++			LOG_ERROR(&quot;BUG: %s -&gt; %s isn't a valid TAP transition&quot;, jtag_state_name(cur_state), jtag_state_name(cmd-&gt;path[state_count]));
++			exit(-1);
++		}
++
++		tap_state_queue_append(tms);
++
++		cur_state = cmd-&gt;path[state_count];
++		state_count++;
++		num_states--;
++	}
++
++	end_state = cur_state;
++}
++
++
++static
++void rlink_runtest(int num_cycles)
++{
++	int i;
++
++	enum tap_state saved_end_state = end_state;
++
++	/* only do a state_move when we're not already in RTI */
++	if (cur_state != TAP_IDLE)
++	{
++		rlink_end_state(TAP_IDLE);
++		rlink_state_move();
++	}
++
++	/* execute num_cycles */
++	for (i = 0; i &lt; num_cycles; i++)
++	{
++		tap_state_queue_append(0);
++	}
++
++	/* finish in end_state */
++	rlink_end_state(saved_end_state);
++	if (cur_state != end_state)
++		rlink_state_move();
++}
++
++
++/* (1) assert or (0) deassert reset lines */
++static
++void rlink_reset(int trst, int srst)
++{
++	u8			bitmap;
++	int			usb_err;
++
++	bitmap = ((~(ST7_PA_NLINE_DRIVER_ENABLE)) &amp; ST7_PA_NUNASSERTED);
++
++	if(trst) {
++		bitmap &amp;= ~ST7_PA_NJTAG_TRST;
++	}
++	if(srst) {
++		bitmap &amp;= ~ST7_PA_NRLINK_RST;
++	}
++
++	usb_err = ep1_generic_commandl(
++		pHDev, 5,
++		 
++		EP1_CMD_MEMORY_WRITE,
++			ST7_PADR &gt;&gt; 8,
++			ST7_PADR,
++			1,
++			bitmap
++	);
++	if(usb_err &lt; 0) {
++		LOG_ERROR(&quot;%s: %s\n&quot;, __func__, usb_strerror());
++		exit(1);
++	}
++}
++
++
++static
++int
++rlink_scan(
++	jtag_command_t	*cmd,
++	enum scan_type	type,
++	u8			*buffer,
++	int			scan_size
++) {
++	int			ir_scan;
++	enum tap_state	saved_end_state;
++	int			byte_bits;
++	int			extra_bits;
++	int			chunk_bits;
++	int			chunk_bytes;
++	int			x;
++
++	int			tdi_bit_offset;
++	u8			tdi_mask, *tdi_p;
++	u8			dtc_mask;
++	dtc_reply_queue_entry_t	*rq_entry;
++
++	if(scan_size &lt; 1) {
++		LOG_ERROR(&quot;scan_size cannot be less than 1 bit\n&quot;);
++		exit(1);
++	}
++
++	ir_scan = cmd-&gt;cmd.scan-&gt;ir_scan;
++
++	/* Move to the proper state before starting to shift TDI/TDO. */
++	if (!(
++		(!ir_scan &amp;&amp; (cur_state == TAP_DRSHIFT))
++		||
++		(ir_scan &amp;&amp; (cur_state == TAP_IRSHIFT))
++	)) {
++		saved_end_state = end_state;
++		rlink_end_state(ir_scan ? TAP_IRSHIFT : TAP_DRSHIFT);
++		rlink_state_move();
++		rlink_end_state(saved_end_state);
++	}
++
++	tap_state_queue_run();
++
++
++#if 0
++	printf(&quot;scan_size = %d, type=0x%x\n&quot;, scan_size, type);
++	{
++		int   i;
++
++		/* clear unused bits in scan buffer for ease of debugging */
++		/* (it makes diffing output easier) */
++		buffer[scan_size / 8] &amp;= ((1 &lt;&lt; ((scan_size - 1) % 8) + 1) - 1);
++
++		printf(&quot;before scan:&quot;);
++		for(i = 0; i &lt; (scan_size + 7) / 8; i++) {
++			printf(&quot; %02x&quot;, buffer[i]);
++		}
++		printf(&quot;\n&quot;);
++	}
++#endif
++
++	/* The number of bits that can be shifted as complete bytes */
++	byte_bits = (int)(scan_size - 1) / 8 * 8;
++	/* The number of bits left over, not counting the last bit */
++	extra_bits = (scan_size - 1) - byte_bits;
++
++	tdi_bit_offset = 0;
++	tdi_p = buffer;
++	tdi_mask = 1;
++
++	if(extra_bits &amp;&amp; (type == SCAN_OUT)) {
++		/* Schedule any extra bits into the DTC command buffer, padding as needed */
++		/* For SCAN_OUT, this comes before the full bytes so the (leading) padding bits will fall off the end */
++		/* make sure there's room for stop, byte op, and one byte */
++		if(
++			(dtc_queue.cmd_index &gt;= sizeof(dtc_queue.cmd_buffer) - (1 + 1 + 1))
++		) {
++			dtc_queue_run();
++		}
++
++		x = 0;
++		dtc_mask = 1 &lt;&lt; (extra_bits - 1);
++	
++		while(extra_bits--) {
++			if(*tdi_p &amp; tdi_mask) {
++				x |= dtc_mask;
++			}
++
++			dtc_mask &gt;&gt;= 1;
++
++			tdi_mask &lt;&lt;= 1;
++			if(tdi_mask == 0) {
++				tdi_p++;
++				tdi_mask = 1;
++			}
++		}
++
++		dtc_queue.cmd_buffer[dtc_queue.cmd_index++] =
++			DTC_CMD_SHIFT_TDI_BYTES(1);
++
++		dtc_queue.cmd_buffer[dtc_queue.cmd_index++] = x;
++	}
++
++	/* Loop scheduling full bytes into the DTC command buffer */
++	while(byte_bits) {
++		if(type == SCAN_IN) {
++			/* make sure there's room for stop and byte op */
++			x = (dtc_queue.cmd_index &gt;= sizeof(dtc_queue.cmd_buffer) - (1 + 1));
++		} else {
++			/* make sure there's room for stop, byte op, and at least one byte */
++			x = (dtc_queue.cmd_index &gt;= sizeof(dtc_queue.cmd_buffer) - (1 + 1 + 1));
++		}
++
++		if(type != SCAN_OUT) {
++			/* make sure there's room for at least one reply byte */
++			x |= (dtc_queue.reply_index &gt;= USB_EP2IN_SIZE - (1));
++		}
++
++		if(x) {
++			dtc_queue_run();
++		}
++
++		chunk_bits = byte_bits;
++		/* we can only use up to 16 bytes at a time */
++		if(chunk_bits &gt; (16 * 8)) chunk_bits = (16 * 8);
++
++		if(type != SCAN_IN) {
++			/* how much is there room for, considering stop and byte op? */
++			x = (sizeof(dtc_queue.cmd_buffer) - (dtc_queue.cmd_index + 1 + 1)) * 8;
++			if(chunk_bits &gt; x) chunk_bits = x;
++		}
++
++		if(type != SCAN_OUT) {
++			/* how much is there room for in the reply buffer? */
++			x = (USB_EP2IN_SIZE - dtc_queue.reply_index) * 8;
++			if(chunk_bits &gt; x) chunk_bits = x;
++		}
++
++		/* so the loop will end */
++		byte_bits -= chunk_bits;
++
++		if(type != SCAN_OUT) {
++			if(dtc_queue_enqueue_reply(
++				type, buffer, scan_size, tdi_bit_offset,
++				chunk_bits,
++				cmd
++			) == NULL) {
++				LOG_ERROR(&quot;enqueuing DTC reply entry: %s\n&quot;, strerror(errno));
++				exit(1);
++			}
++			
++			tdi_bit_offset += chunk_bits;
++		}
++
++		/* chunk_bits is a multiple of 8, so there are no rounding issues. */
++		chunk_bytes = chunk_bits / 8;
++
++		switch(type) {
++			case SCAN_IN:
++				x = DTC_CMD_SHIFT_TDO_BYTES(chunk_bytes);
++				break;
++			case SCAN_OUT:
++				x = DTC_CMD_SHIFT_TDI_BYTES(chunk_bytes);
++				break;
++			default:
++				x = DTC_CMD_SHIFT_TDIO_BYTES(chunk_bytes);
++				break;
++		}
++		dtc_queue.cmd_buffer[dtc_queue.cmd_index++] = x;
++
++		if(type != SCAN_IN) {
++			x = 0;
++			dtc_mask = 1 &lt;&lt; (8 - 1);
++		
++			while(chunk_bits--) {
++				if(*tdi_p &amp; tdi_mask) {
++					x |= dtc_mask;
++				}
++	
++				dtc_mask &gt;&gt;= 1;
++				if(dtc_mask == 0) {
++					dtc_queue.cmd_buffer[dtc_queue.cmd_index++] = x;
++					dtc_queue.reply_index++;
++					x = 0;
++					dtc_mask = 1 &lt;&lt; (8 - 1);
++				}
++	
++				tdi_mask &lt;&lt;= 1;
++				if(tdi_mask == 0) {
++					tdi_p++;
++					tdi_mask = 1;
++				}
++			}
++		}
++	}
++
++	if(extra_bits &amp;&amp; (type != SCAN_OUT)) {
++		/* Schedule any extra bits into the DTC command buffer */
++		/* make sure there's room for stop, byte op, and one byte */
++		if(
++			(dtc_queue.cmd_index &gt;= sizeof(dtc_queue.cmd_buffer) - (1 + 1 + 1))
++			||
++			(dtc_queue.reply_index &gt;= USB_EP2IN_SIZE - (1))
++		) {
++			dtc_queue_run();
++		}
++
++		if(dtc_queue_enqueue_reply(
++			type, buffer, scan_size, tdi_bit_offset,
++			extra_bits,
++			cmd
++		) == NULL) {
++			LOG_ERROR(&quot;enqueuing DTC reply entry: %s\n&quot;, strerror(errno));
++			exit(1);
++		}
++			
++		tdi_bit_offset += extra_bits;
++
++		if(type == SCAN_IN) {
++			dtc_queue.cmd_buffer[dtc_queue.cmd_index++] =
++				DTC_CMD_SHIFT_TDO_BYTES(1);
++
++		} else {
++			dtc_queue.cmd_buffer[dtc_queue.cmd_index++] =
++				DTC_CMD_SHIFT_TDIO_BITS(extra_bits);
++
++			x = 0;
++			dtc_mask = 1 &lt;&lt; (8 - 1);
++		
++			while(extra_bits--) {
++				if(*tdi_p &amp; tdi_mask) {
++					x |= dtc_mask;
++				}
++	
++				dtc_mask &gt;&gt;= 1;
++	
++				tdi_mask &lt;&lt;= 1;
++				if(tdi_mask == 0) {
++					tdi_p++;
++					tdi_mask = 1;
++				}
++			}
++
++			dtc_queue.cmd_buffer[dtc_queue.cmd_index++] = x;
++		}
++
++		dtc_queue.reply_index++;
++	}
++
++	/* Schedule the last bit into the DTC command buffer */
++	{
++		/* make sure there's room for stop, and bit pair command */
++		if(
++			(dtc_queue.cmd_index &gt;= sizeof(dtc_queue.cmd_buffer) - (1 + 1))
++			||
++			(dtc_queue.reply_index &gt;= USB_EP2IN_SIZE - (1))
++		) {
++			dtc_queue_run();
++		}
++
++		if(type == SCAN_OUT) {
++			dtc_queue.cmd_buffer[dtc_queue.cmd_index++] =
++				DTC_CMD_SHIFT_TMS_TDI_BIT_PAIR(1, (*tdi_p &amp; tdi_mask), 0);
++
++		} else {
++			if(dtc_queue_enqueue_reply(
++				type, buffer, scan_size, tdi_bit_offset,
++				1,
++				cmd
++			) == NULL) {
++				LOG_ERROR(&quot;enqueuing DTC reply entry: %s\n&quot;, strerror(errno));
++				exit(1);
++			}
++			
++			dtc_queue.cmd_buffer[dtc_queue.cmd_index++] = 
++				DTC_CMD_SHIFT_TMS_TDI_BIT_PAIR(1, (*tdi_p &amp; tdi_mask), 1);
++
++			dtc_queue.reply_index++;
++		}
++	}
++
++	/* Move to pause state */
++	tap_state_queue_append(0);
++	cur_state = ir_scan ? TAP_IRPAUSE : TAP_DRPAUSE;
++	if (cur_state != end_state) rlink_state_move();
++
++	return(0);
++}
++
++
++static
++int rlink_execute_queue(void)
++{
++	jtag_command_t *cmd = jtag_command_queue; /* currently processed command */
++	int scan_size;
++	enum scan_type type;
++	u8 *buffer;
++	int retval, tmp_retval;
++
++	/* return ERROR_OK, unless something goes wrong */
++	retval = ERROR_OK;
++
++#ifndef AUTOMATIC_BUSY_LED
++	/* turn LED on */
++	ep1_generic_commandl(pHDev, 2,
++		EP1_CMD_SET_PORTD_LEDS,
++		~(ST7_PD_NBUSY_LED)
++	);
++#endif
++
++	while (cmd)
++	{
++		switch (cmd-&gt;type)
++		{
++			case JTAG_END_STATE:
++			case JTAG_RUNTEST:
++			case JTAG_STATEMOVE:
++			case JTAG_PATHMOVE:
++			case JTAG_SCAN:
++				break;
++
++			default:
++				/* some events, such as resets, need a queue flush to ensure consistency */
++				tap_state_queue_run();
++				dtc_queue_run();
++				break;
++		}
++
++		switch (cmd-&gt;type)
++		{
++			case JTAG_END_STATE:
++#ifdef _DEBUG_JTAG_IO_
++				LOG_DEBUG(&quot;end_state: %i&quot;, cmd-&gt;cmd.end_state-&gt;end_state);
++#endif
++				if (cmd-&gt;cmd.end_state-&gt;end_state != -1)
++					rlink_end_state(cmd-&gt;cmd.end_state-&gt;end_state);
++				break;
++			case JTAG_RESET:
++#ifdef _DEBUG_JTAG_IO_
++				LOG_DEBUG(&quot;reset trst: %i srst %i&quot;, cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
++#endif
++				if ((cmd-&gt;cmd.reset-&gt;trst == 1) || (cmd-&gt;cmd.reset-&gt;srst &amp;&amp; (jtag_reset_config &amp; RESET_SRST_PULLS_TRST)))
++				{
++					cur_state = TAP_RESET;
++				}
++				rlink_reset(cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
++				break;
++			case JTAG_RUNTEST:
++#ifdef _DEBUG_JTAG_IO_
++				LOG_DEBUG(&quot;runtest %i cycles, end in %i&quot;, cmd-&gt;cmd.runtest-&gt;num_cycles, cmd-&gt;cmd.runtest-&gt;end_state);
++#endif
++				if (cmd-&gt;cmd.runtest-&gt;end_state != -1)
++					rlink_end_state(cmd-&gt;cmd.runtest-&gt;end_state);
++				rlink_runtest(cmd-&gt;cmd.runtest-&gt;num_cycles);
++				break;
++			case JTAG_STATEMOVE:
++#ifdef _DEBUG_JTAG_IO_
++				LOG_DEBUG(&quot;statemove end in %i&quot;, cmd-&gt;cmd.statemove-&gt;end_state);
++#endif
++				if (cmd-&gt;cmd.statemove-&gt;end_state != -1)
++					rlink_end_state(cmd-&gt;cmd.statemove-&gt;end_state);
++				rlink_state_move();
++				break;
++			case JTAG_PATHMOVE:
++#ifdef _DEBUG_JTAG_IO_
++				LOG_DEBUG(&quot;pathmove: %i states, end in %i&quot;, cmd-&gt;cmd.pathmove-&gt;num_states, cmd-&gt;cmd.pathmove-&gt;path[cmd-&gt;cmd.pathmove-&gt;num_states - 1]);
++#endif
++				rlink_path_move(cmd-&gt;cmd.pathmove);
++				break;
++			case JTAG_SCAN:
++#ifdef _DEBUG_JTAG_IO_
++				LOG_DEBUG(&quot;%s scan end in %i&quot;,  (cmd-&gt;cmd.scan-&gt;ir_scan) ? &quot;IR&quot; : &quot;DR&quot;, cmd-&gt;cmd.scan-&gt;end_state);
++#endif
++				if (cmd-&gt;cmd.scan-&gt;end_state != -1)
++					rlink_end_state(cmd-&gt;cmd.scan-&gt;end_state);
++				scan_size = jtag_build_buffer(cmd-&gt;cmd.scan, &amp;buffer);
++				type = jtag_scan_type(cmd-&gt;cmd.scan);
++				if(rlink_scan(cmd, type, buffer, scan_size) != ERROR_OK) {
++					retval = ERROR_FAIL;
++				}
++				break;
++			case JTAG_SLEEP:
++#ifdef _DEBUG_JTAG_IO_
++				LOG_DEBUG(&quot;sleep %i&quot;, cmd-&gt;cmd.sleep-&gt;us);
++#endif
++				jtag_sleep(cmd-&gt;cmd.sleep-&gt;us);
++				break;
++			default:
++				LOG_ERROR(&quot;BUG: unknown JTAG command type encountered&quot;);
++				exit(-1);
++		}
++		cmd = cmd-&gt;next;
++	}
++
++	/* Flush the DTC queue to make sure any pending reads have been done before exiting this function */
++	tap_state_queue_run();
++	tmp_retval = dtc_queue_run();
++	if(tmp_retval != ERROR_OK) {
++		retval = tmp_retval;
++	}
++
++#ifndef AUTOMATIC_BUSY_LED
++	/* turn LED onff */
++	ep1_generic_commandl(pHDev, 2,
++		EP1_CMD_SET_PORTD_LEDS,
++		~0
++	);
++#endif
++
++	return retval;
++}
++
++
++/* Using an unindexed table because it is infrequently accessed and it is short.  The table must be in order of ascending speed (and descending prescaler), as it is scanned in reverse. */
++
++static
++int rlink_speed(int speed)
++{
++	int		i;
++
++	if(speed == 0) {
++		/* fastest speed */
++		speed = rlink_speed_table[rlink_speed_table_size - 1].prescaler;
++	}
++
++	for(i = rlink_speed_table_size; i--; ) {
++		if(rlink_speed_table[i].prescaler == speed) {
++			if(dtc_load_from_buffer(pHDev, rlink_speed_table[i].dtc, rlink_speed_table[i].dtc_size) != 0) {
++				LOG_ERROR(&quot;An error occurred while trying to load DTC code for speed \&quot;%d\&quot;.\n&quot;, speed);
++				exit(1);
++			}
++	
++			if(dtc_start_download() &lt; 0) {
++				LOG_ERROR(&quot;%s, %d: starting DTC: %s&quot;,
++					__FILE__, __LINE__,
++					usb_strerror()
++				);
++				exit(1);
++			}
++
++			return ERROR_OK;
++		}
++	}
++
++	LOG_ERROR(&quot;%d is not a supported speed&quot;, speed);
++	return(ERROR_FAIL);
++}
++
++
++static
++int rlink_speed_div(
++	int speed,
++	int *khz
++) {
++	int	i;
++
++	for(i = rlink_speed_table_size; i--; ) {
++		if(rlink_speed_table[i].prescaler == speed) {
++			*khz = rlink_speed_table[i].khz;
++			return(ERROR_OK);
++		}
++	}
++
++	LOG_ERROR(&quot;%d is not a supported speed&quot;, speed);
++	return(ERROR_FAIL);
++}
++
++
++static
++int rlink_khz(
++	int khz,
++	int *speed
++) {
++	int	i;
++
++	if(khz == 0) {
++		LOG_ERROR(&quot;RCLK not supported&quot;);
++		return ERROR_FAIL;
++	}
++
++	for(i = rlink_speed_table_size; i--; ) {
++		if(rlink_speed_table[i].khz &lt;= khz) {
++			*speed = rlink_speed_table[i].prescaler;
++			return(ERROR_OK);
++		}
++	}
++
++	LOG_WARNING(&quot;The lowest supported JTAG speed is %d KHz&quot;, rlink_speed_table[0].khz);
++	*speed = rlink_speed_table[0].prescaler;
++	return(ERROR_OK);
++}
++
++
++#if 0
++static
++int
++handle_dtc_directory_command(
++	struct command_context_s *cmd_ctx,
++	char *cmd,
++	char **args,
++	int argc
++) {
++	if(argc != 1) {
++		LOG_ERROR(&quot;expected exactly one argument to rlink_dtc_directory &lt;directory-path&gt;&quot;);
++		return(ERROR_INVALID_ARGUMENTS);
++	}
++
++	printf(&quot;handle_dtc_directory_command called with \&quot;%s\&quot;\n&quot;, args[0]);
++
++	return(ERROR_OK);
++}
++#endif
++
++
++static
++int rlink_register_commands(struct command_context_s *cmd_ctx)
++{
++
++#ifdef _DEBUG_JTAG_IO_
++	LOG_DEBUG(&quot;rlink_register_commands called with cmd_ctx=%p\n&quot;, cmd_ctx);
++#endif
++
++#if 0
++	register_command(
++		cmd_ctx, NULL,
++		&quot;rlink_dtc_directory&quot;,
++		handle_dtc_directory_command,
++		COMMAND_CONFIG,
++		&quot;The directory in which to search for DTC load images&quot;
++	);
++#endif
++
++	return ERROR_OK;
++}
++
++
++static
++int rlink_init(void)
++{
++	struct usb_bus *busses;
++	struct usb_bus *bus;
++	int c, i, a, j, retries,len;
++	int found=0;
++	int success=0;
++	u8 reply_buffer[USB_EP1IN_SIZE];
++
++	usb_init();
++	usb_find_busses();
++	usb_find_devices();
++
++	busses = usb_get_busses();
++
++	for(bus = busses; bus; bus = bus-&gt;next)
++	{
++		struct usb_device *dev;
++
++		for(dev = bus-&gt;devices; dev; dev = dev-&gt;next)
++		{
++			if( (dev-&gt;descriptor.idVendor == USB_IDVENDOR) &amp;&amp; (dev-&gt;descriptor.idProduct == USB_IDPRODUCT) )
++			{
++				found = 1;
++				LOG_DEBUG(&quot;Found device on bus.\n&quot;);
++
++				do
++				{
++					if( dev-&gt;descriptor.bNumConfigurations &gt; 1 )
++					{
++						LOG_ERROR(&quot;Whoops! NumConfigurations is not 1, don't know what to do...\n&quot;);
++						break;
++					}
++					if( dev-&gt;config-&gt;bNumInterfaces &gt; 1 )
++					{
++						LOG_ERROR(&quot;Whoops! NumInterfaces is not 1, don't know what to do...\n&quot;);
++						break;
++					}
++
++					pHDev=usb_open(dev);
++					if( !pHDev )
++						LOG_ERROR (&quot;Failed to open device.\n&quot;);
++					else
++					{
++						LOG_DEBUG(&quot;Opened device, pHDev = %p\n&quot;,pHDev);
++
++						retries = 3;
++						do
++						{
++							i = usb_claim_interface(pHDev,0);
++							if(i)
++							{
++								LOG_ERROR(&quot;usb_claim_interface: %s&quot;, usb_strerror());
++#ifdef LIBUSB_HAS_DETACH_KERNEL_DRIVER_NP
++								j = usb_detach_kernel_driver_np(pHDev, 0);
++								if(j)
++									LOG_ERROR(&quot;detach kernel driver: %s&quot;, usb_strerror());
++#endif
++							}
++							else
++							{
++								LOG_DEBUG(&quot;interface claimed!\n&quot;);
++								break;
++							}
++						} while(--retries);
++
++						if(!i)
++						{
++							if( usb_set_altinterface(pHDev,0) )
++							{
++								LOG_ERROR(&quot;Failed to set interface.\n&quot;);
++								break;
++							}
++							else
++								success=1;
++						}
++					}
++				} while(0);
++			}
++		}
++	}
++
++	if( !found )
++	{
++		LOG_ERROR(&quot;No device found on bus.\n&quot;);
++		exit(1);
++	}
++
++	if( !success )
++	{
++		LOG_ERROR(&quot;Initialisation failed.&quot;);
++		exit(1);
++	}
++
++
++	/* The device starts out in an unknown state on open.  As such, result reads time out, and it's not even known whether the command was accepted.  So, for this first command, we issue it repeatedly until its response doesn't time out.  Also, if sending a command is going to time out, we'll find that out here. */
++	/* It must be possible to open the device in such a way that this special magic isn't needed, but, so far, it escapes us. */
++	for(i = 0; i &lt; 5; i++) {
++		j = ep1_generic_commandl(
++			pHDev, 1,
++			EP1_CMD_GET_FWREV
++		);
++		if(j &lt; USB_EP1OUT_SIZE) {
++			LOG_ERROR(&quot;USB write error: %s&quot;, usb_strerror());
++			return(ERROR_FAIL);
++		}
++		j = usb_bulk_read(
++			pHDev, USB_EP1IN_ADDR,
++			reply_buffer, sizeof(reply_buffer),
++			200
++		);
++		if(j != -ETIMEDOUT) break;
++	}
++
++	if(j &lt; (int)sizeof(reply_buffer)) {
++		LOG_ERROR(&quot;USB read error: %s&quot;, usb_strerror());
++		return(ERROR_FAIL);
++	}
++	LOG_DEBUG(INTERFACE_NAME&quot; firmware version: %d.%d.%d\n&quot;, reply_buffer[0], reply_buffer[1], reply_buffer[2]);
++
++	if((reply_buffer[0] != 0) || (reply_buffer[1] != 0) || (reply_buffer[2] != 3)) {
++		LOG_WARNING(&quot;The rlink device is not of the version that the developers have played with.  It may or may not work.\n&quot;);
++	}
++
++	/* Probe port E for adapter presence */
++	ep1_generic_commandl(
++		pHDev, 16,
++		EP1_CMD_MEMORY_WRITE,	/* Drive sense pin with 0 */
++			ST7_PEDR &gt;&gt; 8,
++			ST7_PEDR,
++			3,
++			0x00,
++			ST7_PE_ADAPTER_SENSE_OUT,
++			ST7_PE_ADAPTER_SENSE_OUT,
++		EP1_CMD_MEMORY_READ,	/* Read back */
++			ST7_PEDR &gt;&gt; 8,
++			ST7_PEDR,
++			1,
++		EP1_CMD_MEMORY_WRITE,	/* Drive sense pin with 1 */
++			ST7_PEDR &gt;&gt; 8,
++			ST7_PEDR,
++			1,
++			ST7_PE_ADAPTER_SENSE_OUT
++	);
++
++	usb_bulk_read(
++		pHDev, USB_EP1IN_ADDR,
++		reply_buffer, 1,
++		USB_TIMEOUT_MS
++	);
++
++	if((reply_buffer[0] &amp; ST7_PE_ADAPTER_SENSE_IN) != 0) {
++		LOG_WARNING(&quot;target detection problem\n&quot;);
++	}
++
++	ep1_generic_commandl(
++		pHDev, 11,
++		EP1_CMD_MEMORY_READ,	/* Read back */
++			ST7_PEDR &gt;&gt; 8,
++			ST7_PEDR,
++			1,
++		EP1_CMD_MEMORY_WRITE,	/* float port E */
++			ST7_PEDR &gt;&gt; 8,
++			ST7_PEDR,
++			3,
++			0x00,
++			0x00,
++			0x00
++	);
++
++	usb_bulk_read(
++		pHDev, USB_EP1IN_ADDR,
++		reply_buffer, 1,
++		USB_TIMEOUT_MS
++	);
++
++
++	if((reply_buffer[0] &amp; ST7_PE_ADAPTER_SENSE_IN) == 0) {
++		LOG_WARNING(&quot;target not plugged in\n&quot;);
++	}
++
++	/* float port A, make sure DTC is stopped, set upper 2 bits of port D, and set up port A */
++	ep1_generic_commandl(
++		pHDev, 15,
++		EP1_CMD_MEMORY_WRITE,
++			ST7_PADDR &gt;&gt; 8,
++			ST7_PADDR,
++			2,
++			0x00,
++			0x00,
++		EP1_CMD_DTC_STOP,
++		EP1_CMD_SET_PORTD_UPPER,
++			~(ST7_PD_NRUN_LED),
++		EP1_CMD_MEMORY_WRITE,
++			ST7_PADR &gt;&gt; 8,
++			ST7_PADR,
++			2,
++			((~(ST7_PA_NLINE_DRIVER_ENABLE)) &amp; ST7_PA_NUNASSERTED),
++			(ST7_PA_NLINE_DRIVER_ENABLE | ST7_PA_NRLINK_RST | ST7_PA_NJTAG_TRST)
++	);
++
++	/* set LED updating mode and make sure they're unlit */
++	ep1_generic_commandl(
++		pHDev, 3,
++#ifdef AUTOMATIC_BUSY_LED
++		EP1_CMD_LEDUE_BUSY,
++#else
++		EP1_CMD_LEDUE_NONE,
++#endif
++		EP1_CMD_SET_PORTD_LEDS,
++			~0
++	);
++
++	tap_state_queue_init();
++	dtc_queue_init();
++	rlink_speed(jtag_speed);
++	rlink_reset(0, 0);
++
++	return ERROR_OK;
++}
++
++
++static
++int rlink_quit(void)
++{
++	/* stop DTC and make sure LEDs are off */
++	ep1_generic_commandl(
++		pHDev, 6,
++		EP1_CMD_DTC_STOP,
++		EP1_CMD_LEDUE_NONE,
++		EP1_CMD_SET_PORTD_LEDS,
++			~0,
++		EP1_CMD_SET_PORTD_UPPER,
++			~0
++	);
++
++	usb_release_interface(pHDev,0);
++	usb_close(pHDev);
++
++
++	return ERROR_OK;
++}
++
++
++jtag_interface_t rlink_interface =
++{
++	.name = &quot;rlink&quot;,
++	.init = rlink_init,
++	.quit = rlink_quit,
++	.register_commands = rlink_register_commands,
++	.speed = rlink_speed,
++	.speed_div = rlink_speed_div,
++	.khz = rlink_khz,
++	.execute_queue = rlink_execute_queue,
++};
+
+
+Property changes on: trunk/src/jtag/rlink/rlink.c
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/src/jtag/rlink/rlink.h
+===================================================================
+--- trunk/src/jtag/rlink/rlink.h	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/src/jtag/rlink/rlink.h	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -0,0 +1,33 @@
++/***************************************************************************
++ *   Copyright (C) 2008 Lou Deluxe                                         *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lou.openocd012 at fixit.nospammail.net</A>                                   *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#include &quot;types.h&quot;
++#include &lt;sys/types.h&gt;
++
++typedef
++struct rlink_speed_table_s {
++	u8 const	*dtc;
++	u16			dtc_size;
++	u16			khz;
++	u8			prescaler;
++} rlink_speed_table_t;
++
++extern const rlink_speed_table_t	rlink_speed_table[];
++extern const size_t					rlink_speed_table_size;
+
+
+Property changes on: trunk/src/jtag/rlink/rlink.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/src/jtag/rlink/rlink_speed_table.c
+===================================================================
+--- trunk/src/jtag/rlink/rlink_speed_table.c	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/src/jtag/rlink/rlink_speed_table.c	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -0,0 +1,98 @@
++/* This file was created automatically by ../../../tools/rlink_make_speed_table/rlink_make_speed_table.pl. */
++
++#include &quot;rlink.h&quot;
++#include &quot;st7.h&quot;
++
++static const u8 dtc_64[] = {
++	0, 2, 68, 84, 67, 2, 13, 160, 176, 151, 147, 182, 141, 152, 177, 129, 148,
++	191, 143, 142, 5, 3, 0, 0, 0, 2, 68, 84, 67, 4, 0, 192, 5, 15, 0, 42, 42,
++	42, 73, 0, 88, 0, 160, 189, 0, 0, 0, 0, 106, 9, 1, 8, 22, 100, 111, 119,
++	110, 108, 111, 97, 100, 2, 226, 7, 219, 39, 137, 51, 172, 130, 192, 96,
++	175, 191, 130, 217, 128, 57, 69, 177, 159, 179, 68, 178, 159, 193, 133,
++	153, 176, 159, 130, 132, 135, 164, 134, 51, 129, 60, 223, 9, 98, 128, 177,
++	129, 96, 201, 160, 130, 201, 51, 137, 201, 57, 68, 160, 176, 67, 219, 39,
++	154, 201, 40, 69, 219, 39, 150, 17, 27, 205, 51, 43, 99, 60, 118, 193,
++	96, 201, 160, 130, 24, 205, 51, 43, 99, 218, 156, 47, 60, 105, 193, 96,
++	201, 160, 138, 166, 178, 136, 160, 183, 139, 86, 202, 8, 2, 36, 138, 105,
++	193, 96, 201, 160, 43, 139, 167, 181, 136, 70, 177, 147, 67, 193, 96, 219,
++	39, 131, 161, 176, 130, 195, 53, 131, 178, 10, 66, 176, 151, 60, 97, 58,
++	151, 215, 2, 40, 66, 1, 0, 160, 185, 130, 60, 97, 203, 130, 60, 194, 139,
++	127, 195, 53, 156, 47, 200, 96, 201, 56, 177, 66, 176, 147, 201, 57, 168,
++	66, 160, 38, 155, 160, 176, 139, 171, 182, 136, 167, 183, 96, 201, 59,
++	66, 46, 193, 151, 96, 201, 160, 139, 219, 39, 131, 160, 191, 130, 195,
++	53, 131, 177, 10, 66, 176, 147, 151, 0, 60, 97, 58, 151, 0, 160, 185, 130,
++	60, 97, 203, 8, 2, 36, 139, 124, 193, 151, 96
++};
++
++static const u8 dtc_11[] = {
++	0, 2, 68, 84, 67, 2, 13, 160, 176, 151, 147, 182, 141, 152, 177, 129, 148,
++	188, 143, 142, 5, 3, 0, 0, 0, 2, 68, 84, 67, 4, 0, 192, 5, 15, 0, 42, 42,
++	42, 73, 0, 88, 0, 154, 183, 0, 0, 0, 0, 106, 9, 1, 8, 22, 100, 111, 119,
++	110, 108, 111, 97, 100, 2, 213, 7, 219, 39, 137, 51, 172, 130, 192, 96,
++	175, 191, 130, 217, 128, 57, 69, 177, 159, 179, 68, 178, 159, 193, 133,
++	153, 176, 159, 130, 132, 135, 164, 134, 51, 129, 60, 223, 9, 98, 128, 177,
++	129, 96, 201, 160, 130, 201, 51, 137, 201, 57, 68, 160, 176, 67, 219, 39,
++	154, 201, 40, 69, 219, 39, 150, 17, 27, 205, 51, 43, 99, 60, 118, 193,
++	96, 201, 160, 130, 24, 205, 51, 43, 99, 218, 156, 47, 60, 105, 193, 96,
++	201, 160, 138, 166, 178, 136, 160, 183, 139, 86, 202, 8, 2, 36, 138, 105,
++	193, 96, 201, 160, 43, 139, 167, 181, 136, 70, 177, 147, 67, 193, 96, 219,
++	39, 131, 195, 53, 131, 178, 10, 66, 176, 151, 0, 0, 0, 0, 0, 58, 151, 215,
++	2, 40, 66, 1, 203, 130, 60, 194, 139, 121, 195, 53, 156, 47, 200, 96, 201,
++	56, 177, 66, 176, 147, 201, 57, 168, 66, 160, 38, 155, 160, 176, 139, 171,
++	176, 136, 167, 183, 96, 201, 59, 66, 46, 193, 151, 96, 201, 160, 139, 219,
++	39, 131, 195, 53, 131, 177, 10, 66, 176, 147, 151, 0, 0, 0, 0, 0, 58, 151,
++	203, 8, 2, 36, 139, 117, 193, 151, 96
++};
++
++static const u8 dtc_8[] = {
++	0, 2, 68, 84, 67, 2, 13, 160, 176, 151, 147, 182, 141, 152, 177, 129, 148,
++	187, 143, 142, 5, 3, 0, 0, 0, 2, 68, 84, 67, 4, 0, 192, 5, 15, 0, 42, 42,
++	42, 73, 0, 88, 0, 152, 181, 0, 0, 0, 0, 106, 9, 1, 8, 22, 100, 111, 119,
++	110, 108, 111, 97, 100, 2, 209, 7, 219, 39, 137, 51, 172, 130, 192, 96,
++	175, 191, 130, 217, 128, 57, 69, 177, 159, 179, 68, 178, 159, 193, 133,
++	153, 176, 159, 130, 132, 135, 164, 134, 51, 129, 60, 223, 9, 98, 128, 177,
++	129, 96, 201, 160, 130, 201, 51, 137, 201, 57, 68, 160, 176, 67, 219, 39,
++	154, 201, 40, 69, 219, 39, 150, 17, 27, 205, 51, 43, 99, 60, 118, 193,
++	96, 201, 160, 130, 24, 205, 51, 43, 99, 218, 156, 47, 60, 105, 193, 96,
++	201, 160, 138, 166, 178, 136, 160, 183, 139, 86, 202, 8, 2, 36, 138, 105,
++	193, 96, 201, 160, 43, 139, 167, 181, 136, 70, 177, 147, 67, 193, 96, 219,
++	39, 131, 195, 53, 131, 178, 10, 66, 176, 151, 0, 0, 0, 58, 151, 215, 2,
++	40, 66, 1, 203, 130, 60, 194, 139, 119, 195, 53, 156, 47, 200, 96, 201,
++	56, 177, 66, 176, 147, 201, 57, 168, 66, 160, 38, 155, 160, 176, 139, 170,
++	190, 136, 167, 183, 96, 201, 59, 66, 46, 193, 151, 96, 201, 160, 139, 219,
++	39, 131, 195, 53, 131, 177, 10, 66, 176, 147, 151, 0, 0, 0, 58, 151, 203,
++	8, 2, 36, 139, 115, 193, 151, 96
++};
++
++static const u8 dtc_2[] = {
++	0, 2, 68, 84, 67, 2, 14, 160, 176, 151, 147, 182, 141, 152, 177, 129, 148,
++	186, 143, 185, 142, 5, 3, 0, 0, 0, 2, 68, 84, 67, 4, 0, 192, 5, 15, 0,
++	42, 42, 42, 73, 0, 88, 0, 149, 178, 0, 0, 0, 0, 106, 9, 1, 8, 22, 100,
++	111, 119, 110, 108, 111, 97, 100, 2, 203, 7, 219, 39, 137, 51, 172, 130,
++	192, 96, 175, 191, 130, 217, 128, 57, 69, 177, 159, 179, 68, 178, 159,
++	193, 133, 153, 176, 159, 130, 132, 135, 164, 134, 51, 129, 60, 223, 9,
++	98, 128, 177, 129, 96, 201, 160, 130, 201, 51, 137, 201, 57, 68, 160, 176,
++	67, 219, 39, 154, 201, 40, 69, 219, 39, 150, 17, 27, 205, 51, 43, 99, 60,
++	118, 193, 96, 201, 160, 130, 24, 205, 51, 43, 99, 218, 156, 47, 60, 105,
++	193, 96, 201, 160, 138, 166, 178, 136, 160, 183, 139, 86, 202, 8, 2, 36,
++	138, 105, 193, 96, 201, 160, 43, 139, 167, 181, 136, 70, 177, 147, 67,
++	193, 96, 219, 39, 131, 195, 53, 131, 178, 10, 66, 176, 151, 58, 151, 215,
++	2, 40, 66, 1, 203, 130, 60, 194, 139, 116, 195, 53, 156, 47, 200, 96, 201,
++	56, 177, 66, 176, 147, 201, 57, 168, 66, 160, 38, 155, 160, 176, 139, 170,
++	187, 136, 167, 183, 96, 201, 59, 66, 46, 193, 151, 96, 201, 160, 139, 219,
++	39, 131, 195, 53, 131, 177, 10, 66, 176, 147, 151, 58, 151, 203, 8, 2,
++	36, 139, 112, 193, 151, 96
++};
++
++const rlink_speed_table_t rlink_speed_table[] = {{
++	dtc_64, sizeof(dtc_64), (ST7_FOSC * 2) / (1000 * 64), 64
++}, {
++	dtc_11, sizeof(dtc_11), (ST7_FOSC * 2) / (1000 * 11), 11
++}, {
++	dtc_8, sizeof(dtc_8), (ST7_FOSC * 2) / (1000 * 8), 8
++}, {
++	dtc_2, sizeof(dtc_2), (ST7_FOSC * 2) / (1000 * 2), 2
++}};
++
++const size_t rlink_speed_table_size = sizeof(rlink_speed_table) / sizeof(*rlink_speed_table);
++
+
+
+Property changes on: trunk/src/jtag/rlink/rlink_speed_table.c
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/src/jtag/rlink/st7.h
+===================================================================
+--- trunk/src/jtag/rlink/st7.h	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/src/jtag/rlink/st7.h	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -0,0 +1,114 @@
++/***************************************************************************
++ *   Copyright (C) 2008 Lou Deluxe                                         *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lou.openocd012 at fixit.nospammail.net</A>                                   *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#define ST7_FOSC		(12 * 1000000)
++
++/* This is not a complete enumeration of ST7 registers, but it is sufficient for this interface driver. */
++
++#define ST7_PADR		(0x0000)
++#define ST7_PADDR		(ST7_PADR + 1)
++#define ST7_PAOR		(ST7_PADR + 2)
++#define ST7_PBDR		(0x0003)
++#define ST7_PBDDR		(ST7_PBDR + 1)
++#define ST7_PCDR		(0x0006)
++#define ST7_PCDDR		(ST7_PCDR + 1)
++#define ST7_PCOR		(ST7_PCDR + 2)
++#define ST7_PDDR		(0x0009)
++#define ST7_PDDDR		(ST7_PDDR + 1)
++#define ST7_PDOR		(ST7_PDDR + 2)
++#define ST7_PEDR		(0x000c)
++#define ST7_PEDDR		(ST7_PEDR + 1)
++#define ST7_PEOR		(ST7_PEDR + 2)
++#define ST7_PFDR		(0x000f)
++#define ST7_PFDDR		(ST7_PFDR + 1)
++
++#define ST7_ADCDR		(0x0012)
++#define ST7_ADCCSR		(ST7_ADCDR + 1)
++
++#define ST7_EP2TXR		(0x003e)
++#define ST7_EP2TXR_STAT_TX0	(1 &lt;&lt; 0)
++#define ST7_EP2TXR_STAT_TX1	(1 &lt;&lt; 1)
++#define ST7_EP2TXR_STAT_DISABLED	(0)
++#define ST7_EP2TXR_STAT_STALL	(ST7_EP2TXR_STAT_TX0)
++#define ST7_EP2TXR_STAT_VALID	(ST7_EP2TXR_STAT_TX1 | ST7_EP2TXR_STAT_TX0)
++#define ST7_EP2TXR_STAT_NAK	(ST7_EP2TXR_STAT_TX1)
++#define ST7_EP2TXR_DTOG_TX	(1 &lt;&lt; 2)
++#define ST7_EP2TXR_CTR_TX	(1 &lt;&lt; 3)
++
++#define ST7_USB_BUF_EP0OUT	(0x1550)
++#define ST7_USB_BUF_EP0IN	(0x1560)
++#define ST7_USB_BUF_EP1OUT	(0x1570)
++#define ST7_USB_BUF_EP1IN	(0x1580)
++#define ST7_USB_BUF_EP2UODI	(0x1590)
++#define ST7_USB_BUF_EP2UIDO	(0x1650)
++
++#define ST7_PA0			(1 &lt;&lt; 0)
++#define ST7_PA1			(1 &lt;&lt; 1)
++#define ST7_PA2			(1 &lt;&lt; 2)
++#define ST7_PA3			(1 &lt;&lt; 3)
++#define ST7_PA4			(1 &lt;&lt; 4)
++#define ST7_PA5			(1 &lt;&lt; 5)
++#define ST7_PA6			(1 &lt;&lt; 6)
++#define ST7_PA7			(1 &lt;&lt; 7)
++
++#define ST7_PB0			(1 &lt;&lt; 0)
++#define ST7_PB1			(1 &lt;&lt; 1)
++#define ST7_PB2			(1 &lt;&lt; 2)
++#define ST7_PB3			(1 &lt;&lt; 3)
++#define ST7_PB4			(1 &lt;&lt; 4)
++#define ST7_PB5			(1 &lt;&lt; 5)
++#define ST7_PB6			(1 &lt;&lt; 6)
++#define ST7_PB7			(1 &lt;&lt; 7)
++
++#define ST7_PC0			(1 &lt;&lt; 0)
++#define ST7_PC1			(1 &lt;&lt; 1)
++#define ST7_PC2			(1 &lt;&lt; 2)
++#define ST7_PC3			(1 &lt;&lt; 3)
++#define ST7_PC4			(1 &lt;&lt; 4)
++#define ST7_PC5			(1 &lt;&lt; 5)
++#define ST7_PC6			(1 &lt;&lt; 6)
++#define ST7_PC7			(1 &lt;&lt; 7)
++
++#define ST7_PD0			(1 &lt;&lt; 0)
++#define ST7_PD1			(1 &lt;&lt; 1)
++#define ST7_PD2			(1 &lt;&lt; 2)
++#define ST7_PD3			(1 &lt;&lt; 3)
++#define ST7_PD4			(1 &lt;&lt; 4)
++#define ST7_PD5			(1 &lt;&lt; 5)
++#define ST7_PD6			(1 &lt;&lt; 6)
++#define ST7_PD7			(1 &lt;&lt; 7)
++
++#define ST7_PE0			(1 &lt;&lt; 0)
++#define ST7_PE1			(1 &lt;&lt; 1)
++#define ST7_PE2			(1 &lt;&lt; 2)
++#define ST7_PE3			(1 &lt;&lt; 3)
++#define ST7_PE4			(1 &lt;&lt; 4)
++#define ST7_PE5			(1 &lt;&lt; 5)
++#define ST7_PE6			(1 &lt;&lt; 6)
++#define ST7_PE7			(1 &lt;&lt; 7)
++
++#define ST7_PF0			(1 &lt;&lt; 0)
++#define ST7_PF1			(1 &lt;&lt; 1)
++#define ST7_PF2			(1 &lt;&lt; 2)
++#define ST7_PF3			(1 &lt;&lt; 3)
++#define ST7_PF4			(1 &lt;&lt; 4)
++#define ST7_PF5			(1 &lt;&lt; 5)
++#define ST7_PF6			(1 &lt;&lt; 6)
++#define ST7_PF7			(1 &lt;&lt; 7)
+
+
+Property changes on: trunk/src/jtag/rlink/st7.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/tools/rlink_make_speed_table/rlink_make_speed_table
+===================================================================
+--- trunk/tools/rlink_make_speed_table/rlink_make_speed_table	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/tools/rlink_make_speed_table/rlink_make_speed_table	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -0,0 +1,2 @@
++#!/bin/sh
++exec perl &quot;$0.pl&quot; $*
+
+
+Property changes on: trunk/tools/rlink_make_speed_table/rlink_make_speed_table
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/tools/rlink_make_speed_table/rlink_make_speed_table.pl
+===================================================================
+--- trunk/tools/rlink_make_speed_table/rlink_make_speed_table.pl	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/tools/rlink_make_speed_table/rlink_make_speed_table.pl	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -0,0 +1,68 @@
++#!/bin/perl
++#***************************************************************************
++#*   Copyright (C) 2008 Lou Deluxe                                         *
++#*   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lou.openocd012 at fixit.nospammail.net</A>                                   *
++#*                                                                         *
++#*   This program is free software; you can redistribute it and/or modify  *
++#*   it under the terms of the GNU General Public License as published by  *
++#*   the Free Software Foundation; either version 2 of the License, or     *
++#*   (at your option) any later version.                                   *
++#*                                                                         *
++#*   This program is distributed in the hope that it will be useful,       *
++#*   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++#*   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++#*   GNU General Public License for more details.                          *
++#*                                                                         *
++#*   You should have received a copy of the GNU General Public License     *
++#*   along with this program; if not, write to the                         *
++#*   Free Software Foundation, Inc.,                                       *
++#*   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++#***************************************************************************
++
++# A simple utility to read a list of files (names composed by numeric prescaler arguments) and compose a C source file defining data structures which hold the binary data read from those files.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at speed_table</A> = ();
++
++printf(&quot;/* This file was created automatically by %s. */\n\n&quot;, $0);
++for $i ('rlink', 'st7') {
++	printf(&quot;#include \&quot;$i.h\&quot;\n&quot;);
++}
++printf(&quot;\n&quot;);
++
++for $prescaler (sort {$b &lt;=&gt; $a} @ARGV) {
++	my(@ary) = (
++		byte_array_from_file(${prescaler} . &quot;_init.dtc&quot;),
++		byte_array_from_file(${prescaler} . &quot;_call.dtc&quot;)
++	);
++
++	for $i (@ary) {
++		$i = sprintf(&quot;%d&quot;, $i);
++	}
++	$bytes = join(', ', @ary);
++	$bytes =~ s/(^|\s)(.{70}?\S*)/\2\n/go;	# break up long lines
++	$bytes =~ s/\n +/\n/go;
++	$bytes =~ s/(^|\n)/\1\t/go;		# format nicely
++	printf(&quot;static const u8 dtc_%d[] = {\n%s\n};\n\n&quot;, $prescaler, $bytes);
++	push(@speed_table, sprintf(&quot;\tdtc_%d, sizeof(dtc_%d), (ST7_FOSC * 2) / (1000 * %d), %d\n&quot;, $prescaler, $prescaler, $prescaler, $prescaler));
++}
++
++printf(&quot;const rlink_speed_table_t rlink_speed_table[] = {{\n%s}};\n\n&quot;, join(&quot;}, {\n&quot;, @speed_table));
++printf(&quot;const size_t rlink_speed_table_size = sizeof(rlink_speed_table) / sizeof(*rlink_speed_table);\n\n&quot;);
++
++
++sub byte_array_from_file {
++	my($filename) = @_;
++
++	my(@array, $text, $i) = ();
++
++	open(IN, '&lt;', $filename) || die &quot;$filename: $!&quot;;
++	undef($/);
++	$text = &lt;IN&gt;;
++	close(IN);
++
++	for($i = 0; $i &lt; length($text); $i++) {
++		push(@array, ord(substr($text, $i, 1)));
++	}
++
++	@array;
++}
+
+Added: trunk/tools/st7_dtc_as/st7_dtc_as
+===================================================================
+--- trunk/tools/st7_dtc_as/st7_dtc_as	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/tools/st7_dtc_as/st7_dtc_as	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -0,0 +1,2 @@
++#!/bin/sh
++exec perl &quot;$0.pl&quot; $*
+
+
+Property changes on: trunk/tools/st7_dtc_as/st7_dtc_as
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/tools/st7_dtc_as/st7_dtc_as.pl
+===================================================================
+--- trunk/tools/st7_dtc_as/st7_dtc_as.pl	2008-12-17 14:55:12 UTC (rev 1257)
++++ trunk/tools/st7_dtc_as/st7_dtc_as.pl	2008-12-19 04:25:22 UTC (rev 1258)
+@@ -0,0 +1,709 @@
++#!/bin/perl
++#***************************************************************************
++#*   Copyright (C) 2008 Lou Deluxe                                         *
++#*   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lou.openocd012 at fixit.nospammail.net</A>                                   *
++#*                                                                         *
++#*   This program is free software; you can redistribute it and/or modify  *
++#*   it under the terms of the GNU General Public License as published by  *
++#*   the Free Software Foundation; either version 2 of the License, or     *
++#*   (at your option) any later version.                                   *
++#*                                                                         *
++#*   This program is distributed in the hope that it will be useful,       *
++#*   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++#*   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++#*   GNU General Public License for more details.                          *
++#*                                                                         *
++#*   You should have received a copy of the GNU General Public License     *
++#*   along with this program; if not, write to the                         *
++#*   Free Software Foundation, Inc.,                                       *
++#*   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++#***************************************************************************
++
++# A rudimentary assembler for DTC code.
++# It is not robust, by any means, but it gets the job done.
++
++{package DTC_as;
++
++my($i);	# for later loop to generate reverse lookup
++
++sub new {
++	my($self) = bless{};
++
++	$self-&gt;{'pagewidth'} = 60;
++	$self;
++}
++
++
++
++%status_bit_arg = (
++	'STOP' =&gt; 0x01,
++	'ERROR' =&gt; 0x02,
++);
++
++%cp_arg = (
++	'A=&gt;X' =&gt; 0x00,
++	'A&lt;X' =&gt; 0x01,
++	'CARRY' =&gt; 0x02,
++	'ALWAYS' =&gt; 0x03,
++	'ADR_BUFFER0=&gt;CMP0' =&gt; 0x04,
++	'ADR_BUFFER0&lt;CMP0' =&gt; 0x05,
++	'ADR_BUFFER1=&gt;CMP1' =&gt; 0x06,
++	'ADR_BUFFER1&lt;CMP1' =&gt; 0x07,
++);
++
++%shift_unit_arg = (
++	'CARD' =&gt; 0x00,
++	'MPEG' =&gt; 0x08,
++);
++
++%shift_pin_arg = (
++	'PIN0=&gt;IN' =&gt; 0x00,
++	'PIN1=&gt;IN' =&gt; 0x04,
++	'OUT=&gt;PIN0' =&gt; 0x01,
++	'OUT=&gt;PIN1' =&gt; 0x03,
++);
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at ld_arg</A> = (
++	'&lt;Y&gt;',
++	'X',
++	'Y',
++	'MASK',
++	'ADR_BUFFER00',
++	'ADR_BUFFER01',
++	'ADR_BUFFER10',
++	'ADR_BUFFER11',
++	'CMP00',
++	'CMP01',
++	'CMP10',
++	'CMP11',
++	'DATA_FLASH',
++	'CTRL_FCI',
++	'CTRL_CARD',
++	'CTRL_MPEG',
++	'DR_PARALLEL',
++	'DDR_PARALLEL',
++	'OR_PARALLEL',
++	'DR_CARD',
++	'DDR_CARD',
++	'OR_CARD',
++	'SHIFT_CARD',
++	'DR_MPEG',
++	'DDR_MPEG',
++	'OR_MPEG',
++	'SHIFT_MPEG',
++	'DATA_BUFFER0',
++	'DATA_BUFFER1',
++	'ECC_CRC',
++	'TMP_ECC',
++	'BUFFER_MNGT'
++);
++
++for($i = 0; $i &lt; @ld_arg; $i++) {
++	$ld_arg{$ld_arg[$i]} = $i;
++}
++
++
++# ADDER8 / SUB8
++sub alu8 {
++	my($self) = shift;
++	my($operand, $i) = shift;
++
++	if(defined($ld_arg{$operand})) {
++		$i = $ld_arg{$operand};
++
++		if($i &gt; 0x00 &amp;&amp; $i &lt; 0x04) {
++			return(($i - 0x01) &lt;&lt; 3);
++		}
++	}
++
++	return undef;
++}
++
++# ADDER16 / SUB16
++sub alu16 {
++	my($self) = shift;
++	my($operand, $i) = shift;
++
++	$operand .= '0';
++
++	if(defined($ld_arg{$operand})) {
++		$i = $ld_arg{$operand};
++
++		if($i &gt; 0x03 &amp;&amp; $i &lt; 0x0c) {
++			return(($i - 0x04) &lt;&lt; 2);
++		}
++	}
++
++	return undef;
++}
++
++
++# BSET / BCLR
++sub bsetorclr {
++	my($self) = shift;
++	my($ret);
++	
++	if(@_ &lt; 1) {
++		return undef;
++	}
++	$ret = $_[0];
++
++	if(($ret &lt; 0) || ($ret &gt; 3)) {
++		return undef;
++	}
++
++	return $ret;
++}
++
++
++# Opcode lookup table
++%op = (
++	'NOP' =&gt; [
++		0x0,
++	],
++	'SEC' =&gt; [
++		0x1,
++	],
++	'CLC' =&gt; [
++		0x2,
++	],
++	'RET' =&gt; [
++		0x3,
++	],
++	'STATUS' =&gt; [
++		0x4,
++		sub {
++			my($self) = shift;
++			my($ret, $i);
++
++			for $i (@_) {
++				if(!defined($status_bit_arg{&quot;\U$i&quot;})) {
++					return undef;
++				}
++
++				$ret |= $status_bit_arg{&quot;\U$i&quot;};
++			}
++			if($ret &lt; 1) {
++				return undef;
++			}
++
++			return $ret;
++		}
++	],
++	'CP' =&gt; [
++		0x8,
++		sub {
++			my($self) = shift;
++			if((@_ != 1) || (!defined($cp_arg{&quot;\U$_[0]&quot;}))) {
++				return undef;
++			}
++			return($cp_arg{&quot;\U$_[0]&quot;});
++		}
++	],
++	'SHIFT' =&gt; [
++		0x10,
++		sub {
++			my($self) = shift;
++			my($ret, $i);
++			
++			if((@_ &lt; 2) || (!defined($shift_unit_arg{&quot;\U$_[0]&quot;}))) {
++				return undef;
++			}
++			$ret = $shift_unit_arg{&quot;\U$_[0]&quot;};
++			shift;
++
++			for $i (@_) {
++				if(!defined($shift_pin_arg{&quot;\U$i&quot;})) {
++					return undef;
++				}
++
++				$ret |= $shift_pin_arg{&quot;\U$i&quot;};
++			}
++
++			return $ret;
++		}
++	],
++	'SUB8' =&gt; [
++		0x24,
++		\&amp;alu8
++	],
++	'ADDER8' =&gt; [
++		0x25,
++		\&amp;alu8
++	],
++	'SUB16' =&gt; [
++		0x26,
++		\&amp;alu16
++	],
++	'ADDER16' =&gt; [
++		0x27,
++		\&amp;alu16
++	],
++	'BCLR' =&gt; [
++		0x28,
++		\&amp;bsetorclr
++	],
++	'BSET' =&gt; [
++		0x38,
++		\&amp;bsetorclr
++	],
++	'REVERSE' =&gt; [
++		0x30,
++	],
++	'XOR' =&gt; [
++		0x31,
++	],
++	'AND' =&gt; [
++		0x32,
++	],
++	'EXCHANGE' =&gt; [
++		0x33,
++	],
++	'DECY' =&gt; [
++		0x3c,
++	],
++	'INCY' =&gt; [
++		0x3d,
++	],
++	'JP' =&gt; [
++		0x40,
++		sub {
++			my($self) = shift;
++			my($i);
++
++			if(@_ != 1) {
++				return undef;
++			}
++			$i = $_[0];
++			if(!defined($self-&gt;{'label'}{$i})) {
++				$i =~ s/^://o;
++				if(!defined($self-&gt;{'label'}{$i})) {
++					# not a defined label
++					undef $i;
++				}
++			}
++
++			if(defined($i)) {
++				$i = $self-&gt;{'label'}{$i} - $self-&gt;{'pc'};
++			} else {
++				$i = $_[0];
++			}
++
++			if($i =~ m/^([+-]?\d+)$/) {
++				$i = 0 + $1;
++				if(($i &gt; 31) || ($i &lt; -31)) {
++					warn &quot;relative jump ($i) out of range&quot;;
++					return undef;
++				}
++				if($i &lt; 0) {
++					return(0x20 - $1);
++				} else {
++					return(0x00 + $1);
++				}
++			}
++
++			return undef;
++		}
++	],
++	'BRANCH' =&gt; [
++		0x60,
++	],
++	'LD' =&gt; [
++		0x80,
++		sub {
++			my($self) = shift;
++			my($i);
++
++#			print STDERR join(&quot;, &quot;, LD, @_), &quot;\n&quot;;
++
++			if(@_ == 1) {
++				$_[1] = 'A';
++			}
++			if(@_ != 2) {
++				return undef;
++			}
++
++				
++			if($_[0] =~ m/^([ML])S[BN]$/o) {
++				# MSB/LSB aka MSN/LSN
++				if($1 eq 'L') {
++					$_[0] = 'A.L';
++				} else {
++					$_[0] = 'A.H';
++				}
++			}
++			if($_[0] =~ m/^A\.([LH])$/o) {
++				# A.L/A.H
++				my($islsb) = ($1 eq 'L') ? 1 : 0;
++				$i = $_[1];
++				if($i =~ s/^0x([0-9a-fA-F])$/hex($1)/e) {
++#					print &quot;$i looks hex\n&quot;;
++				} elsif($i =~ m/^\d+$/) {
++#					print &quot;$i looks decimal\n&quot;;
++				} elsif(defined($self-&gt;{'label'}{$i})) {
++#					print &quot;label match for $i ($self-&gt;{'label'}{$i})\n&quot;;
++					$i = $self-&gt;{'label'}{$i};
++#					print &quot;\$i=$i\n&quot;;
++#					print &quot;\$islsb=$islsb\n&quot;;
++					if($islsb) {
++						$i = ($i &amp; 0xf);
++					} else {
++						$i = ($i &gt;&gt; 4) &amp; 0xf;
++					}
++#					print &quot;\$i=$i\n&quot;;
++				} else {
++					print &quot;no label match for $i\n&quot;;
++					return undef;
++				}
++				if(($i &lt; 0) || ($i &gt; 0xf)) {
++					return undef;
++				}
++				if($islsb) {
++					$i |= 0x10;
++				};
++				return(0x20 | $i);
++			} elsif($_[0] eq 'A') {
++				if(!defined($ld_arg{$_[1]})) {
++					return undef;
++				}
++				return(0x40 | $ld_arg{$_[1]});
++			} elsif($_[1] eq 'A') {
++				if(!defined($ld_arg{$_[0]})) {
++					return undef;
++				}
++				return(0x00 | $ld_arg{$_[0]});
++			}
++
++			return undef;
++		}
++	],
++);
++
++$op{'JR'} = $op{'JP'};
++
++
++sub pass {
++	my($self, $ifh, $ofh, $passnum) = @_;
++
++	# passnum=0 for plain parsing pass to populate label values
++	# passnum=1 for actual pass to assemble
++
++	my($line, $oline, $opcd);
++
++	if($passnum == 0) {
++		delete($self-&gt;{'label'});
++		delete($self-&gt;{'binary'});
++		delete($self-&gt;{'ENTRY'});
++		delete($self-&gt;{'LUT'});
++	}
++
++	seek($ifh, 0, 0); # rewind
++	$self-&gt;{'pc'} = 0;
++	$self-&gt;{'line_number'} = 0;
++	while(defined($line = &lt;$ifh&gt;)) {
++		$self-&gt;{'line_number'}++;
++		$line =~ s/\s+$//so;
++		$oline = $line;
++		$line =~ s/;.*//o;
++		$line =~ s/^\s+//o;
++		@_ = split(/[\s,]+/, $line);
++
++		undef($opcd);
++
++		if(@_ &gt; 0) {
++
++			if(
++				($_[0] =~ s/^://o)
++				||
++				($_[0] =~ s/:$//o)
++			) {
++				if($passnum == 0) {
++					if(defined($self-&gt;{'label'}{$_[0]})) {
++						die &quot;label redefinition for \&quot;$_[0]\&quot; in line $self-&gt;{'line_number'}&quot;;
++					}
++					$self-&gt;{'label'}{$_[0]} = $self-&gt;{'pc'};
++				}
++				shift(@_);
++			}
++
++			if(@_ &gt; 0) {
++				if($passnum == 1) {
++					if((@_ == 3) &amp;&amp; ($_[1] eq '=')) {
++						# convert this = that to LD 
++						$_[1] = $_[0];
++						$_[0] = 'LD';
++					}
++					elsif((@_ == 3) &amp;&amp; ($_[1] eq '+=')) {
++						# convert this += that to ADDER8 or ADDER16
++						if($_[0] eq 'A') {
++							@_ = ('ADDER8', $_[2]);
++						}
++						elsif($_[2] eq 'X') {
++							@_ = ('ADDER16', $_[0]);
++						}
++					}
++					elsif((@_ == 3) &amp;&amp; ($_[1] eq '-=')) {
++						# convert this -= that to ADDER8 or ADDER16
++						if($_[0] eq 'A') {
++							@_ = ('SUB8', $_[2]);
++						}
++						elsif($_[2] eq 'X') {
++							@_ = ('SUB16', $_[0]);
++						}
++					}
++					elsif((@_ == 1) &amp;&amp; ($_[0] =~ m/^(B((SET)|(CLR)))([1-4])$/oi)) {
++						# convert BSETn or BCLRn to BSET n-1 or BCLR n-1
++						$_[0] = $1;
++						$_[1] = $5 - 1;
++					}
++
++					$op = &quot;\U$_[0]&quot;;
++					if(!defined($op{$op})) {
++						die &quot;unknown instruction: $op in line $self-&gt;{'line_number'}&quot;;
++					}
++					shift(@_);
++
++					$op = $op{$op};
++					$sub = $op-&gt;[1];
++					if(defined($sub)) {
++						$opcd = &amp;$sub($self, @_);
++					} else {
++						$opcd = 0;
++					}
++
++					if(!defined($opcd)) {
++						die &quot;bad argument(s) in line $self-&gt;{'line_number'}&quot;;
++					}
++
++					$opcd |= $op-&gt;[0];
++				}
++
++				$self-&gt;{'pc'}++;
++			}
++
++		} else {
++			if($passnum == 0) {
++				if($oline =~ m/^;LUT; (.*)/o) {
++					my($entry, $label) = split(/\s+/, $1);
++					$entry =~ s/^0x//o;
++					$self-&gt;{'LUT'}[hex($entry)] = $label;
++				}
++				if($oline =~ m/^;ENTRY; (.*)/o) {
++					my($id, $label) = split(/\s+/, $1);
++					$self-&gt;{'ENTRY'}{$id} = $label;
++				}
++			}
++		}
++
++		if($passnum == 1) {
++			if(defined($opcd)) {
++				$self-&gt;{'binary'} .= chr($opcd);
++
++				printf $ofh (&quot;/* 0x%02x */ 0x%02x%s /* %-*s */\n&quot;,
++					$self-&gt;{'pc'} - 1,
++					$opcd,
++					(
++						(
++							($self-&gt;{'last pc'} &lt; 0xff)
++							|| 
++							($self-&gt;{'last pc'} != $self-&gt;{'pc'} - 1)
++						) ?
++							','
++						:
++							''
++					),
++					$self-&gt;{'pagewidth'} - 23,
++					$oline
++				);
++			} else {
++				if($oline ne '') {
++					print $ofh &quot;                 /* $oline */\n&quot;;
++				} else {
++					print $ofh &quot;\n&quot;;
++				}
++			}
++		}
++	}
++
++	if($passnum == 0) {
++		$self-&gt;{'last pc'} = $self-&gt;{'pc'} - 1;
++	}
++
++	if($passnum == 1) {
++		while($self-&gt;{'pc'} &lt; 0xff) {
++			printf $ofh (&quot;/* 0x%02x */ 0,\n&quot;,
++				$self-&gt;{'pc'}
++			);
++			$self-&gt;{'pc'}++;
++		}
++		if($self-&gt;{'pc'} &lt; 0x100) {
++			printf $ofh (&quot;/* 0x%02x */ 0\n&quot;,
++				$self-&gt;{'pc'}
++			);
++			$self-&gt;{'pc'}++;
++		}
++	}
++}
++
++} # package DTC_as
++
++
++use Getopt::Std;
++
++%opt = (
++	't' =&gt; 'unsigned char',
++);
++
++# -t type of arrays (defaults to unsigned char)
++# -l lookup table array name (no table generated if not provided)
++# -d DTC code array name (naked elements if not provided)
++# -i input filename (trailing argument if not provided)
++# -o output filename (stdout if not provided)
++getopts('l:d:i:o:t:b', \%opt);
++
++if(defined($opt{'i'})) {
++	$infile = $opt{'i'};
++} else {
++	$infile = shift;
++}
++
++if(!open(IN, '&lt;', $infile)) {
++	die &quot;$infile: $!&quot;;
++}
++
++
++if($opt{'b'}) {
++	if(!defined($opt{'o'})) {
++		die &quot;binary format requires -o&quot;;
++	}
++	if(!open(OUT, '&gt;&amp;', *STDOUT)) {
++		die &quot;dup stdout: $!&quot;;
++	}
++	open(STDOUT, '&gt;&amp;', *STDERR);
++} else {
++	if(defined($opt{'o'})) {
++		if(!open(OUT, '&gt;', $opt{'o'})) {
++			die &quot;$opt{'o'}: $!&quot;;
++		}
++	} else {
++		if(!open(OUT, '&gt;&amp;', *STDOUT)) {
++			die &quot;dup stdout: $!&quot;;
++		}
++		open(STDOUT, '&gt;&amp;', *STDERR);
++	}
++}
++	
++
++$as = new DTC_as;
++
++$as-&gt;pass(*IN, *OUT, 0);
++
++if(defined($opt{'d'})) {
++	print OUT &quot;$opt{'t'} $opt{'d'}&quot;, &quot;[0x100] = {\n&quot;;
++}
++$as-&gt;pass(*IN, *OUT, 1);
++if(defined($opt{'d'})) {
++	print OUT &quot;};\n\n&quot;;
++}
++
++close(IN);
++
++if(defined($opt{'l'})) {
++	print OUT &quot;$opt{'t'} $opt{'l'}&quot;, &quot;[0x40] = {\n&quot;;
++#	$end = @{$as-&gt;{'LUT'}};
++#	if($end &gt; 0x100) {
++#		$end = 0x100;
++#	}
++	for($i = 0xc0; $i &lt; 0x100; $i++) {
++		$label = $as-&gt;{'LUT'}[$i];
++		if(defined($label)) {
++			if(defined($as-&gt;{'label'}{$label})) {
++				printf OUT (&quot;/* 0x%02x */ 0x%02x%s /* %s */\n&quot;,
++					$i,
++					$as-&gt;{'label'}{$label},
++					(($i &lt; 0xff) ? ',' : ''),
++					$label
++				);
++			} else {
++				die &quot;label $label has not been defined&quot;;
++			}
++		} else {
++			printf OUT (&quot;/* 0x%02x */ 0%s\n&quot;,
++				$i,
++				(($i &lt; 0xff) ? ',' : ''),
++			);
++		}
++	}
++	print OUT &quot;};\n\n&quot;;
++}
++
++
++close(OUT);
++
++sub DTCLOAD_COMMENT { 0; }
++sub DTCLOAD_ENTRY { 1; }
++sub DTCLOAD_LOAD { 2; }
++sub DTCLOAD_RUN { 3; }
++sub DTCLOAD_LUT_START { 4; }
++sub DTCLOAD_LUT { 5; }
++
++
++if($opt{'b'}) {
++	open(OUT, &quot;&gt;&quot;, $opt{'o'}) || die &quot;$opt{'o'}: $!&quot;;
++	syswrite(OUT, pack('CC', DTCLOAD_LUT_COMMENT, 3 - 1) . 'DTC');
++	
++	$ref = $as-&gt;{'LUT'};
++	if(@$ref &gt; 0) {
++		for($start = 0; $start &lt; @$ref &amp;&amp; !defined($ref-&gt;[$start]); $start++) {}
++		for($end = 0xff; $end &gt;= $start &amp;&amp; !defined($ref-&gt;[$end]); $end--) {}
++		undef($lut);
++		for($i = $start; $i &lt;= $end; $i++) {
++			if(!defined($ref-&gt;[$i])) {
++				$lut .= &quot;\0&quot;;
++				next;
++			}
++			$label = $ref-&gt;[$i];
++			if(defined($as-&gt;{'label'}{$label})) {
++				$label = $as-&gt;{'label'}{$label};
++#				printf(&quot;adding LUT entry 0x%02x\n&quot;, $label);
++				$lut .= chr($label);
++			} else {
++				die &quot;label $label has not been defined&quot;;
++			}
++		}
++		if(length($lut) &gt; 0) {
++			syswrite(OUT, pack('CCC', DTCLOAD_LUT_START, 1 - 1, $start));
++			syswrite(OUT, pack('CC', DTCLOAD_LUT, length($lut) - 1) . $lut);
++		}
++	}
++
++	while(($key, $label) = each(%{$as-&gt;{'ENTRY'}})) {
++#		print &quot;$key = $label\n&quot;;
++		if(defined($as-&gt;{'label'}{$label})) {
++			$label = $as-&gt;{'label'}{$label};
++#			print &quot;key=$key\n&quot;;
++#			print &quot;label=$label\n&quot;;
++			syswrite(OUT, pack('CCC', DTCLOAD_ENTRY, length($key), $label) . $key);
++		} else {
++			die &quot;label $label has not been defined&quot;;
++		}
++	}
++
++	if(length($as-&gt;{'binary'})) {
++#		printf(&quot;DTC code size: 0x%x\n&quot;, length($as-&gt;{'binary'}));
++		syswrite(OUT, pack('CC',
++			DTCLOAD_LOAD ,
++			length($as-&gt;{'binary'}) - 1
++		) . $as-&gt;{'binary'});
++
++		if(%{$as-&gt;{'ENTRY'}} &lt; 1) {
++			syswrite(OUT, pack('CCC', DTCLOAD_RUN, 1 - 1, 0x00));
++		}
++	}
++
++	close(OUT);
++}
++
++
++0;
++
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000039.html">[Openocd-svn] r1257 - trunk/src trunk/src/jtag	zy1000/trunk/build/tcl
+</A></li>
+	<LI>Next message: <A HREF="000041.html">[Openocd-svn] r1259 - trunk/src/helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#40">[ date ]</a>
+              <a href="thread.html#40">[ thread ]</a>
+              <a href="subject.html#40">[ subject ]</a>
+              <a href="author.html#40">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

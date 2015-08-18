@@ -1,0 +1,595 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-183-gdecad30
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-183-gdecad30&In-Reply-To=%3CE1O1vIL-0008HS-Nf%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002202.html">
+   <LINK REL="Next"  HREF="002204.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-183-gdecad30</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-183-gdecad30&In-Reply-To=%3CE1O1vIL-0008HS-Nf%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-183-gdecad30">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Wed Apr 14 07:37:48 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002202.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-182-ga8a9edd
+</A></li>
+        <LI>Next message: <A HREF="002204.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-184-gd31bbc3
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2203">[ date ]</a>
+              <a href="thread.html#2203">[ thread ]</a>
+              <a href="subject.html#2203">[ subject ]</a>
+              <a href="author.html#2203">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  decad308655edf61094d5d552ab93f9fb2a6d535 (commit)
+      from  a8a9eddca0f8f5d8ab73f22c5a159fe1748272d5 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit decad308655edf61094d5d552ab93f9fb2a6d535
+Author: Anton Fedotov &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">AD.Fedotov at gmail.com</A>&gt;
+Date:   Wed Apr 14 07:36:08 2010 +0200
+
+    cortex-a8: more MMU support
+    
+    + virt2phys() can now convert virtual address to real
+    + read_memory() and write_memory() are renamed to read_phys_memory()
+    and write_phys_memory()
+    + new read_memory() and write_memory() try to resolve real address if
+    mmu is enambled than perform real address reading/writing
+       + if address is bellow 0xc000000 than TTB0 is used for page table
+    dereference, if above - than TTB1. Linux style of user/kernel address
+    separation
+       + if above fails (i.e address is unspecified) than mode is checked
+    whether it is Supervisor (than TTB1) or User (than TTB0)
+    - Software breakpoints doesn't work. You should invoke
+    &quot;gdb_breakpoint_override hard&quot; before you start debugging
+    + cortex_a8_mmu(), cortex_a8_enable_mmu_caches(),
+    cortex_a8_disable_mmu_caches() are implemented
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index a548027..aa0e030 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -51,6 +51,16 @@ static int cortex_a8_dap_read_coreregister_u32(struct target *target,
+ 		uint32_t *value, int regnum);
+ static int cortex_a8_dap_write_coreregister_u32(struct target *target,
+ 		uint32_t value, int regnum);
++static int cortex_a8_mmu(struct target *target, int *enabled);
++static int cortex_a8_virt2phys(struct target *target,
++                uint32_t virt, uint32_t *phys);
++static void cortex_a8_disable_mmu_caches(struct target *target, int mmu,
++                int d_u_cache, int i_cache);
++static void cortex_a8_enable_mmu_caches(struct target *target, int mmu,
++                int d_u_cache, int i_cache);
++static uint32_t cortex_a8_get_ttb(struct target *target);
++
++
+ /*
+  * FIXME do topology discovery using the ROM; don't
+  * assume this is an OMAP3.   Also, allow for multiple ARMv7-A
+@@ -1269,111 +1279,158 @@ static int cortex_a8_deassert_reset(struct target *target)
+  * ap number for every access.
+  */
+ 
++static int cortex_a8_read_phys_memory(struct target *target,
++                uint32_t address, uint32_t size,
++                uint32_t count, uint8_t *buffer)
++{
++        struct armv7a_common *armv7a = target_to_armv7a(target);
++        struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++        int retval = ERROR_INVALID_ARGUMENTS;
++
++        /* cortex_a8 handles unaligned memory access */
++
++// ???  dap_ap_select(swjdp, swjdp_memoryap);
++        LOG_DEBUG(&quot;Reading memory at real address 0x%x; size %d; count %d&quot;, address, size, count);
++        if (count &amp;&amp; buffer) {
++                switch (size) {
++                case 4:
++                        retval = mem_ap_read_buf_u32(swjdp, buffer, 4 * count, address);
++                        break;
++                case 2:
++                        retval = mem_ap_read_buf_u16(swjdp, buffer, 2 * count, address);
++                        break;
++                case 1:
++                        retval = mem_ap_read_buf_u8(swjdp, buffer, count, address);
++                        break;
++                }
++        }
++
++        return retval;
++}
++
+ static int cortex_a8_read_memory(struct target *target, uint32_t address,
+ 		uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+-	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+-	int retval = ERROR_INVALID_ARGUMENTS;
++        int enabled = 0;
++        uint32_t virt, phys;
+ 
+ 	/* cortex_a8 handles unaligned memory access */
+ 
+ // ???	dap_ap_select(swjdp, swjdp_memoryap);
++        LOG_DEBUG(&quot;Reading memory at address 0x%x; size %d; count %d&quot;, address, size, count);
++        cortex_a8_mmu(target, &amp;enabled);
++        if(enabled)
++        {
++            virt = address;
++            cortex_a8_virt2phys(target, virt, &amp;phys);
++            LOG_DEBUG(&quot;Reading at virtual address. Translating v:0x%x to r:0x%x&quot;, virt, phys);
++            address = phys;
++        }
++
++        return cortex_a8_read_phys_memory(target, address, size, count, buffer);
++}
+ 
+-	if (count &amp;&amp; buffer) {
+-		switch (size) {
+-		case 4:
+-			retval = mem_ap_read_buf_u32(swjdp, buffer, 4 * count, address);
+-			break;
+-		case 2:
+-			retval = mem_ap_read_buf_u16(swjdp, buffer, 2 * count, address);
+-			break;
+-		case 1:
+-			retval = mem_ap_read_buf_u8(swjdp, buffer, count, address);
+-			break;
+-		}
+-	}
+-
+-	return retval;
++static int cortex_a8_write_phys_memory(struct target *target,
++                uint32_t address, uint32_t size,
++                uint32_t count, uint8_t *buffer)
++{
++        struct armv7a_common *armv7a = target_to_armv7a(target);
++        struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
++        int retval = ERROR_INVALID_ARGUMENTS;
++
++// ???  dap_ap_select(swjdp, swjdp_memoryap);
++
++        LOG_DEBUG(&quot;Writing memory to real address 0x%x; size %d; count %d&quot;, address, size, count);
++        if (count &amp;&amp; buffer) {
++                switch (size) {
++                case 4:
++                        retval = mem_ap_write_buf_u32(swjdp, buffer, 4 * count, address);
++                        break;
++                case 2:
++                        retval = mem_ap_write_buf_u16(swjdp, buffer, 2 * count, address);
++                        break;
++                case 1:
++                        retval = mem_ap_write_buf_u8(swjdp, buffer, count, address);
++                        break;
++                }
++        }
++
++        /* REVISIT this op is generic ARMv7-A/R stuff */
++        if (retval == ERROR_OK &amp;&amp; target-&gt;state == TARGET_HALTED)
++        {
++                struct arm_dpm *dpm = armv7a-&gt;armv4_5_common.dpm;
++
++                retval = dpm-&gt;prepare(dpm);
++                if (retval != ERROR_OK)
++                        return retval;
++
++                /* The Cache handling will NOT work with MMU active, the
++                 * wrong addresses will be invalidated!
++                 *
++                 * For both ICache and DCache, walk all cache lines in the
++                 * address range. Cortex-A8 has fixed 64 byte line length.
++                 *
++                 * REVISIT per ARMv7, these may trigger watchpoints ...
++                 */
++
++                /* invalidate I-Cache */
++                if (armv7a-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled)
++                {
++                        /* ICIMVAU - Invalidate Cache single entry
++                         * with MVA to PoU
++                         *      MCR p15, 0, r0, c7, c5, 1
++                         */
++                        for (uint32_t cacheline = address;
++                                        cacheline &lt; address + size * count;
++                                        cacheline += 64) {
++                                retval = dpm-&gt;instr_write_data_r0(dpm,
++                                        ARMV4_5_MCR(15, 0, 0, 7, 5, 1),
++                                        cacheline);
++                        }
++                }
++
++                /* invalidate D-Cache */
++                if (armv7a-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled)
++                {
++                        /* DCIMVAC - Invalidate data Cache line
++                         * with MVA to PoC
++                         *      MCR p15, 0, r0, c7, c6, 1
++                         */
++                        for (uint32_t cacheline = address;
++                                        cacheline &lt; address + size * count;
++                                        cacheline += 64) {
++                                retval = dpm-&gt;instr_write_data_r0(dpm,
++                                        ARMV4_5_MCR(15, 0, 0, 7, 6, 1),
++                                        cacheline);
++                        }
++                }
++
++                /* (void) */ dpm-&gt;finish(dpm);
++        }
++
++        return retval;
+ }
+ 
+ static int cortex_a8_write_memory(struct target *target, uint32_t address,
+-		uint32_t size, uint32_t count, uint8_t *buffer)
++                uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+-	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+-	int retval = ERROR_INVALID_ARGUMENTS;
+-
+-// ???	dap_ap_select(swjdp, swjdp_memoryap);
+-
+-	if (count &amp;&amp; buffer) {
+-		switch (size) {
+-		case 4:
+-			retval = mem_ap_write_buf_u32(swjdp, buffer, 4 * count, address);
+-			break;
+-		case 2:
+-			retval = mem_ap_write_buf_u16(swjdp, buffer, 2 * count, address);
+-			break;
+-		case 1:
+-			retval = mem_ap_write_buf_u8(swjdp, buffer, count, address);
+-			break;
+-		}
+-	}
+-
+-	/* REVISIT this op is generic ARMv7-A/R stuff */
+-	if (retval == ERROR_OK &amp;&amp; target-&gt;state == TARGET_HALTED)
+-	{
+-		struct arm_dpm *dpm = armv7a-&gt;armv4_5_common.dpm;
+-
+-		retval = dpm-&gt;prepare(dpm);
+-		if (retval != ERROR_OK)
+-			return retval;
+-
+-		/* The Cache handling will NOT work with MMU active, the
+-		 * wrong addresses will be invalidated!
+-		 *
+-		 * For both ICache and DCache, walk all cache lines in the
+-		 * address range. Cortex-A8 has fixed 64 byte line length.
+-		 *
+-		 * REVISIT per ARMv7, these may trigger watchpoints ...
+-		 */
+-
+-		/* invalidate I-Cache */
+-		if (armv7a-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled)
+-		{
+-			/* ICIMVAU - Invalidate Cache single entry
+-			 * with MVA to PoU
+-			 *	MCR p15, 0, r0, c7, c5, 1
+-			 */
+-			for (uint32_t cacheline = address;
+-					cacheline &lt; address + size * count;
+-					cacheline += 64) {
+-				retval = dpm-&gt;instr_write_data_r0(dpm,
+-					ARMV4_5_MCR(15, 0, 0, 7, 5, 1),
+-					cacheline);
+-			}
+-		}
+-
+-		/* invalidate D-Cache */
+-		if (armv7a-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled)
+-		{
+-			/* DCIMVAC - Invalidate data Cache line
+-			 * with MVA to PoC
+-			 *	MCR p15, 0, r0, c7, c6, 1
+-			 */
+-			for (uint32_t cacheline = address;
+-					cacheline &lt; address + size * count;
+-					cacheline += 64) {
+-				retval = dpm-&gt;instr_write_data_r0(dpm,
+-					ARMV4_5_MCR(15, 0, 0, 7, 6, 1),
+-					cacheline);
+-			}
+-		}
+-
+-		/* (void) */ dpm-&gt;finish(dpm);
+-	}
+-
+-	return retval;
++        int enabled = 0;
++        uint32_t virt, phys;
++
++// ???  dap_ap_select(swjdp, swjdp_memoryap);
++
++        LOG_DEBUG(&quot;Writing memory to address 0x%x; size %d; count %d&quot;, address, size, count);
++        cortex_a8_mmu(target, &amp;enabled);
++        if(enabled)
++        {
++            virt = address;
++            cortex_a8_virt2phys(target, virt, &amp;phys);
++            LOG_DEBUG(&quot;Writing to virtual address. Translating v:0x%x to r:0x%x&quot;, virt, phys);
++            address = phys;
++        }
++
++        return cortex_a8_write_phys_memory(target, address, size, 
++                count, buffer);
+ }
+ 
+ static int cortex_a8_bulk_write_memory(struct target *target, uint32_t address,
+@@ -1580,6 +1637,9 @@ static int cortex_a8_init_arch_info(struct target *target,
+ 
+ 	cortex_a8-&gt;fast_reg_read = 0;
+ 
++	/* Set default value */
++	cortex_a8-&gt;current_address_mode = ARM_MODE_ANY;
++
+ 	/* register arch-specific functions */
+ 	armv7a-&gt;examine_debug_reason = NULL;
+ 
+@@ -1587,11 +1647,11 @@ static int cortex_a8_init_arch_info(struct target *target,
+ 
+ 	armv7a-&gt;pre_restore_context = NULL;
+ 	armv7a-&gt;armv4_5_mmu.armv4_5_cache.ctype = -1;
+-//	armv7a-&gt;armv4_5_mmu.get_ttb = armv7a_get_ttb;
+-	armv7a-&gt;armv4_5_mmu.read_memory = cortex_a8_read_memory;
+-	armv7a-&gt;armv4_5_mmu.write_memory = cortex_a8_write_memory;
+-//	armv7a-&gt;armv4_5_mmu.disable_mmu_caches = armv7a_disable_mmu_caches;
+-//	armv7a-&gt;armv4_5_mmu.enable_mmu_caches = armv7a_enable_mmu_caches;
++	armv7a-&gt;armv4_5_mmu.get_ttb = cortex_a8_get_ttb;
++	armv7a-&gt;armv4_5_mmu.read_memory = cortex_a8_read_phys_memory;
++	armv7a-&gt;armv4_5_mmu.write_memory = cortex_a8_write_phys_memory;
++	armv7a-&gt;armv4_5_mmu.disable_mmu_caches = cortex_a8_disable_mmu_caches;
++	armv7a-&gt;armv4_5_mmu.enable_mmu_caches = cortex_a8_enable_mmu_caches;
+ 	armv7a-&gt;armv4_5_mmu.has_tiny_pages = 1;
+ 	armv7a-&gt;armv4_5_mmu.mmu_enabled = 0;
+ 
+@@ -1616,6 +1676,160 @@ static int cortex_a8_target_create(struct target *target, Jim_Interp *interp)
+ 	return ERROR_OK;
+ }
+ 
++static uint32_t cortex_a8_get_ttb(struct target *target)
++{
++	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
++    struct armv7a_common *armv7a = &amp;cortex_a8-&gt;armv7a_common;
++    uint32_t ttb = 0, retval = ERROR_OK;
++
++    /* current_address_mode is set inside cortex_a8_virt2phys()
++       where we can determine if address belongs to user or kernel */
++    if(cortex_a8-&gt;current_address_mode == ARM_MODE_SVC)
++    {
++        /* MRC p15,0,&lt;Rt&gt;,c1,c0,0 ; Read CP15 System Control Register */
++        retval = armv7a-&gt;armv4_5_common.mrc(target, 15,
++                    0, 1,   /* op1, op2 */
++                    2, 0,   /* CRn, CRm */
++                    &amp;ttb);
++    }
++    else if(cortex_a8-&gt;current_address_mode == ARM_MODE_USR)
++    {
++        /* MRC p15,0,&lt;Rt&gt;,c1,c0,0 ; Read CP15 System Control Register */
++        retval = armv7a-&gt;armv4_5_common.mrc(target, 15,
++                    0, 0,   /* op1, op2 */
++                    2, 0,   /* CRn, CRm */
++                    &amp;ttb);
++    }
++    /* we don't know whose address is: user or kernel
++       we assume that if we are in kernel mode then
++       address belongs to kernel else if in user mode
++       - to user */
++    else if(armv7a-&gt;armv4_5_common.core_mode == ARM_MODE_SVC)
++    {
++        /* MRC p15,0,&lt;Rt&gt;,c1,c0,0 ; Read CP15 System Control Register */
++        retval = armv7a-&gt;armv4_5_common.mrc(target, 15,
++                    0, 1,   /* op1, op2 */
++                    2, 0,   /* CRn, CRm */
++                    &amp;ttb);
++    }
++    else if(armv7a-&gt;armv4_5_common.core_mode == ARM_MODE_USR)
++    {
++        /* MRC p15,0,&lt;Rt&gt;,c1,c0,0 ; Read CP15 System Control Register */
++        retval = armv7a-&gt;armv4_5_common.mrc(target, 15,
++                    0, 0,   /* op1, op2 */
++                    2, 0,   /* CRn, CRm */
++                    &amp;ttb);
++    }
++    /* finaly we don't know whose ttb to use: user or kernel */
++    else
++        LOG_ERROR(&quot;Don't know how to get ttb for current mode!!!&quot;);
++
++    ttb &amp;= 0xffffc000;
++
++    return ttb;
++}
++
++static void cortex_a8_disable_mmu_caches(struct target *target, int mmu,
++                int d_u_cache, int i_cache)
++{
++    struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
++    struct armv7a_common *armv7a = &amp;cortex_a8-&gt;armv7a_common;
++    uint32_t cp15_control;
++
++    /* read cp15 control register */
++    armv7a-&gt;armv4_5_common.mrc(target, 15,
++                    0, 0,   /* op1, op2 */
++                    1, 0,   /* CRn, CRm */
++                    &amp;cp15_control);
++
++
++    if (mmu)
++            cp15_control &amp;= ~0x1U;
++
++    if (d_u_cache)
++            cp15_control &amp;= ~0x4U;
++
++    if (i_cache)
++            cp15_control &amp;= ~0x1000U;
++
++    armv7a-&gt;armv4_5_common.mcr(target, 15,
++                    0, 0,   /* op1, op2 */
++                    1, 0,   /* CRn, CRm */
++                    cp15_control);
++}
++
++static void cortex_a8_enable_mmu_caches(struct target *target, int mmu,
++                int d_u_cache, int i_cache)
++{
++    struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
++    struct armv7a_common *armv7a = &amp;cortex_a8-&gt;armv7a_common;
++    uint32_t cp15_control;
++
++    /* read cp15 control register */
++    armv7a-&gt;armv4_5_common.mrc(target, 15,
++                    0, 0,   /* op1, op2 */
++                    1, 0,   /* CRn, CRm */
++                    &amp;cp15_control);
++
++    if (mmu)
++            cp15_control |= 0x1U;
++
++    if (d_u_cache)
++            cp15_control |= 0x4U;
++
++    if (i_cache)
++            cp15_control |= 0x1000U;
++
++    armv7a-&gt;armv4_5_common.mcr(target, 15,
++                    0, 0,   /* op1, op2 */
++                    1, 0,   /* CRn, CRm */
++                    cp15_control);
++}
++
++
++static int cortex_a8_mmu(struct target *target, int *enabled)
++{
++	if (target-&gt;state != TARGET_HALTED) {
++		LOG_ERROR(&quot;%s: target not halted&quot;, __func__);
++		return ERROR_TARGET_INVALID;
++	}
++
++	*enabled = target_to_cortex_a8(target)-&gt;armv7a_common.armv4_5_mmu.mmu_enabled;
++	return ERROR_OK;
++}
++
++static int cortex_a8_virt2phys(struct target *target,
++		uint32_t virt, uint32_t *phys)
++{
++	int type;
++	uint32_t cb;
++	int domain;
++	uint32_t ap;
++	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
++	// struct armv7a_common *armv7a = &amp;cortex_a8-&gt;armv7a_common;
++	struct armv7a_common *armv7a = target_to_armv7a(target);
++
++    /* We assume that virtual address is separated
++       between user and kernel in Linux style:
++       0x00000000-0xbfffffff - User space
++       0xc0000000-0xffffffff - Kernel space */
++    if( virt &lt; 0xc0000000 ) /* Linux user space */
++        cortex_a8-&gt;current_address_mode = ARM_MODE_USR;
++    else /* Linux kernel */
++        cortex_a8-&gt;current_address_mode = ARM_MODE_SVC;
++	uint32_t ret = armv4_5_mmu_translate_va(target,
++			&amp;armv7a-&gt;armv4_5_mmu, virt, &amp;type, &amp;cb, &amp;domain, &amp;ap);
++    /* Reset the flag. We don't want someone else to use it by error */
++    cortex_a8-&gt;current_address_mode = ARM_MODE_ANY;
++
++	if (type == -1)
++	{
++		return ret;
++	}
++	*phys = ret;
++	return ERROR_OK;
++}
++
+ COMMAND_HANDLER(cortex_a8_handle_cache_info_command)
+ {
+ 	struct target *target = get_current_target(CMD_CTX);
+@@ -1703,4 +1917,10 @@ struct target_type cortexa8_target = {
+ 	.target_create = cortex_a8_target_create,
+ 	.init_target = cortex_a8_init_target,
+ 	.examine = cortex_a8_examine,
++
++	.read_phys_memory = cortex_a8_read_phys_memory,
++	.write_phys_memory = cortex_a8_write_phys_memory,
++	.mmu = cortex_a8_mmu,
++	.virt2phys = cortex_a8_virt2phys,
++
+ };
+diff --git a/src/target/cortex_a8.h b/src/target/cortex_a8.h
+index cc2e009..7e116e4 100644
+--- a/src/target/cortex_a8.h
++++ b/src/target/cortex_a8.h
+@@ -72,6 +72,9 @@ struct cortex_a8_common
+ 	/* Use cortex_a8_read_regs_through_mem for fast register reads */
+ 	int fast_reg_read;
+ 
++	/* Flag that helps to resolve what ttb to use: user or kernel */
++	int current_address_mode;
++
+ 	struct armv7a_common armv7a_common;
+ };
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/cortex_a8.c |  416 ++++++++++++++++++++++++++++++++++++-----------
+ src/target/cortex_a8.h |    3 +
+ 2 files changed, 321 insertions(+), 98 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002202.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-182-ga8a9edd
+</A></li>
+	<LI>Next message: <A HREF="002204.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-184-gd31bbc3
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2203">[ date ]</a>
+              <a href="thread.html#2203">[ thread ]</a>
+              <a href="subject.html#2203">[ subject ]</a>
+              <a href="author.html#2203">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

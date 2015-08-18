@@ -1,0 +1,237 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1280 - in trunk: . doc src src/jtag	testing/build.test1
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1280%20-%20in%20trunk%3A%20.%20doc%20src%20src/jtag%0A%09testing/build.test1&In-Reply-To=%3C200812270256.mBR2uxgh000147%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000061.html">
+   <LINK REL="Next"  HREF="000063.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1280 - in trunk: . doc src src/jtag	testing/build.test1</H1>
+    <B>duane at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1280%20-%20in%20trunk%3A%20.%20doc%20src%20src/jtag%0A%09testing/build.test1&In-Reply-To=%3C200812270256.mBR2uxgh000147%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1280 - in trunk: . doc src src/jtag	testing/build.test1">duane at mail.berlios.de
+       </A><BR>
+    <I>Sat Dec 27 03:56:59 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000061.html">[Openocd-svn] r1279 - trunk/src/jtag/rlink
+</A></li>
+        <LI>Next message: <A HREF="000063.html">[Openocd-svn] r1281 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#62">[ date ]</a>
+              <a href="thread.html#62">[ thread ]</a>
+              <a href="subject.html#62">[ subject ]</a>
+              <a href="author.html#62">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: duane
+Date: 2008-12-27 03:56:55 +0100 (Sat, 27 Dec 2008)
+New Revision: 1280
+
+Modified:
+   trunk/configure.in
+   trunk/doc/openocd.texi
+   trunk/src/Makefile.am
+   trunk/src/jtag/Makefile.am
+   trunk/src/jtag/jtag.c
+   trunk/testing/build.test1/Makefile.openocd
+Log:
+Added dongle VSLLINK - from Simon Qian
+
+Modified: trunk/configure.in
+===================================================================
+--- trunk/configure.in	2008-12-27 02:21:38 UTC (rev 1279)
++++ trunk/configure.in	2008-12-27 02:56:55 UTC (rev 1280)
+@@ -156,8 +156,8 @@
+ )
+ 
+ AC_ARG_ENABLE(gccwarnings,
+-	AS_HELP_STRING([--enable-gccwarnings], [Enable compiler warnings, default no]),
+-	[gcc_warnings=$enableval], [gcc_warnings=no])
++	AS_HELP_STRING([--enable-gccwarnings], [Enable compiler warnings, default yes]),
++	[gcc_warnings=$enableval], [gcc_warnings=yes])
+ 
+ AC_ARG_ENABLE(parport,
+   AS_HELP_STRING([--enable-parport], [Enable building the pc parallel port driver]), 
+@@ -243,6 +243,10 @@
+   AS_HELP_STRING([--enable-jlink], [Enable building support for the Segger J-Link JTAG Programmer]),
+   [build_jlink=$enableval], [build_jlink=no])
+ 
++AC_ARG_ENABLE(vsllink,
++  AS_HELP_STRING([--enable-vsllink], [Enable building support for the Versaloon-Link JTAG Programmer]),
++  [build_vsllink=$enableval], [build_vsllink=no])
++
+ AC_ARG_ENABLE(rlink,
+   AS_HELP_STRING([--enable-rlink], [Enable building support for the Raisonance RLink JTAG Programmer]),
+   [build_rlink=$enableval], [build_rlink=no])
+@@ -412,6 +416,12 @@
+   AC_DEFINE(BUILD_JLINK, 0, [0 if you don't want the J-Link JTAG driver.])
+ fi
+ 
++if test $build_vsllink = yes; then
++  AC_DEFINE(BUILD_VSLLINK, 1, [1 if you want the Versaloon-Link JTAG driver.])
++else
++  AC_DEFINE(BUILD_VSLLINK, 0, [0 if you don't want the Versaloon-Link JTAG driver.])
++fi
++
+ if test $build_rlink = yes; then
+   AC_DEFINE(BUILD_RLINK, 1, [1 if you want the RLink JTAG driver.])
+ else
+@@ -631,6 +641,7 @@
+ AM_CONDITIONAL(USBPROG, test $build_usbprog = yes)
+ AM_CONDITIONAL(OOCD_TRACE, test $build_oocd_trace = yes)
+ AM_CONDITIONAL(JLINK, test $build_jlink = yes)
++AM_CONDITIONAL(VSLLINK, test $build_vsllink = yes)
+ AM_CONDITIONAL(RLINK, test $build_rlink = yes)
+ AM_CONDITIONAL(IS_CYGWIN, test $is_cygwin = yes)
+ AM_CONDITIONAL(IS_MINGW, test $is_mingw = yes)
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2008-12-27 02:21:38 UTC (rev 1279)
++++ trunk/doc/openocd.texi	2008-12-27 02:56:55 UTC (rev 1280)
+@@ -222,6 +222,8 @@
+ @item
+ @option{--enable-jlink} - From SEGGER
+ @item
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{--enable-vsllink}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A>
+ @option{--enable-rlink} - Raisonance.com dongle.
+ @end itemize
+ 
+@@ -395,6 +397,9 @@
+ 
+ @item @b{USB - Presto} 
+ @* Link: @url{<A HREF="http://tools.asix.net/prg_presto.htm">http://tools.asix.net/prg_presto.htm</A>}
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @b{Versaloon-Link}
++@* Link: @url{<A HREF="http://www.simonqian.com/en/Versaloon">http://www.simonqian.com/en/Versaloon</A>}
+ @end itemize
+ 
+ @section IBM PC Parallel Printer Port Based
+@@ -1140,6 +1145,9 @@
+ 
+ @item @b{rlink}
+ @* Raisonance RLink usb adapter
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @b{vsllink}
++@* vsllink is part of Versaloon which is a versatile USB programmer.
+ @comment - End parameters
+ @end itemize
+ @comment - End Interface
+
+Modified: trunk/src/Makefile.am
+===================================================================
+--- trunk/src/Makefile.am	2008-12-27 02:21:38 UTC (rev 1279)
++++ trunk/src/Makefile.am	2008-12-27 02:56:55 UTC (rev 1280)
+@@ -50,10 +50,14 @@
+ if RLINK
+ LIBUSB = -lusb
+ else
++if VSLLINK
++LIBUSB = -lusb
++else
+ LIBUSB =
+ endif
+ endif
+ endif
++endif
+ 
+ 
+ 
+
+Modified: trunk/src/jtag/Makefile.am
+===================================================================
+--- trunk/src/jtag/Makefile.am	2008-12-27 02:21:38 UTC (rev 1279)
++++ trunk/src/jtag/Makefile.am	2008-12-27 02:56:55 UTC (rev 1280)
+@@ -96,7 +96,13 @@
+ RLINKFILES =
+ endif
+ 
++if VSLLINK
++VSLLINKFILES = vsllink.c
++else
++VSLLINKFILES =
++endif
++
+ libjtag_a_SOURCES = jtag.c $(BITBANGFILES) $(PARPORTFILES) $(DUMMYFILES) $(FT2232FILES) $(AMTJTAGACCELFILES) $(EP93XXFILES) \
+-	$(AT91RM9200FILES) $(GW16012FILES) $(BITQFILES) $(PRESTOFILES) $(USBPROGFILES) $(ECOSBOARDFILES) $(JLINKFILES) $(RLINKFILES)
++	$(AT91RM9200FILES) $(GW16012FILES) $(BITQFILES) $(PRESTOFILES) $(USBPROGFILES) $(ECOSBOARDFILES) $(JLINKFILES) $(RLINKFILES) $(VSLLINKFILES)
+ 
+ noinst_HEADERS = bitbang.h jtag.h
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2008-12-27 02:21:38 UTC (rev 1279)
++++ trunk/src/jtag/jtag.c	2008-12-27 02:56:55 UTC (rev 1280)
+@@ -196,6 +196,10 @@
+ 	extern jtag_interface_t jlink_interface;
+ #endif
+ 
++#if BUILD_VSLLINK == 1
++	extern jtag_interface_t vsllink_interface;
++#endif
++
+ #if BUILD_RLINK == 1
+ 	extern jtag_interface_t rlink_interface;
+ #endif
+@@ -237,6 +241,9 @@
+ #if BUILD_JLINK == 1
+ 	&amp;jlink_interface,
+ #endif
++#if BUILD_VSLLINK == 1
++	&amp;vsllink_interface,
++#endif
+ #if BUILD_RLINK == 1
+ 	&amp;rlink_interface,
+ #endif
+
+Modified: trunk/testing/build.test1/Makefile.openocd
+===================================================================
+--- trunk/testing/build.test1/Makefile.openocd	2008-12-27 02:21:38 UTC (rev 1279)
++++ trunk/testing/build.test1/Makefile.openocd	2008-12-27 02:56:55 UTC (rev 1280)
+@@ -40,7 +40,7 @@
+ CONFIG_OPTIONS_win32_libftdi  = --enable-parport --enable-ft2232_libftdi
+ 
+ # Default build for win32... is the ftd2xx type build.
+-PERMUTE_win32          ?= $(BUILD_SYSNAME)_ftd2xx
++PERMUTE_win32          ?= ftd2xx
+ CONFIG_OPTIONS_win32   ?= $(CONFIG_OPTIONS_win32_$(PERMUTE_win32))
+ CONFIG_OPTIONS_cygwin   = $(CONFIG_OPTIONS_win32)
+ CONFIG_OPTIONS_mingw32  = $(CONFIG_OPTIONS_win32)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000061.html">[Openocd-svn] r1279 - trunk/src/jtag/rlink
+</A></li>
+	<LI>Next message: <A HREF="000063.html">[Openocd-svn] r1281 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#62">[ date ]</a>
+              <a href="thread.html#62">[ thread ]</a>
+              <a href="subject.html#62">[ subject ]</a>
+              <a href="author.html#62">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

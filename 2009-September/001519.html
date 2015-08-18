@@ -1,0 +1,230 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2736 - in trunk/src: jtag target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2736%20-%20in%20trunk/src%3A%20jtag%20target&In-Reply-To=%3C200909200755.n8K7tGpr022453%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001518.html">
+   <LINK REL="Next"  HREF="001520.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2736 - in trunk/src: jtag target</H1>
+    <B>dbrownell at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2736%20-%20in%20trunk/src%3A%20jtag%20target&In-Reply-To=%3C200909200755.n8K7tGpr022453%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2736 - in trunk/src: jtag target">dbrownell at mail.berlios.de
+       </A><BR>
+    <I>Sun Sep 20 09:55:16 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001518.html">[Openocd-svn] r2735 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="001520.html">[Openocd-svn] r2737 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1519">[ date ]</a>
+              <a href="thread.html#1519">[ thread ]</a>
+              <a href="subject.html#1519">[ subject ]</a>
+              <a href="author.html#1519">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: dbrownell
+Date: 2009-09-20 09:55:11 +0200 (Sun, 20 Sep 2009)
+New Revision: 2736
+
+Modified:
+   trunk/src/jtag/core.c
+   trunk/src/jtag/tcl.c
+   trunk/src/target/target.c
+Log:
+Debug message updates:
+
+ - Shrink messaging during resets, primarily by getting rid of
+   &quot;nothing happened&quot; noise that hides *useful* information.
+
+ - Improve: the &quot;no IDCODE&quot; message by identifying which tap only
+   supports BYPASS; and the TAP event strings.
+
+Related minor code updates:
+
+ - Remove two needless tests when examining the chain:  we know
+   we have a TAP, and that all TAPs have names.
+
+ - Clean up two loops, turning &quot;while&quot;s into &quot;for&quot;s which better
+   show what's actually being done.
+
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-09-20 07:46:22 UTC (rev 2735)
++++ trunk/src/jtag/core.c	2009-09-20 07:55:11 UTC (rev 2736)
+@@ -60,9 +60,9 @@
+ 
+ static const char *jtag_event_strings[] =
+ {
+-	[JTAG_TRST_ASSERTED] = &quot;JTAG controller reset (TLR or TRST)&quot;,
++	[JTAG_TRST_ASSERTED] = &quot;TAP reset&quot;,
+ 	[JTAG_TAP_EVENT_ENABLE] = &quot;TAP enabled&quot;,
+-	[JTAG_TAP_EVENT_POST_RESET] = &quot;post reset&quot;,
++	[JTAG_TAP_EVENT_POST_RESET] = &quot;TAP post reset&quot;,
+ 	[JTAG_TAP_EVENT_DISABLE] = &quot;TAP disabled&quot;,
+ };
+ 
+@@ -820,9 +820,6 @@
+ {
+ 	jtag_tap_t *tap = priv;
+ 
+-	LOG_DEBUG(&quot;TAP %s event %s&quot;, tap-&gt;dotted_name,
+-			jtag_event_strings[event]);
+-
+ 	if (event == JTAG_TRST_ASSERTED)
+ 	{
+ 		tap-&gt;enabled = !tap-&gt;disabled_after_reset;
+@@ -943,15 +940,10 @@
+ 	for (ii = 0; ii &lt; tap-&gt;expected_ids_cnt; ii++)
+ 	{
+ 		if (tap-&gt;idcode == tap-&gt;expected_ids[ii])
+-			break;
++			return true;
+ 	}
+ 
+ 	/* If none of the expected ids matched, log an error */
+-	if (ii != tap-&gt;expected_ids_cnt)
+-	{
+-		LOG_DEBUG(&quot;JTAG Tap/device matched&quot;);
+-		return true;
+-	}
+ 	jtag_examine_chain_display(LOG_LVL_ERROR, &quot;got&quot;,
+ 			tap-&gt;dotted_name, tap-&gt;idcode);
+ 	for (ii = 0; ii &lt; tap-&gt;expected_ids_cnt; ii++)
+@@ -994,7 +986,8 @@
+ 		if ((idcode &amp; 1) == 0)
+ 		{
+ 			/* LSB must not be 0, this indicates a device in bypass */
+-			LOG_WARNING(&quot;Tap/Device does not have IDCODE&quot;);
++			LOG_WARNING(&quot;TAP %s does not have IDCODE&quot;,
++					tap-&gt;dotted_name);
+ 			idcode = 0;
+ 			tap-&gt;hasidcode = false;
+ 
+@@ -1017,15 +1010,11 @@
+ 			}
+ 
+ 			jtag_examine_chain_display(LOG_LVL_INFO, &quot;tap/device found&quot;,
+-					tap ? tap-&gt;dotted_name : &quot;(not-named)&quot;,
+-					idcode);
++					tap-&gt;dotted_name, idcode);
+ 
+ 			bit_count += 32;
+ 		}
+ 		device_count++;
+-		if (!tap)
+-			continue;
+-
+ 		tap-&gt;idcode = idcode;
+ 
+ 		// ensure the TAP ID does matches what was expected
+
+Modified: trunk/src/jtag/tcl.c
+===================================================================
+--- trunk/src/jtag/tcl.c	2009-09-20 07:46:22 UTC (rev 2735)
++++ trunk/src/jtag/tcl.c	2009-09-20 07:55:11 UTC (rev 2736)
+@@ -358,14 +358,9 @@
+ static void jtag_tap_handle_event(jtag_tap_t *tap, enum jtag_event e)
+ {
+ 	jtag_tap_event_action_t * jteap;
+-	int done;
+ 
+-	jteap = tap-&gt;event_action;
+-
+-	done = 0;
+-	while (jteap) {
++	for (jteap = tap-&gt;event_action; jteap != NULL; jteap = jteap-&gt;next) {
+ 		if (jteap-&gt;event == e) {
+-			done = 1;
+ 			LOG_DEBUG(&quot;JTAG tap: %s event: %d (%s) action: %s\n&quot;,
+ 					tap-&gt;dotted_name,
+ 					e,
+@@ -386,15 +381,7 @@
+ 				break;
+ 			}
+ 		}
+-
+-		jteap = jteap-&gt;next;
+ 	}
+-
+-	if (!done) {
+-		LOG_DEBUG(&quot;event %d %s - no action&quot;,
+-				e,
+-				Jim_Nvp_value2name_simple(nvp_jtag_tap_event, e)-&gt;name);
+-	}
+ }
+ 
+ 
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-09-20 07:46:22 UTC (rev 2735)
++++ trunk/src/target/target.c	2009-09-20 07:55:11 UTC (rev 2736)
+@@ -3409,14 +3409,9 @@
+ void target_handle_event(target_t *target, enum target_event e)
+ {
+ 	target_event_action_t *teap;
+-	int done;
+ 
+-	teap = target-&gt;event_action;
+-
+-	done = 0;
+-	while (teap) {
++	for (teap = target-&gt;event_action; teap != NULL; teap = teap-&gt;next) {
+ 		if (teap-&gt;event == e) {
+-			done = 1;
+ 			LOG_DEBUG(&quot;target: (%d) %s (%s) event: %d (%s) action: %s&quot;,
+ 					   target-&gt;target_number,
+ 					   target-&gt;cmd_name,
+@@ -3429,13 +3424,7 @@
+ 				Jim_PrintErrorMessage(interp);
+ 			}
+ 		}
+-		teap = teap-&gt;next;
+ 	}
+-	if (!done) {
+-		LOG_DEBUG(&quot;event: %d %s - no action&quot;,
+-				   e,
+-				   Jim_Nvp_value2name_simple(nvp_target_event, e)-&gt;name);
+-	}
+ }
+ 
+ enum target_cfg_param {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001518.html">[Openocd-svn] r2735 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="001520.html">[Openocd-svn] r2737 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1519">[ date ]</a>
+              <a href="thread.html#1519">[ thread ]</a>
+              <a href="subject.html#1519">[ subject ]</a>
+              <a href="author.html#1519">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

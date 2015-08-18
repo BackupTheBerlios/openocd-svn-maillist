@@ -1,0 +1,185 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2725 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2725%20-%20trunk/src/jtag&In-Reply-To=%3C200909171920.n8HJKJHh006524%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001507.html">
+   <LINK REL="Next"  HREF="001509.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2725 - trunk/src/jtag</H1>
+    <B>dbrownell at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2725%20-%20trunk/src/jtag&In-Reply-To=%3C200909171920.n8HJKJHh006524%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2725 - trunk/src/jtag">dbrownell at mail.berlios.de
+       </A><BR>
+    <I>Thu Sep 17 21:20:19 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001507.html">[Openocd-svn] r2724 - in trunk: doc src/flash
+</A></li>
+        <LI>Next message: <A HREF="001509.html">[Openocd-svn] r2726 - trunk/src/helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1508">[ date ]</a>
+              <a href="thread.html#1508">[ thread ]</a>
+              <a href="subject.html#1508">[ subject ]</a>
+              <a href="author.html#1508">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: dbrownell
+Date: 2009-09-17 21:20:18 +0200 (Thu, 17 Sep 2009)
+New Revision: 2725
+
+Modified:
+   trunk/src/jtag/core.c
+   trunk/src/jtag/tcl.c
+Log:
+Address codereview comment from Steve Grubb &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">sgrubb at redhat.com</A>&gt;:
+avoid a duplicate test.
+
+Plus other cleanup in the same code: be &quot;static&quot;, sane line lengths
+for source and diagnostics, and fix misleading variable names.
+
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-09-17 18:56:17 UTC (rev 2724)
++++ trunk/src/jtag/core.c	2009-09-17 19:20:18 UTC (rev 2725)
+@@ -385,7 +385,8 @@
+ 	interface_jtag_add_callback4(f, data0, data1, data2, data3);
+ }
+ 
+-int jtag_check_value_inner(uint8_t *captured, uint8_t *in_check_value, uint8_t *in_check_mask, int num_bits);
++static int jtag_check_value_inner(uint8_t *captured, uint8_t *in_check_value,
++		uint8_t *in_check_mask, int num_bits);
+ 
+ static int jtag_check_value_mask_callback(jtag_callback_data_t data0, jtag_callback_data_t data1, jtag_callback_data_t data2, jtag_callback_data_t data3)
+ {
+@@ -727,7 +728,8 @@
+ 	jtag_set_error(interface_jtag_add_sleep(us));
+ }
+ 
+-int jtag_check_value_inner(uint8_t *captured, uint8_t *in_check_value, uint8_t *in_check_mask, int num_bits)
++static int jtag_check_value_inner(uint8_t *captured, uint8_t *in_check_value,
++		uint8_t *in_check_mask, int num_bits)
+ {
+ 	int retval = ERROR_OK;
+ 
+@@ -739,39 +741,32 @@
+ 		compare_failed = buf_cmp(captured, in_check_value, num_bits);
+ 
+ 	if (compare_failed) {
+-		/* An error handler could have caught the failing check
+-		 * only report a problem when there wasn't a handler, or if the handler
+-		 * acknowledged the error
+-		 */
+-		/*
+-		LOG_WARNING(&quot;TAP %s:&quot;,
+-					jtag_tap_name(field-&gt;tap));
+-					*/
+-		if (compare_failed)
+-		{
+-			char *captured_char = buf_to_str(captured, (num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : num_bits, 16);
+-			char *in_check_value_char = buf_to_str(in_check_value, (num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : num_bits, 16);
++		char *captured_str, *in_check_value_str;
++		int bits = (num_bits &gt; DEBUG_JTAG_IOZ)
++				? DEBUG_JTAG_IOZ
++				: num_bits;
+ 
+-			if (in_check_mask)
+-			{
+-				char *in_check_mask_char;
+-				in_check_mask_char = buf_to_str(in_check_mask, (num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : num_bits, 16);
+-				LOG_WARNING(&quot;value captured during scan didn't pass the requested check:&quot;);
+-				LOG_WARNING(&quot;captured: 0x%s check_value: 0x%s check_mask: 0x%s&quot;,
+-							captured_char, in_check_value_char, in_check_mask_char);
+-				free(in_check_mask_char);
+-			}
+-			else
+-			{
+-				LOG_WARNING(&quot;value captured during scan didn't pass the requested check: captured: 0x%s check_value: 0x%s&quot;, captured_char, in_check_value_char);
+-			}
++		/* NOTE:  we've lost diagnostic context here -- 'which tap' */
+ 
+-			free(captured_char);
+-			free(in_check_value_char);
++		captured_str = buf_to_str(captured, bits, 16);
++		in_check_value_str = buf_to_str(in_check_value, bits, 16);
+ 
+-			retval = ERROR_JTAG_QUEUE_FAILED;
++		LOG_WARNING(&quot;Bad value '%s' captured during DR or IR scan:&quot;,
++				captured_str);
++		LOG_WARNING(&quot; check_value: 0x%s&quot;, in_check_value_str);
++
++		free(captured_str);
++		free(in_check_value_str);
++
++		if (in_check_mask) {
++			char *in_check_mask_str;
++
++			in_check_mask_str = buf_to_str(in_check_mask, bits, 16);
++			LOG_WARNING(&quot; check_mask: 0x%s&quot;, in_check_mask_str);
++			free(in_check_mask_str);
+ 		}
+ 
++		retval = ERROR_JTAG_QUEUE_FAILED;
+ 	}
+ 	return retval;
+ }
+@@ -974,7 +969,7 @@
+ 
+ /* Try to examine chain layout according to IEEE 1149.1 &#167;12
+  */
+-int jtag_examine_chain(void)
++static int jtag_examine_chain(void)
+ {
+ 	uint8_t idcode_buffer[JTAG_MAX_CHAIN_SIZE * 4];
+ 	unsigned device_count = 0;
+
+Modified: trunk/src/jtag/tcl.c
+===================================================================
+--- trunk/src/jtag/tcl.c	2009-09-17 18:56:17 UTC (rev 2724)
++++ trunk/src/jtag/tcl.c	2009-09-17 19:20:18 UTC (rev 2725)
+@@ -75,8 +75,6 @@
+ static int handle_verify_jtag_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int handle_tms_sequence_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ 
+-extern int jtag_examine_chain(void);
+-extern int jtag_validate_chain(void);
+ 
+ enum jtag_tap_cfg_param {
+ 	JCFG_EVENT
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001507.html">[Openocd-svn] r2724 - in trunk: doc src/flash
+</A></li>
+	<LI>Next message: <A HREF="001509.html">[Openocd-svn] r2726 - trunk/src/helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1508">[ date ]</a>
+              <a href="thread.html#1508">[ thread ]</a>
+              <a href="subject.html#1508">[ subject ]</a>
+              <a href="author.html#1508">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

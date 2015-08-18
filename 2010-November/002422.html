@@ -1,0 +1,926 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-569-g9e3d43c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-569-g9e3d43c&In-Reply-To=%3CE1PE0H5-0001LM-K4%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002423.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-569-g9e3d43c</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-569-g9e3d43c&In-Reply-To=%3CE1PE0H5-0001LM-K4%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-569-g9e3d43c">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Thu Nov  4 14:54:42 CET 2010</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002423.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-574-g8f1f8e7
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2422">[ date ]</a>
+              <a href="thread.html#2422">[ thread ]</a>
+              <a href="subject.html#2422">[ subject ]</a>
+              <a href="author.html#2422">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  9e3d43cfe75df7c4f6797d630576f1a02428b218 (commit)
+      from  70b15389962637f13f5f3f10a6beebabed419c69 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 9e3d43cfe75df7c4f6797d630576f1a02428b218
+Author: ddraskovic &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ddraskovic at sequans.com</A>&gt;
+Date:   Thu Nov 4 14:33:10 2010 +0100
+
+    arm964e: Add support for ARM946E target.
+    
+    So far most of the people have been using existing ARM966E in the
+    place of ARM946E, because they have practically the same scan chains.
+    
+    However, ARM946E has caches, which further complicates JATG handling
+    via scan-chain. this was preventing single-stepping for ARM946E when
+    SW breakpoints are used.
+    
+    This patch thus introduces :
+    1) Correct cache handling on memory write
+    2) Possibility to flush whole cache and turn it off during debug, or
+    just to flush affected lines (faster and better)
+    3) Correct SW breakpoint handling and correct single-stepping
+    4) Corrects the bug on CP15 read and write, so CP15 values
+    are now correctly R/W
+
+diff --git a/src/target/Makefile.am b/src/target/Makefile.am
+index e01e077..1e29ae7 100644
+--- a/src/target/Makefile.am
++++ b/src/target/Makefile.am
+@@ -60,6 +60,7 @@ ARM7_9_SRC = \
+ 	arm9tdmi.c \
+ 	arm920t.c \
+ 	arm966e.c \
++	arm946e.c \
+ 	arm926ejs.c \
+ 	feroceon.c
+ 
+@@ -124,6 +125,7 @@ noinst_HEADERS = \
+ 	arm920t.h \
+ 	arm926ejs.h \
+ 	arm966e.h \
++	arm946e.h \
+ 	arm11.h \
+ 	arm11_dbgtap.h \
+ 	armv4_5.h \
+diff --git a/src/target/arm946e.c b/src/target/arm946e.c
+new file mode 100644
+index 0000000..b9b9cef
+--- /dev/null
++++ b/src/target/arm946e.c
+@@ -0,0 +1,712 @@
++/***************************************************************************
++ *   Copyright (C) 2005 by Dominic Rath                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
++ *                                                                         *
++ *   Copyright (C) 2008 by Spencer Oliver                                  *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">spen at spen-soft.co.uk</A>                                                  *
++ *                                                                         *
++ *   Copyright (C) 2010 by Drasko DRASKOVIC                                *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">drasko.draskovic at gmail.com</A>                                            *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;arm946e.h&quot;
++#include &quot;target_type.h&quot;
++#include &quot;arm_opcodes.h&quot;
++
++#include &quot;breakpoints.h&quot;
++
++#if 0
++#define _DEBUG_INSTRUCTION_EXECUTION_
++#endif
++
++#define NB_CACHE_WAYS 4
++
++static uint32_t dc = 0x0;
++static uint32_t ic = 0x0;
++
++/**
++ * flag to give info about cache manipulation during debug :
++ * &quot;0&quot;	-	cache lines are invalidated &quot;on the fly&quot;, for affected addresses.
++ *			This is prefered from performance point of view.
++ * &quot;1&quot;	-	cache is invalidated and switched off on debug_entry, and switched back on on restore.
++ *			It is kept off during debugging.
++ */
++static uint8_t arm946e_preserve_cache;
++
++int arm946e_post_debug_entry(struct target *target);
++void arm946e_pre_restore_context(struct target *target);
++static int arm946e_read_cp15(struct target *target, int reg_addr, uint32_t *value);
++
++
++int arm946e_init_arch_info(struct target *target, struct arm946e_common *arm946e, struct jtag_tap *tap)
++{
++	struct arm7_9_common *arm7_9 = &amp;arm946e-&gt;arm7_9_common;
++
++	/* initialize arm7/arm9 specific info (including armv4_5) */
++	arm9tdmi_init_arch_info(target, arm7_9, tap);
++
++	arm946e-&gt;common_magic = ARM946E_COMMON_MAGIC;
++
++	/**
++	 * The ARM946E-S implements the ARMv5TE architecture which
++	 * has the BKPT instruction, so we don't have to use a watchpoint comparator
++	 */
++	arm7_9-&gt;arm_bkpt = ARMV5_BKPT(0x0);
++	arm7_9-&gt;thumb_bkpt = ARMV5_T_BKPT(0x0) &amp; 0xffff;
++
++
++	arm7_9-&gt;post_debug_entry = arm946e_post_debug_entry;
++	arm7_9-&gt;pre_restore_context = arm946e_pre_restore_context;
++
++	/**
++	 * disabling linefills leads to lockups, so keep them enabled for now
++	 * this doesn't affect correctness, but might affect timing issues, if
++	 * important data is evicted from the cache during the debug session
++	 */
++	arm946e_preserve_cache = 0;
++
++	/* override hw single-step capability from ARM9TDMI */
++	//arm7_9-&gt;has_single_step = 1;
++
++	return ERROR_OK;
++}
++
++static int arm946e_target_create(struct target *target, Jim_Interp *interp)
++{
++	struct arm946e_common *arm946e = calloc(1,sizeof(struct arm946e_common));
++
++	arm946e_init_arch_info(target, arm946e, target-&gt;tap);
++
++	return ERROR_OK;
++}
++
++static int arm946e_verify_pointer(struct command_context *cmd_ctx,
++		struct arm946e_common *arm946e)
++{
++	if (arm946e-&gt;common_magic != ARM946E_COMMON_MAGIC) {
++		command_print(cmd_ctx, &quot;target is not an ARM946&quot;);
++		return ERROR_TARGET_INVALID;
++	}
++	return ERROR_OK;
++}
++
++/*
++ * REVISIT:  The &quot;read_cp15&quot; and &quot;write_cp15&quot; commands could hook up
++ * to eventual mrc() and mcr() routines ... the reg_addr values being
++ * constructed (for CP15 only) from Opcode_1, Opcode_2, and CRn values.
++ * See section 7.3 of the ARM946E-S TRM.
++ */
++static int arm946e_read_cp15(struct target *target, int reg_addr, uint32_t *value)
++{
++	int retval = ERROR_OK;
++	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
++	struct arm_jtag *jtag_info = &amp;arm7_9-&gt;jtag_info;
++	struct scan_field fields[3];
++	uint8_t reg_addr_buf = reg_addr &amp; 0x3f;
++	uint8_t nr_w_buf = 0;
++
++	if ((retval = arm_jtag_scann(jtag_info, 0xf, TAP_IDLE)) != ERROR_OK)
++	{
++		return retval;
++	}
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
++
++	fields[0].num_bits = 32;
++	/* REVISIT: table 7-2 shows that bits 31-31 need to be
++	 * specified for accessing BIST registers ...
++	 */
++	fields[0].out_value = NULL;
++	fields[0].in_value = NULL;
++
++	fields[1].num_bits = 6;
++	fields[1].out_value = &amp;reg_addr_buf;
++	fields[1].in_value = NULL;
++
++	fields[2].num_bits = 1;
++	fields[2].out_value = &amp;nr_w_buf;
++	fields[2].in_value = NULL;
++
++	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, TAP_IDLE);
++
++	fields[0].in_value = (uint8_t *)value;
++	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, TAP_IDLE);
++
++	jtag_add_callback(arm_le_to_h_u32, (jtag_callback_data_t)value);
++
++#ifdef _DEBUG_INSTRUCTION_EXECUTION_
++	LOG_DEBUG(&quot;addr: 0x%x value: %8.8x&quot;, reg_addr, *value);
++#endif
++
++	if ((retval = jtag_execute_queue()) != ERROR_OK)
++	{
++		return retval;
++	}
++
++	return ERROR_OK;
++}
++
++int arm946e_write_cp15(struct target *target, int reg_addr, uint32_t value)
++{
++	int retval = ERROR_OK;
++	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
++	struct arm_jtag *jtag_info = &amp;arm7_9-&gt;jtag_info;
++	struct scan_field fields[3];
++	uint8_t reg_addr_buf = reg_addr &amp; 0x3f;
++	uint8_t nr_w_buf = 1;
++	uint8_t value_buf[4];
++
++	buf_set_u32(value_buf, 0, 32, value);
++
++	if ((retval = arm_jtag_scann(jtag_info, 0xf, TAP_IDLE)) != ERROR_OK)
++	{
++		return retval;
++	}
++	retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;intest_instr, NULL, TAP_IDLE);
++	if (retval != ERROR_OK)
++		return retval;
++
++	fields[0].num_bits = 32;
++	fields[0].out_value = value_buf;
++	fields[0].in_value = NULL;
++
++	fields[1].num_bits = 6;
++	fields[1].out_value = &amp;reg_addr_buf;
++	fields[1].in_value = NULL;
++
++	fields[2].num_bits = 1;
++	fields[2].out_value = &amp;nr_w_buf;
++	fields[2].in_value = NULL;
++
++	jtag_add_dr_scan(jtag_info-&gt;tap, 3, fields, TAP_IDLE);
++
++#ifdef _DEBUG_INSTRUCTION_EXECUTION_
++	LOG_DEBUG(&quot;addr: 0x%x value: %8.8x&quot;, reg_addr, value);
++#endif
++
++	if ((retval = jtag_execute_queue()) != ERROR_OK)
++	{
++		return retval;
++	}
++
++	return ERROR_OK;
++}
++
++uint32_t arm946e_invalidate_whole_dcache(struct target *target)
++{
++
++   uint32_t csize = 0;
++   uint32_t shift = 0;
++   uint32_t cp15_idx, seg, dtag;
++   int nb_idx, idx = 0;
++   int retval;
++
++   /* Get cache type */
++   arm946e_read_cp15(target, 0x01, (uint32_t *) &amp;csize);
++
++   csize = (csize &gt;&gt; 18) &amp; 0x0F;
++
++	if (csize == 0)
++		shift = 0;
++	else
++		shift = csize - 0x3; /* Now 0 = 4KB, 1 = 8KB, ... */
++
++	/* Cache size, given in bytes */
++	csize = 1 &lt;&lt; (12 + shift);
++	/* One line (index) is 32 bytes (8 words) long */
++	nb_idx = (csize / 32);	/* gives nb of lines (indexes) in the cache */
++
++	/* Loop for all segmentde (i.e. ways) */
++	for( seg=0; seg &lt; NB_CACHE_WAYS; seg++)
++	{
++		/* Loop for all indexes */
++		for(idx=0; idx &lt; nb_idx; idx++)
++		{
++			/* Form and write cp15 index (segment + line idx) */
++			cp15_idx = seg &lt;&lt; 30 | idx &lt;&lt; 5;
++			retval = arm946e_write_cp15(target, 0x3a, cp15_idx);
++			if (retval != ERROR_OK)
++			{
++				LOG_DEBUG(&quot;ERROR writing index\n&quot;);
++				return retval;
++			}
++
++			/* Read dtag */
++			arm946e_read_cp15(target, 0x16, (uint32_t *) &amp;dtag);
++
++			/* Check cache line VALID bit */
++			if ( !(dtag &gt;&gt; 4 &amp; 0x1) )
++				continue;
++
++			/* Clean data cache line */
++			retval = arm946e_write_cp15(target, 0x35, 0x1);
++			if (retval != ERROR_OK)
++			{
++				LOG_DEBUG(&quot;ERROR cleaning cache line\n&quot;);
++				return retval;
++			}
++
++			/* Flush data cache line */
++			retval = arm946e_write_cp15(target, 0x1a, 0x1);
++			if (retval != ERROR_OK)
++			{
++				LOG_DEBUG(&quot;ERROR flushing cache line\n&quot;);
++				return retval;
++			}
++		}
++	}
++
++	return ERROR_OK;
++}
++
++uint32_t arm946e_invalidate_whole_icache(struct target *target)
++{
++	int retval;
++
++	LOG_DEBUG(&quot;FLUSHING I$&quot;);
++
++	/**
++	 *  Invalidate (flush) I$
++	 *  mcr	15, 0, r0, cr7, cr5, {0}
++	 */
++	retval = arm946e_write_cp15(target, 0x0f, 0x1);
++	if (retval != ERROR_OK)
++	{
++		LOG_DEBUG(&quot;ERROR flushing I$\n&quot;);
++		return retval;
++	}
++
++	return ERROR_OK;
++}
++
++int arm946e_post_debug_entry(struct target *target)
++{
++	uint32_t ctr_reg = 0x0;
++	uint32_t retval = ERROR_OK;
++
++	/* See if CACHES are enabled, and save that info
++	 * in the global vars, so that arm946e_pre_restore_context() can use them */
++	arm946e_read_cp15(target, 0x02, (uint32_t *) &amp;ctr_reg);
++	dc = (ctr_reg &gt;&gt; 2) &amp; 0x01;
++	ic = (ctr_reg &gt;&gt; 12) &amp; 0x01;
++
++	if (arm946e_preserve_cache)
++	{
++		if (dc == 1)
++		{
++			/* Clean and flush D$ */
++			arm946e_invalidate_whole_dcache(target);
++
++			/* Disable D$ */
++			ctr_reg &amp;= ~(1 &lt;&lt; 2);
++		}
++
++		if (ic == 1)
++		{
++			/* Flush I$ */
++			arm946e_invalidate_whole_icache(target);
++
++			/* Disable I$ */
++			ctr_reg &amp;= ~(1 &lt;&lt; 12);
++		}
++
++		/* Write the new configuration */
++		retval = arm946e_write_cp15(target, 0x02, ctr_reg);
++		if (retval != ERROR_OK)
++		{
++			LOG_DEBUG(&quot;ERROR disabling cache&quot;);
++			return retval;
++		}
++	} /* if preserve_cache */
++
++	return ERROR_OK;
++}
++
++void arm946e_pre_restore_context(struct target *target)
++{
++	uint32_t ctr_reg = 0x0;
++	uint32_t retval;
++
++	if (arm946e_preserve_cache)
++	{
++		/* Get the contents of the CTR reg */
++		arm946e_read_cp15(target, 0x02, (uint32_t *) &amp;ctr_reg);
++
++		/**
++		 * Read-modify-write CP15 test state register
++		 * to reenable I/D-cache linefills
++		 */
++		if (dc == 1)
++		{
++			/* Enable D$ */
++			ctr_reg |= 1 &lt;&lt; 2;
++		}
++
++		if (ic == 1)
++		{
++			/* Enable I$ */
++			ctr_reg |= 1 &lt;&lt; 12;
++		}
++
++		/* Write the new configuration */
++		retval = arm946e_write_cp15(target, 0x02, ctr_reg);
++		if (retval != ERROR_OK)
++		{
++			LOG_DEBUG(&quot;ERROR enabling cache\n&quot;);
++		}
++	} /* if preserve_cache */
++}
++
++uint32_t arm946e_invalidate_dcache(struct target *target, uint32_t address,
++		uint32_t size, uint32_t count)
++{
++	uint32_t csize = 0x0;
++	uint32_t shift = 0;
++	uint32_t cur_addr = 0x0;
++	uint32_t cp15_idx, set, way, dtag;
++	int nb_idx;
++	uint32_t i = 0;
++	int retval;
++
++	for(i = 0; i &lt; count*size; i++)
++	{
++		cur_addr = address + i;
++
++		/* Get cache type */
++		arm946e_read_cp15(target, 0x01, (uint32_t *) &amp;csize);
++
++		/* Conclude cache size to find number of lines */
++		csize = (csize &gt;&gt; 18) &amp; 0x0F;
++
++		if (csize == 0)
++			shift = 0;
++		else
++			shift = csize - 0x3; /* Now 0 = 4KB, 1 = 8KB, ... */
++
++		csize = 1 &lt;&lt; (12 + shift);
++		nb_idx = (csize / 32);
++
++		set = (cur_addr &gt;&gt; 5) &amp; 0xff;	/* set field is 8 bits long */
++
++		for (way = 0; way &lt; NB_CACHE_WAYS; way++)
++		{
++			/**
++			 * Find if the affected address is kept in the cache.
++			 * Because JTAG Scan Chain 15 offers limited approach,
++			 * we have to loop through all cache ways (segments) and
++			 * read cache tags, then compare them with with address.
++			 */
++
++			/* Form and write cp15 index (segment + line idx) */
++			cp15_idx = way &lt;&lt; 30 | set &lt;&lt; 5;
++			retval = arm946e_write_cp15(target, 0x3a, cp15_idx);
++			if (retval != ERROR_OK)
++			{
++				LOG_DEBUG(&quot;ERROR writing index\n&quot;);
++				return retval;
++			}
++
++			/* Read dtag */
++			arm946e_read_cp15(target, 0x16, (uint32_t *) &amp;dtag);
++
++			/* Check cache line VALID bit */
++			if ( !(dtag &gt;&gt; 4 &amp; 0x1) )
++				continue;
++
++			/* If line is valid and corresponds to affected address - invalidate it */
++			if (dtag &gt;&gt; 5 == cur_addr &gt;&gt; 5)
++			{
++				/* Clean data cache line */
++				retval = arm946e_write_cp15(target, 0x35, 0x1);
++				if (retval != ERROR_OK)
++				{
++					LOG_DEBUG(&quot;ERROR cleaning cache line\n&quot;);
++					return retval;
++				}
++
++				/* Flush data cache line */
++				retval = arm946e_write_cp15(target, 0x1c, 0x1);
++				if (retval != ERROR_OK)
++				{
++					LOG_DEBUG(&quot;ERROR flushing cache line\n&quot;);
++					return retval;
++				}
++
++				break;
++			}
++		} /* loop through all 4 ways */
++	} /* loop through all addresses */
++
++	return ERROR_OK;
++}
++
++uint32_t arm946e_invalidate_icache(struct target *target, uint32_t address,
++		uint32_t size, uint32_t count)
++{
++	uint32_t cur_addr = 0x0;
++	uint32_t cp15_idx, set, way, itag;
++	uint32_t i = 0;
++	int retval;
++
++	for(i = 0; i &lt; count*size; i++)
++	{
++		cur_addr = address + i;
++
++		set = (cur_addr &gt;&gt; 5) &amp; 0xff;	/* set field is 8 bits long */
++
++		for (way = 0; way &lt; NB_CACHE_WAYS; way++)
++		{
++			/* Form and write cp15 index (segment + line idx) */
++			cp15_idx = way &lt;&lt; 30 | set &lt;&lt; 5;
++			retval = arm946e_write_cp15(target, 0x3a, cp15_idx);
++			if (retval != ERROR_OK)
++			{
++				LOG_DEBUG(&quot;ERROR writing index\n&quot;);
++				return retval;
++			}
++
++			/* Read itag */
++			arm946e_read_cp15(target, 0x17, (uint32_t *) &amp;itag);
++
++			/* Check cache line VALID bit */
++			if ( !(itag &gt;&gt; 4 &amp; 0x1) )
++				continue;
++
++			/* If line is valid and corresponds to affected address - invalidate it */
++			if (itag &gt;&gt; 5 == cur_addr &gt;&gt; 5)
++			{
++				/* Flush I$ line */
++				retval = arm946e_write_cp15(target, 0x1d, 0x0);
++				if (retval != ERROR_OK)
++				{
++					LOG_DEBUG(&quot;ERROR flushing cache line\n&quot;);
++					return retval;
++				}
++
++				break;
++			}
++		} /* way loop */
++	} /* addr loop */
++
++	return ERROR_OK;
++}
++
++/** Writes a buffer, in the specified word size, with current MMU settings. */
++int arm946e_write_memory(struct target *target, uint32_t address,
++		uint32_t size, uint32_t count, uint8_t *buffer)
++{
++	int retval;
++
++	LOG_DEBUG(&quot;-&quot;);
++
++	/* Invalidate D$ if it is ON */
++	if (!arm946e_preserve_cache &amp;&amp; dc == 1)
++	{
++		arm946e_invalidate_dcache(target, address, size, count);
++	}
++
++	/**
++	 * Write memory
++	 */
++	if ( ( retval = arm7_9_write_memory(target, address,
++			size, count, buffer) ) != ERROR_OK )
++	{
++		return retval;
++	}
++
++	/* *
++	 * Invalidate I$ if it is ON.
++	 *
++	 * D$ has been cleaned and flushed before mem write thus forcing it to behave like write-through,
++	 * because arm7_9_write_memory() has seen non-valid bit in D$
++	 * and wrote data into physical RAM (without touching or allocating the cache line).
++	 * From ARM946ES Technical Reference Manual we can see that it uses &quot;allocate on read-miss&quot;
++	 * policy for both I$ and D$ (Chapter 3.2 and 3.3)
++	 *
++	 * Explanation :
++	 * &quot;ARM system developer's guide: designing and optimizing system software&quot; by
++	 * Andrew N. Sloss, Dominic Symes and Chris Wright,
++	 * Chapter 12.3.3 Allocating Policy on a Cache Miss :
++	 * A read allocate on cache miss policy allocates a cache line only during a read from main memory.
++	 * If the victim cache line contains valid data, then it is written to main memory before the cache line
++	 * is filled with new data.
++	 * Under this strategy, a write of new data to memory does not update the contents of the cache memory
++	 * unless a cache line was allocated on a previous read from main memory.
++	 * If the cache line contains valid data, then the write updates the cache and may update the main memory if
++	 * the cache write policy is write-through.
++	 * If the data is not in the cache, the controller writes to main memory only.
++	 */
++	if (!arm946e_preserve_cache &amp;&amp; ic == 1)
++	{
++		arm946e_invalidate_icache(target, address, size, count);
++	}
++
++	return ERROR_OK;
++
++}
++
++int arm946e_read_memory(struct target *target, uint32_t address,
++		uint32_t size, uint32_t count, uint8_t *buffer)
++{
++	int retval;
++
++	LOG_DEBUG(&quot;-&quot;);
++
++	if ( ( retval = arm7_9_read_memory(target, address,
++			size, count, buffer) ) != ERROR_OK )
++	{
++		return retval;
++	}
++
++	return ERROR_OK;
++}
++
++
++COMMAND_HANDLER(arm946e_handle_cp15_command)
++{
++	int retval;
++	struct target *target = get_current_target(CMD_CTX);
++	struct arm946e_common *arm946e = target_to_arm946(target);
++
++	retval = arm946e_verify_pointer(CMD_CTX, arm946e);
++	if (retval != ERROR_OK)
++		return retval;
++
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		command_print(CMD_CTX, &quot;target must be stopped for \&quot;%s\&quot; command&quot;, CMD_NAME);
++		return ERROR_OK;
++	}
++
++	/* one or more argument, access a single register (write if second argument is given */
++	if (CMD_ARGC &gt;= 1)
++	{
++		uint32_t address;
++		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], address);
++
++		if (CMD_ARGC == 1)
++		{
++			uint32_t value;
++			if ((retval = arm946e_read_cp15(target, address, &amp;value)) != ERROR_OK)
++			{
++				command_print(CMD_CTX,
++						&quot;couldn't access reg %&quot; PRIi32,
++						address);
++				return ERROR_OK;
++			}
++			if ((retval = jtag_execute_queue()) != ERROR_OK)
++			{
++				return retval;
++			}
++
++			command_print(CMD_CTX, &quot;%&quot; PRIi32 &quot;: %8.8&quot; PRIx32,
++					address, value);
++		}
++		else if (CMD_ARGC == 2)
++		{
++			uint32_t value;
++			COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], value);
++			if ((retval = arm946e_write_cp15(target, address, value)) != ERROR_OK)
++			{
++				command_print(CMD_CTX,
++						&quot;couldn't access reg %&quot; PRIi32,
++						address);
++				return ERROR_OK;
++			}
++			command_print(CMD_CTX, &quot;%&quot; PRIi32 &quot;: %8.8&quot; PRIx32,
++					address, value);
++		}
++	}
++
++	return ERROR_OK;
++}
++
++static const struct command_registration arm946e_exec_command_handlers[] = {
++	{
++		.name = &quot;cp15&quot;,
++		.handler = arm946e_handle_cp15_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;regnum [value]&quot;,
++		.help = &quot;display/modify cp15 register&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++const struct command_registration arm946e_command_handlers[] = {
++	{
++		.chain = arm9tdmi_command_handlers,
++	},
++	{
++		.name = &quot;arm946e&quot;,
++		.mode = COMMAND_ANY,
++		.help = &quot;arm946e command group&quot;,
++		.chain = arm946e_exec_command_handlers,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++/** Holds methods for ARM946 targets. */
++struct target_type arm946e_target =
++{
++	.name = &quot;arm946e&quot;,
++
++	.poll = arm7_9_poll,
++	.arch_state = arm_arch_state,
++
++	.target_request_data = arm7_9_target_request_data,
++
++	.halt = arm7_9_halt,
++	.resume = arm7_9_resume,
++	.step = arm7_9_step,
++
++	.assert_reset = arm7_9_assert_reset,
++	.deassert_reset = arm7_9_deassert_reset,
++	.soft_reset_halt = arm7_9_soft_reset_halt,
++
++	.get_gdb_reg_list = arm_get_gdb_reg_list,
++
++	//.read_memory = arm7_9_read_memory,
++	//.write_memory = arm7_9_write_memory,
++	.read_memory = arm946e_read_memory,
++	.write_memory = arm946e_write_memory,
++
++	.bulk_write_memory = arm7_9_bulk_write_memory,
++
++	.checksum_memory = arm_checksum_memory,
++	.blank_check_memory = arm_blank_check_memory,
++
++	.run_algorithm = armv4_5_run_algorithm,
++
++	.add_breakpoint = arm7_9_add_breakpoint,
++	.remove_breakpoint = arm7_9_remove_breakpoint,
++	//.add_breakpoint = arm946e_add_breakpoint,
++	//.remove_breakpoint = arm946e_remove_breakpoint,
++
++	.add_watchpoint = arm7_9_add_watchpoint,
++	.remove_watchpoint = arm7_9_remove_watchpoint,
++
++	.commands = arm946e_command_handlers,
++	.target_create = arm946e_target_create,
++	.init_target = arm9tdmi_init_target,
++	.examine = arm7_9_examine,
++	.check_reset = arm7_9_check_reset,
++};
+diff --git a/src/target/arm946e.h b/src/target/arm946e.h
+new file mode 100644
+index 0000000..557674e
+--- /dev/null
++++ b/src/target/arm946e.h
+@@ -0,0 +1,53 @@
++/***************************************************************************
++ *   Copyright (C) 2005 by Dominic Rath                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
++ *                                                                         *
++ *   Copyright (C) 2008 by Spencer Oliver                                  *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">spen at spen-soft.co.uk</A>                                                  *
++ *                                                                         *
++ *   Copyright (C) 2010 by Drasko DRASKOVIC                                *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">drasko.draskovic at gmail.com</A>                                            *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifndef ARM946E_H
++#define ARM946E_H
++
++#include &quot;arm9tdmi.h&quot;
++
++#define	ARM946E_COMMON_MAGIC 0x20f920f9
++
++struct arm946e_common
++{
++	struct arm7_9_common arm7_9_common;
++	int common_magic;
++	uint32_t cp15_control_reg;
++};
++
++static inline struct arm946e_common *
++target_to_arm946(struct target *target)
++{
++	return container_of(target-&gt;arch_info, struct arm946e_common,
++			arm7_9_common.armv4_5_common);
++}
++
++int arm946e_init_arch_info(struct target *target,
++		struct arm946e_common *arm946e, struct jtag_tap *tap);
++int arm946e_write_cp15(struct target *target, int reg_addr, uint32_t value);
++
++extern const struct command_registration arm946e_command_handlers[];
++
++#endif /* ARM946E_H */
+diff --git a/src/target/target.c b/src/target/target.c
+index d200ebc..a282aab 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -58,6 +58,7 @@ extern struct target_type arm720t_target;
+ extern struct target_type arm9tdmi_target;
+ extern struct target_type arm920t_target;
+ extern struct target_type arm966e_target;
++extern struct target_type arm946e_target;
+ extern struct target_type arm926ejs_target;
+ extern struct target_type fa526_target;
+ extern struct target_type feroceon_target;
+@@ -79,6 +80,7 @@ static struct target_type *target_types[] =
+ 	&amp;arm920t_target,
+ 	&amp;arm720t_target,
+ 	&amp;arm966e_target,
++	&amp;arm946e_target,
+ 	&amp;arm926ejs_target,
+ 	&amp;fa526_target,
+ 	&amp;feroceon_target,
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/Makefile.am              |    2 +
+ src/target/arm946e.c                |  712 +++++++++++++++++++++++++++++++++++
+ src/target/{arm966e.h =&gt; arm946e.h} |   27 +-
+ src/target/target.c                 |    2 +
+ 4 files changed, 731 insertions(+), 12 deletions(-)
+ create mode 100644 src/target/arm946e.c
+ copy src/target/{arm966e.h =&gt; arm946e.h} (71%)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002423.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-574-g8f1f8e7
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2422">[ date ]</a>
+              <a href="thread.html#2422">[ thread ]</a>
+              <a href="subject.html#2422">[ subject ]</a>
+              <a href="author.html#2422">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

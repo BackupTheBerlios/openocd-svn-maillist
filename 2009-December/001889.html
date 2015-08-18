@@ -1,0 +1,473 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-717-gc0630d8
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-717-gc0630d8&In-Reply-To=%3CE1NFGjU-0005CY-Vp%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="001890.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-717-gc0630d8</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-717-gc0630d8&In-Reply-To=%3CE1NFGjU-0005CY-Vp%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-717-gc0630d8">zwelch at users.sourceforge.net
+       </A><BR>
+    <I>Tue Dec  1 01:36:43 CET 2009</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="001890.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-721-gbe65f49
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1889">[ date ]</a>
+              <a href="thread.html#1889">[ thread ]</a>
+              <a href="subject.html#1889">[ subject ]</a>
+              <a href="author.html#1889">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  c0630d8a58c525e09aa938c7a50d4c99d39a93a3 (commit)
+       via  cee1f39f18296a3aa291b806052c7c3d5a066347 (commit)
+       via  64653b0bbb0b2ac87de83d867f241360087b7588 (commit)
+       via  ec6c1962c2398a574a5c413b41483370347b9f5b (commit)
+      from  2264270fe49a447e6f06ec4069a816cc86c3cf0b (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit c0630d8a58c525e09aa938c7a50d4c99d39a93a3
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sun Nov 29 14:29:24 2009 -0800
+
+    only display usable commands in help
+    
+    With the ability to defer 'init', users can access the help system while
+    still in CONFIG mode.  This patch omits commands from the help and usage
+    list when they cannot be run in the current command mode, making it much
+    easier to see what can be done at a given time.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index ce857dd..ac7c8d8 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -872,6 +872,9 @@ static void command_help_show_wrap(const char *str, unsigned n, unsigned n2)
+ static COMMAND_HELPER(command_help_show, struct command *c, unsigned n,
+ 		bool show_help)
+ {
++	if (!command_can_run(CMD_CTX, c))
++		return ERROR_OK;
++
+ 	char *cmd_name = command_name(c, ' ');
+ 	if (NULL == cmd_name)
+ 		return -ENOMEM;
+
+commit cee1f39f18296a3aa291b806052c7c3d5a066347
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sun Nov 29 14:04:21 2009 -0800
+
+    allow deferal of init
+    
+    Adds 'noinit' command to prevent OpenOCD from running 'init' at the end
+    up startup, allowing it to be given from telnet or TCL.  This provides
+    the old behavior by default, and users can add this command to their
+    scripts to get the new behavior.
+
+diff --git a/src/openocd.c b/src/openocd.c
+index 287a819..2a65b4d 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -91,6 +91,16 @@ static int log_target_callback_event_handler(struct target *target, enum target_
+ 
+ int ioutil_init(struct command_context *cmd_ctx);
+ 
++static bool init_at_startup = true;
++
++COMMAND_HANDLER(handle_noinit_command)
++{
++	if (CMD_ARGC != 0)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	init_at_startup = false;
++	return ERROR_OK;
++}
++
+ /* OpenOCD can't really handle failure of this command. Patches welcome! :-) */
+ COMMAND_HANDLER(handle_init_command)
+ {
+@@ -159,15 +169,24 @@ static const struct command_registration openocd_command_handlers[] = {
+ 	{
+ 		.name = &quot;version&quot;,
+ 		.handler = &amp;handle_version_command,
+-		.mode = COMMAND_EXEC,
++		.mode = COMMAND_ANY,
+ 		.help = &quot;show program version&quot;,
+ 	},
+ 	{
++		.name = &quot;noinit&quot;,
++		.handler = &amp;handle_noinit_command,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;Prevent 'init' from being called at startup.&quot;,
++	},
++	{
+ 		.name = &quot;init&quot;,
+ 		.handler = &amp;handle_init_command,
+-		.mode = COMMAND_ANY,
++		.mode = COMMAND_CONFIG,
+ 		.help = &quot;Initializes configured targets and servers.  &quot;
+-			&quot;If called more than once, does nothing.&quot;,
++			&quot;Changes command mode from CONFIG to EXEC.  &quot;
++			&quot;Unless 'noinit' is called, this command is &quot;
++			&quot;called automatically at the end of startup.&quot;,
++
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+@@ -262,7 +281,7 @@ int openocd_main(int argc, char *argv[])
+ 	if (ERROR_OK != ret)
+ 		return EXIT_FAILURE;
+ 
+-	if (1)
++	if (init_at_startup)
+ 	{
+ 		ret = command_run_line(cmd_ctx, &quot;init&quot;);
+ 		if (ERROR_OK != ret)
+
+commit 64653b0bbb0b2ac87de83d867f241360087b7588
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sun Nov 29 14:04:21 2009 -0800
+
+    move server_init()  to openocd_main()
+    
+    Moves the telnet and TCL server startup to server_init(), moving their
+    respective command registration in to server_register_commands().
+    Adds proper error checking for these particular startup processes.
+    
+    Moves the core server startup to openocd_main(), improving related error
+    checking and preparing to defer 'init'.
+
+diff --git a/src/openocd.c b/src/openocd.c
+index 7f6af4c..287a819 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -38,9 +38,7 @@
+ #include &quot;mflash.h&quot;
+ 
+ #include &quot;server.h&quot;
+-#include &quot;telnet_server.h&quot;
+ #include &quot;gdb_server.h&quot;
+-#include &quot;tcl_server.h&quot;
+ #include &quot;httpd.h&quot;
+ 
+ #ifdef HAVE_STRINGS_H
+@@ -149,13 +147,8 @@ COMMAND_HANDLER(handle_init_command)
+ 		return ERROR_FAIL;
+ 	LOG_DEBUG(&quot;pld init complete&quot;);
+ 
+-	/* initialize tcp server */
+-	server_init();
+-
+ 	/* initialize telnet subsystem */
+-	telnet_init(&quot;Open On-Chip Debugger&quot;);
+ 	gdb_target_add_all(all_targets);
+-	tcl_init(); /* allows tcl to just connect without going thru telnet */
+ 
+ 	target_register_event_callback(log_target_callback_event_handler, CMD_CTX);
+ 
+@@ -194,9 +187,7 @@ struct command_context *setup_command_handler(void)
+ 	register_commands(cmd_ctx, NULL, openocd_command_handlers);
+ 	/* register subsystem commands */
+ 	server_register_commands(cmd_ctx);
+-	telnet_register_commands(cmd_ctx);
+ 	gdb_register_commands(cmd_ctx);
+-	tcl_register_commands(cmd_ctx); /* tcl server commands */
+ 	log_register_commands(cmd_ctx);
+ 	jtag_register_commands(cmd_ctx);
+ 	xsvf_register_commands(cmd_ctx);
+@@ -259,7 +250,7 @@ int openocd_main(int argc, char *argv[])
+ 		return EXIT_FAILURE;
+ 
+ 	ret = parse_config_file(cmd_ctx);
+-	if ((ret != ERROR_OK) &amp;&amp; (ret != ERROR_COMMAND_CLOSE_CONNECTION))
++	if (ret != ERROR_OK)
+ 		return EXIT_FAILURE;
+ 
+ #if BUILD_HTTPD
+@@ -267,16 +258,21 @@ int openocd_main(int argc, char *argv[])
+ 		return EXIT_FAILURE;
+ #endif
+ 
+-	if (ret != ERROR_COMMAND_CLOSE_CONNECTION)
++	ret = server_init();
++	if (ERROR_OK != ret)
++		return EXIT_FAILURE;
++
++	if (1)
+ 	{
+-		if (command_run_line(cmd_ctx, &quot;init&quot;) != ERROR_OK)
+-			return EXIT_FAILURE;
++		ret = command_run_line(cmd_ctx, &quot;init&quot;);
++		if (ERROR_OK != ret)
++			ret = EXIT_FAILURE;
++	}
+ 
+-		/* handle network connections */
++	/* handle network connections */
++	if (ERROR_OK == ret)
+ 		server_loop(cmd_ctx);
+-	}
+ 
+-	/* shut server down */
+ 	server_quit();
+ 
+ #if BUILD_HTTPD
+@@ -288,6 +284,5 @@ int openocd_main(int argc, char *argv[])
+ 	/* free commandline interface */
+ 	command_done(cmd_ctx);
+ 
+-
+-	return EXIT_SUCCESS;
++	return ret;
+ }
+diff --git a/src/server/server.c b/src/server/server.c
+index 3ba433e..256c590 100644
+--- a/src/server/server.c
++++ b/src/server/server.c
+@@ -30,6 +30,8 @@
+ #include &quot;server.h&quot;
+ #include &quot;target.h&quot;
+ #include &quot;openocd.h&quot;
++#include &quot;tcl_server.h&quot;
++#include &quot;telnet_server.h&quot;
+ 
+ #include &lt;signal.h&gt;
+ 
+@@ -516,7 +518,11 @@ int server_init(void)
+ 	signal(SIGABRT, sig_handler);
+ #endif
+ 
+-	return ERROR_OK;
++	int ret = tcl_init();
++	if (ERROR_OK != ret)
++		return ret;
++
++	return telnet_init(&quot;Open On-Chip Debugger&quot;);
+ }
+ 
+ int server_quit(void)
+@@ -551,6 +557,14 @@ static const struct command_registration server_command_handlers[] = {
+ 
+ int server_register_commands(struct command_context *cmd_ctx)
+ {
++	int retval = telnet_register_commands(cmd_ctx);
++	if (ERROR_OK != retval)
++		return retval;
++
++	retval = tcl_register_commands(cmd_ctx);
++	if (ERROR_OK != retval)
++		return retval;
++
+ 	return register_commands(cmd_ctx, NULL, server_command_handlers);
+ }
+ 
+
+commit ec6c1962c2398a574a5c413b41483370347b9f5b
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sat Nov 28 18:56:23 2009 -0800
+
+    improve gdb_init() sequence
+    
+    Rework gdb_init to create flexible APIs (gdb_target_add_{one,all}) and
+    static helper (gdb_target_start) for starting GDB services.  Eliminates
+    duplicated code and provides general mechanisms for adding GDB services.
+    The 'init' command is updated to call the new API, and later patches can
+    decouple its policy of adding all targets therein.
+    
+    Provides the new capability to use both piped and TCP servers when
+    multiple targets are defined.  The first target fills the pipe, and
+    others will be started on TCP ports (unless disabled, i.e. gdb_port=0).
+
+diff --git a/src/openocd.c b/src/openocd.c
+index 01e9e79..7f6af4c 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -154,7 +154,7 @@ COMMAND_HANDLER(handle_init_command)
+ 
+ 	/* initialize telnet subsystem */
+ 	telnet_init(&quot;Open On-Chip Debugger&quot;);
+-	gdb_init();
++	gdb_target_add_all(all_targets);
+ 	tcl_init(); /* allows tcl to just connect without going thru telnet */
+ 
+ 	target_register_event_callback(log_target_callback_event_handler, CMD_CTX);
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index 3c099fa..7fb36e4 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -2189,55 +2189,68 @@ int gdb_input(struct connection *connection)
+ 	return ERROR_OK;
+ }
+ 
+-int gdb_init(void)
++static int gdb_target_start(struct target *target, uint16_t port)
+ {
+-	struct gdb_service *gdb_service;
+-	struct target *target = all_targets;
++	bool use_pipes = 0 == port;
++	struct gdb_service *gdb_service = malloc(sizeof(struct gdb_service));
++	if (NULL == gdb_service)
++		return -ENOMEM;
+ 
+-	if (!target)
+-	{
+-		LOG_WARNING(&quot;no gdb ports allocated as no target has been specified&quot;);
+-		return ERROR_OK;
+-	}
++	gdb_service-&gt;target = target;
+ 
++	add_service(&quot;gdb&quot;, use_pipes ? CONNECTION_PIPE : CONNECTION_TCP,
++			port, 1, &amp;gdb_new_connection, &amp;gdb_input,
++			&amp;gdb_connection_closed, gdb_service);
++
++	const char *name = target_name(target);
++	if (use_pipes)
++		LOG_DEBUG(&quot;gdb service for target '%s' using pipes&quot;, name);
++	else
++		LOG_DEBUG(&quot;gdb service for target '%s' on TCP port %u&quot;, name, port);
++	return ERROR_OK;
++}
++
++int gdb_target_add_one(struct target *target)
++{
+ 	if (gdb_port == 0 &amp;&amp; server_use_pipes == 0)
+ 	{
+ 		LOG_INFO(&quot;gdb port disabled&quot;);
+ 		return ERROR_OK;
+ 	}
+ 
+-	if (server_use_pipes)
++	bool use_pipes = server_use_pipes;
++	static bool server_started_with_pipes = false;
++	if (server_started_with_pipes)
+ 	{
+-		/* only a single gdb connection when using a pipe */
++		LOG_WARNING(&quot;gdb service permits one target when using pipes&quot;);
++		if (0 == gdb_port)
++			return ERROR_OK;
+ 
+-		gdb_service = malloc(sizeof(struct gdb_service));
+-		gdb_service-&gt;target = target;
++		use_pipes = false;
++	}
+ 
+-		add_service(&quot;gdb&quot;, CONNECTION_PIPE, 0, 1, gdb_new_connection, gdb_input, gdb_connection_closed, gdb_service);
++	int e = gdb_target_start(target, use_pipes ? 0 : gdb_port++);
++	if (ERROR_OK == e)
++		server_started_with_pipes |= use_pipes;
+ 
+-		LOG_DEBUG(&quot;gdb service for target %s using pipes&quot;,
+-				target_name(target));
++	return e;
++}
++
++int gdb_target_add_all(struct target *target)
++{
++	if (NULL == target)
++	{
++		LOG_WARNING(&quot;gdb services need one or more targets defined&quot;);
++		return ERROR_OK;
+ 	}
+-	else
++
++	while (NULL != target)
+ 	{
+-		unsigned short port = gdb_port;
++		int retval = gdb_target_add_one(target);
++		if (ERROR_OK != retval)
++			return retval;
+ 
+-		while (target)
+-		{
+-			gdb_service = malloc(sizeof(struct gdb_service));
+-			gdb_service-&gt;target = target;
+-
+-			add_service(&quot;gdb&quot;, CONNECTION_TCP,
+-					port, 1,
+-					gdb_new_connection, gdb_input,
+-					gdb_connection_closed, gdb_service);
+-
+-			LOG_DEBUG(&quot;gdb service for target %s at TCP port %i&quot;,
+-					target_name(target),
+-					port);
+-			target = target-&gt;next;
+-			port++;
+-		}
++		target = target-&gt;next;
+ 	}
+ 
+ 	return ERROR_OK;
+diff --git a/src/server/gdb_server.h b/src/server/gdb_server.h
+index a8e8dad..0414975 100644
+--- a/src/server/gdb_server.h
++++ b/src/server/gdb_server.h
+@@ -52,7 +52,8 @@ struct gdb_service
+ 	struct target *target;
+ };
+ 
+-int gdb_init(void);
++int gdb_target_add_one(struct target *target);
++int gdb_target_add_all(struct target *target);
+ int gdb_register_commands(struct command_context *command_context);
+ 
+ #define ERROR_GDB_BUFFER_TOO_SMALL (-800)
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/helper/command.c    |    3 ++
+ src/openocd.c           |   58 +++++++++++++++++++++-------------
+ src/server/gdb_server.c |   79 +++++++++++++++++++++++++++-------------------
+ src/server/gdb_server.h |    3 +-
+ src/server/server.c     |   16 +++++++++-
+ 5 files changed, 102 insertions(+), 57 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="001890.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-721-gbe65f49
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1889">[ date ]</a>
+              <a href="thread.html#1889">[ thread ]</a>
+              <a href="subject.html#1889">[ subject ]</a>
+              <a href="author.html#1889">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

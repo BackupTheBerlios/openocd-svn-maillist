@@ -1,0 +1,479 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2408 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2408%20-%20trunk/src/target&In-Reply-To=%3C200906271725.n5RHPLOh015151%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001191.html">
+   <LINK REL="Next"  HREF="001193.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2408 - trunk/src/target</H1>
+    <B>duane at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2408%20-%20trunk/src/target&In-Reply-To=%3C200906271725.n5RHPLOh015151%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2408 - trunk/src/target">duane at mail.berlios.de
+       </A><BR>
+    <I>Sat Jun 27 19:25:21 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001191.html">[Openocd-svn] r2407 - trunk/src/flash
+</A></li>
+        <LI>Next message: <A HREF="001193.html">[Openocd-svn] r2409 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1192">[ date ]</a>
+              <a href="thread.html#1192">[ thread ]</a>
+              <a href="subject.html#1192">[ subject ]</a>
+              <a href="author.html#1192">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: duane
+Date: 2009-06-27 19:25:07 +0200 (Sat, 27 Jun 2009)
+New Revision: 2408
+
+Modified:
+   trunk/src/target/arm7_9_common.c
+   trunk/src/target/breakpoints.c
+   trunk/src/target/breakpoints.h
+   trunk/src/target/cortex_m3.c
+   trunk/src/target/mips_m4k.c
+Log:
+Add Breakpoint/Watchpoint unique ID to help debug hardware debug register leakage
+
+Modified: trunk/src/target/arm7_9_common.c
+===================================================================
+--- trunk/src/target/arm7_9_common.c	2009-06-27 16:51:41 UTC (rev 2407)
++++ trunk/src/target/arm7_9_common.c	2009-06-27 17:25:07 UTC (rev 2408)
+@@ -58,6 +58,7 @@
+  */
+ static int arm7_9_clear_watchpoints(arm7_9_common_t *arm7_9)
+ {
++	LOG_DEBUG(&quot;-&quot;);
+ 	embeddedice_write_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W0_CONTROL_VALUE], 0x0);
+ 	embeddedice_write_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W1_CONTROL_VALUE], 0x0);
+ 	arm7_9-&gt;sw_breakpoints_added = 0;
+@@ -93,6 +94,10 @@
+ 	{
+ 		LOG_ERROR(&quot;BUG: no hardware comparator available&quot;);
+ 	}
++	LOG_DEBUG(&quot;BPID: %d (0x%08&quot; PRIx32 &quot;) using hw wp: %d&quot;, 
++			  breakpoint-&gt;unique_id,
++			  breakpoint-&gt;address,
++			  breakpoint-&gt;set );
+ }
+ 
+ /**
+@@ -152,6 +157,8 @@
+ 		LOG_ERROR(&quot;BUG: both watchpoints used, but wp_available &gt;= 1&quot;);
+ 		return ERROR_FAIL;
+ 	}
++	LOG_DEBUG(&quot;SW BP using hw wp: %d&quot;, 
++			  arm7_9-&gt;sw_breakpoints_added );
+ 
+ 	return jtag_execute_queue();
+ }
+@@ -220,6 +227,10 @@
+ 	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
+ 	int retval = ERROR_OK;
+ 
++	LOG_DEBUG(&quot;BPID: %d, Address: 0x%08&quot; PRIx32,
++			  breakpoint-&gt;unique_id,
++			  breakpoint-&gt;address );
++
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+ 		LOG_WARNING(&quot;target not halted&quot;);
+@@ -343,6 +354,10 @@
+ 	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+ 	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
+ 
++	LOG_DEBUG(&quot;BPID: %d, Address: 0x%08&quot; PRIx32,
++			  breakpoint-&gt;unique_id,
++			  breakpoint-&gt;address );
++
+ 	if (!breakpoint-&gt;set)
+ 	{
+ 		LOG_WARNING(&quot;breakpoint not set&quot;);
+@@ -351,6 +366,9 @@
+ 
+ 	if (breakpoint-&gt;type == BKPT_HARD)
+ 	{
++		LOG_DEBUG(&quot;BPID: %d Releasing hw wp: %d&quot;, 
++				  breakpoint-&gt;unique_id,
++				  breakpoint-&gt;set );
+ 		if (breakpoint-&gt;set == 1)
+ 		{
+ 			embeddedice_set_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W0_CONTROL_VALUE], 0x0);
+@@ -1807,7 +1825,7 @@
+ 	{
+ 		if ((breakpoint = breakpoint_find(target, buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32))))
+ 		{
+-			LOG_DEBUG(&quot;unset breakpoint at 0x%8.8&quot; PRIx32 &quot;&quot;, breakpoint-&gt;address);
++			LOG_DEBUG(&quot;unset breakpoint at 0x%8.8&quot; PRIx32 &quot; (id: %d)&quot;, breakpoint-&gt;address, breakpoint-&gt;unique_id );
+ 			if ((retval = arm7_9_unset_breakpoint(target, breakpoint)) != ERROR_OK)
+ 			{
+ 				return retval;
+
+Modified: trunk/src/target/breakpoints.c
+===================================================================
+--- trunk/src/target/breakpoints.c	2009-06-27 16:51:41 UTC (rev 2407)
++++ trunk/src/target/breakpoints.c	2009-06-27 17:25:07 UTC (rev 2408)
+@@ -39,16 +39,25 @@
+ 	&quot;access&quot;
+ };
+ 
++// monotonic counter/id-number for breakpoints and watch points
++static int bpwp_unique_id;
++
+ int breakpoint_add(target_t *target, uint32_t address, uint32_t length, enum breakpoint_type type)
+ {
+ 	breakpoint_t *breakpoint = target-&gt;breakpoints;
+ 	breakpoint_t **breakpoint_p = &amp;target-&gt;breakpoints;
+ 	int retval;
++	int n;
+ 
++	n = 0;
+ 	while (breakpoint)
+ 	{
+-		if (breakpoint-&gt;address == address)
++		n++;
++		if (breakpoint-&gt;address == address){
++			LOG_DEBUG(&quot;Duplicate Breakpoint address: 0x%08&quot; PRIx32 &quot; (BP %d)&quot;, 
++				  address, breakpoint-&gt;unique_id );
+ 			return ERROR_OK;
++		}
+ 		breakpoint_p = &amp;breakpoint-&gt;next;
+ 		breakpoint = breakpoint-&gt;next;
+ 	}
+@@ -60,20 +69,25 @@
+ 	(*breakpoint_p)-&gt;set = 0;
+ 	(*breakpoint_p)-&gt;orig_instr = malloc(length);
+ 	(*breakpoint_p)-&gt;next = NULL;
++	(*breakpoint_p)-&gt;unique_id = bpwp_unique_id++;
+ 
+ 	if ((retval = target_add_breakpoint(target, *breakpoint_p)) != ERROR_OK)
+ 	{
+ 		switch (retval)
+ 		{
+ 			case ERROR_TARGET_RESOURCE_NOT_AVAILABLE:
+-				LOG_INFO(&quot;can't add %s breakpoint, resource not available&quot;, breakpoint_type_strings[(*breakpoint_p)-&gt;type]);
++				LOG_INFO(&quot;can't add %s breakpoint, resource not available (BPID=%d)&quot;, 
++					 breakpoint_type_strings[(*breakpoint_p)-&gt;type],
++					 (*breakpoint_p)-&gt;unique_id );
++				
+ 				free((*breakpoint_p)-&gt;orig_instr);
+ 				free(*breakpoint_p);
+ 				*breakpoint_p = NULL;
+ 				return retval;
+ 				break;
+ 			case ERROR_TARGET_NOT_HALTED:
+-				LOG_INFO(&quot;can't add breakpoint while target is running&quot;);
++				LOG_INFO(&quot;can't add breakpoint while target is running (BPID: %d)&quot;,
++						 (*breakpoint_p)-&gt;unique_id );						 
+ 				free((*breakpoint_p)-&gt;orig_instr);
+ 				free(*breakpoint_p);
+ 				*breakpoint_p = NULL;
+@@ -84,9 +98,10 @@
+ 		}
+ 	}
+ 
+-	LOG_DEBUG(&quot;added %s breakpoint at 0x%8.8&quot; PRIx32 &quot; of length 0x%8.8x&quot;,
+-		breakpoint_type_strings[(*breakpoint_p)-&gt;type],
+-		(*breakpoint_p)-&gt;address, (*breakpoint_p)-&gt;length);
++	LOG_DEBUG(&quot;added %s breakpoint at 0x%8.8&quot; PRIx32 &quot; of length 0x%8.8x, (BPID: %d)&quot;,
++			  breakpoint_type_strings[(*breakpoint_p)-&gt;type],
++			  (*breakpoint_p)-&gt;address, (*breakpoint_p)-&gt;length,
++			  (*breakpoint_p)-&gt;unique_id  );
+ 
+ 	return ERROR_OK;
+ }
+@@ -110,6 +125,7 @@
+ 
+ 	target_remove_breakpoint(target, breakpoint);
+ 
++	LOG_DEBUG(&quot;BPID: %d&quot;, breakpoint-&gt;unique_id );
+ 	(*breakpoint_p) = breakpoint-&gt;next;
+ 	free(breakpoint-&gt;orig_instr);
+ 	free(breakpoint);
+@@ -141,6 +157,7 @@
+ void breakpoint_clear_target(target_t *target)
+ {
+ 	breakpoint_t *breakpoint;
++	LOG_DEBUG(&quot;Delete all breakpoints for target: %s&quot;, target_get_name( target ));
+ 	while ((breakpoint = target-&gt;breakpoints) != NULL)
+ 	{
+ 		breakpoint_free(target, breakpoint);
+@@ -183,19 +200,23 @@
+ 	(*watchpoint_p)-&gt;rw = rw;
+ 	(*watchpoint_p)-&gt;set = 0;
+ 	(*watchpoint_p)-&gt;next = NULL;
++	(*watchpoint_p)-&gt;unique_id = bpwp_unique_id++;
+ 
+ 	if ((retval = target_add_watchpoint(target, *watchpoint_p)) != ERROR_OK)
+ 	{
+ 		switch (retval)
+ 		{
+ 			case ERROR_TARGET_RESOURCE_NOT_AVAILABLE:
+-				LOG_INFO(&quot;can't add %s watchpoint, resource not available&quot;, watchpoint_rw_strings[(*watchpoint_p)-&gt;rw]);
++				LOG_INFO(&quot;can't add %s watchpoint, resource not available (WPID: %d)&quot;, 
++					 watchpoint_rw_strings[(*watchpoint_p)-&gt;rw],
++					 (*watchpoint_p)-&gt;unique_id );
+ 				free (*watchpoint_p);
+ 				*watchpoint_p = NULL;
+ 				return retval;
+ 				break;
+ 			case ERROR_TARGET_NOT_HALTED:
+-				LOG_INFO(&quot;can't add watchpoint while target is running&quot;);
++				LOG_INFO(&quot;can't add watchpoint while target is running (WPID: %d)&quot;,
++						 (*watchpoint_p)-&gt;unique_id );
+ 				free (*watchpoint_p);
+ 				*watchpoint_p = NULL;
+ 				return retval;
+@@ -207,9 +228,11 @@
+ 		}
+ 	}
+ 
+-	LOG_DEBUG(&quot;added %s watchpoint at 0x%8.8&quot; PRIx32 &quot; of length 0x%8.8x&quot;,
+-		watchpoint_rw_strings[(*watchpoint_p)-&gt;rw],
+-		(*watchpoint_p)-&gt;address, (*watchpoint_p)-&gt;length);
++	LOG_DEBUG(&quot;added %s watchpoint at 0x%8.8&quot; PRIx32 &quot; of length 0x%8.8x (WPID: %d)&quot;,
++			  watchpoint_rw_strings[(*watchpoint_p)-&gt;rw],
++			  (*watchpoint_p)-&gt;address, 
++			  (*watchpoint_p)-&gt;length,
++			  (*watchpoint_p)-&gt;unique_id );
+ 
+ 	return ERROR_OK;
+ }
+@@ -230,6 +253,7 @@
+ 	if (watchpoint == NULL)
+ 		return;
+ 	target_remove_watchpoint(target, watchpoint);
++	LOG_DEBUG(&quot;WPID: %d&quot;, watchpoint-&gt;unique_id );
+ 	(*watchpoint_p) = watchpoint-&gt;next;
+ 	free(watchpoint);
+ }
+@@ -260,6 +284,7 @@
+ void watchpoint_clear_target(target_t *target)
+ {
+ 	watchpoint_t *watchpoint;
++	LOG_DEBUG(&quot;Delete all watchpoints for target: %s&quot;, target_get_name( target ));
+ 	while ((watchpoint = target-&gt;watchpoints) != NULL)
+ 	{
+ 		watchpoint_free(target, watchpoint);
+
+Modified: trunk/src/target/breakpoints.h
+===================================================================
+--- trunk/src/target/breakpoints.h	2009-06-27 16:51:41 UTC (rev 2407)
++++ trunk/src/target/breakpoints.h	2009-06-27 17:25:07 UTC (rev 2408)
+@@ -43,6 +43,7 @@
+ 	int set;
+ 	uint8_t *orig_instr;
+ 	struct breakpoint_s *next;
++	int unique_id;
+ } breakpoint_t;
+ 
+ typedef struct watchpoint_s
+@@ -54,6 +55,7 @@
+ 	enum watchpoint_rw rw;
+ 	int set;
+ 	struct watchpoint_s *next;
++	int unique_id;
+ } watchpoint_t;
+ 
+ extern void breakpoint_clear_target(struct target_s *target);
+
+Modified: trunk/src/target/cortex_m3.c
+===================================================================
+--- trunk/src/target/cortex_m3.c	2009-06-27 16:51:41 UTC (rev 2407)
++++ trunk/src/target/cortex_m3.c	2009-06-27 17:25:07 UTC (rev 2408)
+@@ -664,7 +664,9 @@
+ 		/* Single step past breakpoint at current address */
+ 		if ((breakpoint = breakpoint_find(target, resume_pc)))
+ 		{
+-			LOG_DEBUG(&quot;unset breakpoint at 0x%8.8&quot; PRIx32 &quot;&quot;, breakpoint-&gt;address);
++			LOG_DEBUG(&quot;unset breakpoint at 0x%8.8&quot; PRIx32 &quot; (ID: %d)&quot;, 
++					  breakpoint-&gt;address,
++					  breakpoint-&gt;unique_id );
+ 			cortex_m3_unset_breakpoint(target, breakpoint);
+ 			cortex_m3_single_step_core(target);
+ 			cortex_m3_set_breakpoint(target, breakpoint);
+@@ -897,7 +899,7 @@
+ 
+ 	if (breakpoint-&gt;set)
+ 	{
+-		LOG_WARNING(&quot;breakpoint already set&quot;);
++		LOG_WARNING(&quot;breakpoint (BPID: %d) already set&quot;, breakpoint-&gt;unique_id);
+ 		return ERROR_OK;
+ 	}
+ 
+@@ -943,6 +945,13 @@
+ 		breakpoint-&gt;set = 0x11; /* Any nice value but 0 */
+ 	}
+ 
++	LOG_DEBUG(&quot;BPID: %d, Type: %d, Address: 0x%08&quot; PRIx32 &quot; Length: %d (set=%d)&quot;, 
++			  breakpoint-&gt;unique_id,
++			  (int)(breakpoint-&gt;type),
++			  breakpoint-&gt;address,
++			  breakpoint-&gt;length,
++			  breakpoint-&gt;set);
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -960,6 +969,13 @@
+ 		return ERROR_OK;
+ 	}
+ 
++	LOG_DEBUG(&quot;BPID: %d, Type: %d, Address: 0x%08&quot; PRIx32 &quot; Length: %d (set=%d)&quot;, 
++			  breakpoint-&gt;unique_id,
++			  (int)(breakpoint-&gt;type),
++			  breakpoint-&gt;address,
++			  breakpoint-&gt;length,
++			  breakpoint-&gt;set);
++
+ 	if (breakpoint-&gt;type == BKPT_HARD)
+ 	{
+ 		int fp_num = breakpoint-&gt;set - 1;
+@@ -1085,7 +1101,7 @@
+ 
+ 	if (watchpoint-&gt;set)
+ 	{
+-		LOG_WARNING(&quot;watchpoint already set&quot;);
++		LOG_WARNING(&quot;watchpoint (%d) already set&quot;, watchpoint-&gt;unique_id );
+ 		return ERROR_OK;
+ 	}
+ 
+@@ -1118,10 +1134,13 @@
+ 	}
+ 	else
+ 	{
+-		LOG_WARNING(&quot;Cannot watch data values&quot;);  /* Move this test to add_watchpoint */
++		/* Move this test to add_watchpoint */
++		LOG_WARNING(&quot;Cannot watch data values (id: %d)&quot;,
++				  watchpoint-&gt;unique_id );
+ 		return ERROR_OK;
+ 	}
+-
++	LOG_DEBUG(&quot;Watchpoint (ID: %d) address: 0x%08&quot; PRIx32 &quot; set=%d &quot;, 
++			  watchpoint-&gt;unique_id, watchpoint-&gt;address, watchpoint-&gt;set );
+ 	return ERROR_OK;
+ 
+ }
+@@ -1136,10 +1155,13 @@
+ 
+ 	if (!watchpoint-&gt;set)
+ 	{
+-		LOG_WARNING(&quot;watchpoint not set&quot;);
++		LOG_WARNING(&quot;watchpoint (wpid: %d) not set&quot;, watchpoint-&gt;unique_id );
+ 		return ERROR_OK;
+ 	}
+ 
++	LOG_DEBUG(&quot;Watchpoint (ID: %d) address: 0x%08&quot; PRIx32 &quot; set=%d &quot;, 
++			  watchpoint-&gt;unique_id, watchpoint-&gt;address,watchpoint-&gt;set );
++
+ 	dwt_num = watchpoint-&gt;set - 1;
+ 
+ 	if ((dwt_num &lt; 0) || (dwt_num &gt;= cortex_m3-&gt;dwt_num_comp))
+@@ -1179,6 +1201,7 @@
+ 	}
+ 
+ 	cortex_m3-&gt;dwt_comp_available--;
++	LOG_DEBUG(&quot;dwt_comp_available: %d&quot;, cortex_m3-&gt;dwt_comp_available);
+ 
+ 	return ERROR_OK;
+ }
+@@ -1201,6 +1224,7 @@
+ 	}
+ 
+ 	cortex_m3-&gt;dwt_comp_available++;
++	LOG_DEBUG(&quot;dwt_comp_available: %d&quot;, cortex_m3-&gt;dwt_comp_available);
+ 
+ 	return ERROR_OK;
+ }
+
+Modified: trunk/src/target/mips_m4k.c
+===================================================================
+--- trunk/src/target/mips_m4k.c	2009-06-27 16:51:41 UTC (rev 2407)
++++ trunk/src/target/mips_m4k.c	2009-06-27 17:25:07 UTC (rev 2408)
+@@ -513,7 +513,8 @@
+ 			bp_num++;
+ 		if (bp_num &gt;= mips32-&gt;num_inst_bpoints)
+ 		{
+-			LOG_DEBUG(&quot;ERROR Can not find free FP Comparator&quot;);
++			LOG_DEBUG(&quot;ERROR Can not find free FP Comparator(bpid: %d)&quot;,
++					  breakpoint-&gt;unique_id );
+ 			LOG_WARNING(&quot;ERROR Can not find free FP Comparator&quot;);
+ 			exit(-1);
+ 		}
+@@ -523,10 +524,13 @@
+ 		target_write_u32(target, comparator_list[bp_num].reg_address, comparator_list[bp_num].bp_value);
+ 		target_write_u32(target, comparator_list[bp_num].reg_address + 0x08, 0x00000000);
+ 		target_write_u32(target, comparator_list[bp_num].reg_address + 0x18, 1);
+-		LOG_DEBUG(&quot;bp_num %i bp_value 0x%&quot; PRIx32 &quot;&quot;, bp_num, comparator_list[bp_num].bp_value);
++		LOG_DEBUG(&quot;bpid: %d, bp_num %i bp_value 0x%&quot; PRIx32 &quot;&quot;, 
++				  breakpoint-&gt;unique_id,
++				  bp_num, comparator_list[bp_num].bp_value);
+ 	}
+ 	else if (breakpoint-&gt;type == BKPT_SOFT)
+ 	{
++		LOG_DEBUG(&quot;bpid: %d&quot;, breakpoint-&gt;unique_id );
+ 		if (breakpoint-&gt;length == 4)
+ 		{
+ 			uint32_t verify = 0xffffffff;
+@@ -598,16 +602,22 @@
+ 		int bp_num = breakpoint-&gt;set - 1;
+ 		if ((bp_num &lt; 0) || (bp_num &gt;= mips32-&gt;num_inst_bpoints))
+ 		{
+-			LOG_DEBUG(&quot;Invalid FP Comparator number in breakpoint&quot;);
++			LOG_DEBUG(&quot;Invalid FP Comparator number in breakpoint (bpid: %d)&quot;,
++					  breakpoint-&gt;unique_id);
+ 			return ERROR_OK;
+ 		}
++		LOG_DEBUG(&quot;bpid: %d - releasing hw: %d&quot;,
++				  breakpoint-&gt;unique_id,
++				  bp_num );
+ 		comparator_list[bp_num].used = 0;
+ 		comparator_list[bp_num].bp_value = 0;
+ 		target_write_u32(target, comparator_list[bp_num].reg_address + 0x18, 0);
++		
+ 	}
+ 	else
+ 	{
+ 		/* restore original instruction (kept in target endianness) */
++		LOG_DEBUG(&quot;bpid: %d&quot;, breakpoint-&gt;unique_id);
+ 		if (breakpoint-&gt;length == 4)
+ 		{
+ 			uint32_t current_instr;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001191.html">[Openocd-svn] r2407 - trunk/src/flash
+</A></li>
+	<LI>Next message: <A HREF="001193.html">[Openocd-svn] r2409 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1192">[ date ]</a>
+              <a href="thread.html#1192">[ thread ]</a>
+              <a href="subject.html#1192">[ subject ]</a>
+              <a href="author.html#1192">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

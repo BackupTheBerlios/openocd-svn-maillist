@@ -1,0 +1,1137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1402 - in trunk: . contrib doc src/jtag	src/target/interface
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1402%20-%20in%20trunk%3A%20.%20contrib%20doc%20src/jtag%0A%09src/target/interface&In-Reply-To=%3C200903081514.n28FEOY6011034%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000185.html">
+   <LINK REL="Next"  HREF="000187.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1402 - in trunk: . contrib doc src/jtag	src/target/interface</H1>
+    <B>duane at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1402%20-%20in%20trunk%3A%20.%20contrib%20doc%20src/jtag%0A%09src/target/interface&In-Reply-To=%3C200903081514.n28FEOY6011034%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1402 - in trunk: . contrib doc src/jtag	src/target/interface">duane at mail.berlios.de
+       </A><BR>
+    <I>Sun Mar  8 16:14:24 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000185.html">[Openocd-svn] r1401 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000187.html">[Openocd-svn] r1403 - trunk/src/target/interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#186">[ date ]</a>
+              <a href="thread.html#186">[ thread ]</a>
+              <a href="subject.html#186">[ subject ]</a>
+              <a href="author.html#186">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: duane
+Date: 2009-03-08 16:14:18 +0100 (Sun, 08 Mar 2009)
+New Revision: 1402
+
+Added:
+   trunk/src/jtag/arm-jtag-ew.c
+   trunk/src/target/interface/arm-jtag-ew.cfg
+Modified:
+   trunk/configure.in
+   trunk/contrib/openocd.udev
+   trunk/doc/openocd.texi
+   trunk/src/jtag/Makefile.am
+   trunk/src/jtag/jtag.c
+Log:
+Patch from Dimitar Dimitrov adding support for Olimex ARM-JTAG-EW
+
+Modified: trunk/configure.in
+===================================================================
+--- trunk/configure.in	2009-03-07 15:51:26 UTC (rev 1401)
++++ trunk/configure.in	2009-03-08 15:14:18 UTC (rev 1402)
+@@ -273,6 +273,10 @@
+   AS_HELP_STRING([--enable-rlink], [Enable building support for the Raisonance RLink JTAG Programmer]),
+   [build_rlink=$enableval], [build_rlink=no])
+ 
++AC_ARG_ENABLE(arm-jtag-ew,
++  AS_HELP_STRING([--enable-arm-jtag-ew], [Enable building support for the Olimex ARM-JTAG-EW Programmer]),
++  [build_armjtagew=$enableval], [build_armjtagew=no])
++
+ case $host in 
+   *-cygwin*) 
+     is_win32=yes
+@@ -448,6 +452,12 @@
+   AC_DEFINE(BUILD_RLINK, 0, [0 if you don't want the RLink JTAG driver.])
+ fi
+ 
++if test $build_armjtagew = yes; then
++  AC_DEFINE(BUILD_ARMJTAGEW, 1, [1 if you want the ARM-JTAG-EW JTAG driver.])
++else
++  AC_DEFINE(BUILD_ARMJTAGEW, 0, [0 if you don't want the ARM-JTAG-EW JTAG driver.])
++fi
++
+ #-- Deal with MingW/Cygwin FTD2XX issues
+ 
+ if test $is_win32 = yes; then
+@@ -661,6 +671,7 @@
+ AM_CONDITIONAL(JLINK, test $build_jlink = yes)
+ AM_CONDITIONAL(VSLLINK, test $build_vsllink = yes)
+ AM_CONDITIONAL(RLINK, test $build_rlink = yes)
++AM_CONDITIONAL(ARMJTAGEW, test $build_armjtagew = yes)
+ AM_CONDITIONAL(IS_CYGWIN, test $is_cygwin = yes)
+ AM_CONDITIONAL(IS_MINGW, test $is_mingw = yes)
+ AM_CONDITIONAL(IS_WIN32, test $is_win32 = yes)
+
+Modified: trunk/contrib/openocd.udev
+===================================================================
+--- trunk/contrib/openocd.udev	2009-03-07 15:51:26 UTC (rev 1401)
++++ trunk/contrib/openocd.udev	2009-03-08 15:14:18 UTC (rev 1402)
+@@ -21,5 +21,8 @@
+ # Raisonance RLink
+ SYSFS{idVendor}==&quot;138e&quot;, SYSFS{idProduct}==&quot;9000&quot;, MODE=&quot;664&quot;, GROUP=&quot;plugdev&quot;
+ 
++# Olimex ARM-JTAG-EW
++SYSFS{idVendor}==&quot;15ba&quot;, SYSFS{idProduct}==&quot;001e&quot;, MODE=&quot;664&quot;, GROUP=&quot;plugdev&quot;
++
+ LABEL=&quot;openocd_rules_end&quot;
+ 
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-03-07 15:51:26 UTC (rev 1401)
++++ trunk/doc/openocd.texi	2009-03-08 15:14:18 UTC (rev 1402)
+@@ -265,6 +265,8 @@
+ @option{--enable-vsllink}
+ @item
+ @option{--enable-rlink} - Raisonance.com dongle.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A>
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{--enable-arm-jtag-ew} - Olimex ARM-JTAG-EW dongle.
+ @end itemize
+ 
+ @section Parallel Port Dongles
+@@ -445,6 +447,9 @@
+ 
+ @item @b{Versaloon-Link}
+ @* Link: @url{<A HREF="http://www.simonqian.com/en/Versaloon">http://www.simonqian.com/en/Versaloon</A>}
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @b{ARM-JTAG-EW}
++@* Link: @url{<A HREF="http://www.olimex.com/dev/arm-jtag-ew.html">http://www.olimex.com/dev/arm-jtag-ew.html</A>}
+ @end itemize
+ 
+ @section IBM PC Parallel Printer Port Based
+@@ -1144,6 +1149,10 @@
+ parport_cable wiggler
+ jtag_speed 0
+ @end verbatim
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{ARM-JTAG-EW}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at verbatim</A>
++interface arm-jtag-ew
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> verbatim
+ @section Interface Conmmand
+ 
+ The interface command tells OpenOCD what type of jtag dongle you are
+@@ -1192,6 +1201,9 @@
+ 
+ @item @b{vsllink}
+ @* vsllink is part of Versaloon which is a versatile USB programmer.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @b{arm-jtag-ew}
++@* Olimex ARM-JTAG-EW usb adapter
+ @comment - End parameters
+ @end itemize
+ @comment - End Interface
+
+Modified: trunk/src/jtag/Makefile.am
+===================================================================
+--- trunk/src/jtag/Makefile.am	2009-03-07 15:51:26 UTC (rev 1401)
++++ trunk/src/jtag/Makefile.am	2009-03-08 15:14:18 UTC (rev 1402)
+@@ -102,8 +102,14 @@
+ VSLLINKFILES =
+ endif
+ 
++if ARMJTAGEW
++ARMJTAGEWFILES = arm-jtag-ew.c
++else
++ARMJTAGEWFILES =
++endif
++
+ libjtag_a_SOURCES = jtag.c $(BITBANGFILES) $(PARPORTFILES) $(DUMMYFILES) $(FT2232FILES) $(AMTJTAGACCELFILES) $(EP93XXFILES) \
+-	$(AT91RM9200FILES) $(GW16012FILES) $(BITQFILES) $(PRESTOFILES) $(USBPROGFILES) $(ECOSBOARDFILES) $(JLINKFILES) $(RLINKFILES) $(VSLLINKFILES)
++	$(AT91RM9200FILES) $(GW16012FILES) $(BITQFILES) $(PRESTOFILES) $(USBPROGFILES) $(ECOSBOARDFILES) $(JLINKFILES) $(RLINKFILES) $(VSLLINKFILES) $(ARMJTAGEWFILES)
+ 
+ noinst_HEADERS = bitbang.h jtag.h bitq.h rlink/dtc_cmd.h rlink/ep1_cmd.h rlink/rlink.h rlink/st7.h
+ 
+
+Added: trunk/src/jtag/arm-jtag-ew.c
+===================================================================
+--- trunk/src/jtag/arm-jtag-ew.c	2009-03-07 15:51:26 UTC (rev 1401)
++++ trunk/src/jtag/arm-jtag-ew.c	2009-03-08 15:14:18 UTC (rev 1402)
+@@ -0,0 +1,903 @@
++// vim:ts=4 sw=4: 
++
++/***************************************************************************
++ *   Copyright (C) 2009 by Dimitar Dimitrov &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dinuxbg at gmail.com</A>&gt;            *
++ *   based on Dominic Rath's and Benedikt Sauter's usbprog.c               *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;replacements.h&quot;
++
++#include &quot;jtag.h&quot;
++#include &lt;usb.h&gt;
++#include &lt;string.h&gt;
++#include &lt;ctype.h&gt;
++
++/* system includes */
++
++#include &quot;log.h&quot;
++
++/* enable this to debug communication
++ */
++#if 1
++#define _DEBUG_USB_COMMS_
++#define _DEBUG_JTAG_IO_
++#endif
++
++#ifdef _DEBUG_JTAG_IO_
++#define DEBUG_JTAG_IO(expr ...)	LOG_DEBUG(expr)
++#else
++#define DEBUG_JTAG_IO(expr ...)
++#endif
++
++#define USB_VID						0x15ba
++#define USB_PID						0x001e
++
++#define ARMJTAGEW_EPT_BULK_OUT		0x01u
++#define ARMJTAGEW_EPT_BULK_IN		0x82u
++
++#define ARMJTAGEW_USB_TIMEOUT		2000
++
++#define ARMJTAGEW_IN_BUFFER_SIZE	(4*1024)
++#define ARMJTAGEW_OUT_BUFFER_SIZE	(4*1024)
++
++
++/* USB command request codes. */
++#define CMD_GET_VERSION				0x00
++#define CMD_SELECT_DPIMPL			0x10
++#define CMD_SET_TCK_FREQUENCY		0x11
++#define CMD_GET_TCK_FREQUENCY		0x12
++#define CMD_MEASURE_MAX_TCK_FREQ	0x15
++#define CMD_MEASURE_RTCK_RESPONSE	0x16
++#define CMD_TAP_SHIFT				0x17
++#define CMD_SET_TAPHW_STATE			0x20
++#define CMD_GET_TAPHW_STATE			0x21
++#define CMD_TGPWR_SETUP				0x22
++
++/* Global USB buffers */
++static u8 usb_in_buffer[ARMJTAGEW_IN_BUFFER_SIZE];
++static u8 usb_out_buffer[ARMJTAGEW_OUT_BUFFER_SIZE];
++
++/* External interface functions */
++int armjtagew_execute_queue(void);
++int armjtagew_speed(int speed);
++int armjtagew_khz(int khz, int *jtag_speed);
++int armjtagew_register_commands(struct command_context_s *cmd_ctx);
++int armjtagew_init(void);
++int armjtagew_quit(void);
++
++/* CLI command handler functions */
++int armjtagew_handle_armjtagew_info_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++
++/* Queue command functions */
++void armjtagew_end_state(tap_state_t state);
++void armjtagew_state_move(void);
++void armjtagew_path_move(int num_states, tap_state_t *path);
++void armjtagew_runtest(int num_cycles);
++void armjtagew_scan(int ir_scan, enum scan_type type, u8 *buffer, int scan_size, scan_command_t *command);
++void armjtagew_reset(int trst, int srst);
++void armjtagew_simple_command(u8 command);
++int armjtagew_get_status(void);
++
++/* tap buffer functions */
++void armjtagew_tap_init(void);
++int armjtagew_tap_execute(void);
++void armjtagew_tap_ensure_space(int scans, int bits);
++void armjtagew_tap_append_step(int tms, int tdi);
++void armjtagew_tap_append_scan(int length, u8 *buffer, scan_command_t *command);
++
++/* ARM-JTAG-EW lowlevel functions */
++typedef struct armjtagew_jtag
++{
++	struct usb_dev_handle* usb_handle;
++} armjtagew_jtag_t;
++
++armjtagew_jtag_t *armjtagew_usb_open(void);
++void armjtagew_usb_close(armjtagew_jtag_t *armjtagew_jtag);
++int armjtagew_usb_message(armjtagew_jtag_t *armjtagew_jtag, int out_length, int in_length);
++int armjtagew_usb_write(armjtagew_jtag_t *armjtagew_jtag, int out_length);
++int armjtagew_usb_read(armjtagew_jtag_t *armjtagew_jtag, int exp_in_length);
++
++/* helper functions */
++int armjtagew_get_version_info(void);
++
++#ifdef _DEBUG_USB_COMMS_
++void armjtagew_debug_buffer(u8 *buffer, int length);
++#endif
++
++armjtagew_jtag_t* armjtagew_jtag_handle;
++
++
++
++/***************************************************************************/
++/* External interface implementation */
++
++jtag_interface_t armjtagew_interface =
++{
++	.name = &quot;arm-jtag-ew&quot;,
++	.execute_queue = armjtagew_execute_queue,
++	.speed = armjtagew_speed,
++	.khz = armjtagew_khz,
++	.register_commands = armjtagew_register_commands,
++	.init = armjtagew_init,
++	.quit = armjtagew_quit
++};
++
++
++int armjtagew_execute_queue(void)
++{
++	jtag_command_t *cmd = jtag_command_queue;
++	int scan_size;
++	enum scan_type type;
++	u8 *buffer;
++
++	while (cmd != NULL)
++	{
++		switch (cmd-&gt;type)
++		{
++			case JTAG_END_STATE:
++				DEBUG_JTAG_IO(&quot;end_state: %i&quot;, cmd-&gt;cmd.end_state-&gt;end_state);
++
++				if (cmd-&gt;cmd.end_state-&gt;end_state != -1)
++				{
++					armjtagew_end_state(cmd-&gt;cmd.end_state-&gt;end_state);
++				}
++				break;
++
++			case JTAG_RUNTEST:
++				DEBUG_JTAG_IO( &quot;runtest %i cycles, end in %i&quot;, cmd-&gt;cmd.runtest-&gt;num_cycles, \
++					cmd-&gt;cmd.runtest-&gt;end_state);
++
++				if (cmd-&gt;cmd.runtest-&gt;end_state != -1)
++				{
++					armjtagew_end_state(cmd-&gt;cmd.runtest-&gt;end_state);
++				}
++				armjtagew_runtest(cmd-&gt;cmd.runtest-&gt;num_cycles);
++				break;
++
++			case JTAG_STATEMOVE:
++				DEBUG_JTAG_IO(&quot;statemove end in %i&quot;, cmd-&gt;cmd.statemove-&gt;end_state);
++
++				if (cmd-&gt;cmd.statemove-&gt;end_state != -1)
++				{
++					armjtagew_end_state(cmd-&gt;cmd.statemove-&gt;end_state);
++				}
++				armjtagew_state_move();
++				break;
++
++			case JTAG_PATHMOVE:
++				DEBUG_JTAG_IO(&quot;pathmove: %i states, end in %i&quot;, \
++					cmd-&gt;cmd.pathmove-&gt;num_states, \
++					cmd-&gt;cmd.pathmove-&gt;path[cmd-&gt;cmd.pathmove-&gt;num_states - 1]);
++
++				armjtagew_path_move(cmd-&gt;cmd.pathmove-&gt;num_states, cmd-&gt;cmd.pathmove-&gt;path);
++				break;
++
++			case JTAG_SCAN:
++				DEBUG_JTAG_IO(&quot;scan end in %i&quot;, cmd-&gt;cmd.scan-&gt;end_state);
++
++				if (cmd-&gt;cmd.scan-&gt;end_state != -1)
++				{
++					armjtagew_end_state(cmd-&gt;cmd.scan-&gt;end_state);
++				}
++
++				scan_size = jtag_build_buffer(cmd-&gt;cmd.scan, &amp;buffer);
++				DEBUG_JTAG_IO(&quot;scan input, length = %d&quot;, scan_size);
++
++#ifdef _DEBUG_USB_COMMS_
++				armjtagew_debug_buffer(buffer, (scan_size + 7) / 8);
++#endif
++				type = jtag_scan_type(cmd-&gt;cmd.scan);
++				armjtagew_scan(cmd-&gt;cmd.scan-&gt;ir_scan, type, buffer, scan_size, cmd-&gt;cmd.scan);
++				break;
++
++			case JTAG_RESET:
++				DEBUG_JTAG_IO(&quot;reset trst: %i srst %i&quot;, cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
++
++				armjtagew_tap_execute();
++
++				if (cmd-&gt;cmd.reset-&gt;trst == 1)
++				{
++					tap_set_state(TAP_RESET);
++				}
++				armjtagew_reset(cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
++				break;
++
++			case JTAG_SLEEP:
++				DEBUG_JTAG_IO(&quot;sleep %i&quot;, cmd-&gt;cmd.sleep-&gt;us);
++				armjtagew_tap_execute();
++				jtag_sleep(cmd-&gt;cmd.sleep-&gt;us);
++				break;
++
++			default:
++				LOG_ERROR(&quot;BUG: unknown JTAG command type encountered&quot;);
++				exit(-1);
++		}
++		cmd = cmd-&gt;next;
++	}
++
++	return armjtagew_tap_execute();
++}
++
++
++/* Sets speed in kHz. */
++int armjtagew_speed(int speed)
++{
++    int result;
++    int speed_real;
++
++
++    usb_out_buffer[0] = CMD_SET_TCK_FREQUENCY;
++	buf_set_u32(usb_out_buffer+1, 0, 32, speed);
++
++    result = armjtagew_usb_message(armjtagew_jtag_handle, 4, 4);
++
++    if (result &lt; 0)
++    {
++        LOG_ERROR(&quot;ARM-JTAG-EW setting speed failed (%d)&quot;, result);
++        return ERROR_JTAG_DEVICE_ERROR;
++    }
++
++	usb_out_buffer[0] = CMD_GET_TCK_FREQUENCY;
++    result = armjtagew_usb_message(armjtagew_jtag_handle, 1, 4);
++	speed_real = (int)buf_get_u32(usb_in_buffer,0,32);
++	if(result &lt; 0) 
++	{
++        LOG_ERROR(&quot;ARM-JTAG-EW getting speed failed (%d)&quot;, result);
++        return ERROR_JTAG_DEVICE_ERROR;
++	} 
++	else
++	{
++    	LOG_INFO(&quot;Requested speed %dkHz, emulator reported %dkHz.&quot;, speed, speed_real);
++	}
++
++    return ERROR_OK;
++}
++
++
++int armjtagew_khz(int khz, int *jtag_speed)
++{
++	*jtag_speed = khz;
++
++	return ERROR_OK;
++}
++
++int armjtagew_register_commands(struct command_context_s *cmd_ctx)
++{
++	register_command(cmd_ctx, NULL, &quot;armjtagew_info&quot;, armjtagew_handle_armjtagew_info_command, COMMAND_EXEC,
++		&quot;query armjtagew info&quot;);
++	return ERROR_OK;
++}
++
++int armjtagew_init(void)
++{
++	int check_cnt;
++
++	armjtagew_jtag_handle = armjtagew_usb_open();
++
++	if (armjtagew_jtag_handle == 0)
++	{
++		LOG_ERROR(&quot;Cannot find ARM-JTAG-EW Interface! Please check connection and permissions.&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	check_cnt = 0;
++	while (check_cnt &lt; 3)
++	{
++		if (armjtagew_get_version_info() == ERROR_OK)
++		{
++			/* attempt to get status */
++			armjtagew_get_status();
++			break;
++		}
++
++		check_cnt++;
++	}
++
++	if (check_cnt == 3)
++	{
++		LOG_INFO(&quot;ARM-JTAG-EW initial read failed, don't worry&quot;);
++	}
++
++	LOG_INFO(&quot;ARM-JTAG-EW JTAG Interface ready&quot;);
++
++	armjtagew_reset(0, 0);
++	armjtagew_tap_init();
++
++	return ERROR_OK;
++}
++
++int armjtagew_quit(void)
++{
++	armjtagew_usb_close(armjtagew_jtag_handle);
++	return ERROR_OK;
++}
++
++/***************************************************************************/
++/* Queue command implementations */
++
++void armjtagew_end_state(tap_state_t state)
++{
++	if (tap_is_state_stable(state))
++	{
++		tap_set_end_state(state);
++	}
++	else
++	{
++		LOG_ERROR(&quot;BUG: %i is not a valid end state&quot;, state);
++		exit(-1);
++	}
++}
++
++/* Goes to the end state. */
++void armjtagew_state_move(void)
++{
++	int i;
++	int tms = 0;
++	u8 tms_scan = tap_get_tms_path(tap_get_state(), tap_get_end_state());
++
++	for (i = 0; i &lt; 7; i++)
++	{
++		tms = (tms_scan &gt;&gt; i) &amp; 1;
++		armjtagew_tap_append_step(tms, 0);
++	}
++
++	tap_set_state(tap_get_end_state());
++}
++
++void armjtagew_path_move(int num_states, tap_state_t *path)
++{
++	int i;
++
++	for (i = 0; i &lt; num_states; i++)
++	{
++		/*
++		 * TODO: The ARM-JTAG-EW hardware delays TDI with 3 TCK cycles when in RTCK mode. 
++		 * Either handle that here, or update the documentation with examples
++		 * how to fix that in the configuration files.
++		 */
++		if (path[i] == tap_state_transition(tap_get_state(), false))
++		{
++			armjtagew_tap_append_step(0, 0);
++		}
++		else if (path[i] == tap_state_transition(tap_get_state(), true))
++		{
++			armjtagew_tap_append_step(1, 0);
++		}
++		else
++		{
++			LOG_ERROR(&quot;BUG: %s -&gt; %s isn't a valid TAP transition&quot;, tap_state_name(tap_get_state()), tap_state_name(path[i]));
++			exit(-1);
++		}
++
++		tap_set_state(path[i]);
++	}
++
++	tap_set_end_state(tap_get_state());
++}
++
++void armjtagew_runtest(int num_cycles)
++{
++	int i;
++
++	tap_state_t saved_end_state = tap_get_end_state();
++
++	/* only do a state_move when we're not already in IDLE */
++	if (tap_get_state() != TAP_IDLE)
++	{
++		armjtagew_end_state(TAP_IDLE);
++		armjtagew_state_move();
++	}
++
++	/* execute num_cycles */
++	for (i = 0; i &lt; num_cycles; i++)
++	{
++		armjtagew_tap_append_step(0, 0);
++	}
++
++	/* finish in end_state */
++	armjtagew_end_state(saved_end_state);
++	if (tap_get_state() != tap_get_end_state())
++	{
++		armjtagew_state_move();
++	}
++}
++
++void armjtagew_scan(int ir_scan, enum scan_type type, u8 *buffer, int scan_size, scan_command_t *command)
++{
++	tap_state_t saved_end_state;
++
++	armjtagew_tap_ensure_space(1, scan_size + 8);
++
++	saved_end_state = tap_get_end_state();
++
++	/* Move to appropriate scan state */
++	armjtagew_end_state(ir_scan ? TAP_IRSHIFT : TAP_DRSHIFT);
++
++	armjtagew_state_move();
++	armjtagew_end_state(saved_end_state);
++
++	/* Scan */
++	armjtagew_tap_append_scan(scan_size, buffer, command);
++
++	/* We are in Exit1, go to Pause */
++	armjtagew_tap_append_step(0, 0);
++
++	tap_set_state(ir_scan ? TAP_IRPAUSE : TAP_DRPAUSE);
++
++	if (tap_get_state() != tap_get_end_state())
++	{
++		armjtagew_state_move();
++	}
++}
++
++void armjtagew_reset(int trst, int srst)
++{
++	const u8 trst_mask = (1u&lt;&lt;5);
++	const u8 srst_mask = (1u&lt;&lt;6);
++	u8 val = 0;
++	u8 outp_en = 0;
++	u8 change_mask = 0;
++	int result;
++
++	LOG_DEBUG(&quot;trst: %i, srst: %i&quot;, trst, srst);
++
++	if (srst == 0)
++	{
++		val |= srst_mask;
++		outp_en &amp;= ~srst_mask;		/* tristate */
++		change_mask |= srst_mask;
++	}
++	else if (srst == 1)
++	{
++		val &amp;= ~srst_mask;
++		outp_en |= srst_mask;
++		change_mask |= srst_mask;
++	}
++
++	if (trst == 0)
++	{
++		val |= trst_mask;
++		outp_en &amp;= ~trst_mask;		/* tristate */
++		change_mask |= trst_mask;
++	}
++	else if (trst == 1)
++	{
++		val &amp;= ~trst_mask;
++		outp_en |= trst_mask;
++		change_mask |= trst_mask;
++	}
++
++	usb_out_buffer[0] = CMD_SET_TAPHW_STATE;
++	usb_out_buffer[1] = val;
++	usb_out_buffer[2] = outp_en;
++	usb_out_buffer[3] = change_mask;
++	result = armjtagew_usb_write(armjtagew_jtag_handle, 4);
++	if (result != 4)
++	{
++		LOG_ERROR(&quot;ARM-JTAG-EW TRST/SRST pin set failed failed (%d)&quot;, result);
++	}
++}
++
++
++int armjtagew_get_status(void)
++{
++	int result;
++
++	usb_out_buffer[0] = CMD_GET_TAPHW_STATE;
++	result = armjtagew_usb_message(armjtagew_jtag_handle, 1, 12);
++
++	if (result == 0)
++	{
++		unsigned int u_tg = buf_get_u32(usb_in_buffer, 0, 16);
++		LOG_INFO(&quot;U_tg = %d mV, U_aux = %d mV, U_tgpwr = %d mV, I_tgpwr = %d mA, D1 = %d, Target power %s %s\n&quot;, \
++			buf_get_u32(usb_in_buffer + 0, 0, 16), \
++			buf_get_u32(usb_in_buffer + 2, 0, 16), \
++			buf_get_u32(usb_in_buffer + 4, 0, 16), \
++			buf_get_u32(usb_in_buffer + 6, 0, 16), \
++			usb_in_buffer[9], \
++			usb_in_buffer[11] ? &quot;OVERCURRENT&quot; : &quot;OK&quot;, \
++			usb_in_buffer[10] ? &quot;enabled&quot; : &quot;disabled&quot;);
++
++		if (u_tg &lt; 1500)
++		{
++			LOG_ERROR(&quot;Vref too low. Check Target Power\n&quot;);
++		}
++	}
++	else
++	{
++		LOG_ERROR(&quot;ARM-JTAG-EW command CMD_GET_TAPHW_STATE failed (%d)\n&quot;, result);
++	}
++
++	return ERROR_OK;
++}
++
++int armjtagew_get_version_info(void)
++{
++	int result;
++	char sn[16];
++	char auxinfo[257];
++
++	/* query hardware version */
++	usb_out_buffer[0] = CMD_GET_VERSION;
++	result = armjtagew_usb_message(armjtagew_jtag_handle, 1, 4+15+256);
++
++	if (result != 0) 
++	{
++		LOG_ERROR(&quot;ARM-JTAG-EW command CMD_GET_VERSION failed (%d)\n&quot;, result);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++
++	memcpy(sn, usb_in_buffer+4, 15);
++	sn[15] = '\0';
++	memcpy(auxinfo, usb_in_buffer+4+15, 256);
++	auxinfo[256] = '\0';
++
++	LOG_INFO(&quot;ARM-JTAG-EW firmware version %d.%d, hardware revision %c, SN=%s, Additional info: %s&quot;, \
++			usb_in_buffer[1], usb_in_buffer[0], \
++			isgraph(usb_in_buffer[2]) ? usb_in_buffer[2] : 'X', \
++			sn, auxinfo);
++	return ERROR_OK;
++}
++
++int armjtagew_handle_armjtagew_info_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	if (armjtagew_get_version_info() == ERROR_OK)
++	{
++		/* attempt to get status */
++		armjtagew_get_status();
++	}
++
++	return ERROR_OK;
++}
++
++/***************************************************************************/
++/* ARM-JTAG-EW tap functions */
++
++/* 2048 is the max value we can use here */
++#define ARMJTAGEW_TAP_BUFFER_SIZE 2048
++
++static int tap_length;
++static u8 tms_buffer[ARMJTAGEW_TAP_BUFFER_SIZE];
++static u8 tdi_buffer[ARMJTAGEW_TAP_BUFFER_SIZE];
++static u8 tdo_buffer[ARMJTAGEW_TAP_BUFFER_SIZE];
++
++typedef struct
++{
++	int first;	/* First bit position in tdo_buffer to read */
++	int length; /* Number of bits to read */
++	scan_command_t *command; /* Corresponding scan command */
++	u8 *buffer;
++} pending_scan_result_t;
++
++#define MAX_PENDING_SCAN_RESULTS 256
++
++static int pending_scan_results_length;
++static pending_scan_result_t pending_scan_results_buffer[MAX_PENDING_SCAN_RESULTS];
++
++static int last_tms;
++
++void armjtagew_tap_init(void)
++{
++	tap_length = 0;
++	pending_scan_results_length = 0;
++}
++
++void armjtagew_tap_ensure_space(int scans, int bits)
++{
++	int available_scans = MAX_PENDING_SCAN_RESULTS - pending_scan_results_length;
++	int available_bits = ARMJTAGEW_TAP_BUFFER_SIZE * 8 - tap_length;
++
++	if (scans &gt; available_scans || bits &gt; available_bits)
++	{
++		armjtagew_tap_execute();
++	}
++}
++
++void armjtagew_tap_append_step(int tms, int tdi)
++{
++	last_tms = tms;
++	int index = tap_length / 8;
++
++	if (index &lt; ARMJTAGEW_TAP_BUFFER_SIZE)
++	{
++		int bit_index = tap_length % 8;
++		u8 bit = 1 &lt;&lt; bit_index;
++
++		if (tms)
++		{
++			tms_buffer[index] |= bit;
++		}
++		else
++		{
++			tms_buffer[index] &amp;= ~bit;
++		}
++
++		if (tdi)
++		{
++			tdi_buffer[index] |= bit;
++		}
++		else
++		{
++			tdi_buffer[index] &amp;= ~bit;
++		}
++
++		tap_length++;
++	}
++	else
++	{
++		LOG_ERROR(&quot;armjtagew_tap_append_step, overflow&quot;);
++	}
++}
++
++void armjtagew_tap_append_scan(int length, u8 *buffer, scan_command_t *command)
++{
++	pending_scan_result_t *pending_scan_result = &amp;pending_scan_results_buffer[pending_scan_results_length];
++	int i;
++
++	pending_scan_result-&gt;first = tap_length;
++	pending_scan_result-&gt;length = length;
++	pending_scan_result-&gt;command = command;
++	pending_scan_result-&gt;buffer = buffer;
++
++	for (i = 0; i &lt; length; i++)
++	{
++		armjtagew_tap_append_step((i &lt; length-1 ? 0 : 1), (buffer[i/8] &gt;&gt; (i%8)) &amp; 1);
++	}
++	pending_scan_results_length++;
++}
++
++/* Pad and send a tap sequence to the device, and receive the answer.
++ * For the purpose of padding we assume that we are in idle or pause state. */
++int armjtagew_tap_execute(void)
++{
++	int byte_length;
++	int tms_offset;
++	int tdi_offset;
++	int i;
++	int result;
++
++	if (tap_length &gt; 0)
++	{
++		/* Pad last byte so that tap_length is divisible by 8 */
++		while (tap_length % 8 != 0)
++		{
++			/* More of the last TMS value keeps us in the same state,
++			 * analogous to free-running JTAG interfaces. */
++			armjtagew_tap_append_step(last_tms, 0);
++		}
++
++		byte_length = tap_length / 8;
++
++		usb_out_buffer[0] = CMD_TAP_SHIFT;
++		buf_set_u32(usb_out_buffer+1, 0, 16, byte_length);
++
++		tms_offset = 3;
++		for (i = 0; i &lt; byte_length; i++)
++		{
++			usb_out_buffer[tms_offset + i] = flip_u32(tms_buffer[i],8);
++		}
++
++		tdi_offset = tms_offset + byte_length;
++		for (i = 0; i &lt; byte_length; i++)
++		{
++			usb_out_buffer[tdi_offset + i] = flip_u32(tdi_buffer[i],8);
++		}
++
++		result = armjtagew_usb_message(armjtagew_jtag_handle, 3 + 2 * byte_length, byte_length + 4);
++
++		if (result == 0)
++		{
++			int stat;
++
++			stat = (int)buf_get_u32(usb_in_buffer + byte_length, 0, 32);
++			if(stat) {
++				LOG_ERROR(&quot;armjtagew_tap_execute, emulator returned error code %d for a CMD_TAP_SHIFT command&quot;, stat);
++				return ERROR_JTAG_QUEUE_FAILED;
++			}
++
++			for (i = 0; i &lt; byte_length; i++)
++			{
++				tdo_buffer[i] = flip_u32(usb_in_buffer[i],8);
++			}
++
++			for (i = 0; i &lt; pending_scan_results_length; i++)
++			{
++				pending_scan_result_t *pending_scan_result = &amp;pending_scan_results_buffer[i];
++				u8 *buffer = pending_scan_result-&gt;buffer;
++				int length = pending_scan_result-&gt;length;
++				int first = pending_scan_result-&gt;first;
++				scan_command_t *command = pending_scan_result-&gt;command;
++
++				/* Copy to buffer */
++				buf_set_buf(tdo_buffer, first, buffer, 0, length);
++
++				DEBUG_JTAG_IO(&quot;pending scan result, length = %d&quot;, length);
++
++#ifdef _DEBUG_USB_COMMS_
++				armjtagew_debug_buffer(buffer, byte_length);
++#endif
++
++				if (jtag_read_buffer(buffer, command) != ERROR_OK)
++				{
++					armjtagew_tap_init();
++					return ERROR_JTAG_QUEUE_FAILED;
++				}
++
++				if (pending_scan_result-&gt;buffer != NULL)
++				{
++					free(pending_scan_result-&gt;buffer);
++				}
++			}
++		}
++		else
++		{
++			LOG_ERROR(&quot;armjtagew_tap_execute, wrong result %d, expected %d&quot;, result, byte_length);
++			return ERROR_JTAG_QUEUE_FAILED;
++		}
++
++		armjtagew_tap_init();
++	}
++
++	return ERROR_OK;
++}
++
++/*****************************************************************************/
++/* JLink USB low-level functions */
++
++armjtagew_jtag_t* armjtagew_usb_open()
++{
++	struct usb_bus *busses;
++	struct usb_bus *bus;
++	struct usb_device *dev;
++
++	armjtagew_jtag_t *result;
++
++	result = (armjtagew_jtag_t*) malloc(sizeof(armjtagew_jtag_t));
++
++	usb_init();
++	usb_find_busses();
++	usb_find_devices();
++
++	busses = usb_get_busses();
++
++	/* find armjtagew_jtag device in usb bus */
++
++	for (bus = busses; bus; bus = bus-&gt;next)
++	{
++		for (dev = bus-&gt;devices; dev; dev = dev-&gt;next)
++		{
++			if ((dev-&gt;descriptor.idVendor == USB_VID) &amp;&amp; (dev-&gt;descriptor.idProduct == USB_PID))
++			{
++				result-&gt;usb_handle = usb_open(dev);
++
++#if 0
++				/* usb_set_configuration required under win32 */
++				usb_set_configuration(result-&gt;usb_handle, dev-&gt;config[0].bConfigurationValue);
++#endif
++				usb_claim_interface(result-&gt;usb_handle, 0);
++
++#if 0
++				/*
++				 * This makes problems under Mac OS X. And is not needed
++				 * under Windows. Hopefully this will not break a linux build
++				 */
++				usb_set_altinterface(result-&gt;usb_handle, 0);
++#endif
++				return result;
++			}
++		}
++	}
++
++	free(result);
++	return NULL;
++}
++
++void armjtagew_usb_close(armjtagew_jtag_t *armjtagew_jtag)
++{
++	usb_close(armjtagew_jtag-&gt;usb_handle);
++	free(armjtagew_jtag);
++}
++
++/* Send a message and receive the reply. */
++int armjtagew_usb_message(armjtagew_jtag_t *armjtagew_jtag, int out_length, int in_length)
++{
++	int result;
++
++	result = armjtagew_usb_write(armjtagew_jtag, out_length);
++	if (result == out_length)
++	{
++		result = armjtagew_usb_read(armjtagew_jtag, in_length);
++		if (result != in_length) 
++		{
++			LOG_ERROR(&quot;usb_bulk_read failed (requested=%d, result=%d)&quot;, in_length, result);
++			return -1;
++		}
++	}
++	else
++	{
++		LOG_ERROR(&quot;usb_bulk_write failed (requested=%d, result=%d)&quot;, out_length, result);
++		return -1;
++	}
++	return 0;
++}
++
++/* Write data from out_buffer to USB. */
++int armjtagew_usb_write(armjtagew_jtag_t *armjtagew_jtag, int out_length)
++{
++	int result;
++
++	if (out_length &gt; ARMJTAGEW_OUT_BUFFER_SIZE)
++	{
++		LOG_ERROR(&quot;armjtagew_jtag_write illegal out_length=%d (max=%d)&quot;, out_length, ARMJTAGEW_OUT_BUFFER_SIZE);
++		return -1;
++	}
++
++	result = usb_bulk_write(armjtagew_jtag-&gt;usb_handle, ARMJTAGEW_EPT_BULK_OUT, \
++		(char*)usb_out_buffer, out_length, ARMJTAGEW_USB_TIMEOUT);
++
++	DEBUG_JTAG_IO(&quot;armjtagew_usb_write, out_length = %d, result = %d&quot;, out_length, result);
++
++#ifdef _DEBUG_USB_COMMS_
++	armjtagew_debug_buffer(usb_out_buffer, out_length);
++#endif
++	return result;
++}
++
++/* Read data from USB into in_buffer. */
++int armjtagew_usb_read(armjtagew_jtag_t *armjtagew_jtag, int exp_in_length)
++{
++	int result = usb_bulk_read(armjtagew_jtag-&gt;usb_handle, ARMJTAGEW_EPT_BULK_IN, \
++		(char*)usb_in_buffer, exp_in_length, ARMJTAGEW_USB_TIMEOUT);
++
++	DEBUG_JTAG_IO(&quot;armjtagew_usb_read, result = %d&quot;, result);
++
++#ifdef _DEBUG_USB_COMMS_
++	armjtagew_debug_buffer(usb_in_buffer, result);
++#endif
++	return result;
++}
++
++
++#ifdef _DEBUG_USB_COMMS_
++#define BYTES_PER_LINE  16
++
++void armjtagew_debug_buffer(u8 *buffer, int length)
++{
++	char line[81];
++	char s[4];
++	int i;
++	int j;
++
++	for (i = 0; i &lt; length; i += BYTES_PER_LINE)
++	{
++		snprintf(line, 5, &quot;%04x&quot;, i);
++		for (j = i; j &lt; i + BYTES_PER_LINE &amp;&amp; j &lt; length; j++)
++		{
++			snprintf(s, 4, &quot; %02x&quot;, buffer[j]);
++			strcat(line, s);
++		}
++		LOG_DEBUG(line);
++	}
++}
++#endif
++
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-03-07 15:51:26 UTC (rev 1401)
++++ trunk/src/jtag/jtag.c	2009-03-08 15:14:18 UTC (rev 1402)
+@@ -155,6 +155,10 @@
+ 	extern jtag_interface_t rlink_interface;
+ #endif
+ 
++#if BUILD_ARMJTAGEW == 1
++	extern jtag_interface_t armjtagew_interface;
++#endif
++
+ jtag_interface_t *jtag_interfaces[] = {
+ #if BUILD_ECOSBOARD == 1
+ 	&amp;zy1000_interface,
+@@ -198,6 +202,9 @@
+ #if BUILD_RLINK == 1
+ 	&amp;rlink_interface,
+ #endif
++#if BUILD_ARMJTAGEW == 1
++	&amp;armjtagew_interface,
++#endif
+ 	NULL,
+ };
+ 
+
+Added: trunk/src/target/interface/arm-jtag-ew.cfg
+===================================================================
+--- trunk/src/target/interface/arm-jtag-ew.cfg	2009-03-07 15:51:26 UTC (rev 1401)
++++ trunk/src/target/interface/arm-jtag-ew.cfg	2009-03-08 15:14:18 UTC (rev 1402)
+@@ -0,0 +1,2 @@
++# Interface ARM-JTAG-EW
++interface arm-jtag-ew
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000185.html">[Openocd-svn] r1401 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000187.html">[Openocd-svn] r1403 - trunk/src/target/interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#186">[ date ]</a>
+              <a href="thread.html#186">[ thread ]</a>
+              <a href="subject.html#186">[ subject ]</a>
+              <a href="author.html#186">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

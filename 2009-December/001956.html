@@ -1,0 +1,269 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-937-gbb77e5d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-937-gbb77e5d&In-Reply-To=%3CE1NKOWr-0003TI-1w%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001955.html">
+   <LINK REL="Next"  HREF="001957.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-937-gbb77e5d</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-937-gbb77e5d&In-Reply-To=%3CE1NKOWr-0003TI-1w%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-937-gbb77e5d">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Tue Dec 15 04:56:51 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001955.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-935-gc86a64d
+</A></li>
+        <LI>Next message: <A HREF="001957.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-938-gd6aff79
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1956">[ date ]</a>
+              <a href="thread.html#1956">[ thread ]</a>
+              <a href="subject.html#1956">[ subject ]</a>
+              <a href="author.html#1956">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  bb77e5d32f67870e304011fc6e9d47257569f323 (commit)
+       via  27b13e3377f546e9441291d3f1c3b6cc1438430b (commit)
+      from  c86a64dff7e9ebe8ab87e353f5b4156f830a0de7 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit bb77e5d32f67870e304011fc6e9d47257569f323
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Dec 14 19:56:36 2009 -0800
+
+    ARM11: improved reset support
+    
+    Teach ARM11 how to use:
+    
+     - the new &quot;reset-assert&quot; event
+     - vector catch to implement &quot;reset halt&quot;
+     - use SRST more like other cores do
+     - ... including leaving post-SRST delays up to config scripts
+    
+    This gives OMAP2420 the ability to reset, and doesn't seem to
+    cause new iMX31 problems.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 7c747c0..970738c 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -352,7 +352,9 @@ static int arm11_poll(struct target *target)
+ 				return retval;
+ 
+ 			target_call_event_callbacks(target,
+-				old_state == TARGET_DEBUG_RUNNING ? TARGET_EVENT_DEBUG_HALTED : TARGET_EVENT_HALTED);
++				(old_state == TARGET_DEBUG_RUNNING)
++					? TARGET_EVENT_DEBUG_HALTED
++					: TARGET_EVENT_HALTED);
+ 		}
+ 	}
+ 	else
+@@ -749,67 +751,72 @@ static int arm11_step(struct target *target, int current,
+ 
+ static int arm11_assert_reset(struct target *target)
+ {
+-	int retval;
+ 	struct arm11_common *arm11 = target_to_arm11(target);
+ 
+-	retval = arm11_check_init(arm11);
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-	target-&gt;state = TARGET_UNKNOWN;
++	/* optionally catch reset vector */
++	if (target-&gt;reset_halt &amp;&amp; !(arm11_vcr &amp; 1))
++		arm11_sc7_set_vcr(arm11, arm11_vcr | 1);
+ 
+-	/* we would very much like to reset into the halted, state,
+-	 * but resetting and halting is second best... */
+-	if (target-&gt;reset_halt)
+-	{
+-		CHECK_RETVAL(target_halt(target));
++	/* Issue some kind of warm reset. */
++	if (target_has_event_action(target, TARGET_EVENT_RESET_ASSERT)) {
++		target_handle_event(target, TARGET_EVENT_RESET_ASSERT);
++	} else if (jtag_get_reset_config() &amp; RESET_HAS_SRST) {
++		/* REVISIT handle &quot;pulls&quot; cases, if there's
++		 * hardware that needs them to work.
++		 */
++		jtag_add_reset(0, 1);
++	} else {
++		LOG_ERROR(&quot;%s: how to reset?&quot;, target_name(target));
++		return ERROR_FAIL;
+ 	}
+ 
++	/* registers are now invalid */
++	register_cache_invalidate(arm11-&gt;arm.core_cache);
+ 
+-	/* srst is funny. We can not do *anything* else while it's asserted
+-	 * and it has unkonwn side effects. Make sure no other code runs
+-	 * meanwhile.
+-	 *
+-	 * Code below assumes srst:
+-	 *
+-	 * - Causes power-on-reset (but of what parts of the system?). Bug
+-	 * in arm11?
+-	 *
+-	 * - Messes us TAP state without asserting trst.
+-	 *
+-	 * - There is another bug in the arm11 core. When you generate an access to
+-	 * external logic (for example ddr controller via AHB bus) and that block
+-	 * is not configured (perhaps it is still held in reset), that transaction
+-	 * will never complete. This will hang arm11 core but it will also hang
+-	 * JTAG controller. Nothing, short of srst assertion will bring it out of
+-	 * this.
+-	 *
+-	 * Mysteries:
+-	 *
+-	 * - What should the PC be after an srst reset when starting in the halted
+-	 * state?
+-	 */
++	target-&gt;state = TARGET_RESET;
+ 
+-	jtag_add_reset(0, 1);
+-	jtag_add_reset(0, 0);
++	return ERROR_OK;
++}
+ 
+-	/* How long do we have to wait? */
+-	jtag_add_sleep(5000);
++/*
++ * - There is another bug in the arm11 core.  (iMX31 specific again?)
++ *   When you generate an access to external logic (for example DDR
++ *   controller via AHB bus) and that block is not configured (perhaps
++ *   it is still held in reset), that transaction will never complete.
++ *   This will hang arm11 core but it will also hang JTAG controller.
++ *   Nothing short of srst assertion will bring it out of this.
++ */
++
++static int arm11_deassert_reset(struct target *target)
++{
++	struct arm11_common *arm11 = target_to_arm11(target);
++	int retval;
++
++	/* be certain SRST is off */
++	jtag_add_reset(0, 0);
+ 
+-	/* un-mess up TAP state */
++	/* WORKAROUND i.MX31 problems:  SRST goofs the TAP, and resets
++	 * at least DSCR.  OMAP24xx doesn't show that problem, though
++	 * SRST-only reset seems to be problematic for other reasons.
++	 * (Secure boot sequences being one likelihood!)
++	 */
+ 	jtag_add_tlr();
+ 
+-	retval = jtag_execute_queue();
+-	if (retval != ERROR_OK)
+-	{
+-		return retval;
++	retval = arm11_poll(target);
++
++	if (target-&gt;reset_halt) {
++		if (target-&gt;state != TARGET_HALTED) {
++			LOG_WARNING(&quot;%s: ran after reset and before halt ...&quot;,
++					target_name(target));
++			if ((retval = target_halt(target)) != ERROR_OK)
++				return retval;
++		}
+ 	}
+ 
+-	return ERROR_OK;
+-}
++	/* maybe restore vector catch config */
++	if (target-&gt;reset_halt &amp;&amp; !(arm11_vcr &amp; 1))
++		arm11_sc7_set_vcr(arm11, arm11_vcr);
+ 
+-static int arm11_deassert_reset(struct target *target)
+-{
+ 	return ERROR_OK;
+ }
+ 
+
+commit 27b13e3377f546e9441291d3f1c3b6cc1438430b
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Dec 14 19:53:10 2009 -0800
+
+    ARM: disassemble STM correctly
+    
+    There is no &quot;STMMIDA&quot; instruction.  There is however &quot;STMDAMI&quot;.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_disassembler.c b/src/target/arm_disassembler.c
+index 770c5e9..912e37c 100644
+--- a/src/target/arm_disassembler.c
++++ b/src/target/arm_disassembler.c
+@@ -1097,8 +1097,11 @@ static int evaluate_ldm_stm(uint32_t opcode,
+ 		}
+ 	}
+ 
+-	snprintf(instruction-&gt;text, 128, &quot;0x%8.8&quot; PRIx32 &quot;\t0x%8.8&quot; PRIx32 &quot;\t%s%s%s r%i%s, {%s}%s&quot;,
+-			 address, opcode, mnemonic, COND(opcode), addressing_mode,
++	snprintf(instruction-&gt;text, 128,
++			&quot;0x%8.8&quot; PRIx32 &quot;\t0x%8.8&quot; PRIx32
++			&quot;\t%s%s%s r%i%s, {%s}%s&quot;,
++			 address, opcode,
++			 mnemonic, addressing_mode, COND(opcode),
+ 			 Rn, (W) ? &quot;!&quot; : &quot;&quot;, reg_list, (S) ? &quot;^&quot; : &quot;&quot;);
+ 
+ 	return ERROR_OK;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm11.c            |  103 ++++++++++++++++++++++-------------------
+ src/target/arm_disassembler.c |    7 ++-
+ 2 files changed, 60 insertions(+), 50 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001955.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-935-gc86a64d
+</A></li>
+	<LI>Next message: <A HREF="001957.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-938-gd6aff79
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1956">[ date ]</a>
+              <a href="thread.html#1956">[ thread ]</a>
+              <a href="subject.html#1956">[ subject ]</a>
+              <a href="author.html#1956">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

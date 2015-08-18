@@ -1,0 +1,166 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1801 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1801%20-%20trunk/src/target&In-Reply-To=%3C200905171300.n4HD0bCC031707%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000584.html">
+   <LINK REL="Next"  HREF="000586.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1801 - trunk/src/target</H1>
+    <B>oharboe at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1801%20-%20trunk/src/target&In-Reply-To=%3C200905171300.n4HD0bCC031707%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1801 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Sun May 17 15:00:37 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000584.html">[Openocd-svn] r1800 - in trunk/src/jtag: . rlink
+</A></li>
+        <LI>Next message: <A HREF="000586.html">[Openocd-svn] r1802 - trunk/src/flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#585">[ date ]</a>
+              <a href="thread.html#585">[ thread ]</a>
+              <a href="subject.html#585">[ subject ]</a>
+              <a href="author.html#585">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-05-17 15:00:36 +0200 (Sun, 17 May 2009)
+New Revision: 1801
+
+Modified:
+   trunk/src/target/target.c
+Log:
+fix array2mem/mem2array when used as a &quot;method&quot; on a target.
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-05-16 20:09:07 UTC (rev 1800)
++++ trunk/src/target/target.c	2009-05-17 13:00:36 UTC (rev 1801)
+@@ -1285,8 +1285,8 @@
+ 
+ 	/* script procedures */
+ 	register_command(cmd_ctx, NULL, &quot;profile&quot;, handle_profile_command, COMMAND_EXEC, &quot;profiling samples the CPU PC&quot;);
+-	register_jim(cmd_ctx, &quot;ocd_mem2array&quot;, jim_mem2array, &quot;read memory and return as a TCL array for script processing&quot;);
+-	register_jim(cmd_ctx, &quot;ocd_array2mem&quot;, jim_array2mem, &quot;convert a TCL array to memory locations and write the values&quot;);
++	register_jim(cmd_ctx, &quot;ocd_mem2array&quot;, jim_mem2array, &quot;read memory and return as a TCL array for script processing &lt;ARRAYNAME&gt; &lt;WIDTH=32/16/8&gt; &lt;ADDRESS&gt; &lt;COUNT&gt;&quot;);
++	register_jim(cmd_ctx, &quot;ocd_array2mem&quot;, jim_array2mem, &quot;convert a TCL array to memory locations and write the values  &lt;ARRAYNAME&gt; &lt;WIDTH=32/16/8&gt; &lt;ADDRESS&gt; &lt;COUNT&gt;&quot;);
+ 
+ 	register_command(cmd_ctx, NULL, &quot;fast_load_image&quot;, handle_fast_load_image_command, COMMAND_ANY,
+ 			&quot;same args as load_image, image stored in memory - mainly for profiling purposes&quot;);
+@@ -2721,7 +2721,7 @@
+ 		return JIM_ERR;
+ 	}
+ 
+-	return 	target_mem2array(interp, target, argc,argv);
++	return 	target_mem2array(interp, target, argc-1, argv+1);
+ }
+ 
+ static int target_mem2array(Jim_Interp *interp, target_t *target, int argc, Jim_Obj *const *argv)
+@@ -2742,25 +2742,25 @@
+ 	 * argv[3] = memory address
+ 	 * argv[4] = count of times to read
+ 	 */
+-	if (argc != 5) {
++	if (argc != 4) {
+ 		Jim_WrongNumArgs(interp, 1, argv, &quot;varname width addr nelems&quot;);
+ 		return JIM_ERR;
+ 	}
+-	varname = Jim_GetString(argv[1], &amp;len);
++	varname = Jim_GetString(argv[0], &amp;len);
+ 	/* given &quot;foo&quot; get space for worse case &quot;foo(%d)&quot; .. add 20 */
+ 
+-	e = Jim_GetLong(interp, argv[2], &amp;l);
++	e = Jim_GetLong(interp, argv[1], &amp;l);
+ 	width = l;
+ 	if (e != JIM_OK) {
+ 		return e;
+ 	}
+ 
+-	e = Jim_GetLong(interp, argv[3], &amp;l);
++	e = Jim_GetLong(interp, argv[2], &amp;l);
+ 	addr = l;
+ 	if (e != JIM_OK) {
+ 		return e;
+ 	}
+-	e = Jim_GetLong(interp, argv[4], &amp;l);
++	e = Jim_GetLong(interp, argv[3], &amp;l);
+ 	len = l;
+ 	if (e != JIM_OK) {
+ 		return e;
+@@ -2903,7 +2903,7 @@
+ 		return JIM_ERR;
+ 	}
+ 
+-	return target_array2mem( interp,target, argc, argv );
++	return target_array2mem( interp,target, argc-1, argv+1 );
+ }
+ 
+ static int target_array2mem(Jim_Interp *interp, target_t *target, int argc, Jim_Obj *const *argv)
+@@ -2924,25 +2924,25 @@
+ 	 * argv[3] = memory address
+ 	 * argv[4] = count to write
+ 	 */
+-	if (argc != 5) {
++	if (argc != 4) {
+ 		Jim_WrongNumArgs(interp, 1, argv, &quot;varname width addr nelems&quot;);
+ 		return JIM_ERR;
+ 	}
+-	varname = Jim_GetString(argv[1], &amp;len);
++	varname = Jim_GetString(argv[0], &amp;len);
+ 	/* given &quot;foo&quot; get space for worse case &quot;foo(%d)&quot; .. add 20 */
+ 
+-	e = Jim_GetLong(interp, argv[2], &amp;l);
++	e = Jim_GetLong(interp, argv[1], &amp;l);
+ 	width = l;
+ 	if (e != JIM_OK) {
+ 		return e;
+ 	}
+ 
+-	e = Jim_GetLong(interp, argv[3], &amp;l);
++	e = Jim_GetLong(interp, argv[2], &amp;l);
+ 	addr = l;
+ 	if (e != JIM_OK) {
+ 		return e;
+ 	}
+-	e = Jim_GetLong(interp, argv[4], &amp;l);
++	e = Jim_GetLong(interp, argv[3], &amp;l);
+ 	len = l;
+ 	if (e != JIM_OK) {
+ 		return e;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000584.html">[Openocd-svn] r1800 - in trunk/src/jtag: . rlink
+</A></li>
+	<LI>Next message: <A HREF="000586.html">[Openocd-svn] r1802 - trunk/src/flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#585">[ date ]</a>
+              <a href="thread.html#585">[ thread ]</a>
+              <a href="subject.html#585">[ subject ]</a>
+              <a href="author.html#585">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

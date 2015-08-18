@@ -1,0 +1,234 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-154-g3172be8
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-154-g3172be8&In-Reply-To=%3CE1NaFnM-0007Bh-KH%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002068.html">
+   <LINK REL="Next"  HREF="002071.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-154-g3172be8</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-154-g3172be8&In-Reply-To=%3CE1NaFnM-0007Bh-KH%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-154-g3172be8">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Wed Jan 27 22:51:26 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002068.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-151-g3036588
+</A></li>
+        <LI>Next message: <A HREF="002071.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-156-g75cfda4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2070">[ date ]</a>
+              <a href="thread.html#2070">[ thread ]</a>
+              <a href="subject.html#2070">[ subject ]</a>
+              <a href="author.html#2070">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  3172be80a3e14f4c8c3628a37db348c04fd60fc4 (commit)
+       via  d44f1aaeff45d26348826bdff07caf3d097eca15 (commit)
+       via  2b5c444a32725dd75833348e04620bd7b1bda2ad (commit)
+      from  30365886dab87f20c014d9ad1500c70edef48b00 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 3172be80a3e14f4c8c3628a37db348c04fd60fc4
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Wed Jan 27 13:47:48 2010 -0800
+
+    Cortex-M3: report lockup, and recover
+    
+    ARMv7-M defines a &quot;lockup&quot; state that's entered in certain double
+    fault sequences which can't be recovered from without external help.
+    OpenOCD has previously ignored this.
+    
+    Issue a diagnostic saying the chip has locked up, and force exit
+    from this state by halting the core.  It's not clear this is the
+    best way to handle lockup; but there should now be less confusion.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index adce4d9..3bbe42c 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -416,6 +416,21 @@ static int cortex_m3_poll(struct target *target)
+ 		return retval;
+ 	}
+ 
++	/* Recover from lockup.  See ARMv7-M architecture spec,
++	 * section B1.5.15 &quot;Unrecoverable exception cases&quot;.
++	 *
++	 * REVISIT Is there a better way to report and handle this?
++	 */
++	if (cortex_m3-&gt;dcb_dhcsr &amp; S_LOCKUP) {
++		LOG_WARNING(&quot;%s -- clearing lockup after double fault&quot;,
++				target_name(target));
++		cortex_m3_write_debug_halt_mask(target, C_HALT, 0);
++		target-&gt;debug_reason = DBG_REASON_DBGRQ;
++
++		/* refresh status bits */
++		mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
++	}
++
+ 	if (cortex_m3-&gt;dcb_dhcsr &amp; S_RESET_ST)
+ 	{
+ 		/* check if still in reset */
+
+commit d44f1aaeff45d26348826bdff07caf3d097eca15
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Wed Jan 27 13:40:05 2010 -0800
+
+    ARM ADIv5: messaging tweaks
+    
+    Add space missing after the invalid ACK value.  On init, say
+    which AP is being used, and don't assume it's an AHP-AP.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index ba5db3b..2ba89e5 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -305,7 +305,7 @@ int swjdp_transaction_endcheck(struct swjdp_common *swjdp)
+ 			}
+ 			else
+ 			{
+-				LOG_WARNING(&quot;Invalid ACK %#x&quot;
++				LOG_WARNING(&quot;Invalid ACK %#x &quot;
+ 						&quot;in JTAG-DP transaction&quot;,
+ 						swjdp-&gt;ack);
+ 				return ERROR_JTAG_DEVICE_ERROR;
+@@ -1058,6 +1058,7 @@ int mem_ap_read_buf_u8(struct swjdp_common *swjdp, uint8_t *buffer, int count, u
+  * @todo Rename this.  We also need an initialization scheme which account
+  * for SWD transports not just JTAG; that will need to address differences
+  * in layering.  (JTAG is useful without any debug target; but not SWD.)
++ * And this may not even use an AHB-AP ... e.g. DAP-Lite uses an APB-AP.
+  */
+ int ahbap_debugport_init(struct swjdp_common *swjdp)
+ {
+@@ -1125,7 +1126,9 @@ int ahbap_debugport_init(struct swjdp_common *swjdp)
+ 	dap_ap_read_reg_u32(swjdp, AP_REG_IDR, &amp;idreg);
+ 	dap_ap_read_reg_u32(swjdp, AP_REG_BASE, &amp;romaddr);
+ 
+-	LOG_DEBUG(&quot;AHB-AP ID Register 0x%&quot; PRIx32 &quot;, Debug ROM Address 0x%&quot; PRIx32 &quot;&quot;, idreg, romaddr);
++	LOG_DEBUG(&quot;MEM-AP #%d ID Register 0x%&quot; PRIx32
++		&quot;, Debug ROM Address 0x%&quot; PRIx32,
++		swjdp-&gt;apsel, idreg, romaddr);
+ 
+ 	return ERROR_OK;
+ }
+
+commit 2b5c444a32725dd75833348e04620bd7b1bda2ad
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Wed Jan 27 13:24:21 2010 -0800
+
+    Cortex-A8: debug messaging tweaks
+    
+    Make that &quot;TODO&quot; message say what needs to be done.
+    Say what part of examining failed.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index 18edd95..bcdb526 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -1461,7 +1461,8 @@ static int cortex_a8_examine_first(struct target *target)
+ 	int retval = ERROR_OK;
+ 	uint32_t didr, ctypr, ttypr, cpuid;
+ 
+-	LOG_DEBUG(&quot;TODO&quot;);
++	/* stop assuming this is an OMAP! */
++	LOG_DEBUG(&quot;TODO - autoconfigure&quot;);
+ 
+ 	/* Here we shall insert a proper ROM Table scan */
+ 	armv7a-&gt;debug_base = OMAP3530_DEBUG_BASE;
+@@ -1474,28 +1475,28 @@ static int cortex_a8_examine_first(struct target *target)
+ 	if ((retval = mem_ap_read_atomic_u32(swjdp,
+ 			armv7a-&gt;debug_base + CPUDBG_CPUID, &amp;cpuid)) != ERROR_OK)
+ 	{
+-		LOG_DEBUG(&quot;Examine failed&quot;);
++		LOG_DEBUG(&quot;Examine %s failed&quot;, &quot;CPUID&quot;);
+ 		return retval;
+ 	}
+ 
+ 	if ((retval = mem_ap_read_atomic_u32(swjdp,
+ 			armv7a-&gt;debug_base + CPUDBG_CTYPR, &amp;ctypr)) != ERROR_OK)
+ 	{
+-		LOG_DEBUG(&quot;Examine failed&quot;);
++		LOG_DEBUG(&quot;Examine %s failed&quot;, &quot;CTYPR&quot;);
+ 		return retval;
+ 	}
+ 
+ 	if ((retval = mem_ap_read_atomic_u32(swjdp,
+ 			armv7a-&gt;debug_base + CPUDBG_TTYPR, &amp;ttypr)) != ERROR_OK)
+ 	{
+-		LOG_DEBUG(&quot;Examine failed&quot;);
++		LOG_DEBUG(&quot;Examine %s failed&quot;, &quot;TTYPR&quot;);
+ 		return retval;
+ 	}
+ 
+ 	if ((retval = mem_ap_read_atomic_u32(swjdp,
+ 			armv7a-&gt;debug_base + CPUDBG_DIDR, &amp;didr)) != ERROR_OK)
+ 	{
+-		LOG_DEBUG(&quot;Examine failed&quot;);
++		LOG_DEBUG(&quot;Examine %s failed&quot;, &quot;DIDR&quot;);
+ 		return retval;
+ 	}
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm_adi_v5.c |    7 +++++--
+ src/target/cortex_a8.c  |   11 ++++++-----
+ src/target/cortex_m3.c  |   15 +++++++++++++++
+ 3 files changed, 26 insertions(+), 7 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002068.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-151-g3036588
+</A></li>
+	<LI>Next message: <A HREF="002071.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-156-g75cfda4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2070">[ date ]</a>
+              <a href="thread.html#2070">[ thread ]</a>
+              <a href="subject.html#2070">[ subject ]</a>
+              <a href="author.html#2070">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

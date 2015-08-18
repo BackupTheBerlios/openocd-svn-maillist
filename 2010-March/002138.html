@@ -1,0 +1,1085 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-56-gd33a81c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-56-gd33a81c&In-Reply-To=%3CE1NncR6-0005H7-VW%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002137.html">
+   <LINK REL="Next"  HREF="002139.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-56-gd33a81c</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-56-gd33a81c&In-Reply-To=%3CE1NncR6-0005H7-VW%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-56-gd33a81c">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Fri Mar  5 19:39:43 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002137.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-55-g57ebf6d
+</A></li>
+        <LI>Next message: <A HREF="002139.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-58-gc6e323b
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2138">[ date ]</a>
+              <a href="thread.html#2138">[ thread ]</a>
+              <a href="subject.html#2138">[ subject ]</a>
+              <a href="author.html#2138">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  d33a81c549743e13633db9e8749f0e7cb0f7324b (commit)
+      from  57ebf6d3dea85d7c4d712a1ada161d76096fdf23 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit d33a81c549743e13633db9e8749f0e7cb0f7324b
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Mar 5 10:39:25 2010 -0800
+
+    ADIv5 share DAP command support
+    
+    Get rid of needless and undesirable code duplication for
+    all the DAP commands (resolving a FIXME) ... there's no
+    need for coreas to have private copies of that stuff.
+    Stick a pointer to the DAP in &quot;struct arm&quot;, letting common
+    code get to it.
+    
+    Also rename the &quot;swjdp_info&quot; symbol; just call it &quot;dap&quot;.
+    
+    This is an overall code shrink.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm.h b/src/target/arm.h
+index ee4bd76..99bd983 100644
+--- a/src/target/arm.h
++++ b/src/target/arm.h
+@@ -167,6 +167,12 @@ struct arm {
+ 			uint32_t value);
+ 
+ 	void *arch_info;
++
++	/** For targets conforming to ARM Debug Interface v5,
++	 * this handle references the Debug Access Port (DAP)
++	 * used to make requests to the target.
++	 */
++	struct adiv5_dap *dap;
+ };
+ 
+ /** Convert target handle to generic ARM target state handle. */
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index e30ddf6..1c52786 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -69,6 +69,7 @@
+ #include &quot;config.h&quot;
+ #endif
+ 
++#include &quot;arm.h&quot;
+ #include &quot;arm_adi_v5.h&quot;
+ #include &lt;helper/time_support.h&gt;
+ 
+@@ -1352,7 +1353,7 @@ is_dap_cid_ok(uint32_t cid3, uint32_t cid2, uint32_t cid1, uint32_t cid0)
+ 			&amp;&amp; ((cid1 &amp; 0x0f) == 0) &amp;&amp; cid0 == 0x0d;
+ }
+ 
+-int dap_info_command(struct command_context *cmd_ctx,
++static int dap_info_command(struct command_context *cmd_ctx,
+ 		struct adiv5_dap *swjdp, int apsel)
+ {
+ 	int retval;
+@@ -1711,15 +1712,40 @@ int dap_info_command(struct command_context *cmd_ctx,
+ 	return ERROR_OK;
+ }
+ 
+-DAP_COMMAND_HANDLER(dap_baseaddr_command)
++COMMAND_HANDLER(handle_dap_info_command)
+ {
++	struct target *target = get_current_target(CMD_CTX);
++	struct arm *arm = target_to_arm(target);
++	struct adiv5_dap *dap = arm-&gt;dap;
++	uint32_t apsel;
++
++	switch (CMD_ARGC) {
++	case 0:
++		apsel = dap-&gt;apsel;
++		break;
++	case 1:
++		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], apsel);
++		break;
++	default:
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	return dap_info_command(CMD_CTX, dap, apsel);
++}
++
++COMMAND_HANDLER(dap_baseaddr_command)
++{
++	struct target *target = get_current_target(CMD_CTX);
++	struct arm *arm = target_to_arm(target);
++	struct adiv5_dap *dap = arm-&gt;dap;
++
+ 	uint32_t apsel, apselsave, baseaddr;
+ 	int retval;
+ 
+-	apselsave = swjdp-&gt;apsel;
++	apselsave = dap-&gt;apsel;
+ 	switch (CMD_ARGC) {
+ 	case 0:
+-		apsel = swjdp-&gt;apsel;
++		apsel = dap-&gt;apsel;
+ 		break;
+ 	case 1:
+ 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], apsel);
+@@ -1732,33 +1758,37 @@ DAP_COMMAND_HANDLER(dap_baseaddr_command)
+ 	}
+ 
+ 	if (apselsave != apsel)
+-		dap_ap_select(swjdp, apsel);
++		dap_ap_select(dap, apsel);
+ 
+ 	/* NOTE:  assumes we're talking to a MEM-AP, which
+ 	 * has a base address.  There are other kinds of AP,
+ 	 * though they're not common for now.  This should
+ 	 * use the ID register to verify it's a MEM-AP.
+ 	 */
+-	retval = dap_queue_ap_read(swjdp, AP_REG_BASE, &amp;baseaddr);
+-	retval = dap_run(swjdp);
++	retval = dap_queue_ap_read(dap, AP_REG_BASE, &amp;baseaddr);
++	retval = dap_run(dap);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+ 	command_print(CMD_CTX, &quot;0x%8.8&quot; PRIx32, baseaddr);
+ 
+ 	if (apselsave != apsel)
+-		dap_ap_select(swjdp, apselsave);
++		dap_ap_select(dap, apselsave);
+ 
+ 	return retval;
+ }
+ 
+-DAP_COMMAND_HANDLER(dap_memaccess_command)
++COMMAND_HANDLER(dap_memaccess_command)
+ {
++	struct target *target = get_current_target(CMD_CTX);
++	struct arm *arm = target_to_arm(target);
++	struct adiv5_dap *dap = arm-&gt;dap;
++
+ 	uint32_t memaccess_tck;
+ 
+ 	switch (CMD_ARGC) {
+ 	case 0:
+-		memaccess_tck = swjdp-&gt;memaccess_tck;
++		memaccess_tck = dap-&gt;memaccess_tck;
+ 		break;
+ 	case 1:
+ 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], memaccess_tck);
+@@ -1766,16 +1796,20 @@ DAP_COMMAND_HANDLER(dap_memaccess_command)
+ 	default:
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+-	swjdp-&gt;memaccess_tck = memaccess_tck;
++	dap-&gt;memaccess_tck = memaccess_tck;
+ 
+ 	command_print(CMD_CTX, &quot;memory bus access delay set to %&quot; PRIi32 &quot; tck&quot;,
+-			swjdp-&gt;memaccess_tck);
++			dap-&gt;memaccess_tck);
+ 
+ 	return ERROR_OK;
+ }
+ 
+-DAP_COMMAND_HANDLER(dap_apsel_command)
++COMMAND_HANDLER(dap_apsel_command)
+ {
++	struct target *target = get_current_target(CMD_CTX);
++	struct arm *arm = target_to_arm(target);
++	struct adiv5_dap *dap = arm-&gt;dap;
++
+ 	uint32_t apsel, apid;
+ 	int retval;
+ 
+@@ -1793,9 +1827,9 @@ DAP_COMMAND_HANDLER(dap_apsel_command)
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	dap_ap_select(swjdp, apsel);
+-	retval = dap_queue_ap_read(swjdp, AP_REG_IDR, &amp;apid);
+-	retval = dap_run(swjdp);
++	dap_ap_select(dap, apsel);
++	retval = dap_queue_ap_read(dap, AP_REG_IDR, &amp;apid);
++	retval = dap_run(dap);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+@@ -1805,15 +1839,19 @@ DAP_COMMAND_HANDLER(dap_apsel_command)
+ 	return retval;
+ }
+ 
+-DAP_COMMAND_HANDLER(dap_apid_command)
++COMMAND_HANDLER(dap_apid_command)
+ {
++	struct target *target = get_current_target(CMD_CTX);
++	struct arm *arm = target_to_arm(target);
++	struct adiv5_dap *dap = arm-&gt;dap;
++
+ 	uint32_t apsel, apselsave, apid;
+ 	int retval;
+ 
+-	apselsave = swjdp-&gt;apsel;
++	apselsave = dap-&gt;apsel;
+ 	switch (CMD_ARGC) {
+ 	case 0:
+-		apsel = swjdp-&gt;apsel;
++		apsel = dap-&gt;apsel;
+ 		break;
+ 	case 1:
+ 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], apsel);
+@@ -1826,20 +1864,75 @@ DAP_COMMAND_HANDLER(dap_apid_command)
+ 	}
+ 
+ 	if (apselsave != apsel)
+-		dap_ap_select(swjdp, apsel);
++		dap_ap_select(dap, apsel);
+ 
+-	retval = dap_queue_ap_read(swjdp, AP_REG_IDR, &amp;apid);
+-	retval = dap_run(swjdp);
++	retval = dap_queue_ap_read(dap, AP_REG_IDR, &amp;apid);
++	retval = dap_run(dap);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+ 	command_print(CMD_CTX, &quot;0x%8.8&quot; PRIx32, apid);
+ 	if (apselsave != apsel)
+-		dap_ap_select(swjdp, apselsave);
++		dap_ap_select(dap, apselsave);
+ 
+ 	return retval;
+ }
+ 
++static const struct command_registration dap_commands[] = {
++	{
++		.name = &quot;info&quot;,
++		.handler = handle_dap_info_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;display ROM table for MEM-AP &quot;
++			&quot;(default currently selected AP)&quot;,
++		.usage = &quot;[ap_num]&quot;,
++	},
++	{
++		.name = &quot;apsel&quot;,
++		.handler = dap_apsel_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;Set the currently selected AP (default 0) &quot;
++			&quot;and display the result&quot;,
++		.usage = &quot;[ap_num]&quot;,
++	},
++	{
++		.name = &quot;apid&quot;,
++		.handler = dap_apid_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;return ID register from AP &quot;
++			&quot;(default currently selected AP)&quot;,
++		.usage = &quot;[ap_num]&quot;,
++	},
++	{
++		.name = &quot;baseaddr&quot;,
++		.handler = dap_baseaddr_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;return debug base address from MEM-AP &quot;
++			&quot;(default currently selected AP)&quot;,
++		.usage = &quot;[ap_num]&quot;,
++	},
++	{
++		.name = &quot;memaccess&quot;,
++		.handler = dap_memaccess_command,
++		.mode = COMMAND_EXEC,
++		.help = &quot;set/get number of extra tck for MEM-AP memory &quot;
++			&quot;bus access [0-255]&quot;,
++		.usage = &quot;[cycles]&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++const struct command_registration dap_command_handlers[] = {
++	{
++		.name = &quot;dap&quot;,
++		.mode = COMMAND_EXEC,
++		.help = &quot;DAP command group&quot;,
++		.chain = dap_commands,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++
+ /*
+  * This represents the bits which must be sent out on TMS/SWDIO to
+  * switch a DAP implemented using an SWJ-DP module into SWD mode.
+diff --git a/src/target/arm_adi_v5.h b/src/target/arm_adi_v5.h
+index abdbd24..d207fd9 100644
+--- a/src/target/arm_adi_v5.h
++++ b/src/target/arm_adi_v5.h
+@@ -378,17 +378,6 @@ int mem_ap_write_buf_u32(struct adiv5_dap *swjdp,
+ int ahbap_debugport_init(struct adiv5_dap *swjdp);
+ 
+ 
+-/* Commands for user dap access */
+-int dap_info_command(struct command_context *cmd_ctx,
+-		struct adiv5_dap *swjdp, int apsel);
+-
+-#define DAP_COMMAND_HANDLER(name) \
+-		COMMAND_HELPER(name, struct adiv5_dap *swjdp)
+-DAP_COMMAND_HANDLER(dap_baseaddr_command);
+-DAP_COMMAND_HANDLER(dap_memaccess_command);
+-DAP_COMMAND_HANDLER(dap_apsel_command);
+-DAP_COMMAND_HANDLER(dap_apid_command);
+-
+ struct target;
+ 
+ /* Put debug link into SWD mode */
+@@ -397,4 +386,6 @@ int dap_to_swd(struct target *target);
+ /* Put debug link into JTAG mode */
+ int dap_to_jtag(struct target *target);
+ 
++extern const struct command_registration dap_command_handlers[];
++
+ #endif
+diff --git a/src/target/armv7a.c b/src/target/armv7a.c
+index 92a373a..151deb4 100644
+--- a/src/target/armv7a.c
++++ b/src/target/armv7a.c
+@@ -117,115 +117,9 @@ int armv7a_arch_state(struct target *target)
+ }
+ 
+ 
+-COMMAND_HANDLER(handle_dap_baseaddr_command)
+-{
+-	struct target *target = get_current_target(CMD_CTX);
+-	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
+-
+-	return CALL_COMMAND_HANDLER(dap_baseaddr_command, swjdp);
+-}
+-
+-COMMAND_HANDLER(handle_dap_memaccess_command)
+-{
+-	struct target *target = get_current_target(CMD_CTX);
+-	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
+-
+-	return CALL_COMMAND_HANDLER(dap_memaccess_command, swjdp);
+-}
+-
+-COMMAND_HANDLER(handle_dap_apsel_command)
+-{
+-	struct target *target = get_current_target(CMD_CTX);
+-	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
+-
+-	return CALL_COMMAND_HANDLER(dap_apsel_command, swjdp);
+-}
+-
+-COMMAND_HANDLER(handle_dap_apid_command)
+-{
+-	struct target *target = get_current_target(CMD_CTX);
+-	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
+-
+-	return CALL_COMMAND_HANDLER(dap_apid_command, swjdp);
+-}
+-
+-COMMAND_HANDLER(handle_dap_info_command)
+-{
+-	struct target *target = get_current_target(CMD_CTX);
+-	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
+-	uint32_t apsel;
+-
+-	switch (CMD_ARGC) {
+-	case 0:
+-		apsel = swjdp-&gt;apsel;
+-		break;
+-	case 1:
+-		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], apsel);
+-		break;
+-	default:
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-	}
+-
+-	return dap_info_command(CMD_CTX, swjdp, apsel);
+-}
+-
+-/* FIXME this table should be part of generic DAP support, and
+- * be shared by the ARMv7-A/R and ARMv7-M support ...
+- */
+-static const struct command_registration armv7a_exec_command_handlers[] = {
+-	{
+-		.name = &quot;info&quot;,
+-		.handler = handle_dap_info_command,
+-		.mode = COMMAND_EXEC,
+-		.help = &quot;display ROM table for MEM-AP &quot;
+-			&quot;(default currently selected AP)&quot;,
+-		.usage = &quot;[ap_num]&quot;,
+-	},
+-	{
+-		.name = &quot;apsel&quot;,
+-		.handler = handle_dap_apsel_command,
+-		.mode = COMMAND_EXEC,
+-		.help = &quot;Set the currently selected AP (default 0) &quot;
+-			&quot;and display the result&quot;,
+-		.usage = &quot;[ap_num]&quot;,
+-	},
+-	{
+-		.name = &quot;apid&quot;,
+-		.handler = handle_dap_apid_command,
+-		.mode = COMMAND_EXEC,
+-		.help = &quot;return ID register from AP &quot;
+-			&quot;(default currently selected AP)&quot;,
+-		.usage = &quot;[ap_num]&quot;,
+-	},
+-	{
+-		.name = &quot;baseaddr&quot;,
+-		.handler = handle_dap_baseaddr_command,
+-		.mode = COMMAND_EXEC,
+-		.help = &quot;return debug base address from MEM-AP &quot;
+-			&quot;(default currently selected AP)&quot;,
+-		.usage = &quot;[ap_num]&quot;,
+-	},
+-	{
+-		.name = &quot;memaccess&quot;,
+-		.handler = handle_dap_memaccess_command,
+-		.mode = COMMAND_EXEC,
+-		.help = &quot;set/get number of extra tck for MEM-AP memory &quot;
+-			&quot;bus access [0-255]&quot;,
+-		.usage = &quot;[cycles]&quot;,
+-	},
+-	COMMAND_REGISTRATION_DONE
+-};
+ const struct command_registration armv7a_command_handlers[] = {
+ 	{
+-		.name = &quot;dap&quot;,
+-		.mode = COMMAND_ANY,
+-		.help = &quot;Cortex DAP command group&quot;,
+-		.chain = armv7a_exec_command_handlers,
++		.chain = dap_command_handlers,
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+diff --git a/src/target/armv7a.h b/src/target/armv7a.h
+index 70a2d9e..5ef8c42 100644
+--- a/src/target/armv7a.h
++++ b/src/target/armv7a.h
+@@ -50,8 +50,7 @@ struct armv7a_common
+ 	int common_magic;
+ 	struct reg_cache *core_cache;
+ 
+-	/* arm adp debug port */
+-	struct adiv5_dap swjdp_info;
++	struct adiv5_dap dap;
+ 
+ 	/* Core Debug Unit */
+ 	struct arm_dpm dpm;
+diff --git a/src/target/armv7m.c b/src/target/armv7m.c
+index 5276af8..1216a45 100644
+--- a/src/target/armv7m.c
++++ b/src/target/armv7m.c
+@@ -739,160 +739,12 @@ int armv7m_maybe_skip_bkpt_inst(struct target *target, bool *inst_found)
+ 	return ERROR_OK;
+ }
+ 
+-/*--------------------------------------------------------------------------*/
+-
+-/*
+- * Only stuff below this line should need to verify that its target
+- * is an ARMv7-M node.
+- */
+-
+-
+-/*
+- * Return the debug ap baseaddress in hexadecimal;
+- * no extra output to simplify script processing
+- */
+-COMMAND_HANDLER(handle_dap_baseaddr_command)
+-{
+-	struct target *target = get_current_target(CMD_CTX);
+-	struct armv7m_common *armv7m = target_to_armv7m(target);
+-	struct adiv5_dap *swjdp = &amp;armv7m-&gt;swjdp_info;
+-
+-	if (!is_armv7m(armv7m)) {
+-		command_print(CMD_CTX, &quot;current target isn't an ARM7-M&quot;);
+-		return ERROR_TARGET_INVALID;
+-	}
+-
+-	return CALL_COMMAND_HANDLER(dap_baseaddr_command, swjdp);
+-}
+-
+-/*
+- * Return the debug ap id in hexadecimal;
+- * no extra output to simplify script processing
+- */
+-COMMAND_HANDLER(handle_dap_apid_command)
+-{
+-	struct target *target = get_current_target(CMD_CTX);
+-	struct armv7m_common *armv7m = target_to_armv7m(target);
+-	struct adiv5_dap *swjdp = &amp;armv7m-&gt;swjdp_info;
+-
+-	if (!is_armv7m(armv7m)) {
+-		command_print(CMD_CTX, &quot;current target isn't an ARM7-M&quot;);
+-		return ERROR_TARGET_INVALID;
+-	}
+-
+-	return CALL_COMMAND_HANDLER(dap_apid_command, swjdp);
+-}
+-
+-COMMAND_HANDLER(handle_dap_apsel_command)
+-{
+-	struct target *target = get_current_target(CMD_CTX);
+-	struct armv7m_common *armv7m = target_to_armv7m(target);
+-	struct adiv5_dap *swjdp = &amp;armv7m-&gt;swjdp_info;
+-
+-	if (!is_armv7m(armv7m)) {
+-		command_print(CMD_CTX, &quot;current target isn't an ARM7-M&quot;);
+-		return ERROR_TARGET_INVALID;
+-	}
+-
+-	return CALL_COMMAND_HANDLER(dap_apsel_command, swjdp);
+-}
+-
+-COMMAND_HANDLER(handle_dap_memaccess_command)
+-{
+-	struct target *target = get_current_target(CMD_CTX);
+-	struct armv7m_common *armv7m = target_to_armv7m(target);
+-	struct adiv5_dap *swjdp = &amp;armv7m-&gt;swjdp_info;
+-
+-	if (!is_armv7m(armv7m)) {
+-		command_print(CMD_CTX, &quot;current target isn't an ARM7-M&quot;);
+-		return ERROR_TARGET_INVALID;
+-	}
+-
+-	return CALL_COMMAND_HANDLER(dap_memaccess_command, swjdp);
+-}
+-
+-
+-COMMAND_HANDLER(handle_dap_info_command)
+-{
+-	struct target *target = get_current_target(CMD_CTX);
+-	struct armv7m_common *armv7m = target_to_armv7m(target);
+-	struct adiv5_dap *swjdp = &amp;armv7m-&gt;swjdp_info;
+-	uint32_t apsel;
+-
+-	if (!is_armv7m(armv7m)) {
+-		command_print(CMD_CTX, &quot;current target isn't an ARM7-M&quot;);
+-		return ERROR_TARGET_INVALID;
+-	}
+-
+-	switch (CMD_ARGC) {
+-	case 0:
+-		apsel = swjdp-&gt;apsel;
+-		break;
+-	case 1:
+-		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], apsel);
+-		break;
+-	default:
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-	}
+-
+-	return dap_info_command(CMD_CTX, swjdp, apsel);
+-}
+-
+-/* FIXME this table should be part of generic DAP support, and
+- * be shared by the ARMv7-A/R and ARMv7-M support ...
+- */
+-static const struct command_registration armv7m_exec_command_handlers[] = {
+-	{
+-		.name = &quot;info&quot;,
+-		.handler = handle_dap_info_command,
+-		.mode = COMMAND_EXEC,
+-		.help = &quot;display ROM table for MEM-AP &quot;
+-			&quot;(default currently selected AP)&quot;,
+-		.usage = &quot;[ap_num]&quot;,
+-	},
+-	{
+-		.name = &quot;apsel&quot;,
+-		.handler = handle_dap_apsel_command,
+-		.mode = COMMAND_EXEC,
+-		.help = &quot;Set the currently selected AP (default 0) &quot;
+-			&quot;and display the result&quot;,
+-		.usage = &quot;[ap_num]&quot;,
+-	},
+-	{
+-		.name = &quot;apid&quot;,
+-		.handler = handle_dap_apid_command,
+-		.mode = COMMAND_EXEC,
+-		.help = &quot;return ID register from AP &quot;
+-			&quot;(default currently selected AP)&quot;,
+-		.usage = &quot;[ap_num]&quot;,
+-	},
+-	{
+-		.name = &quot;baseaddr&quot;,
+-		.handler = handle_dap_baseaddr_command,
+-		.mode = COMMAND_EXEC,
+-		.help = &quot;return debug base address from MEM-AP &quot;
+-			&quot;(default currently selected AP)&quot;,
+-		.usage = &quot;[ap_num]&quot;,
+-	},
+-	{
+-		.name = &quot;memaccess&quot;,
+-		.handler = handle_dap_memaccess_command,
+-		.mode = COMMAND_EXEC,
+-		.help = &quot;set/get number of extra tck for MEM-AP memory &quot;
+-			&quot;bus access [0-255]&quot;,
+-		.usage = &quot;[cycles]&quot;,
+-	},
+-	COMMAND_REGISTRATION_DONE
+-};
+ const struct command_registration armv7m_command_handlers[] = {
+ 	{
+ 		.chain = arm_command_handlers,
+ 	},
+ 	{
+-		.name = &quot;dap&quot;,
+-		.mode = COMMAND_EXEC,
+-		.help = &quot;Cortex DAP command group&quot;,
+-		.chain = armv7m_exec_command_handlers,
++		.chain = dap_command_handlers,
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+diff --git a/src/target/armv7m.h b/src/target/armv7m.h
+index 5526505..51d6704 100644
+--- a/src/target/armv7m.h
++++ b/src/target/armv7m.h
+@@ -106,7 +106,7 @@ struct armv7m_common
+ 	struct reg_cache *core_cache;
+ 	enum armv7m_mode core_mode;
+ 	int exception_number;
+-	struct adiv5_dap swjdp_info;
++	struct adiv5_dap dap;
+ 
+ 	uint32_t demcr;
+ 
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index 0dc7cee..332a55a 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -67,7 +67,7 @@ static int cortex_a8_dap_write_coreregister_u32(struct target *target,
+ static int cortex_a8_init_debug_access(struct target *target)
+ {
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 
+ 	int retval;
+ 	uint32_t dummy;
+@@ -103,7 +103,7 @@ static int cortex_a8_exec_opcode(struct target *target,
+ 	uint32_t dscr;
+ 	int retval;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 
+ 	dscr = dscr_p ? *dscr_p : 0;
+ 
+@@ -150,7 +150,7 @@ static int cortex_a8_read_regs_through_mem(struct target *target, uint32_t addre
+ {
+ 	int retval = ERROR_OK;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 
+ 	cortex_a8_dap_read_coreregister_u32(target, regfile, 0);
+ 	cortex_a8_dap_write_coreregister_u32(target, address, 0);
+@@ -169,7 +169,7 @@ static int cortex_a8_dap_read_coreregister_u32(struct target *target,
+ 	uint8_t reg = regnum&amp;0xFF;
+ 	uint32_t dscr = 0;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 
+ 	if (reg &gt; 17)
+ 		return retval;
+@@ -221,7 +221,7 @@ static int cortex_a8_dap_write_coreregister_u32(struct target *target,
+ 	uint8_t Rd = regnum&amp;0xFF;
+ 	uint32_t dscr;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 
+ 	LOG_DEBUG(&quot;register %i, value 0x%08&quot; PRIx32, regnum, value);
+ 
+@@ -284,7 +284,7 @@ static int cortex_a8_dap_write_memap_register_u32(struct target *target, uint32_
+ {
+ 	int retval;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 
+ 	retval = mem_ap_write_atomic_u32(swjdp, address, value);
+ 
+@@ -310,14 +310,14 @@ static inline struct cortex_a8_common *dpm_to_a8(struct arm_dpm *dpm)
+ static int cortex_a8_write_dcc(struct cortex_a8_common *a8, uint32_t data)
+ {
+ 	LOG_DEBUG(&quot;write DCC 0x%08&quot; PRIx32, data);
+-	return mem_ap_write_u32(&amp;a8-&gt;armv7a_common.swjdp_info,
++	return mem_ap_write_u32(&amp;a8-&gt;armv7a_common.dap,
+ 			a8-&gt;armv7a_common.debug_base + CPUDBG_DTRRX, data);
+ }
+ 
+ static int cortex_a8_read_dcc(struct cortex_a8_common *a8, uint32_t *data,
+ 		uint32_t *dscr_p)
+ {
+-	struct adiv5_dap *swjdp = &amp;a8-&gt;armv7a_common.swjdp_info;
++	struct adiv5_dap *swjdp = &amp;a8-&gt;armv7a_common.dap;
+ 	uint32_t dscr = DSCR_INSTR_COMP;
+ 	int retval;
+ 
+@@ -344,7 +344,7 @@ static int cortex_a8_read_dcc(struct cortex_a8_common *a8, uint32_t *data,
+ static int cortex_a8_dpm_prepare(struct arm_dpm *dpm)
+ {
+ 	struct cortex_a8_common *a8 = dpm_to_a8(dpm);
+-	struct adiv5_dap *swjdp = &amp;a8-&gt;armv7a_common.swjdp_info;
++	struct adiv5_dap *swjdp = &amp;a8-&gt;armv7a_common.dap;
+ 	uint32_t dscr;
+ 	int retval;
+ 
+@@ -562,7 +562,7 @@ static int cortex_a8_poll(struct target *target)
+ 	uint32_t dscr;
+ 	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
+ 	struct armv7a_common *armv7a = &amp;cortex_a8-&gt;armv7a_common;
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 	enum target_state prev_target_state = target-&gt;state;
+ 	uint8_t saved_apsel = dap_ap_get_select(swjdp);
+ 
+@@ -626,7 +626,7 @@ static int cortex_a8_halt(struct target *target)
+ 	int retval = ERROR_OK;
+ 	uint32_t dscr;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 	uint8_t saved_apsel = dap_ap_get_select(swjdp);
+ 	dap_ap_select(swjdp, swjdp_debugap);
+ 
+@@ -664,7 +664,7 @@ static int cortex_a8_resume(struct target *target, int current,
+ {
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct arm *armv4_5 = &amp;armv7a-&gt;armv4_5_common;
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 
+ //	struct breakpoint *breakpoint = NULL;
+ 	uint32_t resume_pc, dscr;
+@@ -788,7 +788,7 @@ static int cortex_a8_debug_entry(struct target *target)
+ 	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct arm *armv4_5 = &amp;armv7a-&gt;armv4_5_common;
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 	struct reg *reg;
+ 
+ 	LOG_DEBUG(&quot;dscr = 0x%08&quot; PRIx32, cortex_a8-&gt;cpudbg_dscr);
+@@ -1276,7 +1276,7 @@ static int cortex_a8_read_memory(struct target *target, uint32_t address,
+ 		uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 	int retval = ERROR_INVALID_ARGUMENTS;
+ 
+ 	/* cortex_a8 handles unaligned memory access */
+@@ -1304,7 +1304,7 @@ static int cortex_a8_write_memory(struct target *target, uint32_t address,
+ 		uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 	int retval = ERROR_INVALID_ARGUMENTS;
+ 
+ // ???	dap_ap_select(swjdp, swjdp_memoryap);
+@@ -1413,7 +1413,7 @@ static int cortex_a8_handle_target_request(void *priv)
+ {
+ 	struct target *target = priv;
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 
+ 	if (!target_was_examined(target))
+ 		return ERROR_OK;
+@@ -1455,7 +1455,7 @@ static int cortex_a8_examine_first(struct target *target)
+ {
+ 	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
+ 	struct armv7a_common *armv7a = &amp;cortex_a8-&gt;armv7a_common;
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 	int i;
+ 	int retval = ERROR_OK;
+ 	uint32_t didr, ctypr, ttypr, cpuid;
+@@ -1562,7 +1562,9 @@ static int cortex_a8_init_arch_info(struct target *target,
+ {
+ 	struct armv7a_common *armv7a = &amp;cortex_a8-&gt;armv7a_common;
+ 	struct arm *armv4_5 = &amp;armv7a-&gt;armv4_5_common;
+-	struct adiv5_dap *swjdp = &amp;armv7a-&gt;swjdp_info;
++	struct adiv5_dap *dap = &amp;armv7a-&gt;dap;
++
++	armv7a-&gt;armv4_5_common.dap = dap;
+ 
+ 	/* Setup struct cortex_a8_common */
+ 	cortex_a8-&gt;common_magic = CORTEX_A8_COMMON_MAGIC;
+@@ -1573,11 +1575,11 @@ static int cortex_a8_init_arch_info(struct target *target,
+ 	cortex_a8-&gt;jtag_info.scann_size = 4;
+ 
+ 	/* Leave (only) generic DAP stuff for debugport_init() */
+-	swjdp-&gt;jtag_info = &amp;cortex_a8-&gt;jtag_info;
+-	swjdp-&gt;memaccess_tck = 80;
++	dap-&gt;jtag_info = &amp;cortex_a8-&gt;jtag_info;
++	dap-&gt;memaccess_tck = 80;
+ 
+ 	/* Number of bits for tar autoincrement, impl. dep. at least 10 */
+-	swjdp-&gt;tar_autoincr_block = (1 &lt;&lt; 10);
++	dap-&gt;tar_autoincr_block = (1 &lt;&lt; 10);
+ 
+ 	cortex_a8-&gt;fast_reg_read = 0;
+ 
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index 852965c..d39d839 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -129,7 +129,7 @@ static int cortex_m3_write_debug_halt_mask(struct target *target,
+ 		uint32_t mask_on, uint32_t mask_off)
+ {
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+-	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.swjdp_info;
++	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.dap;
+ 
+ 	/* mask off status bits */
+ 	cortex_m3-&gt;dcb_dhcsr &amp;= ~((0xFFFF &lt;&lt; 16) | mask_off);
+@@ -142,7 +142,7 @@ static int cortex_m3_write_debug_halt_mask(struct target *target,
+ static int cortex_m3_clear_halt(struct target *target)
+ {
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+-	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.swjdp_info;
++	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.dap;
+ 
+ 	/* clear step if any */
+ 	cortex_m3_write_debug_halt_mask(target, C_HALT, C_STEP);
+@@ -160,7 +160,7 @@ static int cortex_m3_clear_halt(struct target *target)
+ static int cortex_m3_single_step_core(struct target *target)
+ {
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+-	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.swjdp_info;
++	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.dap;
+ 	uint32_t dhcsr_save;
+ 
+ 	/* backup dhcsr reg */
+@@ -191,7 +191,7 @@ static int cortex_m3_endreset_event(struct target *target)
+ 	uint32_t dcb_demcr;
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+ 	struct armv7m_common *armv7m = &amp;cortex_m3-&gt;armv7m;
+-	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.swjdp_info;
++	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.dap;
+ 	struct cortex_m3_fp_comparator *fp_list = cortex_m3-&gt;fp_comparator_list;
+ 	struct cortex_m3_dwt_comparator *dwt_list = cortex_m3-&gt;dwt_comparator_list;
+ 
+@@ -286,7 +286,7 @@ static int cortex_m3_examine_exception_reason(struct target *target)
+ {
+ 	uint32_t shcsr, except_sr, cfsr = -1, except_ar = -1;
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+-	struct adiv5_dap *swjdp = &amp;armv7m-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7m-&gt;dap;
+ 	int retval;
+ 
+ 	mem_ap_read_u32(swjdp, NVIC_SHCSR, &amp;shcsr);
+@@ -360,7 +360,7 @@ static int cortex_m3_debug_entry(struct target *target)
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+ 	struct armv7m_common *armv7m = &amp;cortex_m3-&gt;armv7m;
+ 	struct arm *arm = &amp;armv7m-&gt;arm;
+-	struct adiv5_dap *swjdp = &amp;armv7m-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7m-&gt;dap;
+ 	struct reg *r;
+ 
+ 	LOG_DEBUG(&quot; &quot;);
+@@ -452,7 +452,7 @@ static int cortex_m3_poll(struct target *target)
+ 	int retval;
+ 	enum target_state prev_target_state = target-&gt;state;
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+-	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.swjdp_info;
++	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.dap;
+ 
+ 	/* Read from Debug Halting Control and Status Register */
+ 	retval = mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
+@@ -587,7 +587,7 @@ static int cortex_m3_halt(struct target *target)
+ static int cortex_m3_soft_reset_halt(struct target *target)
+ {
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+-	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.swjdp_info;
++	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.dap;
+ 	uint32_t dcb_dhcsr = 0;
+ 	int retval, timeout = 0;
+ 
+@@ -761,7 +761,7 @@ static int cortex_m3_step(struct target *target, int current,
+ {
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+ 	struct armv7m_common *armv7m = &amp;cortex_m3-&gt;armv7m;
+-	struct adiv5_dap *swjdp = &amp;armv7m-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7m-&gt;dap;
+ 	struct breakpoint *breakpoint = NULL;
+ 	struct reg *pc = armv7m-&gt;arm.pc;
+ 	bool bkpt_inst_found = false;
+@@ -826,7 +826,7 @@ static int cortex_m3_step(struct target *target, int current,
+ static int cortex_m3_assert_reset(struct target *target)
+ {
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+-	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.swjdp_info;
++	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.dap;
+ 	int assert_srst = 1;
+ 
+ 	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
+@@ -1376,7 +1376,7 @@ static int cortex_m3_load_core_reg_u32(struct target *target,
+ {
+ 	int retval;
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+-	struct adiv5_dap *swjdp = &amp;armv7m-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7m-&gt;dap;
+ 
+ 	/* NOTE:  we &quot;know&quot; here that the register identifiers used
+ 	 * in the v7m header match the Cortex-M3 Debug Core Register
+@@ -1440,7 +1440,7 @@ static int cortex_m3_store_core_reg_u32(struct target *target,
+ 	int retval;
+ 	uint32_t reg;
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+-	struct adiv5_dap *swjdp = &amp;armv7m-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7m-&gt;dap;
+ 
+ #ifdef ARMV7_GDB_HACKS
+ 	/* If the LR register is being modified, make sure it will put us
+@@ -1518,7 +1518,7 @@ static int cortex_m3_read_memory(struct target *target, uint32_t address,
+ 		uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+-	struct adiv5_dap *swjdp = &amp;armv7m-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7m-&gt;dap;
+ 	int retval = ERROR_INVALID_ARGUMENTS;
+ 
+ 	/* cortex_m3 handles unaligned memory access */
+@@ -1543,7 +1543,7 @@ static int cortex_m3_write_memory(struct target *target, uint32_t address,
+ 		uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+-	struct adiv5_dap *swjdp = &amp;armv7m-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7m-&gt;dap;
+ 	int retval = ERROR_INVALID_ARGUMENTS;
+ 
+ 	if (count &amp;&amp; buffer) {
+@@ -1724,7 +1724,7 @@ static int cortex_m3_examine(struct target *target)
+ 	uint32_t cpuid, fpcr;
+ 	int i;
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+-	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.swjdp_info;
++	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.dap;
+ 
+ 	if ((retval = ahbap_debugport_init(swjdp)) != ERROR_OK)
+ 		return retval;
+@@ -1798,7 +1798,7 @@ static int cortex_m3_target_request_data(struct target *target,
+ 		uint32_t size, uint8_t *buffer)
+ {
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+-	struct adiv5_dap *swjdp = &amp;armv7m-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7m-&gt;dap;
+ 	uint8_t data;
+ 	uint8_t ctrl;
+ 	uint32_t i;
+@@ -1818,7 +1818,7 @@ static int cortex_m3_handle_target_request(void *priv)
+ 	if (!target_was_examined(target))
+ 		return ERROR_OK;
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+-	struct adiv5_dap *swjdp = &amp;armv7m-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7m-&gt;dap;
+ 
+ 	if (!target-&gt;dbg_msg_enabled)
+ 		return ERROR_OK;
+@@ -1862,11 +1862,13 @@ static int cortex_m3_init_arch_info(struct target *target,
+ 	cortex_m3-&gt;jtag_info.tap = tap;
+ 	cortex_m3-&gt;jtag_info.scann_size = 4;
+ 
++	armv7m-&gt;arm.dap = &amp;armv7m-&gt;dap;
++
+ 	/* Leave (only) generic DAP stuff for debugport_init(); */
+-	armv7m-&gt;swjdp_info.jtag_info = &amp;cortex_m3-&gt;jtag_info;
+-	armv7m-&gt;swjdp_info.memaccess_tck = 8;
++	armv7m-&gt;dap.jtag_info = &amp;cortex_m3-&gt;jtag_info;
++	armv7m-&gt;dap.memaccess_tck = 8;
+ 	/* Cortex-M3 has 4096 bytes autoincrement range */
+-	armv7m-&gt;swjdp_info.tar_autoincr_block = (1 &lt;&lt; 12);
++	armv7m-&gt;dap.tar_autoincr_block = (1 &lt;&lt; 12);
+ 
+ 	/* register arch-specific functions */
+ 	armv7m-&gt;examine_debug_reason = cortex_m3_examine_debug_reason;
+@@ -1936,7 +1938,7 @@ COMMAND_HANDLER(handle_cortex_m3_vector_catch_command)
+ 	struct target *target = get_current_target(CMD_CTX);
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+ 	struct armv7m_common *armv7m = &amp;cortex_m3-&gt;armv7m;
+-	struct adiv5_dap *swjdp = &amp;armv7m-&gt;swjdp_info;
++	struct adiv5_dap *swjdp = &amp;armv7m-&gt;dap;
+ 	uint32_t demcr = 0;
+ 	int retval;
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm.h        |    6 ++
+ src/target/arm_adi_v5.c |  139 ++++++++++++++++++++++++++++++++++++-------
+ src/target/arm_adi_v5.h |   13 +----
+ src/target/armv7a.c     |  108 +---------------------------------
+ src/target/armv7a.h     |    3 +-
+ src/target/armv7m.c     |  150 +----------------------------------------------
+ src/target/armv7m.h     |    2 +-
+ src/target/cortex_a8.c  |   44 +++++++-------
+ src/target/cortex_m3.c  |   44 +++++++-------
+ 9 files changed, 174 insertions(+), 335 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002137.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-55-g57ebf6d
+</A></li>
+	<LI>Next message: <A HREF="002139.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-58-gc6e323b
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2138">[ date ]</a>
+              <a href="thread.html#2138">[ thread ]</a>
+              <a href="subject.html#2138">[ subject ]</a>
+              <a href="author.html#2138">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

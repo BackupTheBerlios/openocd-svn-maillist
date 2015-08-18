@@ -1,0 +1,198 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1380 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1380%20-%20trunk/src/target&In-Reply-To=%3C200902232126.n1NLQBA0002447%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000163.html">
+   <LINK REL="Next"  HREF="000165.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1380 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1380%20-%20trunk/src/target&In-Reply-To=%3C200902232126.n1NLQBA0002447%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1380 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Mon Feb 23 22:26:11 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000163.html">[Openocd-svn] r1379 - trunk/src/target/target
+</A></li>
+        <LI>Next message: <A HREF="000165.html">[Openocd-svn] r1381 -	zy1000/trunk/ecoshal/hal/zylin/phi/current/include/pkgconf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#164">[ date ]</a>
+              <a href="thread.html#164">[ thread ]</a>
+              <a href="subject.html#164">[ subject ]</a>
+              <a href="author.html#164">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-02-23 22:26:11 +0100 (Mon, 23 Feb 2009)
+New Revision: 1380
+
+Modified:
+   trunk/src/target/cortex_swjdp.c
+   trunk/src/target/target.c
+Log:
+tinkered a bit with performance for Cortex flash programming. Mainly make it easier to profile as a start.
+
+Modified: trunk/src/target/cortex_swjdp.c
+===================================================================
+--- trunk/src/target/cortex_swjdp.c	2009-02-23 06:30:15 UTC (rev 1379)
++++ trunk/src/target/cortex_swjdp.c	2009-02-23 21:26:11 UTC (rev 1380)
+@@ -5,6 +5,9 @@
+  *   Copyright (C) 2008 by Spencer Oliver                                  *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">spen at spen-soft.co.uk</A>                                                  *
+  *                                                                         *
++ *   Copyright (C) 2009 by Oyvind Harboe                                   *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
++ *																		   *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -178,7 +181,7 @@
+ 	int retval;
+ 	u32 ctrlstat;
+ 
+-	keep_alive();
++	/* too expensive to call keep_alive() here */
+ 
+ 	/* Danger!!!! BROKEN!!!! */
+ 	scan_inout_check_u32(swjdp, SWJDP_IR_DPACC, DP_CTRL_STAT, DPAP_READ, 0, &amp;ctrlstat);
+@@ -199,27 +202,33 @@
+ 
+ 	swjdp-&gt;ack = swjdp-&gt;ack &amp; 0x7;
+ 
+-	long long then=timeval_ms();
+-	while (swjdp-&gt;ack != 2)
++	if (swjdp-&gt;ack != 2)
+ 	{
+-		if (swjdp-&gt;ack == 1)
++		long long then=timeval_ms();
++		while (swjdp-&gt;ack != 2)
+ 		{
+-			if ((timeval_ms()-then) &gt; 1000)
++			if (swjdp-&gt;ack == 1)
+ 			{
+-				LOG_WARNING(&quot;Timeout (1000ms) waiting for ACK = OK/FAULT in SWJDP transaction&quot;);
++				if ((timeval_ms()-then) &gt; 1000)
++				{
++					LOG_WARNING(&quot;Timeout (1000ms) waiting for ACK = OK/FAULT in SWJDP transaction&quot;);
++					return ERROR_JTAG_DEVICE_ERROR;
++				}
++			}
++			else
++			{
++				LOG_WARNING(&quot;Invalid ACK in SWJDP transaction&quot;);
+ 				return ERROR_JTAG_DEVICE_ERROR;
+ 			}
++
++			scan_inout_check_u32(swjdp, SWJDP_IR_DPACC, DP_CTRL_STAT, DPAP_READ, 0, &amp;ctrlstat);
++			if ((retval=jtag_execute_queue())!=ERROR_OK)
++				return retval;
++			swjdp-&gt;ack = swjdp-&gt;ack &amp; 0x7;
+ 		}
+-		else
+-		{
+-			LOG_WARNING(&quot;Invalid ACK in SWJDP transaction&quot;);
+-			return ERROR_JTAG_DEVICE_ERROR;
+-		}
+-
+-		scan_inout_check_u32(swjdp, SWJDP_IR_DPACC, DP_CTRL_STAT, DPAP_READ, 0, &amp;ctrlstat);
+-		if ((retval=jtag_execute_queue())!=ERROR_OK)
+-			return retval;
+-		swjdp-&gt;ack = swjdp-&gt;ack &amp; 0x7;
++	} else
++	{
++		/* common code path avoids fn to timeval_ms() */
+ 	}
+ 
+ 	/* Check for STICKYERR and STICKYORUN */
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-02-23 06:30:15 UTC (rev 1379)
++++ trunk/src/target/target.c	2009-02-23 21:26:11 UTC (rev 1380)
+@@ -1700,33 +1700,42 @@
+ 	return target_wait_state(target, TARGET_HALTED, ms);
+ }
+ 
++/* wait for target state to change. The trick here is to have a low
++ * latency for short waits and not to suck up all the CPU time
++ * on longer waits.
++ *
++ * After 500ms, keep_alive() is invoked
++ */
+ int target_wait_state(target_t *target, enum target_state state, int ms)
+ {
+ 	int retval;
+-	struct timeval timeout, now;
++	long long then=0, cur;
+ 	int once=1;
+-	gettimeofday(&amp;timeout, NULL);
+-	timeval_add_time(&amp;timeout, 0, ms * 1000);
+ 
+ 	for (;;)
+ 	{
+ 		if ((retval=target_poll(target))!=ERROR_OK)
+ 			return retval;
+-		keep_alive();
+ 		if (target-&gt;state == state)
+ 		{
+ 			break;
+ 		}
++		cur = timeval_ms();
+ 		if (once)
+ 		{
+ 			once=0;
++			then = timeval_ms();
+ 			LOG_DEBUG(&quot;waiting for target %s...&quot;,
+ 				Jim_Nvp_value2name_simple(nvp_target_state,state)-&gt;name);
+ 		}
+ 
+-		gettimeofday(&amp;now, NULL);
+-		if ((now.tv_sec &gt; timeout.tv_sec) || ((now.tv_sec == timeout.tv_sec) &amp;&amp; (now.tv_usec &gt;= timeout.tv_usec)))
++		if (cur-then&gt;500)
+ 		{
++			keep_alive();
++		}
++
++		if ((cur-then)&gt;ms)
++		{
+ 			LOG_ERROR(&quot;timed out while waiting for target %s&quot;,
+ 				Jim_Nvp_value2name_simple(nvp_target_state,state)-&gt;name);
+ 			return ERROR_FAIL;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000163.html">[Openocd-svn] r1379 - trunk/src/target/target
+</A></li>
+	<LI>Next message: <A HREF="000165.html">[Openocd-svn] r1381 -	zy1000/trunk/ecoshal/hal/zylin/phi/current/include/pkgconf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#164">[ date ]</a>
+              <a href="thread.html#164">[ thread ]</a>
+              <a href="subject.html#164">[ subject ]</a>
+              <a href="author.html#164">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,379 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2532 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2532%20-%20trunk/src/target&In-Reply-To=%3C200907152348.n6FNmDsa021628%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001314.html">
+   <LINK REL="Next"  HREF="001316.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2532 - trunk/src/target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2532%20-%20trunk/src/target&In-Reply-To=%3C200907152348.n6FNmDsa021628%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2532 - trunk/src/target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul 16 01:48:13 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001314.html">[Openocd-svn] r2531 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001316.html">[Openocd-svn] r2533 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1315">[ date ]</a>
+              <a href="thread.html#1315">[ thread ]</a>
+              <a href="subject.html#1315">[ subject ]</a>
+              <a href="author.html#1315">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-07-16 01:48:11 +0200 (Thu, 16 Jul 2009)
+New Revision: 2532
+
+Modified:
+   trunk/src/target/arm_disassembler.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Make the Thumb2 disassembler handle a bunch of 32-bit instructions:
+
+  A5.3.4 Branches and miscellaneous control
+ 
+Note that this shifts some responsabililty out of helper functions,
+making the code and layout simpler for 32-bit decoders:  they only
+need to know how to format the instruction and its parameters.
+
+Also, technical note:  with this patch, Thumb1 decoders could now
+call the Thumb2 decoder if they wanted to get nicer treatment of
+the exiting 32-bit B/BLX instructions.
+
+
+Modified: trunk/src/target/arm_disassembler.c
+===================================================================
+--- trunk/src/target/arm_disassembler.c	2009-07-15 23:39:48 UTC (rev 2531)
++++ trunk/src/target/arm_disassembler.c	2009-07-15 23:48:11 UTC (rev 2532)
+@@ -2292,6 +2292,247 @@
+ 	return -1;
+ }
+ 
++static int t2ev_b_bl(uint32_t opcode, uint32_t address,
++		arm_instruction_t *instruction, char *cp)
++{
++	unsigned offset;
++	unsigned b21 = 1 &lt;&lt; 21;
++	unsigned b22 = 1 &lt;&lt; 22;
++
++	/* instead of combining two smaller 16-bit branch instructions,
++	 * Thumb2 uses only one larger 32-bit instruction.
++	 */
++	offset = opcode &amp; 0x7ff;
++	offset |= (opcode &amp; 0x03ff0000) &gt;&gt; 5;
++	if (opcode &amp; (1 &lt;&lt; 26)) {
++		offset |= 0xff &lt;&lt; 23;
++		if ((opcode &amp; (1 &lt;&lt; 11)) == 0)
++			b21 = 0;
++		if ((opcode &amp; (1 &lt;&lt; 13)) == 0)
++			b22 = 0;
++	} else {
++		if (opcode &amp; (1 &lt;&lt; 11))
++			b21 = 0;
++		if (opcode &amp; (1 &lt;&lt; 13))
++			b22 = 0;
++	}
++	offset |= b21;
++	offset |= b22;
++
++
++	address += 4;
++	address += offset &lt;&lt; 1;
++
++	instruction-&gt;type = (opcode &amp; (1 &lt;&lt; 14)) ? ARM_BL : ARM_B;
++	instruction-&gt;info.b_bl_bx_blx.reg_operand = -1;
++	instruction-&gt;info.b_bl_bx_blx.target_address = address;
++	sprintf(cp, &quot;%s\t%#8.8&quot; PRIx32,
++			(opcode &amp; (1 &lt;&lt; 14)) ? &quot;BL&quot; : &quot;B.W&quot;,
++			address);
++
++	return ERROR_OK;
++}
++
++static int t2ev_cond_b(uint32_t opcode, uint32_t address,
++		arm_instruction_t *instruction, char *cp)
++{
++	unsigned offset;
++	unsigned b17 = 1 &lt;&lt; 17;
++	unsigned b18 = 1 &lt;&lt; 18;
++	unsigned cond = (opcode &gt;&gt; 22) &amp; 0x0f;
++
++	offset = opcode &amp; 0x7ff;
++	offset |= (opcode &amp; 0x003f0000) &gt;&gt; 5;
++	if (opcode &amp; (1 &lt;&lt; 26)) {
++		offset |= 0xffff &lt;&lt; 19;
++		if ((opcode &amp; (1 &lt;&lt; 11)) == 0)
++			b17 = 0;
++		if ((opcode &amp; (1 &lt;&lt; 13)) == 0)
++			b18 = 0;
++	} else {
++		if (opcode &amp; (1 &lt;&lt; 11))
++			b17 = 0;
++		if (opcode &amp; (1 &lt;&lt; 13))
++			b18 = 0;
++	}
++	offset |= b17;
++	offset |= b18;
++
++	address += 4;
++	address += offset &lt;&lt; 1;
++
++	instruction-&gt;type = ARM_B;
++	instruction-&gt;info.b_bl_bx_blx.reg_operand = -1;
++	instruction-&gt;info.b_bl_bx_blx.target_address = address;
++	sprintf(cp, &quot;B%s.W\t%#8.8&quot; PRIx32,
++			arm_condition_strings[cond],
++			address);
++
++	return ERROR_OK;
++}
++
++static const char *special_name(int number)
++{
++	char *special = &quot;(RESERVED)&quot;;
++
++	switch (number) {
++	case 0:
++		special = &quot;apsr&quot;;
++		break;
++	case 1:
++		special = &quot;iapsr&quot;;
++		break;
++	case 2:
++		special = &quot;eapsr&quot;;
++		break;
++	case 3:
++		special = &quot;xpsr&quot;;
++		break;
++	case 5:
++		special = &quot;ipsr&quot;;
++		break;
++	case 6:
++		special = &quot;epsr&quot;;
++		break;
++	case 7:
++		special = &quot;iepsr&quot;;
++		break;
++	case 8:
++		special = &quot;msp&quot;;
++		break;
++	case 9:
++		special = &quot;psp&quot;;
++		break;
++	case 16:
++		special = &quot;primask&quot;;
++		break;
++	case 17:
++		special = &quot;basepri&quot;;
++		break;
++	case 18:
++		special = &quot;basepri_max&quot;;
++		break;
++	case 19:
++		special = &quot;faultmask&quot;;
++		break;
++	case 20:
++		special = &quot;control&quot;;
++		break;
++	}
++	return special;
++}
++
++static int t2ev_hint(uint32_t opcode, uint32_t address,
++		arm_instruction_t *instruction, char *cp)
++{
++	const char *mnemonic;
++
++	if (opcode &amp; 0x0700) {
++		instruction-&gt;type = ARM_UNDEFINED_INSTRUCTION;
++		strcpy(cp, &quot;UNDEFINED&quot;);
++		return ERROR_OK;
++	}
++
++	if (opcode &amp; 0x00f0) {
++		sprintf(cp, &quot;DBG\t#%d&quot;, opcode &amp; 0xf);
++		return ERROR_OK;
++	}
++
++	switch (opcode &amp; 0x0f) {
++	case 0:
++		mnemonic = &quot;NOP.W&quot;;
++		break;
++	case 1:
++		mnemonic = &quot;YIELD.W&quot;;
++		break;
++	case 2:
++		mnemonic = &quot;WFE.W&quot;;
++		break;
++	case 3:
++		mnemonic = &quot;WFI.W&quot;;
++		break;
++	case 4:
++		mnemonic = &quot;SEV.W&quot;;
++		break;
++	default:
++		mnemonic = &quot;HINT.W (UNRECOGNIZED)&quot;;
++		break;
++	}
++	strcpy(cp, mnemonic);
++	return ERROR_OK;
++}
++
++static int t2ev_misc(uint32_t opcode, uint32_t address,
++		arm_instruction_t *instruction, char *cp)
++{
++	const char *mnemonic;
++
++	switch ((opcode &gt;&gt; 4) &amp; 0x0f) {
++	case 2:
++		mnemonic = &quot;CLREX&quot;;
++		break;
++	case 4:
++		mnemonic = &quot;DSB&quot;;
++		break;
++	case 5:
++		mnemonic = &quot;DMB&quot;;
++		break;
++	case 6:
++		mnemonic = &quot;ISB&quot;;
++		break;
++	default:
++		return ERROR_INVALID_ARGUMENTS;
++	}
++	strcpy(cp, mnemonic);
++	return ERROR_OK;
++}
++
++static int t2ev_b_misc(uint32_t opcode, uint32_t address,
++		arm_instruction_t *instruction, char *cp)
++{
++	/* permanently undefined */
++	if ((opcode &amp; 0x07f07000) == 0x07f02000) {
++		instruction-&gt;type = ARM_UNDEFINED_INSTRUCTION;
++		strcpy(cp, &quot;UNDEFINED&quot;);
++		return ERROR_OK;
++	}
++
++	switch ((opcode &gt;&gt; 12) &amp; 0x5) {
++	case 0x1:
++	case 0x5:
++		return t2ev_b_bl(opcode, address, instruction, cp);
++	case 0x4:
++		goto undef;
++	case 0:
++		if (((opcode &gt;&gt; 23) &amp; 0x07) == 0x07)
++			return t2ev_cond_b(opcode, address, instruction, cp);
++		if (opcode &amp; (1 &lt;&lt; 26))
++			goto undef;
++		break;
++	}
++
++	switch ((opcode &gt;&gt; 20) &amp; 0x7f) {
++	case 0x38:
++	case 0x39:
++		sprintf(cp, &quot;MSR\t%s, r%d&quot;, special_name(opcode &amp; 0xff),
++				(opcode &gt;&gt; 16) &amp; 0x0f);
++		return ERROR_OK;
++	case 0x3a:
++		return t2ev_hint(opcode, address, instruction, cp);
++	case 0x3b:
++		return t2ev_misc(opcode, address, instruction, cp);
++	case 0x3e:
++	case 0x3f:
++		sprintf(cp, &quot;MRS\tr%d, %s&quot;, (opcode &gt;&gt; 16) &amp; 0x0f,
++				special_name(opcode &amp; 0xff));
++		return ERROR_OK;
++	}
++
++undef:
++	return ERROR_INVALID_ARGUMENTS;
++}
++
++
+ /*
+  * REVISIT for Thumb2 instructions, instruction-&gt;type and friends aren't
+  * always set.  That means eventual arm_simulate_step() support for Thumb2
+@@ -2302,6 +2543,7 @@
+ 	int retval;
+ 	uint16_t op;
+ 	uint32_t opcode;
++	char *cp;
+ 
+ 	/* clear low bit ... it's set on function pointers */
+ 	address &amp;= ~1;
+@@ -2332,13 +2574,30 @@
+ 		return thumb_evaluate_opcode(op, address, instruction);
+ 	}
+ 
+-	/* FIXME decode the 32-bit instructions */
++	snprintf(instruction-&gt;text, 128,
++			&quot;0x%8.8&quot; PRIx32 &quot;  0x%8.8&quot; PRIx32 &quot;\t&quot;,
++			address, opcode);
++	cp = strchr(instruction-&gt;text, 0);
++	retval = ERROR_FAIL;
+ 
++	/* ARMv7-M: A5.3.4 Branches and miscellaneous control */
++	if ((opcode &amp; 0x18008000) == 0x10008000)
++		retval = t2ev_b_misc(opcode, address, instruction, cp);
++
++	/* FIXME decode more 32-bit instructions */
++
++	if (retval == ERROR_OK)
++		return retval;
++
++	if (retval == ERROR_INVALID_ARGUMENTS) {
++		instruction-&gt;type = ARM_UNDEFINED_INSTRUCTION;
++		strcpy(cp, &quot;UNDEFINED OPCODE&quot;);
++		return ERROR_OK;
++	}
++
+ 	LOG_DEBUG(&quot;Can't decode 32-bit Thumb2 yet (opcode=%08x)&quot;, opcode);
+ 
+-	snprintf(instruction-&gt;text, 128,
+-			&quot;0x%8.8&quot; PRIx32 &quot;  0x%8.8x\t... 32-bit Thumb2 ...&quot;,
+-			address, opcode);
++	strcpy(cp, &quot;(32-bit Thumb2 ...)&quot;);
+ 	return ERROR_OK;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001314.html">[Openocd-svn] r2531 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001316.html">[Openocd-svn] r2533 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1315">[ date ]</a>
+              <a href="thread.html#1315">[ thread ]</a>
+              <a href="subject.html#1315">[ subject ]</a>
+              <a href="author.html#1315">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

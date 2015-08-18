@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1401 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1401%20-%20trunk/src/jtag&In-Reply-To=%3C200903071551.n27FpSQk001702%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000184.html">
+   <LINK REL="Next"  HREF="000186.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1401 - trunk/src/jtag</H1>
+    <B>duane at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1401%20-%20trunk/src/jtag&In-Reply-To=%3C200903071551.n27FpSQk001702%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1401 - trunk/src/jtag">duane at mail.berlios.de
+       </A><BR>
+    <I>Sat Mar  7 16:51:28 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000184.html">[Openocd-svn] r1400 - in trunk: doc src/helper
+</A></li>
+        <LI>Next message: <A HREF="000186.html">[Openocd-svn] r1402 - in trunk: . contrib doc src/jtag	src/target/interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#185">[ date ]</a>
+              <a href="thread.html#185">[ thread ]</a>
+              <a href="subject.html#185">[ subject ]</a>
+              <a href="author.html#185">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: duane
+Date: 2009-03-07 16:51:26 +0100 (Sat, 07 Mar 2009)
+New Revision: 1401
+
+Modified:
+   trunk/src/jtag/ft2232.c
+Log:
+Accept/create both A and Non-A ft2232 based descriptions
+
+Modified: trunk/src/jtag/ft2232.c
+===================================================================
+--- trunk/src/jtag/ft2232.c	2009-03-07 15:19:21 UTC (rev 1400)
++++ trunk/src/jtag/ft2232.c	2009-03-07 15:51:26 UTC (rev 1401)
+@@ -97,6 +97,7 @@
+ static int ft2232_stableclocks(int num_cycles, jtag_command_t* cmd);
+ 
+ 
++char *        ft2232_device_desc_A = NULL;
+ char*         ft2232_device_desc = NULL;
+ char*         ft2232_serial  = NULL;
+ char*         ft2232_layout  = NULL;
+@@ -1570,7 +1571,28 @@
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
+-	if ( ( status = FT_OpenEx(openex_string, openex_flags, &amp;ftdih) ) != FT_OK )
++	status = FT_OpenEx(openex_string, openex_flags, &amp;ftdih);
++	if( status != FT_OK ){
++		// under Win32, the FTD2XX driver appends an &quot;A&quot; to the end
++		// of the description, if we tried by the desc, then
++		// try by the alternate &quot;A&quot; description.
++		if( openex_string == ft2232_device_desc ){
++			// Try the alternate method.
++			openex_string = ft2232_device_desc_A;
++			status = FT_OpenEx(openex_string, openex_flags, &amp;ftdih);
++			if( status == FT_OK ){
++				// yea, the &quot;alternate&quot; method worked!
++			} else {
++				// drat, give the user a meaningfull message.
++				// telling the use we tried *BOTH* methods.
++				LOG_WARNING(&quot;Unable to open FTDI Device tried: '%s' and '%s'\n&quot;,
++							ft2232_device_desc,
++							ft2232_device_desc_A );
++			}
++		}
++	}
++
++	if ( status != FT_OK )
+ 	{
+ 		DWORD num_devices;
+ 
+@@ -2414,9 +2436,29 @@
+ 
+ int ft2232_handle_device_desc_command(struct command_context_s* cmd_ctx, char* cmd, char** args, int argc)
+ {
++	char *cp;
++	char buf[200];
+ 	if (argc == 1)
+ 	{
+ 		ft2232_device_desc = strdup(args[0]);
++		cp = strchr( ft2232_device_desc, 0 );
++		// under Win32, the FTD2XX driver appends an &quot;A&quot; to the end
++		// of the description, this examines the given desc
++		// and creates the 'missing' _A or non_A variable.
++		if( (cp[-1] == 'A') &amp;&amp; (cp[-2]==' ') ){
++			// it was, so make this the &quot;A&quot; version.
++			ft2232_device_desc_A = ft2232_device_desc;
++			// and *CREATE* the non-A version.
++			strcpy( buf, ft2232_device_desc );
++			cp = strchr( buf, 0 );
++			cp[-2] = 0;
++			ft2232_device_desc =  strdup( buf );
++		} else {
++			// &lt;space&gt;A not defined
++			// so create it
++			sprintf( buf, &quot;%s A&quot;, ft2232_device_desc );
++			ft2232_device_desc_A = strdup( buf );
++		}
+ 	}
+ 	else
+ 	{
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000184.html">[Openocd-svn] r1400 - in trunk: doc src/helper
+</A></li>
+	<LI>Next message: <A HREF="000186.html">[Openocd-svn] r1402 - in trunk: . contrib doc src/jtag	src/target/interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#185">[ date ]</a>
+              <a href="thread.html#185">[ thread ]</a>
+              <a href="subject.html#185">[ subject ]</a>
+              <a href="author.html#185">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

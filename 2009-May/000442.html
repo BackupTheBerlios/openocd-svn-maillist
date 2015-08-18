@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1658 - trunk/src/helper
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1658%20-%20trunk/src/helper&In-Reply-To=%3C200905080446.n484k8Hf013543%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000441.html">
+   <LINK REL="Next"  HREF="000443.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1658 - trunk/src/helper</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1658%20-%20trunk/src/helper&In-Reply-To=%3C200905080446.n484k8Hf013543%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1658 - trunk/src/helper">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Fri May  8 06:46:08 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000441.html">[Openocd-svn] r1657 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="000443.html">[Openocd-svn] r1659 - trunk/src/server
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#442">[ date ]</a>
+              <a href="thread.html#442">[ thread ]</a>
+              <a href="subject.html#442">[ subject ]</a>
+              <a href="author.html#442">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-08 06:46:00 +0200 (Fri, 08 May 2009)
+New Revision: 1658
+
+Modified:
+   trunk/src/helper/ioutil.c
+Log:
+Fix warnings in ioutil.c; improves loadFile inteface.
+
+Modified: trunk/src/helper/ioutil.c
+===================================================================
+--- trunk/src/helper/ioutil.c	2009-05-07 23:00:28 UTC (rev 1657)
++++ trunk/src/helper/ioutil.c	2009-05-08 04:46:00 UTC (rev 1658)
+@@ -89,7 +89,7 @@
+ 
+ /* loads a file and returns a pointer to it in memory. The file contains
+  * a 0 byte(sentinel) after len bytes - the length of the file. */
+-int loadFile(const char *fileName, void **data, int *len)
++int loadFile(const char *fileName, void **data, size_t *len)
+ {
+ 	FILE * pFile;
+ 	pFile = fopen(fileName,&quot;rb&quot;);
+@@ -104,8 +104,8 @@
+ 		fclose(pFile);
+ 		return ERROR_FAIL;
+ 	}
+-	*len=ftell(pFile);
+-	if (*len==-1)
++	long fsize = ftell(pFile);
++	if (fsize == -1)
+ 	{
+ 		LOG_ERROR(&quot;Can't open %s\n&quot;, fileName);
+ 		fclose(pFile);
+@@ -118,7 +118,7 @@
+ 		fclose(pFile);
+ 		return ERROR_FAIL;
+ 	}
+-	*data=malloc(*len+1);
++	*data = malloc(fsize + 1);
+ 	if (*data==NULL)
+ 	{
+ 		LOG_ERROR(&quot;Can't open %s\n&quot;, fileName);
+@@ -155,7 +155,7 @@
+ 
+ 	// NOTE!!! we only have line printing capability so we print the entire file as a single line.
+ 	void *data;
+-	int len;
++	size_t len;
+ 
+ 	int retval = loadFile(args[0], &amp;data, &amp;len);
+ 	if (retval == ERROR_OK)
+@@ -256,7 +256,7 @@
+ 
+ 	// NOTE!!! we only have line printing capability so we print the entire file as a single line.
+ 	void *data;
+-	int len;
++	size_t len;
+ 
+ 	int retval = loadFile(args[0], &amp;data, &amp;len);
+ 	if (retval != ERROR_OK)
+@@ -266,11 +266,11 @@
+ 	if (f == NULL)
+ 		retval = ERROR_INVALID_ARGUMENTS;
+ 
+-	int pos = 0;
++	size_t pos = 0;
+ 	for (;;)
+ 	{
+-		int chunk = len - pos;
+-		static const int maxChunk = 512 * 1024; // ~1/sec
++		size_t chunk = len - pos;
++		static const size_t maxChunk = 512 * 1024; // ~1/sec
+ 		if (chunk &gt; maxChunk)
+ 		{
+ 			chunk = maxChunk;
+@@ -497,8 +497,9 @@
+ 	{
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+-	volatile int *address=(volatile int *)strtoul(args[0], NULL, 0);
+-	int value=*address;
++	unsigned long addr = strtoul(args[0], NULL, 0);
++	volatile unsigned *address = (volatile unsigned *)addr;
++	unsigned value = *address;
+ 	command_print(cmd_ctx, &quot;0x%x : 0x%x&quot;, address, value);
+ 	return ERROR_OK;
+ }
+@@ -509,7 +510,8 @@
+ 	{
+ 		return ERROR_INVALID_ARGUMENTS;
+ 	}
+-	volatile int *address=(volatile int *)strtoul(args[0], NULL, 0);
++	unsigned long addr = strtoul(args[0], NULL, 0);
++	volatile int *address = (volatile int *)addr;
+ 	int value=strtoul(args[1], NULL, 0);
+ 	*address=value;
+ 	return ERROR_OK;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000441.html">[Openocd-svn] r1657 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="000443.html">[Openocd-svn] r1659 - trunk/src/server
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#442">[ date ]</a>
+              <a href="thread.html#442">[ thread ]</a>
+              <a href="subject.html#442">[ subject ]</a>
+              <a href="author.html#442">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

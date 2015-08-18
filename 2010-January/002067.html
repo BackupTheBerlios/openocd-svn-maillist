@@ -1,0 +1,208 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-149-g33fc60b
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-149-g33fc60b&In-Reply-To=%3CE1NZW9D-0006Kr-Cy%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002066.html">
+   <LINK REL="Next"  HREF="002069.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-149-g33fc60b</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-149-g33fc60b&In-Reply-To=%3CE1NZW9D-0006Kr-Cy%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-149-g33fc60b">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Mon Jan 25 22:06:58 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002066.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-148-g1dad2ee
+</A></li>
+        <LI>Next message: <A HREF="002069.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-150-g9e52957
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2067">[ date ]</a>
+              <a href="thread.html#2067">[ thread ]</a>
+              <a href="subject.html#2067">[ subject ]</a>
+              <a href="author.html#2067">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  33fc60befc808b83ab4ef6b1c7a7130c7ccedfc8 (commit)
+      from  1dad2ee602674de1b97548913dba2d53267d35a3 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 33fc60befc808b83ab4ef6b1c7a7130c7ccedfc8
+Author: simon qian &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">simonqian.openocd at gmail.com</A>&gt;
+Date:   Sun Jan 24 04:08:47 2010 +0800
+
+    SVF: all content between parentheses is one parameter
+    
+    More SVF fixes:
+    
+     * Treat all content between parentheses as part of the same
+       parameter; don't (wrongly) treat whitespace as a delimiter.
+    
+     * Use isspace() to catch that whitespace; it's not all single
+       spaces, newlines etc are also valid.
+    
+     * When parsing bitstrings, strip leading whitespace too.
+    
+    So for example, these are equivalent and should (now) be OK:
+    
+      &quot;TDI( 1234 )&quot;
+      &quot;TDI( 1 2 3 4 )&quot;
+      &quot;TDI(00 12 34 )&quot;
+      &quot;TDI(
+      	00 12
+    	34)&quot;
+    
+    [<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>: comment updates; trivial cleanup]
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/svf/svf.c b/src/svf/svf.c
+index 275bced..ea56a88 100644
+--- a/src/svf/svf.c
++++ b/src/svf/svf.c
+@@ -500,7 +500,9 @@ static int svf_read_command_from_file(int fd)
+ 		case '\r':
+ 			slash = 0;
+ 			comment = 0;
+-			break;
++			/* Don't save '\r' and '\n' if no data is parsed */
++			if (!cmd_pos)
++				break;
+ 		default:
+ 			if (!comment)
+ 			{
+@@ -565,25 +567,30 @@ static int svf_read_command_from_file(int fd)
+ 
+ static int svf_parse_cmd_string(char *str, int len, char **argus, int *num_of_argu)
+ {
+-	int pos = 0, num = 0, space_found = 1;
++	int pos = 0, num = 0, space_found = 1, in_bracket = 0;
+ 
+ 	while (pos &lt; len)
+ 	{
+ 		switch (str[pos])
+ 		{
+-		case '\n':
+-		case '\r':
+ 		case '!':
+ 		case '/':
+ 			LOG_ERROR(&quot;fail to parse svf command&quot;);
+ 			return ERROR_FAIL;
+-			break;
+-		case ' ':
+-			space_found = 1;
+-			str[pos] = '\0';
+-			break;
++		case '(':
++			in_bracket = 1;
++			goto parse_char;
++		case ')':
++			in_bracket = 0;
++			goto parse_char;
+ 		default:
+-			if (space_found)
++parse_char:
++			if (!in_bracket &amp;&amp; isspace(str[pos]))
++			{
++				space_found = 1;
++				str[pos] = '\0';
++			}
++			else if (space_found)
+ 			{
+ 				argus[num++] = &amp;str[pos];
+ 				space_found = 0;
+@@ -651,6 +658,7 @@ static int svf_copy_hexstring_to_binary(char *str, uint8_t **bin, int orig_bit_l
+ 		return ERROR_FAIL;
+ 	}
+ 
++	/* fill from LSB (end of str) to MSB (beginning of str) */
+ 	for (i = 0; i &lt; str_hbyte_len; i++)
+ 	{
+ 		ch = 0;
+@@ -658,7 +666,13 @@ static int svf_copy_hexstring_to_binary(char *str, uint8_t **bin, int orig_bit_l
+ 		{
+ 			ch = str[--str_len];
+ 
+-			if (!isblank(ch))
++			/* Skip whitespace.  The SVF specification (rev E) is
++			 * deficient in terms of basic lexical issues like
++			 * where whitespace is allowed.  Long bitstrings may
++			 * require line ends for correctness, since there is
++			 * a hard limit on line length.
++			 */
++			if (!isspace(ch))
+ 			{
+ 				if ((ch &gt;= '0') &amp;&amp; (ch &lt;= '9'))
+ 				{
+@@ -694,11 +708,12 @@ static int svf_copy_hexstring_to_binary(char *str, uint8_t **bin, int orig_bit_l
+ 		}
+ 	}
+ 
+-	// consume optional leading '0' characters
+-	while (str_len &gt; 0 &amp;&amp; str[str_len - 1] == '0')
++	/* consume optional leading '0' MSBs or whitespace */
++	while (str_len &gt; 0 &amp;&amp; ((str[str_len - 1] == '0')
++				|| isspace(str[str_len - 1])))
+ 		str_len--;
+ 
+-	// check valid
++	/* check validity: we must have consumed everything */
+ 	if (str_len &gt; 0 || (ch &amp; ~((2 &lt;&lt; ((bit_len - 1) % 4)) - 1)) != 0)
+ 	{
+ 		LOG_ERROR(&quot;value execeeds length&quot;);
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/svf/svf.c |   43 +++++++++++++++++++++++++++++--------------
+ 1 files changed, 29 insertions(+), 14 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002066.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-148-g1dad2ee
+</A></li>
+	<LI>Next message: <A HREF="002069.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-150-g9e52957
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2067">[ date ]</a>
+              <a href="thread.html#2067">[ thread ]</a>
+              <a href="subject.html#2067">[ subject ]</a>
+              <a href="author.html#2067">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,535 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1301 - in trunk/src: flash target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1301%20-%20in%20trunk/src%3A%20flash%20target&In-Reply-To=%3C200901050932.n059WQ3s008734%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000084.html">
+   <LINK REL="Next"  HREF="000086.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1301 - in trunk/src: flash target</H1>
+    <B>oharboe at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1301%20-%20in%20trunk/src%3A%20flash%20target&In-Reply-To=%3C200901050932.n059WQ3s008734%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1301 - in trunk/src: flash target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Mon Jan  5 10:32:26 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000084.html">[Openocd-svn] r1300 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000086.html">[Openocd-svn] r1302 - in trunk/src/target: board interface target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#85">[ date ]</a>
+              <a href="thread.html#85">[ thread ]</a>
+              <a href="subject.html#85">[ subject ]</a>
+              <a href="author.html#85">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-01-05 10:32:23 +0100 (Mon, 05 Jan 2009)
+New Revision: 1301
+
+Modified:
+   trunk/src/flash/pic32mx.c
+   trunk/src/flash/pic32mx.h
+   trunk/src/target/mips32_pracc.c
+   trunk/src/target/mips32_pracc.h
+Log:
+John McCarthy &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">jgmcc at magma.ca</A>&gt; pic32mx flash fixups and speedups
+
+Modified: trunk/src/flash/pic32mx.c
+===================================================================
+--- trunk/src/flash/pic32mx.c	2009-01-05 09:26:25 UTC (rev 1300)
++++ trunk/src/flash/pic32mx.c	2009-01-05 09:32:23 UTC (rev 1301)
+@@ -71,6 +71,8 @@
+ int pic32mx_erase(struct flash_bank_s *bank, int first, int last);
+ int pic32mx_protect(struct flash_bank_s *bank, int set, int first, int last);
+ int pic32mx_write(struct flash_bank_s *bank, u8 *buffer, u32 offset, u32 count);
++int pic32mx_write_row(struct flash_bank_s *bank, u32 address, u32 srcaddr);
++int pic32mx_write_word(struct flash_bank_s *bank, u32 address, u32 word);
+ int pic32mx_probe(struct flash_bank_s *bank);
+ int pic32mx_auto_probe(struct flash_bank_s *bank);
+ int pic32mx_handle_part_id_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+@@ -189,7 +191,6 @@
+ int pic32mx_protect_check(struct flash_bank_s *bank)
+ {
+ 	target_t *target = bank-&gt;target;
+-	pic32mx_flash_bank_t *pic32mx_info = bank-&gt;driver_priv;
+ 
+ 	u32 devcfg0;
+ 	int s;
+@@ -233,9 +234,9 @@
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
+-#if 0
+ 	if ((first == 0) &amp;&amp; (last == (bank-&gt;num_sectors - 1)) &amp;&amp; (bank-&gt;base == PIC32MX_KSEG0_PGM_FLASH || bank-&gt;base == PIC32MX_KSEG1_PGM_FLASH))
+ 	{
++		LOG_DEBUG(&quot;Erasing entire program flash&quot;);
+ 		status = pic32mx_nvm_exec(bank, NVMCON_OP_PFM_ERASE, 50);
+ 		if( status &amp; NVMCON_NVMERR )
+ 			return ERROR_FLASH_OPERATION_FAILED;
+@@ -243,11 +244,13 @@
+ 			return ERROR_FLASH_OPERATION_FAILED;
+ 		return ERROR_OK;
+ 	}
+-#endif
+ 
+ 	for (i = first; i &lt;= last; i++)
+ 	{
+-		target_write_u32(target, PIC32MX_NVMADDR, bank-&gt;base + bank-&gt;sectors[i].offset);
++		if(bank-&gt;base &gt;= PIC32MX_KSEG1_PGM_FLASH)
++			target_write_u32(target, PIC32MX_NVMADDR, KS1Virt2Phys(bank-&gt;base + bank-&gt;sectors[i].offset));
++		else
++			target_write_u32(target, PIC32MX_NVMADDR, KS0Virt2Phys(bank-&gt;base + bank-&gt;sectors[i].offset));
+ 
+ 		status = pic32mx_nvm_exec(bank, NVMCON_OP_PAGE_ERASE, 10);
+ 
+@@ -354,15 +357,14 @@
+ 
+ int pic32mx_write_block(struct flash_bank_s *bank, u8 *buffer, u32 offset, u32 count)
+ {
+-	pic32mx_flash_bank_t *pic32mx_info = bank-&gt;driver_priv;
+ 	target_t *target = bank-&gt;target;
+-	u32 buffer_size = 8192;
++	u32 buffer_size = 512;
+ 	working_area_t *source;
+ 	u32 address = bank-&gt;base + offset;
+-	reg_param_t reg_params[4];
++	int retval = ERROR_OK;
+ #if 0
++	pic32mx_flash_bank_t *pic32mx_info = bank-&gt;driver_priv;
+ 	armv7m_algorithm_t armv7m_info;
+-	int retval = ERROR_OK;
+ 
+ 	u8 pic32mx_flash_write_code[] = {
+ 									/* write: */
+@@ -395,40 +397,34 @@
+ 
+ 	if ((retval=target_write_buffer(target, pic32mx_info-&gt;write_algorithm-&gt;address, sizeof(pic32mx_flash_write_code), pic32mx_flash_write_code))!=ERROR_OK)
+ 		return retval;
++#endif
+ 
+ 	/* memory buffer */
+-	while (target_alloc_working_area(target, buffer_size, &amp;source) != ERROR_OK)
++	if (target_alloc_working_area(target, buffer_size, &amp;source) != ERROR_OK)
+ 	{
+-		buffer_size /= 2;
+-		if (buffer_size &lt;= 256)
+-		{
+-			/* if we already allocated the writing code, but failed to get a buffer, free the algorithm */
+-			if (pic32mx_info-&gt;write_algorithm)
+-				target_free_working_area(target, pic32mx_info-&gt;write_algorithm);
++#if 0
++		/* if we already allocated the writing code, but failed to get a buffer, free the algorithm */
++		if (pic32mx_info-&gt;write_algorithm)
++			target_free_working_area(target, pic32mx_info-&gt;write_algorithm);
++#endif
+ 
+-			LOG_WARNING(&quot;no large enough working area available, can't do block memory writes&quot;);
+-			return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+-		}
+-	};
++		LOG_WARNING(&quot;no large enough working area available, can't do block memory writes&quot;);
++		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	}
+ 
+-	armv7m_info.common_magic = ARMV7M_COMMON_MAGIC;
+-	armv7m_info.core_mode = ARMV7M_MODE_ANY;
+-
+-	init_reg_param(&amp;reg_params[0], &quot;r0&quot;, 32, PARAM_OUT);
+-	init_reg_param(&amp;reg_params[1], &quot;r1&quot;, 32, PARAM_OUT);
+-	init_reg_param(&amp;reg_params[2], &quot;r2&quot;, 32, PARAM_OUT);
+-	init_reg_param(&amp;reg_params[3], &quot;r3&quot;, 32, PARAM_IN);
+-
+-	while (count &gt; 0)
++	while (count &gt;= buffer_size/4)
+ 	{
+-		u32 thisrun_count = (count &gt; (buffer_size / 2)) ? (buffer_size / 2) : count;
++		u32 status;
+ 
+-		if ((retval = target_write_buffer(target, source-&gt;address, thisrun_count * 2, buffer))!=ERROR_OK)
++		if ((retval = target_write_buffer(target, source-&gt;address, buffer_size, buffer))!=ERROR_OK) {
++			LOG_ERROR(&quot;Failed to write row buffer (%d words) to RAM&quot;, buffer_size/4);
+ 			break;
++		}
+ 
++#if 0
+ 		buf_set_u32(reg_params[0].value, 0, 32, source-&gt;address);
+ 		buf_set_u32(reg_params[1].value, 0, 32, address);
+-		buf_set_u32(reg_params[2].value, 0, 32, thisrun_count);
++		buf_set_u32(reg_params[2].value, 0, 32, buffer_size/4);
+ 
+ 		if ((retval = target-&gt;type-&gt;run_algorithm(target, 0, NULL, 4, reg_params, pic32mx_info-&gt;write_algorithm-&gt;address, \
+ 				pic32mx_info-&gt;write_algorithm-&gt;address + (sizeof(pic32mx_flash_write_code) - 10), 10000, &amp;armv7m_info)) != ERROR_OK)
+@@ -443,39 +439,86 @@
+ 			retval = ERROR_FLASH_OPERATION_FAILED;
+ 			break;
+ 		}
++#endif
++		status = pic32mx_write_row(bank, address, source-&gt;address);
++		if( status &amp; NVMCON_NVMERR ) {
++			LOG_ERROR(&quot;Flash write error NVMERR (status=0x%08x)&quot;, status);
++			retval = ERROR_FLASH_OPERATION_FAILED;
++			break;
++		}
++		if( status &amp; NVMCON_LVDERR ) {
++			LOG_ERROR(&quot;Flash write error LVDERR (status=0x%08x)&quot;, status);
++			retval = ERROR_FLASH_OPERATION_FAILED;
++			break;
++		}
+ 
+-		buffer += thisrun_count * 2;
+-		address += thisrun_count * 2;
+-		count -= thisrun_count;
++		buffer  += buffer_size;
++		address += buffer_size;
++		count   -= buffer_size/4;
+ 	}
+ 
+ 	target_free_working_area(target, source);
+-	target_free_working_area(target, pic32mx_info-&gt;write_algorithm);
+ 
+-	destroy_reg_param(&amp;reg_params[0]);
+-	destroy_reg_param(&amp;reg_params[1]);
+-	destroy_reg_param(&amp;reg_params[2]);
+-	destroy_reg_param(&amp;reg_params[3]);
++	while(count &gt; 0)
++	{
++		u32 status;
+ 
++		status = pic32mx_write_word(bank, address, *(u32*)buffer);
++		if( status &amp; NVMCON_NVMERR ) {
++			LOG_ERROR(&quot;Flash write error NVMERR (status=0x%08x)&quot;, status);
++			retval = ERROR_FLASH_OPERATION_FAILED;
++			break;
++		}
++		if( status &amp; NVMCON_LVDERR ) {
++			LOG_ERROR(&quot;Flash write error LVDERR (status=0x%08x)&quot;, status);
++			retval = ERROR_FLASH_OPERATION_FAILED;
++			break;
++		}
++
++		buffer  += 4;
++		address += 4;
++		count--;
++	}
++
+ 	return retval;
+-#else
+-	return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+-#endif
+ }
+ 
+ int pic32mx_write_word(struct flash_bank_s *bank, u32 address, u32 word)
+ {
+ 	target_t *target = bank-&gt;target;
+ 
+-	target_write_u32(target, PIC32MX_NVMADDR, address);
++	if(bank-&gt;base &gt;= PIC32MX_KSEG1_PGM_FLASH)
++		target_write_u32(target, PIC32MX_NVMADDR, KS1Virt2Phys(address));
++	else
++		target_write_u32(target, PIC32MX_NVMADDR, KS0Virt2Phys(address));
+ 	target_write_u32(target, PIC32MX_NVMDATA, word);
+ 
+ 	return pic32mx_nvm_exec(bank, NVMCON_OP_WORD_PROG, 5);
+ }
+ 
++/*
++ * Write a 128 word (512 byte) row to flash address from RAM srcaddr.
++ */
++int pic32mx_write_row(struct flash_bank_s *bank, u32 address, u32 srcaddr)
++{
++	target_t *target = bank-&gt;target;
++
++	LOG_DEBUG(&quot;addr: 0x%08x srcaddr: 0x%08x&quot;, address, srcaddr);
++
++	if(address &gt;= PIC32MX_KSEG1_PGM_FLASH)
++		target_write_u32(target, PIC32MX_NVMADDR,    KS1Virt2Phys(address));
++	else
++		target_write_u32(target, PIC32MX_NVMADDR,    KS0Virt2Phys(address));
++	if(srcaddr &gt;= PIC32MX_KSEG1_RAM)
++		target_write_u32(target, PIC32MX_NVMSRCADDR, KS1Virt2Phys(srcaddr));
++	else
++		target_write_u32(target, PIC32MX_NVMSRCADDR, KS0Virt2Phys(srcaddr));
++
++	return pic32mx_nvm_exec(bank, NVMCON_OP_ROW_PROG, 100);
++}
++
+ int pic32mx_write(struct flash_bank_s *bank, u8 *buffer, u32 offset, u32 count)
+ {
+-	target_t *target = bank-&gt;target;
+ 	u32 words_remaining = (count / 4);
+ 	u32 bytes_remaining = (count &amp; 0x00000003);
+ 	u32 address = bank-&gt;base + offset;
+@@ -862,7 +905,6 @@
+ {
+ 	flash_bank_t *bank;
+ 	u32 address, value;
+-	int i;
+ 	int status, res;
+ 
+ 	if (argc != 3)
+
+Modified: trunk/src/flash/pic32mx.h
+===================================================================
+--- trunk/src/flash/pic32mx.h	2009-01-05 09:26:25 UTC (rev 1300)
++++ trunk/src/flash/pic32mx.h	2009-01-05 09:32:23 UTC (rev 1301)
+@@ -42,22 +42,31 @@
+ /* pic32mx memory locations */
+ 
+ #define PIC32MX_KUSEG_PGM_FLASH		0x7D000000
+-#define PIC32MX_KUSEG_RAM		0x7F000000
++#define PIC32MX_KUSEG_RAM			0x7F000000
+ 
+-#define PIC32MX_KSEG0_RAM		0x80000000
++#define PIC32MX_KSEG0_RAM			0x80000000
+ #define PIC32MX_KSEG0_PGM_FLASH		0x9D000000
+ #define PIC32MX_KSEG0_BOOT_FLASH	0x9FC00000
+ 
+-#define PIC32MX_KSEG1_RAM		0xA0000000
++#define PIC32MX_KSEG1_RAM			0xA0000000
+ #define PIC32MX_KSEG1_PGM_FLASH		0xBD000000
+ #define PIC32MX_KSEG1_PERIPHERAL	0xBF800000
+ #define PIC32MX_KSEG1_BOOT_FLASH	0xBFC00000
+ 
+-#define PIC32MX_PHYS_RAM		0x00000000
++#define PIC32MX_PHYS_RAM			0x00000000
+ #define PIC32MX_PHYS_PGM_FLASH		0x1D000000
+ #define PIC32MX_PHYS_PERIPHERALS	0x1F800000
+ #define PIC32MX_PHYS_BOOT_FLASH		0x1FC00000
+ 
++/*
++ * Translate Virtual and Physical addresses.
++ * Note: These macros only work for KSEG0/KSEG1 addresses.
++ */
++#define KS1Virt2Phys(vaddr)			((vaddr)-0xA0000000)
++#define Phys2KS1Virt(paddr)			((paddr)+0xA0000000)
++#define KS0Virt2Phys(vaddr)			((vaddr)-0x80000000)
++#define Phys2KS0Virt(paddr)			((paddr)+0x80000000)
++
+ /* pic32mx configuration register locations */
+ 
+ #define PIC32MX_DEVCFG0		0xBFC02FFC
+@@ -77,11 +86,11 @@
+ #define NVMCON_NVMERR		(1&lt;&lt;13)
+ #define NVMCON_LVDERR		(1&lt;&lt;12)
+ #define NVMCON_LVDSTAT		(1&lt;&lt;11)
+-#define NVMCON_OP_PFM_ERASE	0x5
++#define NVMCON_OP_PFM_ERASE		0x5
+ #define NVMCON_OP_PAGE_ERASE	0x4
+-#define NVMCON_OP_ROW_PROG	0x3
+-#define NVMCON_OP_WORD_PROG	0x1
+-#define NVMCON_OP_NOP		0x0
++#define NVMCON_OP_ROW_PROG		0x3
++#define NVMCON_OP_WORD_PROG		0x1
++#define NVMCON_OP_NOP			0x0
+ 
+ #define PIC32MX_NVMKEY		0xBF80F410
+ #define PIC32MX_NVMADDR		0xBF80F420
+
+Modified: trunk/src/target/mips32_pracc.c
+===================================================================
+--- trunk/src/target/mips32_pracc.c	2009-01-05 09:26:25 UTC (rev 1300)
++++ trunk/src/target/mips32_pracc.c	2009-01-05 09:32:23 UTC (rev 1301)
+@@ -218,7 +218,10 @@
+ 		case 2:
+ 			return mips32_pracc_read_mem16(ejtag_info, addr, count, (u16*)buf);
+ 		case 4:
+-			return mips32_pracc_read_mem32(ejtag_info, addr, count, (u32*)buf);
++			if(count==1)
++				return mips32_pracc_read_u32(ejtag_info, addr, (u32*)buf);
++			else
++				return mips32_pracc_read_mem32(ejtag_info, addr, count, (u32*)buf);
+ 	}
+ 	
+ 	return ERROR_OK;
+@@ -247,8 +250,8 @@
+ 		MIPS32_BEQ(0,10,9),									/* beq 0, $10, end */
+ 		MIPS32_NOP,
+ 		
+-		MIPS32_LW(12,0,9), 									/* lw $12,0($9), Load $12 with the word @mem[$9] */
+-		MIPS32_SW(12,0,11), 								/* sw $12,0($11) */
++		MIPS32_LW(8,0,9), 									/* lw $8,0($9), Load $8 with the word @mem[$9] */
++		MIPS32_SW(8,0,11), 									/* sw $8,0($11) */
+ 		
+ 		MIPS32_ADDI(10,10,NEG16(1)), 						/* $10-- */
+ 		MIPS32_ADDI(9,9,4), 								/* $1+=4 */
+@@ -298,6 +301,47 @@
+ 	return retval;
+ }
+ 
++int mips32_pracc_read_u32(mips_ejtag_t *ejtag_info, u32 addr, u32 *buf)
++{
++	u32 code[] = {
++															/* start: */
++		MIPS32_MTC0(15,31,0),								/* move $15 to COP0 DeSave */
++		MIPS32_LUI(15,UPPER16(MIPS32_PRACC_STACK)), 		/* $15 = MIPS32_PRACC_STACK */
++		MIPS32_ORI(15,15,LOWER16(MIPS32_PRACC_STACK)),
++		MIPS32_SW(8,0,15), 									/* sw $8,($15) */
++		MIPS32_SW(9,0,15), 									/* sw $9,($15) */
++
++		MIPS32_LUI(8,UPPER16(MIPS32_PRACC_PARAM_IN)),		/* $8 = MIPS32_PRACC_PARAM_IN */
++		MIPS32_ORI(8,8,LOWER16(MIPS32_PRACC_PARAM_IN)),
++		MIPS32_LW(8,0,8),									/* $8=mem[$8]; read addr */
++		MIPS32_LUI(9,UPPER16(MIPS32_PRACC_PARAM_OUT)), 		/* $9=MIPS32_PRACC_PARAM_OUT */
++		MIPS32_ORI(9,9,LOWER16(MIPS32_PRACC_PARAM_OUT)),
++
++		MIPS32_LW(8,0,8), 									/* lw $8,0($8), Load $8 with the word @mem[$8] */
++		MIPS32_SW(8,0,9), 									/* sw $8,0($9) */
++
++		MIPS32_LW(9,0,15), 									/* lw $9,($15) */
++		MIPS32_LW(8,0,15), 									/* lw $8,($15) */
++		MIPS32_MFC0(15,31,0),								/* move COP0 DeSave to $15 */
++		MIPS32_NOP,
++		MIPS32_B(NEG16(17)),								/* b start */
++		MIPS32_NOP,
++	};
++
++	int retval = ERROR_OK;
++	u32 param_in[1];
++
++	param_in[0] = addr;
++
++	if ((retval = mips32_pracc_exec(ejtag_info, sizeof(code)/sizeof(code[0]), code, 
++		sizeof(param_in)/sizeof(param_in[0]), param_in, sizeof(u32), buf, 1)) != ERROR_OK)
++	{
++		return retval;
++	}
++
++	return retval;
++}
++
+ int mips32_pracc_read_mem16(mips_ejtag_t *ejtag_info, u32 addr, int count, u16 *buf)
+ {
+ 	u32 code[] = {
+@@ -321,8 +365,8 @@
+ 		MIPS32_BEQ(0,10,9), 								/* beq 0, $10, end */
+ 		MIPS32_NOP,
+ 		
+-		MIPS32_LHU(12,0,9), 								/* lw $12,0($9), Load $12 with the halfword @mem[$9] */
+-		MIPS32_SW(12,0,11), 								/* sw $12,0($11) */
++		MIPS32_LHU(8,0,9), 									/* lw $8,0($9), Load $8 with the halfword @mem[$9] */
++		MIPS32_SW(8,0,11), 									/* sw $8,0($11) */
+ 		
+ 		MIPS32_ADDI(10,10,NEG16(1)), 						/* $10-- */
+ 		MIPS32_ADDI(9,9,2), 								/* $9+=2 */
+@@ -400,8 +444,8 @@
+ 		MIPS32_BEQ(0,10,9), 								/* beq 0, $10, end */
+ 		MIPS32_NOP,
+ 		
+-		MIPS32_LBU(12,0,9), 								/* lw $12,0($9), Load t4 with the byte @mem[t1] */
+-		MIPS32_SW(12,0,11), 								/* sw $12,0($11) */
++		MIPS32_LBU(8,0,9), 									/* lw $8,0($9), Load t4 with the byte @mem[t1] */
++		MIPS32_SW(8,0,11), 									/* sw $8,0($11) */
+ 		
+ 		MIPS32_ADDI(10,10,NEG16(1)), 						/* $10-- */
+ 		MIPS32_ADDI(9,9,1), 								/* $9+=1 */
+@@ -465,7 +509,10 @@
+ 		case 2:
+ 			return mips32_pracc_write_mem16(ejtag_info, addr, count,(u16*)buf);
+ 		case 4:
+-			return mips32_pracc_write_mem32(ejtag_info, addr, count, (u32*)buf);
++			if(count==1)
++				return mips32_pracc_write_u32(ejtag_info, addr, (u32*)buf);
++			else
++				return mips32_pracc_write_mem32(ejtag_info, addr, count, (u32*)buf);
+ 	}
+ 	
+ 	return ERROR_OK;
+@@ -526,6 +573,42 @@
+ 	return ERROR_OK;
+ }
+ 
++int mips32_pracc_write_u32(mips_ejtag_t *ejtag_info, u32 addr, u32 *buf)
++{
++	u32 code[] = {
++															/* start: */
++		MIPS32_MTC0(15,31,0),								/* move $15 to COP0 DeSave */
++		MIPS32_LUI(15,UPPER16(MIPS32_PRACC_STACK)), 		/* $15 = MIPS32_PRACC_STACK */
++		MIPS32_ORI(15,15,LOWER16(MIPS32_PRACC_STACK)),
++		MIPS32_SW(8,0,15), 									/* sw $8,($15) */
++		MIPS32_SW(9,0,15), 									/* sw $9,($15) */
++
++		MIPS32_LUI(8,UPPER16((MIPS32_PRACC_PARAM_IN+4))), 	/* $8 = MIPS32_PRACC_PARAM_IN+4 */
++		MIPS32_ORI(8,8,LOWER16((MIPS32_PRACC_PARAM_IN+4))),
++		MIPS32_LW(9,NEG16(4),8), 							/* Load write addr to $9 */
++
++		MIPS32_LW(8,0,8), 									/* lw $8,0($8), Load $8 with the word @mem[$8] */
++		MIPS32_SW(8,0,9), 									/* sw $8,0($9) */
++
++		MIPS32_LW(9,0,15), 									/* lw $9,($15) */
++		MIPS32_LW(8,0,15), 									/* lw $8,($15) */
++		MIPS32_MFC0(15,31,0),								/* move COP0 DeSave to $15 */
++		MIPS32_NOP,
++		MIPS32_B(NEG16(15)),								/* b start */
++		MIPS32_NOP,
++	};
++
++	/* TODO remove array */
++	u32 param_in[1+1];
++	param_in[0] = addr;
++	param_in[1] = *buf;
++
++	mips32_pracc_exec(ejtag_info, sizeof(code)/sizeof(code[0]), code, \
++		sizeof(param_in)/sizeof(param_in[0]),param_in, 0, NULL, 1);
++
++	return ERROR_OK;
++}
++
+ int mips32_pracc_write_mem16(mips_ejtag_t *ejtag_info, u32 addr, int count, u16 *buf)
+ {
+ 	u32 code[] = {
+
+Modified: trunk/src/target/mips32_pracc.h
+===================================================================
+--- trunk/src/target/mips32_pracc.h	2009-01-05 09:26:25 UTC (rev 1300)
++++ trunk/src/target/mips32_pracc.h	2009-01-05 09:32:23 UTC (rev 1301)
+@@ -42,10 +42,12 @@
+ extern int mips32_pracc_read_mem8(mips_ejtag_t *ejtag_info, u32 addr, int count, u8 *buf);
+ extern int mips32_pracc_read_mem16(mips_ejtag_t *ejtag_info, u32 addr, int count, u16 *buf);
+ extern int mips32_pracc_read_mem32(mips_ejtag_t *ejtag_info, u32 addr, int count, u32 *buf);
++extern int mips32_pracc_read_u32(mips_ejtag_t *ejtag_info, u32 addr, u32 *buf);
+ 
+ extern int mips32_pracc_write_mem8(mips_ejtag_t *ejtag_info, u32 addr, int count, u8 *buf);
+ extern int mips32_pracc_write_mem16(mips_ejtag_t *ejtag_info, u32 addr, int count, u16 *buf);
+ extern int mips32_pracc_write_mem32(mips_ejtag_t *ejtag_info, u32 addr, int count, u32 *buf);
++extern int mips32_pracc_write_u32(mips_ejtag_t *ejtag_info, u32 addr, u32 *buf);
+ 
+ extern int mips32_pracc_read_regs(mips_ejtag_t *ejtag_info, u32 *regs);
+ extern int mips32_pracc_write_regs(mips_ejtag_t *ejtag_info, u32 *regs);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000084.html">[Openocd-svn] r1300 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000086.html">[Openocd-svn] r1302 - in trunk/src/target: board interface target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#85">[ date ]</a>
+              <a href="thread.html#85">[ thread ]</a>
+              <a href="subject.html#85">[ subject ]</a>
+              <a href="author.html#85">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

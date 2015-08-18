@@ -1,0 +1,378 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-760-g01edbc2
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-760-g01edbc2&In-Reply-To=%3Cmailman.7.1331736153.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002521.html">
+   <LINK REL="Next"  HREF="002523.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-760-g01edbc2</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-760-g01edbc2&In-Reply-To=%3Cmailman.7.1331736153.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-760-g01edbc2">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Thu Feb 17 09:22:34 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002521.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-758-g0f863ec
+</A></li>
+        <LI>Next message: <A HREF="002523.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-761-gfa93174
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2522">[ date ]</a>
+              <a href="thread.html#2522">[ thread ]</a>
+              <a href="subject.html#2522">[ subject ]</a>
+              <a href="author.html#2522">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  01edbc2c3f3f2927ec7b7a1ec2b602dca760512b (commit)
+       via  b7163f534a4bb753b768398af11055cd3a9718cc (commit)
+      from  0f863ecb0112e5032608b9b66ab4c69bfe43b12f (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 01edbc2c3f3f2927ec7b7a1ec2b602dca760512b
+Author: Mathias K &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">kesmtp at freenet.de</A>&gt;
+Date:   Thu Feb 17 09:11:25 2011 +0100
+
+    dsp563xx: minor fixes, code cleanup
+    
+    This patch move the dsp563xx_target_create function to the
+    related code block. Also the target examine function was added
+    and the register cache is initialized in a separate function. The
+    missing functionality to invalidate the x memory context on memory
+    writes was also added.
+
+diff --git a/src/target/dsp563xx.c b/src/target/dsp563xx.c
+index 5e30739..8e1d6f7 100644
+--- a/src/target/dsp563xx.c
++++ b/src/target/dsp563xx.c
+@@ -328,21 +328,6 @@ static int dsp563xx_write_core_reg(struct target *target, int num)
+ 	return ERROR_OK;
+ }
+ 
+-static int dsp563xx_target_create(struct target *target, Jim_Interp * interp)
+-{
+-	struct dsp563xx_common *dsp563xx = calloc(1, sizeof(struct dsp563xx_common));
+-
+-	if (!dsp563xx)
+-		return ERROR_INVALID_ARGUMENTS;
+-
+-	dsp563xx-&gt;jtag_info.tap = target-&gt;tap;
+-	target-&gt;arch_info = dsp563xx;
+-	dsp563xx-&gt;read_core_reg = dsp563xx_read_core_reg;
+-	dsp563xx-&gt;write_core_reg = dsp563xx_write_core_reg;
+-
+-	return ERROR_OK;
+-}
+-
+ static int dsp563xx_get_core_reg(struct reg *reg)
+ {
+ 	struct dsp563xx_core_reg *dsp563xx_reg = reg-&gt;arch_info;
+@@ -379,6 +364,48 @@ static int dsp563xx_set_core_reg(struct reg *reg, uint8_t * buf)
+ 	return ERROR_OK;
+ }
+ 
++static const struct reg_arch_type dsp563xx_reg_type = {
++	.get = dsp563xx_get_core_reg,
++	.set = dsp563xx_set_core_reg,
++};
++
++static void dsp563xx_build_reg_cache(struct target *target)
++{
++	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
++
++	struct reg_cache **cache_p = register_get_last_cache_p(&amp;target-&gt;reg_cache);
++	struct reg_cache *cache = malloc(sizeof(struct reg_cache));
++	struct reg *reg_list = malloc(sizeof(struct reg) * DSP563XX_NUMCOREREGS);
++	struct dsp563xx_core_reg *arch_info = malloc(sizeof(struct dsp563xx_core_reg) * DSP563XX_NUMCOREREGS);
++	int i;
++
++	/* Build the process context cache */
++	cache-&gt;name = &quot;dsp563xx registers&quot;;
++	cache-&gt;next = NULL;
++	cache-&gt;reg_list = reg_list;
++	cache-&gt;num_regs = DSP563XX_NUMCOREREGS;
++	(*cache_p) = cache;
++	dsp563xx-&gt;core_cache = cache;
++
++	for (i = 0; i &lt; DSP563XX_NUMCOREREGS; i++)
++	{
++		arch_info[i].num = dsp563xx_regs[i].id;
++		arch_info[i].name = dsp563xx_regs[i].name;
++		arch_info[i].size = dsp563xx_regs[i].bits;
++		arch_info[i].eame = dsp563xx_regs[i].eame;
++		arch_info[i].instr_mask = dsp563xx_regs[i].instr_mask;
++		arch_info[i].target = target;
++		arch_info[i].dsp563xx_common = dsp563xx;
++		reg_list[i].name = dsp563xx_regs[i].name;
++		reg_list[i].size = dsp563xx_regs[i].bits;
++		reg_list[i].value = calloc(1, 4);
++		reg_list[i].dirty = 0;
++		reg_list[i].valid = 0;
++		reg_list[i].type = &amp;dsp563xx_reg_type;
++		reg_list[i].arch_info = &amp;arch_info[i];
++	}
++}
++
+ static int dsp563xx_read_register(struct target *target, int num, int force);
+ static int dsp563xx_write_register(struct target *target, int num, int force);
+ 
+@@ -747,48 +774,76 @@ static int dsp563xx_restore_context(struct target *target)
+ 	return err;
+ }
+ 
+-static const struct reg_arch_type dsp563xx_reg_type = {
+-	.get = dsp563xx_get_core_reg,
+-	.set = dsp563xx_set_core_reg,
+-};
+-
+-static int dsp563xx_init_target(struct command_context *cmd_ctx, struct target *target)
++static void dsp563xx_invalidate_x_context(struct target *target, uint32_t addr_start, uint32_t addr_end )
+ {
+-	/* get pointers to arch-specific information */
++	int i;
++	struct dsp563xx_core_reg *arch_info;
+ 	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
+ 
+-	struct reg_cache **cache_p = register_get_last_cache_p(&amp;target-&gt;reg_cache);
+-	struct reg_cache *cache = malloc(sizeof(struct reg_cache));
+-	struct reg *reg_list = malloc(sizeof(struct reg) * DSP563XX_NUMCOREREGS);
+-	struct dsp563xx_core_reg *arch_info = malloc(sizeof(struct dsp563xx_core_reg) * DSP563XX_NUMCOREREGS);
+-	int i;
++	if ( addr_start &gt; ASM_REG_W_IPRC )
++		return;
++	if ( addr_start &lt; ASM_REG_W_AAR3 )
++		return;
++
++	for (i = REG_NUM_IPRC; i &lt; DSP563XX_NUMCOREREGS; i++)
++	{
++		arch_info = dsp563xx-&gt;core_cache-&gt;reg_list[i].arch_info;
++
++		if ( (arch_info-&gt;instr_mask &gt;= addr_start) &amp;&amp;
++		     (arch_info-&gt;instr_mask &lt;= addr_end))
++		{
++			dsp563xx-&gt;core_cache-&gt;reg_list[i].valid = 0;
++			dsp563xx-&gt;core_cache-&gt;reg_list[i].dirty = 0;
++		}
++	}
++}
++
++static int dsp563xx_target_create(struct target *target, Jim_Interp * interp)
++{
++	struct dsp563xx_common *dsp563xx = calloc(1, sizeof(struct dsp563xx_common));
+ 
++	if (!dsp563xx)
++		return ERROR_INVALID_ARGUMENTS;
++
++	dsp563xx-&gt;jtag_info.tap = target-&gt;tap;
++	target-&gt;arch_info = dsp563xx;
++	dsp563xx-&gt;read_core_reg = dsp563xx_read_core_reg;
++	dsp563xx-&gt;write_core_reg = dsp563xx_write_core_reg;
++
++	return ERROR_OK;
++}
++
++static int dsp563xx_init_target(struct command_context *cmd_ctx, struct target *target)
++{
+ 	LOG_DEBUG(&quot;%s&quot;, __FUNCTION__);
+ 
+-	/* Build the process context cache */
+-	cache-&gt;name = &quot;dsp563xx registers&quot;;
+-	cache-&gt;next = NULL;
+-	cache-&gt;reg_list = reg_list;
+-	cache-&gt;num_regs = DSP563XX_NUMCOREREGS;
+-	(*cache_p) = cache;
+-	dsp563xx-&gt;core_cache = cache;
++	dsp563xx_build_reg_cache(target);
+ 
+-	for (i = 0; i &lt; DSP563XX_NUMCOREREGS; i++)
++	return ERROR_OK;
++}
++
++static int dsp563xx_examine(struct target *target)
++{
++	uint32_t chip;
++
++	if (target-&gt;tap-&gt;hasidcode == false)
+ 	{
+-		arch_info[i].num = dsp563xx_regs[i].id;
+-		arch_info[i].name = dsp563xx_regs[i].name;
+-		arch_info[i].size = dsp563xx_regs[i].bits;
+-		arch_info[i].eame = dsp563xx_regs[i].eame;
+-		arch_info[i].instr_mask = dsp563xx_regs[i].instr_mask;
+-		arch_info[i].target = target;
+-		arch_info[i].dsp563xx_common = dsp563xx;
+-		reg_list[i].name = dsp563xx_regs[i].name;
+-		reg_list[i].size = dsp563xx_regs[i].bits;
+-		reg_list[i].value = calloc(1, 4);
+-		reg_list[i].dirty = 0;
+-		reg_list[i].valid = 0;
+-		reg_list[i].type = &amp;dsp563xx_reg_type;
+-		reg_list[i].arch_info = &amp;arch_info[i];
++		LOG_ERROR(&quot;no IDCODE present on device&quot;);
++
++		return ERROR_INVALID_ARGUMENTS;
++	}
++
++	if (!target_was_examined(target))
++	{
++		target_set_examined(target);
++
++		/* examine core and chip derivate number */
++		chip = (target-&gt;tap-&gt;idcode&gt;&gt;12)&amp;0x3ff;
++		/* core number 0 means DSP563XX */
++		if ( ((chip&gt;&gt;5)&amp;0x1f) == 0 )
++			chip += 300;
++
++		LOG_INFO(&quot;DSP56%03d device found&quot;,chip);
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -913,7 +968,7 @@ static int dsp563xx_poll(struct target *target)
+ 			if ((err = dsp563xx_debug_init(target)) != ERROR_OK)
+ 				return err;
+ 
+-			LOG_DEBUG(&quot;target-&gt;state: %s&quot;, target_state_name(target));
++			LOG_DEBUG(&quot;target-&gt;state: %s (%x)&quot;, target_state_name(target),once_status);
+ 		}
+ 	}
+ 
+@@ -1158,7 +1213,7 @@ static int dsp563xx_read_memory(struct target *target, int mem_type, uint32_t ad
+ 	}
+ 
+ 	/* we only support 4 byte aligned data */
+-	if ( size != 4 )
++	if ( (size != 4) || (!count) )
+ 	{
+ 		return ERROR_INVALID_ARGUMENTS;
+ 	}
+@@ -1250,7 +1305,7 @@ static int dsp563xx_write_memory(struct target *target, int mem_type, uint32_t a
+ 	}
+ 
+ 	/* we only support 4 byte aligned data */
+-	if ( size != 4 )
++	if ( (size != 4) || (!count) )
+ 	{
+ 		return ERROR_INVALID_ARGUMENTS;
+ 	}
+@@ -1258,6 +1313,8 @@ static int dsp563xx_write_memory(struct target *target, int mem_type, uint32_t a
+ 	switch (mem_type)
+ 	{
+ 		case MEM_X:
++			/* invalidate affected x registers */
++			dsp563xx_invalidate_x_context(target,address,address+count-1);
+ 			move_cmd = 0x615800;
+ 			break;
+ 		case MEM_Y:
+@@ -1546,4 +1603,5 @@ struct target_type dsp563xx_target = {
+ 	.commands = dsp563xx_command_handlers,
+ 	.target_create = dsp563xx_target_create,
+ 	.init_target = dsp563xx_init_target,
++	.examine = dsp563xx_examine,
+ };
+
+commit b7163f534a4bb753b768398af11055cd3a9718cc
+Author: Mathias K &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">kesmtp at freenet.de</A>&gt;
+Date:   Thu Feb 17 09:05:42 2011 +0100
+
+    dsp563xx_once: Correct wrong return value on jtag communication errors
+    
+    This patch change the return value on a jtag communication error
+    to TARGET_UNKNOWN because this function should return the current
+    target status and not a error code from the underlying api call.
+    Also the validity of the jtag_status is extended to all static
+    bits in this value.
+
+diff --git a/src/target/dsp563xx_once.c b/src/target/dsp563xx_once.c
+index d19323e..d95dcdf 100644
+--- a/src/target/dsp563xx_once.c
++++ b/src/target/dsp563xx_once.c
+@@ -29,6 +29,9 @@
+ #include &quot;dsp563xx.h&quot;
+ #include &quot;dsp563xx_once.h&quot;
+ 
++#define JTAG_STATUS_STATIC_MASK		0x03
++#define JTAG_STATUS_STATIC_VALUE	0x01
++
+ #define JTAG_STATUS_NORMAL		0x01
+ #define JTAG_STATUS_STOPWAIT		0x05
+ #define JTAG_STATUS_BUSY		0x09
+@@ -100,19 +103,16 @@ int dsp563xx_once_target_status(struct jtag_tap *tap)
+ 	uint8_t jtag_status;
+ 
+ 	if ((err = dsp563xx_jtag_sendinstr(tap, &amp;jtag_status, JTAG_INSTR_ENABLE_ONCE)) != ERROR_OK)
+-		return err;
++		return TARGET_UNKNOWN;
+ 	if ((err = jtag_execute_queue()) != ERROR_OK)
+-		return err;
++		return TARGET_UNKNOWN;
+ 
+-	if ((jtag_status &amp; 1) != 1)
+-	{
++	/* verify correct static status pattern */
++	if ( (jtag_status &amp; JTAG_STATUS_STATIC_MASK) != JTAG_STATUS_STATIC_VALUE )
+ 		return TARGET_UNKNOWN;
+-	}
+ 
+ 	if (jtag_status != JTAG_STATUS_DEBUG)
+-	{
+ 		return TARGET_RUNNING;
+-	}
+ 
+ 	return TARGET_HALTED;
+ }
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/dsp563xx.c      |  162 ++++++++++++++++++++++++++++++--------------
+ src/target/dsp563xx_once.c |   14 ++--
+ 2 files changed, 117 insertions(+), 59 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002521.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-758-g0f863ec
+</A></li>
+	<LI>Next message: <A HREF="002523.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-761-gfa93174
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2522">[ date ]</a>
+              <a href="thread.html#2522">[ thread ]</a>
+              <a href="subject.html#2522">[ subject ]</a>
+              <a href="author.html#2522">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

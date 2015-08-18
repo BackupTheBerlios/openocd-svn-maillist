@@ -1,0 +1,1088 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1960 - in trunk/src: flash target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1960%20-%20in%20trunk/src%3A%20flash%20target&In-Reply-To=%3C200905310938.n4V9cDOu014190%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000743.html">
+   <LINK REL="Next"  HREF="000745.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1960 - in trunk/src: flash target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1960%20-%20in%20trunk/src%3A%20flash%20target&In-Reply-To=%3C200905310938.n4V9cDOu014190%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1960 - in trunk/src: flash target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Sun May 31 11:38:13 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000743.html">[Openocd-svn] r1959 - in trunk/src: flash target
+</A></li>
+        <LI>Next message: <A HREF="000745.html">[Openocd-svn] r1961 - in trunk/src: flash target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#744">[ date ]</a>
+              <a href="thread.html#744">[ thread ]</a>
+              <a href="subject.html#744">[ subject ]</a>
+              <a href="author.html#744">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-31 11:37:57 +0200 (Sun, 31 May 2009)
+New Revision: 1960
+
+Modified:
+   trunk/src/flash/at91sam7.c
+   trunk/src/flash/cfi.c
+   trunk/src/flash/lpc2000.c
+   trunk/src/flash/lpc288x.c
+   trunk/src/flash/lpc3180_nand_controller.c
+   trunk/src/flash/mflash.c
+   trunk/src/flash/orion_nand.c
+   trunk/src/flash/str7x.c
+   trunk/src/flash/str9x.c
+   trunk/src/target/arm7_9_common.c
+   trunk/src/target/cortex_m3.c
+   trunk/src/target/feroceon.c
+   trunk/src/target/mips_m4k.c
+   trunk/src/target/target.c
+   trunk/src/target/target.h
+   trunk/src/target/xscale.c
+Log:
+Add target_write_memory wrapper:
+- replaces all calls to target-&gt;type-&gt;write_memory.
+- add documentation in target_s to warn not to invoke callback directly.
+
+
+Modified: trunk/src/flash/at91sam7.c
+===================================================================
+--- trunk/src/flash/at91sam7.c	2009-05-31 09:37:35 UTC (rev 1959)
++++ trunk/src/flash/at91sam7.c	2009-05-31 09:37:57 UTC (rev 1960)
+@@ -1027,7 +1027,7 @@
+ 		/* Write one block to the PageWriteBuffer */
+ 		buffer_pos = (pagen-first_page)*dst_min_alignment;
+ 		wcount = CEIL(count,4);
+-		if((retval = target-&gt;type-&gt;write_memory(target, bank-&gt;base+pagen*dst_min_alignment, 4, wcount, buffer+buffer_pos)) != ERROR_OK)
++		if((retval = target_write_memory(target, bank-&gt;base+pagen*dst_min_alignment, 4, wcount, buffer+buffer_pos)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+
+Modified: trunk/src/flash/cfi.c
+===================================================================
+--- trunk/src/flash/cfi.c	2009-05-31 09:37:35 UTC (rev 1959)
++++ trunk/src/flash/cfi.c	2009-05-31 09:37:57 UTC (rev 1960)
+@@ -260,7 +260,7 @@
+ 	}
+ 
+ 	cfi_command(bank, 0x50, command);
+-	target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command);
++	target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command);
+ }
+ 
+ u8 cfi_intel_wait_status_busy(flash_bank_t *bank, int timeout)
+@@ -356,12 +356,12 @@
+ 	if ((pri_ext-&gt;pri[0] != 'P') || (pri_ext-&gt;pri[1] != 'R') || (pri_ext-&gt;pri[2] != 'I'))
+ 	{
+ 		cfi_command(bank, 0xf0, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+ 		cfi_command(bank, 0xff, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+@@ -419,7 +419,7 @@
+ 	if ((pri_ext-&gt;pri[0] != 'P') || (pri_ext-&gt;pri[1] != 'R') || (pri_ext-&gt;pri[2] != 'I'))
+ 	{
+ 		cfi_command(bank, 0xf0, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+@@ -492,7 +492,7 @@
+ 	if ((atmel_pri_ext.pri[0] != 'P') || (atmel_pri_ext.pri[1] != 'R') || (atmel_pri_ext.pri[2] != 'I'))
+ 	{
+ 		cfi_command(bank, 0xf0, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+@@ -688,13 +688,13 @@
+ 	for (i = first; i &lt;= last; i++)
+ 	{
+ 		cfi_command(bank, 0x20, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, i, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, i, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+ 
+ 		cfi_command(bank, 0xd0, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, i, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, i, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+@@ -704,7 +704,7 @@
+ 		else
+ 		{
+ 			cfi_command(bank, 0xff, command);
+-			if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++			if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+@@ -715,7 +715,7 @@
+ 	}
+ 
+ 	cfi_command(bank, 0xff, command);
+-	return target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command);
++	return target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command);
+ 
+ }
+ 
+@@ -731,37 +731,37 @@
+ 	for (i = first; i &lt;= last; i++)
+ 	{
+ 		cfi_command(bank, 0xaa, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+ 
+ 		cfi_command(bank, 0x55, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock2), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock2), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+ 
+ 		cfi_command(bank, 0x80, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+ 
+ 		cfi_command(bank, 0xaa, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+ 
+ 		cfi_command(bank, 0x55, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock2), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock2), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+ 
+ 		cfi_command(bank, 0x30, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, i, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, i, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+@@ -771,7 +771,7 @@
+ 		else
+ 		{
+ 			cfi_command(bank, 0xf0, command);
+-			if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++			if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+@@ -782,7 +782,7 @@
+ 	}
+ 
+ 	cfi_command(bank, 0xf0, command);
+-	return target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command);
++	return target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command);
+ }
+ 
+ static int cfi_erase(struct flash_bank_s *bank, int first, int last)
+@@ -842,7 +842,7 @@
+ 	{
+ 		cfi_command(bank, 0x60, command);
+ 		LOG_DEBUG(&quot;address: 0x%4.4x, command: 0x%4.4x&quot;, flash_address(bank, i, 0x0), target_buffer_get_u32(target, command));
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, i, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, i, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+@@ -850,7 +850,7 @@
+ 		{
+ 			cfi_command(bank, 0x01, command);
+ 			LOG_DEBUG(&quot;address: 0x%4.4x, command: 0x%4.4x&quot;, flash_address(bank, i, 0x0), target_buffer_get_u32(target, command));
+-			if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, i, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++			if((retval = target_write_memory(target, flash_address(bank, i, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+@@ -860,7 +860,7 @@
+ 		{
+ 			cfi_command(bank, 0xd0, command);
+ 			LOG_DEBUG(&quot;address: 0x%4.4x, command: 0x%4.4x&quot;, flash_address(bank, i, 0x0), target_buffer_get_u32(target, command));
+-			if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, i, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++			if((retval = target_write_memory(target, flash_address(bank, i, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+@@ -878,7 +878,7 @@
+ 			u8 block_status;
+ 			/* read block lock bit, to verify status */
+ 			cfi_command(bank, 0x90, command);
+-			if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x55), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++			if((retval = target_write_memory(target, flash_address(bank, 0, 0x55), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+@@ -888,7 +888,7 @@
+ 			{
+ 				LOG_ERROR(&quot;couldn't change block lock status (set = %i, block_status = 0x%2.2x)&quot;, set, block_status);
+ 				cfi_command(bank, 0x70, command);
+-				if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x55), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++				if((retval = target_write_memory(target, flash_address(bank, 0, 0x55), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 				{
+ 					return retval;
+ 				}
+@@ -917,13 +917,13 @@
+ 				cfi_intel_clear_status_register(bank);
+ 
+ 				cfi_command(bank, 0x60, command);
+-				if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, i, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++				if((retval = target_write_memory(target, flash_address(bank, i, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 				{
+ 					return retval;
+ 				}
+ 
+ 				cfi_command(bank, 0x01, command);
+-				if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, i, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++				if((retval = target_write_memory(target, flash_address(bank, i, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 				{
+ 					return retval;
+ 				}
+@@ -934,7 +934,7 @@
+ 	}
+ 
+ 	cfi_command(bank, 0xff, command);
+-	return target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command);
++	return target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command);
+ }
+ 
+ static int cfi_protect(struct flash_bank_s *bank, int set, int first, int last)
+@@ -1554,12 +1554,12 @@
+ 
+ 	cfi_intel_clear_status_register(bank);
+ 	cfi_command(bank, 0x40, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, address, bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, address, bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 
+-	if((retval = target-&gt;type-&gt;write_memory(target, address, bank-&gt;bus_width, 1, word)) != ERROR_OK)
++	if((retval = target_write_memory(target, address, bank-&gt;bus_width, 1, word)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+@@ -1567,7 +1567,7 @@
+ 	if (cfi_intel_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;word_write_timeout_max)) != 0x80)
+ 	{
+ 		cfi_command(bank, 0xff, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+@@ -1622,14 +1622,14 @@
+ 
+ 	/* Initiate buffer operation _*/
+ 	cfi_command(bank, 0xE8, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, address, bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, address, bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 	if (cfi_intel_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;buf_write_timeout_max)) != 0x80)
+ 	{
+ 		cfi_command(bank, 0xff, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+@@ -1640,26 +1640,26 @@
+ 
+ 	/* Write buffer wordcount-1 and data words */
+ 	cfi_command(bank, bufferwsize-1, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, address, bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, address, bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 
+-	if((retval = target-&gt;type-&gt;write_memory(target, address, bank-&gt;bus_width, bufferwsize, word)) != ERROR_OK)
++	if((retval = target_write_memory(target, address, bank-&gt;bus_width, bufferwsize, word)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 
+ 	/* Commit write operation */
+ 	cfi_command(bank, 0xd0, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, address, bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, address, bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 	if (cfi_intel_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;buf_write_timeout_max)) != 0x80)
+ 	{
+ 		cfi_command(bank, 0xff, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+@@ -1680,24 +1680,24 @@
+ 	u8 command[8];
+ 
+ 	cfi_command(bank, 0xaa, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 
+ 	cfi_command(bank, 0x55, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock2), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock2), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 
+ 	cfi_command(bank, 0xa0, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 
+-	if((retval = target-&gt;type-&gt;write_memory(target, address, bank-&gt;bus_width, 1, word)) != ERROR_OK)
++	if((retval = target_write_memory(target, address, bank-&gt;bus_width, 1, word)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+@@ -1705,7 +1705,7 @@
+ 	if (cfi_spansion_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;word_write_timeout_max)) != ERROR_OK)
+ 	{
+ 		cfi_command(bank, 0xf0, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+@@ -1757,39 +1757,39 @@
+ 
+ 	// Unlock
+ 	cfi_command(bank, 0xaa, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 
+ 	cfi_command(bank, 0x55, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock2), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock2), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 
+ 	// Buffer load command
+ 	cfi_command(bank, 0x25, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, address, bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, address, bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 
+ 	/* Write buffer wordcount-1 and data words */
+ 	cfi_command(bank, bufferwsize-1, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, address, bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, address, bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 
+-	if((retval = target-&gt;type-&gt;write_memory(target, address, bank-&gt;bus_width, bufferwsize, word)) != ERROR_OK)
++	if((retval = target_write_memory(target, address, bank-&gt;bus_width, bufferwsize, word)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 
+ 	/* Commit write operation */
+ 	cfi_command(bank, 0x29, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, address, bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, address, bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+@@ -1797,7 +1797,7 @@
+ 	if (cfi_spansion_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;word_write_timeout_max)) != ERROR_OK)
+ 	{
+ 		cfi_command(bank, 0xf0, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+@@ -2012,12 +2012,12 @@
+ 
+ 	/* return to read array mode, so we can read from flash again for padding */
+ 	cfi_command(bank, 0xf0, current_word);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, current_word)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, current_word)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 	cfi_command(bank, 0xff, current_word);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, current_word)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, current_word)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+@@ -2052,12 +2052,12 @@
+ 
+ 	/* return to read array mode */
+ 	cfi_command(bank, 0xf0, current_word);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, current_word)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, current_word)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 	cfi_command(bank, 0xff, current_word);
+-	return target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, current_word);
++	return target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, current_word);
+ }
+ 
+ static void cfi_fixup_atmel_reversed_erase_regions(flash_bank_t *bank, void *param)
+@@ -2133,17 +2133,17 @@
+ 
+ 	/* switch to read identifier codes mode (&quot;AUTOSELECT&quot;) */
+ 	cfi_command(bank, 0xaa, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 	cfi_command(bank, 0x55, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, unlock2), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, unlock2), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 	cfi_command(bank, 0x90, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+@@ -2177,12 +2177,12 @@
+ 	LOG_INFO(&quot;Flash Manufacturer/Device: 0x%04x 0x%04x&quot;, cfi_info-&gt;manufacturer, cfi_info-&gt;device_id);
+ 	/* switch back to read array mode */
+ 	cfi_command(bank, 0xf0, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x00), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, 0x00), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 	cfi_command(bank, 0xff, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x00), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, 0x00), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+@@ -2203,7 +2203,7 @@
+ 		 * SST flashes clearly violate this, and we will consider them incompatbile for now
+ 		 */
+ 		cfi_command(bank, 0x98, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x55), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, 0x55), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+@@ -2217,12 +2217,12 @@
+ 		if ((cfi_info-&gt;qry[0] != 'Q') || (cfi_info-&gt;qry[1] != 'R') || (cfi_info-&gt;qry[2] != 'Y'))
+ 		{
+ 			cfi_command(bank, 0xf0, command);
+-			if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++			if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+ 			cfi_command(bank, 0xff, command);
+-			if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++			if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+@@ -2307,12 +2307,12 @@
+ 		 * we use both reset commands, as some Intel flashes fail to recognize the 0xF0 command
+ 		 */
+ 		cfi_command(bank, 0xf0, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+ 		cfi_command(bank, 0xff, command);
+-		if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++		if((retval = target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+@@ -2410,7 +2410,7 @@
+ 		return ERROR_FLASH_OPERATION_FAILED;
+ 
+ 	cfi_command(bank, 0x90, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x55), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, 0x55), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+@@ -2426,7 +2426,7 @@
+ 	}
+ 
+ 	cfi_command(bank, 0xff, command);
+-	return target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command);
++	return target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command);
+ }
+ 
+ static int cfi_spansion_protect_check(struct flash_bank_s *bank)
+@@ -2439,19 +2439,19 @@
+ 	int i;
+ 
+ 	cfi_command(bank, 0xaa, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 
+ 	cfi_command(bank, 0x55, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock2), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock2), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+ 
+ 	cfi_command(bank, 0x90, command);
+-	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
++	if((retval = target_write_memory(target, flash_address(bank, 0, pri_ext-&gt;_unlock1), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+ 	{
+ 		return retval;
+ 	}
+@@ -2467,7 +2467,7 @@
+ 	}
+ 
+ 	cfi_command(bank, 0xf0, command);
+-	return target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command);
++	return target_write_memory(target, flash_address(bank, 0, 0x0), bank-&gt;bus_width, 1, command);
+ }
+ 
+ static int cfi_protect_check(struct flash_bank_s *bank)
+
+Modified: trunk/src/flash/lpc2000.c
+===================================================================
+--- trunk/src/flash/lpc2000.c	2009-05-31 09:37:35 UTC (rev 1959)
++++ trunk/src/flash/lpc2000.c	2009-05-31 09:37:57 UTC (rev 1960)
+@@ -258,7 +258,7 @@
+ 		/* write IAP code to working area */
+ 		target_buffer_set_u32(target, jump_gate, ARMV4_5_BX(12));
+ 		target_buffer_set_u32(target, jump_gate + 4, ARMV4_5_B(0xfffffe, 0));
+-		if((retval = target-&gt;type-&gt;write_memory(target, lpc2000_info-&gt;iap_working_area-&gt;address, 4, 2, jump_gate)) != ERROR_OK)
++		if((retval = target_write_memory(target, lpc2000_info-&gt;iap_working_area-&gt;address, 4, 2, jump_gate)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+
+Modified: trunk/src/flash/lpc288x.c
+===================================================================
+--- trunk/src/flash/lpc288x.c	2009-05-31 09:37:35 UTC (rev 1959)
++++ trunk/src/flash/lpc288x.c	2009-05-31 09:37:57 UTC (rev 1960)
+@@ -406,7 +406,7 @@
+ 			 * it seems not to be a LOT slower....
+ 			 * bulk_write_memory() is no quicker :(*/
+ #if 1
+-			if (target-&gt;type-&gt;write_memory(target, offset + dest_offset, 4, 128, page_buffer) != ERROR_OK)
++			if (target_write_memory(target, offset + dest_offset, 4, 128, page_buffer) != ERROR_OK)
+ 			{
+ 				LOG_ERROR(&quot;Write failed s %x p %x&quot;, sector, page);
+ 				return ERROR_FLASH_OPERATION_FAILED;
+
+Modified: trunk/src/flash/lpc3180_nand_controller.c
+===================================================================
+--- trunk/src/flash/lpc3180_nand_controller.c	2009-05-31 09:37:35 UTC (rev 1959)
++++ trunk/src/flash/lpc3180_nand_controller.c	2009-05-31 09:37:57 UTC (rev 1960)
+@@ -602,8 +602,8 @@
+ 			/* write MLC_ECC_ENC_REG to start encode cycle */
+ 			target_write_u32(target, 0x200b8008, 0x0);
+ 
+-			target-&gt;type-&gt;write_memory(target, 0x200a8000, 4, 128, page_buffer + (quarter * 512));
+-			target-&gt;type-&gt;write_memory(target, 0x200a8000, 1, 6, oob_buffer + (quarter * 6));
++			target_write_memory(target, 0x200a8000, 4, 128, page_buffer + (quarter * 512));
++			target_write_memory(target, 0x200a8000, 1, 6, oob_buffer + (quarter * 6));
+ 
+ 			/* write MLC_ECC_AUTO_ENC_REG to start auto encode */
+ 			target_write_u32(target, 0x200b8010, 0x0);
+
+Modified: trunk/src/flash/mflash.c
+===================================================================
+--- trunk/src/flash/mflash.c	2009-05-31 09:37:35 UTC (rev 1959)
++++ trunk/src/flash/mflash.c	2009-05-31 09:37:57 UTC (rev 1960)
+@@ -494,7 +494,7 @@
+ 		if (ret != ERROR_OK)
+ 			LOG_ERROR(&quot;mg_io_wait_drq time out&quot;);
+ 
+-		ret = target-&gt;type-&gt;write_memory(target, address, 2, MG_MFLASH_SECTOR_SIZE / 2, buff_ptr);
++		ret = target_write_memory(target, address, 2, MG_MFLASH_SECTOR_SIZE / 2, buff_ptr);
+ 		if (ret != ERROR_OK)
+ 			LOG_ERROR(&quot;mem write error&quot;);
+ 		buff_ptr += MG_MFLASH_SECTOR_SIZE;
+@@ -927,7 +927,7 @@
+ 		for (i = 0; i &lt; MG_MFLASH_SECTOR_SIZE &gt;&gt; 1; i++)
+ 			buff[i] = i;
+ 
+-		target-&gt;type-&gt;write_memory(target, address, 2,
++		target_write_memory(target, address, 2,
+ 				MG_MFLASH_SECTOR_SIZE / 2, (u8 *)buff);
+ 
+ 		memset(buff, 0xff, MG_MFLASH_SECTOR_SIZE);
+
+Modified: trunk/src/flash/orion_nand.c
+===================================================================
+--- trunk/src/flash/orion_nand.c	2009-05-31 09:37:35 UTC (rev 1959)
++++ trunk/src/flash/orion_nand.c	2009-05-31 09:37:57 UTC (rev 1960)
+@@ -131,7 +131,7 @@
+ 			target_buffer_set_u32(target, code_buf + i*4, code[i]);
+ 
+ 		/* write code to working area */
+-                retval = target-&gt;type-&gt;write_memory(target,
++                retval = target_write_memory(target,
+ 					hw-&gt;copy_area-&gt;address,
+ 					4, code_size/4, code_buf);
+ 		if (retval != ERROR_OK)
+@@ -143,7 +143,7 @@
+ 	retval = target-&gt;type-&gt;bulk_write_memory(target, target_buf,
+ 						 size/4, data);
+ 	if (retval == ERROR_OK &amp;&amp; size &amp; 3) {
+-		retval = target-&gt;type-&gt;write_memory(target,
++		retval = target_write_memory(target,
+ 					target_buf + (size &amp; ~3),
+ 					1, size &amp; 3, data + (size &amp; ~3));
+ 	}
+
+Modified: trunk/src/flash/str7x.c
+===================================================================
+--- trunk/src/flash/str7x.c	2009-05-31 09:37:35 UTC (rev 1959)
++++ trunk/src/flash/str7x.c	2009-05-31 09:37:57 UTC (rev 1960)
+@@ -546,11 +546,11 @@
+ 		target_write_u32(target, str7x_get_flash_adr(bank, FLASH_AR), address);
+ 		
+ 		/* data word 1 */
+-		target-&gt;type-&gt;write_memory(target, str7x_get_flash_adr(bank, FLASH_DR0), 4, 1, buffer + bytes_written);
++		target_write_memory(target, str7x_get_flash_adr(bank, FLASH_DR0), 4, 1, buffer + bytes_written);
+ 		bytes_written += 4;
+ 		
+ 		/* data word 2 */
+-		target-&gt;type-&gt;write_memory(target, str7x_get_flash_adr(bank, FLASH_DR1), 4, 1, buffer + bytes_written);
++		target_write_memory(target, str7x_get_flash_adr(bank, FLASH_DR1), 4, 1, buffer + bytes_written);
+ 		bytes_written += 4;
+ 		
+ 		/* start programming cycle */
+@@ -593,11 +593,11 @@
+ 		target_write_u32(target, str7x_get_flash_adr(bank, FLASH_AR), address);
+ 		
+ 		/* data word 1 */
+-		target-&gt;type-&gt;write_memory(target, str7x_get_flash_adr(bank, FLASH_DR0), 4, 1, last_dword);
++		target_write_memory(target, str7x_get_flash_adr(bank, FLASH_DR0), 4, 1, last_dword);
+ 		bytes_written += 4;
+ 		
+ 		/* data word 2 */
+-		target-&gt;type-&gt;write_memory(target, str7x_get_flash_adr(bank, FLASH_DR1), 4, 1, last_dword + 4);
++		target_write_memory(target, str7x_get_flash_adr(bank, FLASH_DR1), 4, 1, last_dword + 4);
+ 		bytes_written += 4;
+ 		
+ 		/* start programming cycle */
+
+Modified: trunk/src/flash/str9x.c
+===================================================================
+--- trunk/src/flash/str9x.c	2009-05-31 09:37:35 UTC (rev 1959)
++++ trunk/src/flash/str9x.c	2009-05-31 09:37:57 UTC (rev 1960)
+@@ -569,7 +569,7 @@
+ 		
+ 		/* write data command */
+ 		target_write_u16(target, bank_adr, 0x40);
+-		target-&gt;type-&gt;write_memory(target, address, 2, 1, buffer + bytes_written);
++		target_write_memory(target, address, 2, 1, buffer + bytes_written);
+ 		
+ 		/* get status command */
+ 		target_write_u16(target, bank_adr, 0x70);
+@@ -618,7 +618,7 @@
+ 		
+ 		/* write data comamnd */
+ 		target_write_u16(target, bank_adr, 0x40);
+-		target-&gt;type-&gt;write_memory(target, address, 2, 1, last_halfword);
++		target_write_memory(target, address, 2, 1, last_halfword);
+ 		
+ 		/* query status command */
+ 		target_write_u16(target, bank_adr, 0x70);
+
+Modified: trunk/src/target/arm7_9_common.c
+===================================================================
+--- trunk/src/target/arm7_9_common.c	2009-05-31 09:37:35 UTC (rev 1959)
++++ trunk/src/target/arm7_9_common.c	2009-05-31 09:37:57 UTC (rev 1960)
+@@ -378,7 +378,7 @@
+ 				return retval;
+ 			}
+ 			if (current_instr==arm7_9-&gt;arm_bkpt)
+-				if ((retval = target-&gt;type-&gt;write_memory(target, breakpoint-&gt;address, 4, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++				if ((retval = target_write_memory(target, breakpoint-&gt;address, 4, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
+ 				{
+ 					return retval;
+ 				}
+@@ -392,7 +392,7 @@
+ 				return retval;
+ 			}
+ 			if (current_instr==arm7_9-&gt;thumb_bkpt)
+-				if ((retval = target-&gt;type-&gt;write_memory(target, breakpoint-&gt;address, 2, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++				if ((retval = target_write_memory(target, breakpoint-&gt;address, 2, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
+ 				{
+ 					return retval;
+ 				}
+@@ -2628,7 +2628,7 @@
+ 	int i;
+ 
+ 	if (!arm7_9-&gt;dcc_downloads)
+-		return target-&gt;type-&gt;write_memory(target, address, 4, count, buffer);
++		return target_write_memory(target, address, 4, count, buffer);
+ 
+ 	/* regrab previously allocated working_area, or allocate a new one */
+ 	if (!arm7_9-&gt;dcc_working_area)
+@@ -2639,7 +2639,7 @@
+ 		if (target_alloc_working_area(target, 24, &amp;arm7_9-&gt;dcc_working_area) != ERROR_OK)
+ 		{
+ 			LOG_INFO(&quot;no working area available, falling back to memory writes&quot;);
+-			return target-&gt;type-&gt;write_memory(target, address, 4, count, buffer);
++			return target_write_memory(target, address, 4, count, buffer);
+ 		}
+ 
+ 		/* copy target instructions to target endianness */
+@@ -2649,7 +2649,7 @@
+ 		}
+ 
+ 		/* write DCC code to working area */
+-		if ((retval = target-&gt;type-&gt;write_memory(target, arm7_9-&gt;dcc_working_area-&gt;address, 4, 6, dcc_code_buf)) != ERROR_OK)
++		if ((retval = target_write_memory(target, arm7_9-&gt;dcc_working_area-&gt;address, 4, 6, dcc_code_buf)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+
+Modified: trunk/src/target/cortex_m3.c
+===================================================================
+--- trunk/src/target/cortex_m3.c	2009-05-31 09:37:35 UTC (rev 1959)
++++ trunk/src/target/cortex_m3.c	2009-05-31 09:37:57 UTC (rev 1960)
+@@ -934,7 +934,7 @@
+ 		{
+ 			return retval;
+ 		}
+-		if((retval = target-&gt;type-&gt;write_memory(target, breakpoint-&gt;address &amp; 0xFFFFFFFE, breakpoint-&gt;length, 1, code)) != ERROR_OK)
++		if((retval = target_write_memory(target, breakpoint-&gt;address &amp; 0xFFFFFFFE, breakpoint-&gt;length, 1, code)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+@@ -975,14 +975,14 @@
+ 		/* restore original instruction (kept in target endianness) */
+ 		if (breakpoint-&gt;length == 4)
+ 		{
+-			if((retval = target-&gt;type-&gt;write_memory(target, breakpoint-&gt;address &amp; 0xFFFFFFFE, 4, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++			if((retval = target_write_memory(target, breakpoint-&gt;address &amp; 0xFFFFFFFE, 4, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+ 		}
+ 		else
+ 		{
+-			if((retval = target-&gt;type-&gt;write_memory(target, breakpoint-&gt;address &amp; 0xFFFFFFFE, 2, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++			if((retval = target_write_memory(target, breakpoint-&gt;address &amp; 0xFFFFFFFE, 2, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+
+Modified: trunk/src/target/feroceon.c
+===================================================================
+--- trunk/src/target/feroceon.c	2009-05-31 09:37:35 UTC (rev 1959)
++++ trunk/src/target/feroceon.c	2009-05-31 09:37:57 UTC (rev 1960)
+@@ -546,7 +546,7 @@
+ 	u32 dcc_size = sizeof(dcc_code);
+ 
+ 	if (!arm7_9-&gt;dcc_downloads)
+-		return target-&gt;type-&gt;write_memory(target, address, 4, count, buffer);
++		return target_write_memory(target, address, 4, count, buffer);
+ 
+ 	/* regrab previously allocated working_area, or allocate a new one */
+ 	if (!arm7_9-&gt;dcc_working_area)
+@@ -557,7 +557,7 @@
+ 		if (target_alloc_working_area(target, dcc_size, &amp;arm7_9-&gt;dcc_working_area) != ERROR_OK)
+ 		{
+ 			LOG_INFO(&quot;no working area available, falling back to memory writes&quot;);
+-			return target-&gt;type-&gt;write_memory(target, address, 4, count, buffer);
++			return target_write_memory(target, address, 4, count, buffer);
+ 		}
+ 
+ 		/* copy target instructions to target endianness */
+@@ -565,7 +565,7 @@
+ 			target_buffer_set_u32(target, dcc_code_buf + i*4, dcc_code[i]);
+ 
+ 		/* write DCC code to working area */
+-		if((retval = target-&gt;type-&gt;write_memory(target, arm7_9-&gt;dcc_working_area-&gt;address, 4, dcc_size/4, dcc_code_buf)) != ERROR_OK)
++		if((retval = target_write_memory(target, arm7_9-&gt;dcc_working_area-&gt;address, 4, dcc_size/4, dcc_code_buf)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+
+Modified: trunk/src/target/mips_m4k.c
+===================================================================
+--- trunk/src/target/mips_m4k.c	2009-05-31 09:37:35 UTC (rev 1959)
++++ trunk/src/target/mips_m4k.c	2009-05-31 09:37:57 UTC (rev 1960)
+@@ -617,7 +617,7 @@
+ 			}
+ 			if (current_instr == MIPS32_SDBBP)
+ 			{
+-				if((retval = target-&gt;type-&gt;write_memory(target, breakpoint-&gt;address, 4, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++				if((retval = target_write_memory(target, breakpoint-&gt;address, 4, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
+ 				{
+ 					return retval;
+ 				}
+@@ -635,7 +635,7 @@
+ 			
+ 			if (current_instr == MIPS16_SDBBP)
+ 			{
+-				if((retval = target-&gt;type-&gt;write_memory(target, breakpoint-&gt;address, 2, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++				if((retval = target_write_memory(target, breakpoint-&gt;address, 2, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
+ 				{
+ 					return retval;
+ 				}
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-05-31 09:37:35 UTC (rev 1959)
++++ trunk/src/target/target.c	2009-05-31 09:37:57 UTC (rev 1960)
+@@ -531,6 +531,13 @@
+ 	return target-&gt;type-&gt;read_memory(target, address, size, count, buffer);
+ }
+ 
++int target_write_memory(struct target_s *target,
++		u32 address, u32 size, u32 count, u8 *buffer)
++{
++	return target-&gt;type-&gt;write_memory(target, address, size, count, buffer);
++}
++
++
+ int target_init(struct command_context_s *cmd_ctx)
+ {
+ 	target_t *target = all_targets;
+@@ -898,7 +905,7 @@
+ 	if (restore&amp;&amp;target-&gt;backup_working_area)
+ 	{
+ 		int retval;
+-		if((retval = target-&gt;type-&gt;write_memory(target, area-&gt;address, 4, area-&gt;size / 4, area-&gt;backup)) != ERROR_OK)
++		if((retval = target_write_memory(target, area-&gt;address, 4, area-&gt;size / 4, area-&gt;backup)) != ERROR_OK)
+ 			return retval;
+ 	}
+ 
+@@ -1004,7 +1011,7 @@
+ 
+ 	if (((address % 2) == 0) &amp;&amp; (size == 2))
+ 	{
+-		return target-&gt;type-&gt;write_memory(target, address, 2, 1, buffer);
++		return target_write_memory(target, address, 2, 1, buffer);
+ 	}
+ 
+ 	/* handle unaligned head bytes */
+@@ -1015,7 +1022,7 @@
+ 		if (unaligned &gt; size)
+ 			unaligned = size;
+ 
+-		if ((retval = target-&gt;type-&gt;write_memory(target, address, 1, unaligned, buffer)) != ERROR_OK)
++		if ((retval = target_write_memory(target, address, 1, unaligned, buffer)) != ERROR_OK)
+ 			return retval;
+ 
+ 		buffer += unaligned;
+@@ -1036,7 +1043,7 @@
+ 		}
+ 		else
+ 		{
+-			if ((retval = target-&gt;type-&gt;write_memory(target, address, 4, aligned / 4, buffer)) != ERROR_OK)
++			if ((retval = target_write_memory(target, address, 4, aligned / 4, buffer)) != ERROR_OK)
+ 				return retval;
+ 		}
+ 
+@@ -1048,7 +1055,7 @@
+ 	/* handle tail writes of less than 4 bytes */
+ 	if (size &gt; 0)
+ 	{
+-		if ((retval = target-&gt;type-&gt;write_memory(target, address, 1, size, buffer)) != ERROR_OK)
++		if ((retval = target_write_memory(target, address, 1, size, buffer)) != ERROR_OK)
+ 			return retval;
+ 	}
+ 
+@@ -1272,7 +1279,7 @@
+ 	LOG_DEBUG(&quot;address: 0x%8.8x, value: 0x%8.8x&quot;, address, value);
+ 
+ 	target_buffer_set_u32(target, value_buf, value);
+-	if ((retval = target-&gt;type-&gt;write_memory(target, address, 4, 1, value_buf)) != ERROR_OK)
++	if ((retval = target_write_memory(target, address, 4, 1, value_buf)) != ERROR_OK)
+ 	{
+ 		LOG_DEBUG(&quot;failed: %i&quot;, retval);
+ 	}
+@@ -1293,7 +1300,7 @@
+ 	LOG_DEBUG(&quot;address: 0x%8.8x, value: 0x%8.8x&quot;, address, value);
+ 
+ 	target_buffer_set_u16(target, value_buf, value);
+-	if ((retval = target-&gt;type-&gt;write_memory(target, address, 2, 1, value_buf)) != ERROR_OK)
++	if ((retval = target_write_memory(target, address, 2, 1, value_buf)) != ERROR_OK)
+ 	{
+ 		LOG_DEBUG(&quot;failed: %i&quot;, retval);
+ 	}
+@@ -1312,7 +1319,7 @@
+ 
+ 	LOG_DEBUG(&quot;address: 0x%8.8x, value: 0x%2.2x&quot;, address, value);
+ 
+-	if ((retval = target-&gt;type-&gt;write_memory(target, address, 1, 1, &amp;value)) != ERROR_OK)
++	if ((retval = target_write_memory(target, address, 1, 1, &amp;value)) != ERROR_OK)
+ 	{
+ 		LOG_DEBUG(&quot;failed: %i&quot;, retval);
+ 	}
+@@ -1967,7 +1974,7 @@
+ 	}
+ 	for (i=0; i&lt;count; i++)
+ 	{
+-		int retval = target-&gt;type-&gt;write_memory(target,
++		int retval = target_write_memory(target,
+ 				address + i * wordsize, wordsize, 1, value_buf);
+ 		if (ERROR_OK != retval)
+ 			return retval;
+@@ -3034,7 +3041,7 @@
+ 		}
+ 		len -= count;
+ 
+-		retval = target-&gt;type-&gt;write_memory(target, addr, width, count, buffer);
++		retval = target_write_memory(target, addr, width, count, buffer);
+ 		if (retval != ERROR_OK) {
+ 			/* BOO !*/
+ 			LOG_ERROR(&quot;array2mem: Write @ 0x%08x, w=%d, cnt=%d, failed&quot;, addr, width, count);
+@@ -3525,7 +3532,7 @@
+ 			break;
+ 		}
+ 		for( x = 0 ; x &lt; c ; x++ ){
+-			e = target-&gt;type-&gt;write_memory( target, a, b, 1, target_buf );
++			e = target_write_memory( target, a, b, 1, target_buf );
+ 			if( e != ERROR_OK ){
+ 				Jim_SetResult_sprintf( interp, &quot;Error writing @ 0x%08x: %d\n&quot;, (int)(a), e );
+ 				return JIM_ERR;
+
+Modified: trunk/src/target/target.h
+===================================================================
+--- trunk/src/target/target.h	2009-05-31 09:37:35 UTC (rev 1959)
++++ trunk/src/target/target.h	2009-05-31 09:37:57 UTC (rev 1960)
+@@ -167,6 +167,10 @@
+ 	 */
+ 	int (*read_memory)(struct target_s *target, u32 address, u32 size, u32 count, u8 *buffer);
+ 	int (*write_memory_imp)(struct target_s *target, u32 address, u32 size, u32 count, u8 *buffer);
++	/**
++	 * Target memory write callback.  Do @b not call this function
++	 * directly, use target_write_memory() instead.
++	 */
+ 	int (*write_memory)(struct target_s *target, u32 address, u32 size, u32 count, u8 *buffer);
+ 
+ 	/* write target memory in multiples of 4 byte, optimized for writing large quantities of data */
+@@ -383,6 +387,14 @@
+  */
+ extern int target_read_memory(struct target_s *target,
+ 		u32 address, u32 size, u32 count, u8 *buffer);
++/**
++ * Write @count items of @a size bytes to the memory of @a target at
++ * the @a address given.
++ *
++ * This routine is wrapper for target-&gt;type-&gt;write_memory.
++ */
++extern int target_write_memory(struct target_s *target,
++		u32 address, u32 size, u32 count, u8 *buffer);
+ 
+ extern int target_write_buffer(struct target_s *target, u32 address, u32 size, u8 *buffer);
+ extern int target_read_buffer(struct target_s *target, u32 address, u32 size, u8 *buffer);
+
+Modified: trunk/src/target/xscale.c
+===================================================================
+--- trunk/src/target/xscale.c	2009-05-31 09:37:35 UTC (rev 1959)
++++ trunk/src/target/xscale.c	2009-05-31 09:37:57 UTC (rev 1960)
+@@ -2284,14 +2284,14 @@
+ 		/* restore original instruction (kept in target endianness) */
+ 		if (breakpoint-&gt;length == 4)
+ 		{
+-			if((retval = target-&gt;type-&gt;write_memory(target, breakpoint-&gt;address, 4, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++			if((retval = target_write_memory(target, breakpoint-&gt;address, 4, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+ 		}
+ 		else
+ 		{
+-			if((retval = target-&gt;type-&gt;write_memory(target, breakpoint-&gt;address, 2, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++			if((retval = target_write_memory(target, breakpoint-&gt;address, 2, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000743.html">[Openocd-svn] r1959 - in trunk/src: flash target
+</A></li>
+	<LI>Next message: <A HREF="000745.html">[Openocd-svn] r1961 - in trunk/src: flash target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#744">[ date ]</a>
+              <a href="thread.html#744">[ thread ]</a>
+              <a href="subject.html#744">[ subject ]</a>
+              <a href="author.html#744">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

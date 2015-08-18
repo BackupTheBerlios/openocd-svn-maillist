@@ -1,0 +1,321 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1542 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1542%20-%20trunk/src/target&In-Reply-To=%3C200904271124.n3RBO2C4007639%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000325.html">
+   <LINK REL="Next"  HREF="000327.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1542 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1542%20-%20trunk/src/target&In-Reply-To=%3C200904271124.n3RBO2C4007639%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1542 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Mon Apr 27 13:24:02 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000325.html">[Openocd-svn] r1541 -	zy1000/trunk/ecoshal/hal/zylin/phi/current/include/pkgconf
+</A></li>
+        <LI>Next message: <A HREF="000327.html">[Openocd-svn] r1543 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#326">[ date ]</a>
+              <a href="thread.html#326">[ thread ]</a>
+              <a href="subject.html#326">[ subject ]</a>
+              <a href="author.html#326">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-04-27 13:24:01 +0200 (Mon, 27 Apr 2009)
+New Revision: 1542
+
+Modified:
+   trunk/src/target/arm11.c
+   trunk/src/target/arm11.h
+   trunk/src/target/arm11_dbgtap.c
+Log:
+a little bit more error handling in ARM11
+
+Modified: trunk/src/target/arm11.c
+===================================================================
+--- trunk/src/target/arm11.c	2009-04-27 10:37:07 UTC (rev 1541)
++++ trunk/src/target/arm11.c	2009-04-27 11:24:01 UTC (rev 1542)
+@@ -48,7 +48,7 @@
+ #define FNC_INFO_NOTIMPLEMENTED
+ #endif
+ 
+-static void arm11_on_enter_debug_state(arm11_common_t * arm11);
++static int arm11_on_enter_debug_state(arm11_common_t * arm11);
+ 
+ bool	arm11_config_memwrite_burst				= true;
+ bool	arm11_config_memwrite_error_fatal		= true;
+@@ -313,16 +313,18 @@
+  *					available a pointer to a word holding the
+  *					DSCR can be passed. Otherwise use NULL.
+  */
+-void arm11_check_init(arm11_common_t * arm11, u32 * dscr)
++int arm11_check_init(arm11_common_t * arm11, u32 * dscr)
+ {
+ 	FNC_INFO;
++	int retval;
+ 
+ 	u32			dscr_local_tmp_copy;
+ 
+ 	if (!dscr)
+ 	{
+ 		dscr = &amp;dscr_local_tmp_copy;
+-		*dscr = arm11_read_DSCR(arm11);
++		if ((retval=arm11_read_DSCR(arm11, dscr))!=ERROR_OK)
++			return retval;
+ 	}
+ 
+ 	if (!(*dscr &amp; ARM11_DSCR_MODE_SELECT))
+@@ -353,6 +355,8 @@
+ 
+ 		arm11_sc7_clear_vbw(arm11);
+ 	}
++
++	return ERROR_OK;
+ }
+ 
+ 
+@@ -366,7 +370,7 @@
+   * or on other occasions that stop the processor.
+   *
+   */
+-static void arm11_on_enter_debug_state(arm11_common_t * arm11)
++static int arm11_on_enter_debug_state(arm11_common_t * arm11)
+ {
+ 	FNC_INFO;
+ 
+@@ -378,9 +382,10 @@
+ 	}}
+ 
+ 	/* Save DSCR */
++	int retval;
++	if ((retval=arm11_read_DSCR(arm11, &amp;R(DSCR)))!=ERROR_OK)
++		return retval;
+ 
+-	R(DSCR) = arm11_read_DSCR(arm11);
+-
+ 	/* Save wDTR */
+ 
+ 	if (R(DSCR) &amp; ARM11_DSCR_WDTR_FULL)
+@@ -514,6 +519,8 @@
+ 	arm11_run_instr_data_finish(arm11);
+ 
+ 	arm11_dump_reg_changes(arm11);
++
++	return ERROR_OK;
+ }
+ 
+ void arm11_dump_reg_changes(arm11_common_t * arm11)
+@@ -546,7 +553,7 @@
+   * This is called in preparation for the RESTART function.
+   *
+   */
+-void arm11_leave_debug_state(arm11_common_t * arm11)
++int arm11_leave_debug_state(arm11_common_t * arm11)
+ {
+ 	FNC_INFO;
+ 
+@@ -572,7 +579,12 @@
+ 	/* spec says clear wDTR and rDTR; we assume they are clear as
+ 	   otherwise our programming would be sloppy */
+ 	{
+-		u32 DSCR = arm11_read_DSCR(arm11);
++		u32 DSCR;
++		int retval;
++		if ((retval=arm11_read_DSCR(arm11, &amp;DSCR))!=ERROR_OK)
++		{
++			return retval;
++		}
+ 
+ 		if (DSCR &amp; (ARM11_DSCR_RDTR_FULL | ARM11_DSCR_WDTR_FULL))
+ 		{
+@@ -632,6 +644,8 @@
+ 	}
+ 
+ 	arm11_record_register_history(arm11);
++
++	return ERROR_OK;
+ }
+ 
+ void arm11_record_register_history(arm11_common_t * arm11)
+@@ -658,11 +672,15 @@
+ 	if (arm11-&gt;trst_active)
+ 		return ERROR_OK;
+ 
+-	u32	dscr = arm11_read_DSCR(arm11);
++	u32	dscr;
++	int retval;
++	if ((retval=arm11_read_DSCR(arm11, &amp;dscr))!=ERROR_OK)
++		return retval;
+ 
+ 	LOG_DEBUG(&quot;DSCR %08x&quot;, dscr);
+ 
+-	arm11_check_init(arm11, &amp;dscr);
++	if ((retval=arm11_check_init(arm11, &amp;dscr))!=ERROR_OK)
++		return retval;
+ 
+ 	if (dscr &amp; ARM11_DSCR_CORE_HALTED)
+ 	{
+@@ -747,7 +765,10 @@
+ 
+ 	while (1)
+ 	{
+-		dscr = arm11_read_DSCR(arm11);
++		int retval;
++		retval = arm11_read_DSCR(arm11, &amp;dscr);
++		if (retval!=ERROR_OK)
++			return retval;
+ 
+ 		if (dscr &amp; ARM11_DSCR_CORE_HALTED)
+ 			break;
+@@ -774,7 +795,7 @@
+ 	int retval = ERROR_OK;
+ 
+ 	FNC_INFO;
+-	
++
+ 	//	  LOG_DEBUG(&quot;current %d  address %08x  handle_breakpoints %d  debug_execution %d&quot;,
+ 	//	current, address, handle_breakpoints, debug_execution);
+ 
+@@ -851,7 +872,10 @@
+ 
+ 	while (1)
+ 	{
+-		u32 dscr = arm11_read_DSCR(arm11);
++		u32 dscr;
++		retval = arm11_read_DSCR(arm11, &amp;dscr);
++		if (retval!=ERROR_OK)
++			return retval;
+ 
+ 		LOG_DEBUG(&quot;DSCR %08x&quot;, dscr);
+ 
+@@ -961,8 +985,8 @@
+ 			R(DSCR) &amp;= ~ARM11_DSCR_INTERRUPTS_DISABLE;		/* should be redundant */
+ 		else
+ 			R(DSCR) |= ARM11_DSCR_INTERRUPTS_DISABLE;
+-			
+ 
++
+ 		arm11_leave_debug_state(arm11);
+ 
+ 		arm11_add_IR(arm11, ARM11_RESTART, TAP_IDLE);
+@@ -978,7 +1002,10 @@
+ 
+ 		while (1)
+ 		{
+-			u32 dscr = arm11_read_DSCR(arm11);
++			u32 dscr;
++			retval = arm11_read_DSCR(arm11, &amp;dscr);
++			if (retval!=ERROR_OK)
++				return retval;
+ 
+ 			LOG_DEBUG(&quot;DSCR %08x&quot;, dscr);
+ 
+@@ -1987,7 +2014,7 @@
+ 
+ 	RC_FINAL_BOOL(		&quot;no_increment&quot;,			&quot;Don't increment address on multi-read/-write (default: disabled)&quot;,
+ 						memrw_no_increment)
+-						
++
+ 	RC_FINAL_BOOL(		&quot;step_irq_enable&quot;,		&quot;Enable interrupts while stepping (default: disabled)&quot;,
+ 						step_irq_enable)
+ 
+
+Modified: trunk/src/target/arm11.h
+===================================================================
+--- trunk/src/target/arm11.h	2009-04-27 10:37:07 UTC (rev 1541)
++++ trunk/src/target/arm11.h	2009-04-27 11:24:01 UTC (rev 1542)
+@@ -91,7 +91,7 @@
+ 	bool	trst_active;
+ 	bool	halt_requested;					/**&lt; Keep track if arm11_halt() calls occured
+ 												 during reset. Otherwise do it ASAP. */
+-												 
++
+ 	bool	simulate_reset_on_next_halt;	/**&lt; Perform cleanups of the ARM state on next halt */
+ 
+ 	/** \name Shadow registers to save processor state */
+@@ -239,7 +239,7 @@
+ void arm11_add_IR				(arm11_common_t * arm11, u8 instr, tap_state_t state);
+ void arm11_add_debug_SCAN_N		(arm11_common_t * arm11, u8 chain, tap_state_t state);
+ void arm11_add_debug_INST		(arm11_common_t * arm11, u32 inst, u8 * flag, tap_state_t state);
+-u32  arm11_read_DSCR			(arm11_common_t * arm11);
++int arm11_read_DSCR			(arm11_common_t * arm11, u32 *dscr);
+ void arm11_write_DSCR			(arm11_common_t * arm11, u32 dscr);
+ 
+ enum target_debug_reason arm11_get_DSCR_debug_reason(u32 dscr);
+
+Modified: trunk/src/target/arm11_dbgtap.c
+===================================================================
+--- trunk/src/target/arm11_dbgtap.c	2009-04-27 10:37:07 UTC (rev 1541)
++++ trunk/src/target/arm11_dbgtap.c	2009-04-27 11:24:01 UTC (rev 1542)
+@@ -216,7 +216,7 @@
+  *
+  * \remarks			This is a stand-alone function that executes the JTAG command queue.
+  */
+-u32 arm11_read_DSCR(arm11_common_t * arm11)
++int arm11_read_DSCR(arm11_common_t * arm11, u32 *value)
+ {
+ 	arm11_add_debug_SCAN_N(arm11, 0x01, ARM11_TAP_DEFAULT);
+ 
+@@ -229,14 +229,20 @@
+ 
+ 	arm11_add_dr_scan_vc(1, &amp;chain1_field, TAP_DRPAUSE);
+ 
+-	jtag_execute_queue();
++	int retval;
++	if ((retval=jtag_execute_queue())!=ERROR_OK)
++	{
++		return retval;
++	}
+ 
+ 	if (arm11-&gt;last_dscr != dscr)
+ 		JTAG_DEBUG(&quot;DSCR  = %08x (OLD %08x)&quot;, dscr, arm11-&gt;last_dscr);
+ 
+ 	arm11-&gt;last_dscr = dscr;
+ 
+-	return dscr;
++	*value=dscr;
++
++	return retval;
+ }
+ 
+ /** Write the Debug Status and Control Register (DSCR)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000325.html">[Openocd-svn] r1541 -	zy1000/trunk/ecoshal/hal/zylin/phi/current/include/pkgconf
+</A></li>
+	<LI>Next message: <A HREF="000327.html">[Openocd-svn] r1543 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#326">[ date ]</a>
+              <a href="thread.html#326">[ thread ]</a>
+              <a href="subject.html#326">[ subject ]</a>
+              <a href="author.html#326">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

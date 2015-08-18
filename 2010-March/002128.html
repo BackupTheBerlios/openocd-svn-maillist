@@ -1,0 +1,161 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-42-gcb72b7a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-42-gcb72b7a&In-Reply-To=%3CE1NmAXP-0004ed-28%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002127.html">
+   <LINK REL="Next"  HREF="002129.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-42-gcb72b7a</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-42-gcb72b7a&In-Reply-To=%3CE1NmAXP-0004ed-28%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-42-gcb72b7a">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Mon Mar  1 19:40:13 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002127.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-41-gb1c00e5
+</A></li>
+        <LI>Next message: <A HREF="002129.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-43-g5b31186
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2128">[ date ]</a>
+              <a href="thread.html#2128">[ thread ]</a>
+              <a href="subject.html#2128">[ subject ]</a>
+              <a href="author.html#2128">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  cb72b7a270c7be60c1ec2ee47282156397bea846 (commit)
+      from  b1c00e5a4e038068dce4512c5a2eb3735990b880 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit cb72b7a270c7be60c1ec2ee47282156397bea846
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Mar 1 10:39:57 2010 -0800
+
+    arm_semihosting buildfix
+    
+    The recent &quot;add armv7m semihosting support&quot; patch introduced two
+    build errors:
+    
+    arm_semihosting.c: In function &#226;&#128;&#152;do_semihosting&#226;&#128;&#153;:
+    arm_semihosting.c:71: error: &#226;&#128;&#152;spsr&#226;&#128;&#153; may be used uninitialized in this function
+    arm_semihosting.c:71: error: &#226;&#128;&#152;lr&#226;&#128;&#153; may be used uninitialized in this function
+    
+    This fixes those build errors.  The behavior is, however, untested.
+    (Also, note the two new REVISIT comments.)
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_semihosting.c b/src/target/arm_semihosting.c
+index 2f50a4a..a247cc8 100644
+--- a/src/target/arm_semihosting.c
++++ b/src/target/arm_semihosting.c
+@@ -68,16 +68,9 @@ static int do_semihosting(struct target *target)
+ 	struct arm *arm = target_to_arm(target);
+ 	uint32_t r0 = buf_get_u32(arm-&gt;core_cache-&gt;reg_list[0].value, 0, 32);
+ 	uint32_t r1 = buf_get_u32(arm-&gt;core_cache-&gt;reg_list[1].value, 0, 32);
+-	uint32_t lr, spsr;
+ 	uint8_t params[16];
+ 	int retval, result;
+ 
+-	if (is_arm7_9(target_to_arm7_9(target)))
+-	{
+-		lr = buf_get_u32(ARMV4_5_CORE_REG_MODE(arm-&gt;core_cache, ARM_MODE_SVC, 14).value, 0, 32);
+-		spsr = buf_get_u32(arm-&gt;spsr-&gt;value, 0, 32);;
+-	}
+-
+ 	/*
+ 	 * TODO: lots of security issues are not considered yet, such as:
+ 	 * - no validation on target provided file descriptors
+@@ -396,22 +389,35 @@ static int do_semihosting(struct target *target)
+ 
+ 	/* resume execution to the original mode */
+ 
++	/* REVISIT this looks wrong ... ARM11 and Cortex-A8
++	 * should work this way at least sometimes.
++	 */
+ 	if (is_arm7_9(target_to_arm7_9(target)))
+ 	{
++		uint32_t spsr;
++
+ 		/* return value in R0 */
+ 		buf_set_u32(arm-&gt;core_cache-&gt;reg_list[0].value, 0, 32, result);
+ 		arm-&gt;core_cache-&gt;reg_list[0].dirty = 1;
+ 
+ 		/* LR --&gt; PC */
+-		buf_set_u32(arm-&gt;core_cache-&gt;reg_list[15].value, 0, 32, lr);
++		buf_set_u32(arm-&gt;core_cache-&gt;reg_list[15].value, 0, 32,
++			buf_get_u32(arm_reg_current(arm,14)-&gt;value, 0, 32));
+ 		arm-&gt;core_cache-&gt;reg_list[15].dirty = 1;
+ 
+ 		/* saved PSR --&gt; current PSR */
++		spsr = buf_get_u32(arm-&gt;spsr-&gt;value, 0, 32);
++
++		/* REVISIT should this be arm_set_cpsr(arm, spsr)
++		 * instead of a partially unrolled version?
++		 */
++
+ 		buf_set_u32(arm-&gt;cpsr-&gt;value, 0, 32, spsr);
+ 		arm-&gt;cpsr-&gt;dirty = 1;
+ 		arm-&gt;core_mode = spsr &amp; 0x1f;
+ 		if (spsr &amp; 0x20)
+ 			arm-&gt;core_state = ARM_STATE_THUMB;
++
+ 	}
+ 	else
+ 	{
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm_semihosting.c |   22 ++++++++++++++--------
+ 1 files changed, 14 insertions(+), 8 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002127.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-41-gb1c00e5
+</A></li>
+	<LI>Next message: <A HREF="002129.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-43-g5b31186
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2128">[ date ]</a>
+              <a href="thread.html#2128">[ thread ]</a>
+              <a href="subject.html#2128">[ subject ]</a>
+              <a href="author.html#2128">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

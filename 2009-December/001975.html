@@ -1,0 +1,206 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-975-gb5962b2
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-975-gb5962b2&In-Reply-To=%3CE1NMfNP-00011O-BZ%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001974.html">
+   <LINK REL="Next"  HREF="001976.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-975-gb5962b2</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-975-gb5962b2&In-Reply-To=%3CE1NMfNP-00011O-BZ%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-975-gb5962b2">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Mon Dec 21 11:20:29 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001974.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-974-g34bbbe7
+</A></li>
+        <LI>Next message: <A HREF="001976.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-977-g07c06ec
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1975">[ date ]</a>
+              <a href="thread.html#1975">[ thread ]</a>
+              <a href="subject.html#1975">[ subject ]</a>
+              <a href="author.html#1975">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  b5962b23d83fa692e023512a5b63e736a06d6422 (commit)
+      from  34bbbe796178a85305dcd2ffb3dae02b6a372e55 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit b5962b23d83fa692e023512a5b63e736a06d6422
+Author: Oyvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Sun Dec 20 22:14:10 2009 +0100
+
+    help: list all commands that match string
+    
+    Restore behavior where help lists all commands that
+    match string passed to help.
+    
+    Signed-off-by: Oyvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 76050ef..b991544 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -860,13 +860,13 @@ static COMMAND_HELPER(command_help_find, struct command *head,
+ }
+ 
+ static COMMAND_HELPER(command_help_show, struct command *c, unsigned n,
+-		bool show_help);
++		bool show_help, const char *match);
+ 
+ static COMMAND_HELPER(command_help_show_list, struct command *head, unsigned n,
+-		bool show_help)
++		bool show_help, const char *match)
+ {
+ 	for (struct command *c = head; NULL != c; c = c-&gt;next)
+-		CALL_COMMAND_HANDLER(command_help_show, c, n, show_help);
++		CALL_COMMAND_HANDLER(command_help_show, c, n, show_help, match);
+ 	return ERROR_OK;
+ }
+ 
+@@ -899,7 +899,7 @@ static void command_help_show_wrap(const char *str, unsigned n, unsigned n2)
+ 	}
+ }
+ static COMMAND_HELPER(command_help_show, struct command *c, unsigned n,
+-		bool show_help)
++		bool show_help, const char *match)
+ {
+ 	if (!command_can_run(CMD_CTX, c))
+ 		return ERROR_OK;
+@@ -908,18 +908,30 @@ static COMMAND_HELPER(command_help_show, struct command *c, unsigned n,
+ 	if (NULL == cmd_name)
+ 		return -ENOMEM;
+ 
+-	command_help_show_indent(n);
+-	LOG_USER_N(&quot;%s&quot;, cmd_name);
++	/* If the match string occurs anywhere, we print out
++	 * stuff for this command. */
++	bool is_match = (strstr(cmd_name, match) != NULL) ||
++	((c-&gt;usage != NULL) &amp;&amp; (strstr(c-&gt;usage, match) != NULL)) ||
++	((c-&gt;help != NULL) &amp;&amp; (strstr(c-&gt;help, match) != NULL));
++	
++	if (is_match)
++	{
++		command_help_show_indent(n);
++		LOG_USER_N(&quot;%s&quot;, cmd_name);
++	}
+ 	free(cmd_name);
+ 
+-	if (c-&gt;usage) {
+-		LOG_USER_N(&quot; &quot;);
+-		command_help_show_wrap(c-&gt;usage, 0, n + 5);
++	if (is_match)
++	{
++		if (c-&gt;usage) {
++			LOG_USER_N(&quot; &quot;);
++			command_help_show_wrap(c-&gt;usage, 0, n + 5);
++		}
++		else
++			LOG_USER_N(&quot;\n&quot;);
+ 	}
+-	else
+-		LOG_USER_N(&quot;\n&quot;);
+ 
+-	if (show_help)
++	if (is_match &amp;&amp; show_help)
+ 	{
+ 		const char *stage_msg;
+ 		switch (c-&gt;mode) {
+@@ -942,7 +954,7 @@ static COMMAND_HELPER(command_help_show, struct command *c, unsigned n,
+ 		return ERROR_OK;
+ 
+ 	return CALL_COMMAND_HANDLER(command_help_show_list,
+-			c-&gt;children, n, show_help);
++			c-&gt;children, n, show_help, match);
+ }
+ COMMAND_HANDLER(handle_help_command)
+ {
+@@ -950,14 +962,15 @@ COMMAND_HANDLER(handle_help_command)
+ 
+ 	struct command *c = CMD_CTX-&gt;commands;
+ 
+-	if (0 == CMD_ARGC)
+-		return CALL_COMMAND_HANDLER(command_help_show_list, c, 0, full);
+-
+-	int retval = CALL_COMMAND_HANDLER(command_help_find, c, &amp;c);
+-	if (ERROR_OK != retval)
+-		return retval;
+-
+-	return CALL_COMMAND_HANDLER(command_help_show, c, 0, full);
++	const char *match = &quot;&quot;;
++	if (CMD_ARGC == 0)
++		match = &quot;&quot;;
++	else if (CMD_ARGC == 1)
++		match = CMD_ARGV[0]; 
++	else
++		return ERROR_COMMAND_SYNTAX_ERROR;
++		
++	return CALL_COMMAND_HANDLER(command_help_show_list, c, 0, full, match);
+ }
+ 
+ static int command_unknown_find(unsigned argc, Jim_Obj *const *argv,
+@@ -975,6 +988,7 @@ static int command_unknown_find(unsigned argc, Jim_Obj *const *argv,
+ 	return command_unknown_find(--argc, ++argv, (*out)-&gt;children, out, false);
+ }
+ 
++
+ static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+ 	const char *cmd_name = Jim_GetString(argv[0], NULL);
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/helper/command.c |   56 +++++++++++++++++++++++++++++++------------------
+ 1 files changed, 35 insertions(+), 21 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001974.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-974-g34bbbe7
+</A></li>
+	<LI>Next message: <A HREF="001976.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-977-g07c06ec
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1975">[ date ]</a>
+              <a href="thread.html#1975">[ thread ]</a>
+              <a href="subject.html#1975">[ subject ]</a>
+              <a href="author.html#1975">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,153 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-615-g8902789
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-615-g8902789&In-Reply-To=%3CE1PKXnz-0002Kd-Ps%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002441.html">
+   <LINK REL="Next"  HREF="002443.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-615-g8902789</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-615-g8902789&In-Reply-To=%3CE1PKXnz-0002Kd-Ps%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-615-g8902789">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Mon Nov 22 15:55:41 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002441.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-614-g17634b3
+</A></li>
+        <LI>Next message: <A HREF="002443.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-616-g06b4903
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2442">[ date ]</a>
+              <a href="thread.html#2442">[ thread ]</a>
+              <a href="subject.html#2442">[ subject ]</a>
+              <a href="author.html#2442">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  8902789f0de78f52d74e467017a064dcc568b66b (commit)
+      from  17634b3760c58239f37d75113425e50fd3756470 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 8902789f0de78f52d74e467017a064dcc568b66b
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Mon Nov 22 11:16:40 2010 +0100
+
+    flash: iterating over an address range now handles multiple banks
+    
+    e.g. flash erase_address now works across an address
+    range that spans multiple flash chips.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/flash/nor/core.c b/src/flash/nor/core.c
+index da73bf6..ff467d3 100644
+--- a/src/flash/nor/core.c
++++ b/src/flash/nor/core.c
+@@ -379,7 +379,7 @@ int default_flash_blank_check(struct flash_bank *bank)
+  * sectors will be added to the range, and that reason string is used when
+  * warning about those additions.
+  */
+-static int flash_iterate_address_range(struct target *target,
++static int flash_iterate_address_range_inner(struct target *target,
+ 		char *pad_reason, uint32_t addr, uint32_t length,
+ 		int (*callback)(struct flash_bank *bank, int first, int last))
+ {
+@@ -498,6 +498,43 @@ static int flash_iterate_address_range(struct target *target,
+ 	return callback(c, first, last);
+ }
+ 
++/* The inner fn only handles a single bank, we could be spanning
++ * multiple chips.
++ */
++static int flash_iterate_address_range(struct target *target,
++		char *pad_reason, uint32_t addr, uint32_t length,
++		int (*callback)(struct flash_bank *bank, int first, int last))
++{
++	struct flash_bank *c;
++	int retval = ERROR_OK;
++
++	/* Danger! zero-length iterations means entire bank! */
++	do
++	{
++		retval = get_flash_bank_by_addr(target, addr, true, &amp;c);
++		if (retval != ERROR_OK)
++			return retval;
++
++		uint32_t cur_length = length;
++		/* check whether it all fits in this bank */
++		if (addr + length - 1 &gt; c-&gt;base + c-&gt;size - 1)
++		{
++			LOG_DEBUG(&quot;iterating over more than one flash bank.&quot;);
++			cur_length = c-&gt;base + c-&gt;size - addr;
++		}
++		retval = flash_iterate_address_range_inner(target,
++				pad_reason, addr, cur_length,
++				callback);
++		if (retval != ERROR_OK)
++			break;
++
++		length -= cur_length;
++		addr += cur_length;
++	} while (length &gt; 0);
++
++	return retval;
++}
++
+ int flash_erase_address_range(struct target *target,
+ 		bool pad, uint32_t addr, uint32_t length)
+ {
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/core.c |   39 ++++++++++++++++++++++++++++++++++++++-
+ 1 files changed, 38 insertions(+), 1 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002441.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-614-g17634b3
+</A></li>
+	<LI>Next message: <A HREF="002443.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-616-g06b4903
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2442">[ date ]</a>
+              <a href="thread.html#2442">[ thread ]</a>
+              <a href="subject.html#2442">[ subject ]</a>
+              <a href="author.html#2442">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

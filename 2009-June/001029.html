@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2245 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2245%20-%20trunk/src/jtag&In-Reply-To=%3C200906160022.n5G0MuN3028109%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001028.html">
+   <LINK REL="Next"  HREF="001030.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2245 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2245%20-%20trunk/src/jtag&In-Reply-To=%3C200906160022.n5G0MuN3028109%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2245 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun 16 02:22:56 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001028.html">[Openocd-svn] r2244 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="001030.html">[Openocd-svn] r2246 - in trunk: doc src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1029">[ date ]</a>
+              <a href="thread.html#1029">[ thread ]</a>
+              <a href="subject.html#1029">[ subject ]</a>
+              <a href="author.html#1029">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-16 02:22:52 +0200 (Tue, 16 Jun 2009)
+New Revision: 2245
+
+Modified:
+   trunk/src/jtag/core.c
+   trunk/src/jtag/jtag.h
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Fix a memory leak in jtag_tap_free():  unregister the event
+callback too.
+
+Also fix the associated conceptual bug in unregistering JTAG
+event callbacks:  since the same callback procedure is used
+many times with different callback data (a TAP handle), that
+data must be considered when unregistering any callback.
+
+This could fix some crashes after TAP registration errors,
+by making sure the reset event handler doesn't scribble over
+memory that's now used by something else.
+
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-06-16 00:22:40 UTC (rev 2244)
++++ trunk/src/jtag/core.c	2009-06-16 00:22:52 UTC (rev 2245)
+@@ -243,24 +243,30 @@
+ 	return ERROR_OK;
+ }
+ 
+-int jtag_unregister_event_callback(jtag_event_handler_t callback)
++int jtag_unregister_event_callback(jtag_event_handler_t callback, void *priv)
+ {
+-	jtag_event_callback_t **callbacks_p = &amp;jtag_event_callbacks;
++	jtag_event_callback_t **callbacks_p;
++	jtag_event_callback_t **next;
+ 
+ 	if (callback == NULL)
+ 	{
+ 		return ERROR_INVALID_ARGUMENTS;
+ 	}
+ 
+-	while (*callbacks_p)
++	for (callbacks_p = &amp;jtag_event_callbacks;
++			*callbacks_p != NULL;
++			callbacks_p = next)
+ 	{
+-		jtag_event_callback_t **next = &amp;((*callbacks_p)-&gt;next);
++		next = &amp;((*callbacks_p)-&gt;next);
++
++		if ((*callbacks_p)-&gt;priv != priv)
++			continue;
++
+ 		if ((*callbacks_p)-&gt;callback == callback)
+ 		{
+ 			free(*callbacks_p);
+ 			*callbacks_p = *next;
+ 		}
+-		callbacks_p = next;
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -1092,6 +1098,8 @@
+ 
+ void jtag_tap_free(jtag_tap_t *tap)
+ {
++	jtag_unregister_event_callback(&amp;jtag_reset_callback, tap);
++
+ 	/// @todo is anything missing? no memory leaks please 
+ 	free((void *)tap-&gt;expected_ids);
+ 	free((void *)tap-&gt;chip);
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-06-16 00:22:40 UTC (rev 2244)
++++ trunk/src/jtag/jtag.h	2009-06-16 00:22:52 UTC (rev 2245)
+@@ -230,7 +230,7 @@
+ typedef int (*jtag_event_handler_t)(enum jtag_event event, void* priv);
+ 
+ extern int jtag_register_event_callback(jtag_event_handler_t f, void *x);
+-extern int jtag_unregister_event_callback(jtag_event_handler_t f);
++extern int jtag_unregister_event_callback(jtag_event_handler_t f, void *x);
+ 
+ extern int jtag_call_event_callbacks(enum jtag_event event);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001028.html">[Openocd-svn] r2244 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="001030.html">[Openocd-svn] r2246 - in trunk: doc src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1029">[ date ]</a>
+              <a href="thread.html#1029">[ thread ]</a>
+              <a href="subject.html#1029">[ subject ]</a>
+              <a href="author.html#1029">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

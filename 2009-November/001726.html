@@ -1,0 +1,981 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-13-g16b4b8c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-13-g16b4b8c&In-Reply-To=%3CE1N5yIw-0000If-Tb%409j8yhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001725.html">
+   <LINK REL="Next"  HREF="001727.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-13-g16b4b8c</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-13-g16b4b8c&In-Reply-To=%3CE1N5yIw-0000If-Tb%409j8yhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-13-g16b4b8c">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Thu Nov  5 10:06:54 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001725.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-9-gd269122
+</A></li>
+        <LI>Next message: <A HREF="001727.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-14-g98788d7
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1726">[ date ]</a>
+              <a href="thread.html#1726">[ thread ]</a>
+              <a href="subject.html#1726">[ subject ]</a>
+              <a href="author.html#1726">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  16b4b8cf5453660c849546ebf8a0c3a5a082329e (commit)
+       via  8fb2baaa6b428bd50165f045749786c34857ab02 (commit)
+       via  7acb2607ff79336174014ddfc313433ada9abc44 (commit)
+       via  ff50caa8faaf135426d08f082805b9895b978e9b (commit)
+      from  d269122f91efaf2f745424c215fabb758b7e7ea0 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 16b4b8cf5453660c849546ebf8a0c3a5a082329e
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Thu Nov 5 01:04:08 2009 -0800
+
+    Cortex-M3: expose most DWT registers
+    
+    Expose most DWT registers via Tcl; there are a few more, but
+    those are mostly for profiling along with the ITM.  Having
+    this set available enables operations which aren't possible
+    with just the standard watchpoint operations.
+    
+    The cycle counter may be interesting.  Turn it on after reset
+    by setting the LSB of the dwt_ctrl register, and it counts
+    CPU clocks.  You can program the comparator 0 watchpoint to
+    trigger on a given cycle count, rather than a data address.
+    
+    Likewise, comparator 1 may be able to match data values given
+    address matches from one or two other comparators.  (Not all
+    hardware supports this capability though; try it.  That is
+    something the standard watchpoint methods should eventually
+    handle, for the single address case.)
+    
+    Minor cleanup:  remove needless functional indirection for
+    exposing the v7m architctural registers.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index d8a2879..eb37add 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -1480,22 +1480,157 @@ static int cortex_m3_bulk_write_memory(target_t *target, uint32_t address,
+ 	return cortex_m3_write_memory(target, address, 4, count, buffer);
+ }
+ 
+-static void cortex_m3_build_reg_cache(target_t *target)
++static int cortex_m3_init_target(struct command_context_s *cmd_ctx,
++		struct target_s *target)
+ {
+ 	armv7m_build_reg_cache(target);
++	return ERROR_OK;
+ }
+ 
+-static int cortex_m3_init_target(struct command_context_s *cmd_ctx,
+-		struct target_s *target)
++/* REVISIT cache valid/dirty bits are unmaintained.  We could set &quot;valid&quot;
++ * on r/w if the core is not running, and clear on resume or reset ... or
++ * at least, in a post_restore_context() method.
++ */
++
++struct dwt_reg_state {
++	struct target_s	*target;
++	uint32_t	addr;
++	uint32_t	value;	/* scratch/cache */
++};
++
++static int cortex_m3_dwt_get_reg(struct reg_s *reg)
+ {
+-	cortex_m3_build_reg_cache(target);
+-	return ERROR_OK;
++	struct dwt_reg_state *state = reg-&gt;arch_info;
++
++	return target_read_u32(state-&gt;target, state-&gt;addr, &amp;state-&gt;value);
++}
++
++static int cortex_m3_dwt_set_reg(struct reg_s *reg, uint8_t *buf)
++{
++	struct dwt_reg_state *state = reg-&gt;arch_info;
++
++	return target_write_u32(state-&gt;target, state-&gt;addr,
++			buf_get_u32(buf, 0, reg-&gt;size));
++}
++
++struct dwt_reg {
++	uint32_t	addr;
++	char		*name;
++	unsigned	size;
++};
++
++static struct dwt_reg dwt_base_regs[] = {
++	{ DWT_CTRL, &quot;dwt_ctrl&quot;, 32, },
++	{ DWT_CYCCNT, &quot;dwt_cyccnt&quot;, 32, },
++	/* plus some 8 bit counters, useful for profiling with TPIU */
++};
++
++static struct dwt_reg dwt_comp[] = {
++#define DWT_COMPARATOR(i) \
++		{ DWT_COMP0 + 0x10 * (i), &quot;dwt_&quot; #i &quot;_comp&quot;, 32, }, \
++		{ DWT_MASK0 + 0x10 * (i), &quot;dwt_&quot; #i &quot;_mask&quot;, 4, }, \
++		{ DWT_FUNCTION0 + 0x10 * (i), &quot;dwt_&quot; #i &quot;_function&quot;, 32, }
++	DWT_COMPARATOR(0),
++	DWT_COMPARATOR(1),
++	DWT_COMPARATOR(2),
++	DWT_COMPARATOR(3),
++#undef DWT_COMPARATOR
++};
++
++static int dwt_reg_type = -1;
++
++static void
++cortex_m3_dwt_addreg(struct target_s *t, struct reg_s *r, struct dwt_reg *d)
++{
++	struct dwt_reg_state *state;
++
++	state = calloc(1, sizeof *state);
++	if (!state)
++		return;
++	state-&gt;addr = d-&gt;addr;
++	state-&gt;target = t;
++
++	r-&gt;name = d-&gt;name;
++	r-&gt;size = d-&gt;size;
++	r-&gt;value = &amp;state-&gt;value;
++	r-&gt;arch_info = state;
++	r-&gt;arch_type = dwt_reg_type;
++}
++
++static void
++cortex_m3_dwt_setup(cortex_m3_common_t *cm3, struct target_s *target)
++{
++	uint32_t dwtcr;
++	struct reg_cache_s *cache;
++	cortex_m3_dwt_comparator_t *comparator;
++	int reg, i;
++
++	target_read_u32(target, DWT_CTRL, &amp;dwtcr);
++	if (!dwtcr) {
++		LOG_DEBUG(&quot;no DWT&quot;);
++		return;
++	}
++
++	if (dwt_reg_type &lt; 0)
++		dwt_reg_type = register_reg_arch_type(cortex_m3_dwt_get_reg,
++				cortex_m3_dwt_set_reg);
++
++	cm3-&gt;dwt_num_comp = (dwtcr &gt;&gt; 28) &amp; 0xF;
++	cm3-&gt;dwt_comp_available = cm3-&gt;dwt_num_comp;
++	cm3-&gt;dwt_comparator_list = calloc(cm3-&gt;dwt_num_comp,
++			sizeof(cortex_m3_dwt_comparator_t));
++	if (!cm3-&gt;dwt_comparator_list) {
++fail0:
++		cm3-&gt;dwt_num_comp = 0;
++		LOG_ERROR(&quot;out of mem&quot;);
++		return;
++	}
++
++	cache = calloc(1, sizeof *cache);
++	if (!cache) {
++fail1:
++		free(cm3-&gt;dwt_comparator_list);
++		goto fail0;
++	}
++	cache-&gt;name = &quot;cortex-m3 dwt registers&quot;;
++	cache-&gt;num_regs = 2 + cm3-&gt;dwt_num_comp * 3;
++	cache-&gt;reg_list = calloc(cache-&gt;num_regs, sizeof *cache-&gt;reg_list);
++	if (!cache-&gt;reg_list) {
++		free(cache);
++		goto fail1;
++	}
++
++	for (reg = 0; reg &lt; 2; reg++)
++		cortex_m3_dwt_addreg(target, cache-&gt;reg_list + reg,
++				dwt_base_regs + reg);
++
++	comparator = cm3-&gt;dwt_comparator_list;
++	for (i = 0; i &lt; cm3-&gt;dwt_num_comp; i++, comparator++) {
++		int j;
++
++		comparator-&gt;dwt_comparator_address = DWT_COMP0 + 0x10 * i;
++		for (j = 0; j &lt; 3; j++, reg++)
++			cortex_m3_dwt_addreg(target, cache-&gt;reg_list + reg,
++					dwt_comp + 3 * i + j);
++	}
++
++	*register_get_last_cache_p(&amp;target-&gt;reg_cache) = cache;
++	cm3-&gt;dwt_cache = cache;
++
++	LOG_INFO(&quot;DWT dwtcr 0x%&quot; PRIx32 &quot;, comp %d, watch%s&quot;,
++			dwtcr, cm3-&gt;dwt_num_comp,
++			(dwtcr &amp; (0xf &lt;&lt; 24)) ? &quot; only&quot; : &quot;/trigger&quot;);
++
++	/* REVISIT:  if num_comp &gt; 1, check whether comparator #1 can
++	 * implement single-address data value watchpoints ... so we
++	 * won't need to check it later, when asked to set one up.
++	 */
+ }
+ 
+ static int cortex_m3_examine(struct target_s *target)
+ {
+ 	int retval;
+-	uint32_t cpuid, fpcr, dwtcr;
++	uint32_t cpuid, fpcr;
+ 	int i;
+ 
+ 	/* get pointers to arch-specific information */
+@@ -1537,21 +1672,7 @@ static int cortex_m3_examine(struct target_s *target)
+ 		LOG_DEBUG(&quot;FPB fpcr 0x%&quot; PRIx32 &quot;, numcode %i, numlit %i&quot;, fpcr, cortex_m3-&gt;fp_num_code, cortex_m3-&gt;fp_num_lit);
+ 
+ 		/* Setup DWT */
+-		target_read_u32(target, DWT_CTRL, &amp;dwtcr);
+-		cortex_m3-&gt;dwt_num_comp = (dwtcr &gt;&gt; 28) &amp; 0xF;
+-		cortex_m3-&gt;dwt_comp_available = cortex_m3-&gt;dwt_num_comp;
+-		cortex_m3-&gt;dwt_comparator_list = calloc(
+-				cortex_m3-&gt;dwt_num_comp,
+-				sizeof(cortex_m3_dwt_comparator_t));
+-		for (i = 0; i &lt; cortex_m3-&gt;dwt_num_comp; i++)
+-		{
+-			cortex_m3-&gt;dwt_comparator_list[i]
+-				.dwt_comparator_address = DWT_COMP0 + 0x10 * i;
+-		}
+-		if (cortex_m3-&gt;dwt_num_comp)
+-			LOG_DEBUG(&quot;DWT dwtcr 0x%&quot; PRIx32 &quot;, comp %d, watch%s&quot;,
+-				dwtcr, cortex_m3-&gt;dwt_num_comp,
+-				(dwtcr &amp; (0xf &lt;&lt; 24)) ? &quot; only&quot; : &quot;/trigger&quot;);
++		cortex_m3_dwt_setup(cortex_m3, target);
+ 	}
+ 
+ 	return ERROR_OK;
+diff --git a/src/target/cortex_m3.h b/src/target/cortex_m3.h
+index a7074d3..1dd724c 100644
+--- a/src/target/cortex_m3.h
++++ b/src/target/cortex_m3.h
+@@ -45,6 +45,7 @@
+ #define DCRSR_WnR	(1 &lt;&lt; 16)
+ 
+ #define DWT_CTRL	0xE0001000
++#define DWT_CYCCNT	0xE0001004
+ #define DWT_COMP0	0xE0001020
+ #define DWT_MASK0	0xE0001024
+ #define DWT_FUNCTION0	0xE0001028
+@@ -157,6 +158,7 @@ typedef struct cortex_m3_common_s
+ 	int dwt_num_comp;
+ 	int dwt_comp_available;
+ 	cortex_m3_dwt_comparator_t *dwt_comparator_list;
++	struct reg_cache_s *dwt_cache;
+ 
+ 	armv7m_common_t armv7m;
+ 	void *arch_info;
+
+commit 8fb2baaa6b428bd50165f045749786c34857ab02
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Thu Nov 5 01:03:54 2009 -0800
+
+    Cortex-M3: minor cleanup
+    
+    There's no reason to read which interrupts are enabled from
+    the NVIC; that state isn't used.  Plus, it's highly dynamic
+    since firmware can change it at any time; remove the support
+    for those state records.
+    
+    Remove duplicate definition of DWT_CTRL address; shrink a line.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index ef57a4c..d8a2879 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -1495,7 +1495,7 @@ static int cortex_m3_init_target(struct command_context_s *cmd_ctx,
+ static int cortex_m3_examine(struct target_s *target)
+ {
+ 	int retval;
+-	uint32_t cpuid, fpcr, dwtcr, ictr;
++	uint32_t cpuid, fpcr, dwtcr;
+ 	int i;
+ 
+ 	/* get pointers to arch-specific information */
+@@ -1511,21 +1511,15 @@ static int cortex_m3_examine(struct target_s *target)
+ 		target_set_examined(target);
+ 
+ 		/* Read from Device Identification Registers */
+-		if ((retval = target_read_u32(target, CPUID, &amp;cpuid)) != ERROR_OK)
++		retval = target_read_u32(target, CPUID, &amp;cpuid);
++		if (retval != ERROR_OK)
+ 			return retval;
+ 
+ 		if (((cpuid &gt;&gt; 4) &amp; 0xc3f) == 0xc23)
+ 			LOG_DEBUG(&quot;CORTEX-M3 processor detected&quot;);
+ 		LOG_DEBUG(&quot;cpuid: 0x%8.8&quot; PRIx32 &quot;&quot;, cpuid);
+ 
+-		target_read_u32(target, NVIC_ICTR, &amp;ictr);
+-		cortex_m3-&gt;intlinesnum = (ictr &amp; 0x1F) + 1;
+-		cortex_m3-&gt;intsetenable = calloc(cortex_m3-&gt;intlinesnum, 4);
+-		for (i = 0; i &lt; cortex_m3-&gt;intlinesnum; i++)
+-		{
+-			target_read_u32(target, NVIC_ISE0 + 4 * i, cortex_m3-&gt;intsetenable + i);
+-			LOG_DEBUG(&quot;interrupt enable[%i] = 0x%8.8&quot; PRIx32 &quot;&quot;, i, cortex_m3-&gt;intsetenable[i]);
+-		}
++		/* NOTE: FPB and DWT are both optional. */
+ 
+ 		/* Setup FPB */
+ 		target_read_u32(target, FP_CTRL, &amp;fpcr);
+diff --git a/src/target/cortex_m3.h b/src/target/cortex_m3.h
+index f4cefa7..a7074d3 100644
+--- a/src/target/cortex_m3.h
++++ b/src/target/cortex_m3.h
+@@ -60,8 +60,6 @@
+ #define FP_COMP6	0xE0002020
+ #define FP_COMP7	0xE0002024
+ 
+-#define DWT_CTRL	0xE0001000
+-
+ /* DCB_DHCSR bit and field definitions */
+ #define DBGKEY		(0xA05F &lt;&lt; 16)
+ #define C_DEBUGEN	(1 &lt;&lt; 0)
+@@ -160,10 +158,6 @@ typedef struct cortex_m3_common_s
+ 	int dwt_comp_available;
+ 	cortex_m3_dwt_comparator_t *dwt_comparator_list;
+ 
+-	/* Interrupts */
+-	int intlinesnum;
+-	uint32_t *intsetenable;
+-
+ 	armv7m_common_t armv7m;
+ 	void *arch_info;
+ } cortex_m3_common_t;
+
+commit 7acb2607ff79336174014ddfc313433ada9abc44
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Thu Nov 5 01:03:17 2009 -0800
+
+    Cortex-M3: DWT cleanup/fixes
+    
+    Fix the watchpoint error checks, and do them in add(), not later
+    in set() when it's mostly too late.  Support the full range of
+    watchpoint sizes (1 to 32K bytes each), and check alignments.
+    
+    Minor cleanup of DWT access:  shrink lines, use &quot;+&quot; for address
+    calculations, comment a few issues.  Add debug message reporting
+    DWT capabilities, matching the message for FBP, and some minor
+    code and spec review comments.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index 1afa29f..ef57a4c 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -223,9 +223,12 @@ static int cortex_m3_endreset_event(target_t *target)
+ 	/* Restore DWT registers */
+ 	for (i = 0; i &lt; cortex_m3-&gt;dwt_num_comp; i++)
+ 	{
+-		target_write_u32(target, dwt_list[i].dwt_comparator_address, dwt_list[i].comp);
+-		target_write_u32(target, dwt_list[i].dwt_comparator_address | 0x4, dwt_list[i].mask);
+-		target_write_u32(target, dwt_list[i].dwt_comparator_address | 0x8, dwt_list[i].function);
++		target_write_u32(target, dwt_list[i].dwt_comparator_address + 0,
++				dwt_list[i].comp);
++		target_write_u32(target, dwt_list[i].dwt_comparator_address + 4,
++				dwt_list[i].mask);
++		target_write_u32(target, dwt_list[i].dwt_comparator_address + 8,
++				dwt_list[i].function);
+ 	}
+ 	swjdp_transaction_endcheck(swjdp);
+ 
+@@ -259,7 +262,7 @@ static int cortex_m3_examine_debug_reason(target_t *target)
+ 			target-&gt;debug_reason = DBG_REASON_WATCHPOINT;
+ 		else if (cortex_m3-&gt;nvic_dfsr &amp; DFSR_VCATCH)
+ 			target-&gt;debug_reason = DBG_REASON_BREAKPOINT;
+-		else /* EXTERNAL, HALTED, DWTTRAP w/o BKPT */
++		else /* EXTERNAL, HALTED */
+ 			target-&gt;debug_reason = DBG_REASON_UNDEFINED;
+ 	}
+ 
+@@ -621,7 +624,7 @@ static int cortex_m3_resume(struct target_s *target, int current,
+ 		{
+ 			LOG_DEBUG(&quot;unset breakpoint at 0x%8.8&quot; PRIx32 &quot; (ID: %d)&quot;,
+ 					  breakpoint-&gt;address,
+-					  breakpoint-&gt;unique_id );
++					  breakpoint-&gt;unique_id);
+ 			cortex_m3_unset_breakpoint(target, breakpoint);
+ 			cortex_m3_single_step_core(target);
+ 			cortex_m3_set_breakpoint(target, breakpoint);
+@@ -1036,6 +1039,7 @@ cortex_m3_remove_breakpoint(struct target_s *target, breakpoint_t *breakpoint)
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+ 
++	/* REVISIT why check? FBP can be updated with core running ... */
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+ 		LOG_WARNING(&quot;target not halted&quot;);
+@@ -1067,52 +1071,63 @@ cortex_m3_set_watchpoint(struct target_s *target, watchpoint_t *watchpoint)
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	cortex_m3_dwt_comparator_t * comparator_list = cortex_m3-&gt;dwt_comparator_list;
+ 
+-	if (watchpoint-&gt;set)
+-	{
+-		LOG_WARNING(&quot;watchpoint (%d) already set&quot;, watchpoint-&gt;unique_id );
+-		return ERROR_OK;
++	/* watchpoint params were validated earlier */
++	mask = 0;
++	temp = watchpoint-&gt;length;
++	while (temp) {
++		temp &gt;&gt;= 1;
++		mask++;
+ 	}
++	mask--;
++
++	/* REVISIT Don't fully trust these &quot;not used&quot; records ... users
++	 * may set up breakpoints by hand, e.g. dual-address data value
++	 * watchpoint using comparator #1; comparator #0 matching cycle
++	 * count; send data trace info through ITM and TPIU; etc
++	 */
++	cortex_m3_dwt_comparator_t *comparator;
+ 
+-	if (watchpoint-&gt;mask == 0xffffffffu)
++	for (comparator = cortex_m3-&gt;dwt_comparator_list;
++			comparator-&gt;used &amp;&amp; dwt_num &lt; cortex_m3-&gt;dwt_num_comp;
++			comparator++, dwt_num++)
++		continue;
++	if (dwt_num &gt;= cortex_m3-&gt;dwt_num_comp)
+ 	{
+-		while (comparator_list[dwt_num].used &amp;&amp; (dwt_num &lt; cortex_m3-&gt;dwt_num_comp))
+-			dwt_num++;
+-		if (dwt_num &gt;= cortex_m3-&gt;dwt_num_comp)
+-		{
+-			LOG_DEBUG(&quot;ERROR Can not find free DWT Comparator&quot;);
+-			LOG_WARNING(&quot;ERROR Can not find free DWT Comparator&quot;);
+-			return -1;
+-		}
+-		watchpoint-&gt;set = dwt_num + 1;
+-		mask = 0;
+-		temp = watchpoint-&gt;length;
+-		while (temp &gt; 1)
+-		{
+-			temp = temp / 2;
+-			mask++;
+-		}
+-		comparator_list[dwt_num].used = 1;
+-		comparator_list[dwt_num].comp = watchpoint-&gt;address;
+-		comparator_list[dwt_num].mask = mask;
+-		comparator_list[dwt_num].function = watchpoint-&gt;rw + 5;
+-		target_write_u32(target, comparator_list[dwt_num].dwt_comparator_address, comparator_list[dwt_num].comp);
+-		target_write_u32(target, comparator_list[dwt_num].dwt_comparator_address | 0x4, comparator_list[dwt_num].mask);
+-		target_write_u32(target, comparator_list[dwt_num].dwt_comparator_address | 0x8, comparator_list[dwt_num].function);
+-		LOG_DEBUG(&quot;dwt_num %i 0x%&quot; PRIx32 &quot; 0x%&quot; PRIx32 &quot; 0x%&quot; PRIx32 &quot;&quot;, dwt_num, comparator_list[dwt_num].comp, comparator_list[dwt_num].mask, comparator_list[dwt_num].function);
++		LOG_ERROR(&quot;Can not find free DWT Comparator&quot;);
++		return ERROR_FAIL;
+ 	}
+-	else
+-	{
+-		/* Move this test to add_watchpoint */
+-		LOG_WARNING(&quot;Cannot watch data values (id: %d)&quot;,
+-				  watchpoint-&gt;unique_id );
+-		return ERROR_OK;
++	comparator-&gt;used = 1;
++	watchpoint-&gt;set = dwt_num + 1;
++
++	comparator-&gt;comp = watchpoint-&gt;address;
++	target_write_u32(target, comparator-&gt;dwt_comparator_address + 0,
++			comparator-&gt;comp);
++
++	comparator-&gt;mask = mask;
++	target_write_u32(target, comparator-&gt;dwt_comparator_address + 4,
++			comparator-&gt;mask);
++
++	switch (watchpoint-&gt;rw) {
++	case WPT_READ:
++		comparator-&gt;function = 5;
++		break;
++	case WPT_WRITE:
++		comparator-&gt;function = 6;
++		break;
++	case WPT_ACCESS:
++		comparator-&gt;function = 7;
++		break;
+ 	}
+-	LOG_DEBUG(&quot;Watchpoint (ID: %d) address: 0x%08&quot; PRIx32 &quot; set=%d &quot;,
+-			  watchpoint-&gt;unique_id, watchpoint-&gt;address, watchpoint-&gt;set );
+-	return ERROR_OK;
++	target_write_u32(target, comparator-&gt;dwt_comparator_address + 8,
++			comparator-&gt;function);
+ 
++	LOG_DEBUG(&quot;Watchpoint (ID %d) DWT%d 0x%08x 0x%x 0x%05x&quot;,
++			watchpoint-&gt;unique_id, dwt_num,
++			(unsigned) comparator-&gt;comp,
++			(unsigned) comparator-&gt;mask,
++			(unsigned) comparator-&gt;function);
++	return ERROR_OK;
+ }
+ 
+ static int
+@@ -1121,28 +1136,33 @@ cortex_m3_unset_watchpoint(struct target_s *target, watchpoint_t *watchpoint)
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	cortex_m3_dwt_comparator_t * comparator_list = cortex_m3-&gt;dwt_comparator_list;
++	cortex_m3_dwt_comparator_t *comparator;
+ 	int dwt_num;
+ 
+ 	if (!watchpoint-&gt;set)
+ 	{
+-		LOG_WARNING(&quot;watchpoint (wpid: %d) not set&quot;, watchpoint-&gt;unique_id );
++		LOG_WARNING(&quot;watchpoint (wpid: %d) not set&quot;,
++				watchpoint-&gt;unique_id);
+ 		return ERROR_OK;
+ 	}
+ 
+-	LOG_DEBUG(&quot;Watchpoint (ID: %d) address: 0x%08&quot; PRIx32 &quot; set=%d &quot;,
+-			  watchpoint-&gt;unique_id, watchpoint-&gt;address,watchpoint-&gt;set );
+-
+ 	dwt_num = watchpoint-&gt;set - 1;
+ 
++	LOG_DEBUG(&quot;Watchpoint (ID %d) DWT%d address: 0x%08x clear&quot;,
++			watchpoint-&gt;unique_id, dwt_num,
++			(unsigned) watchpoint-&gt;address);
++
+ 	if ((dwt_num &lt; 0) || (dwt_num &gt;= cortex_m3-&gt;dwt_num_comp))
+ 	{
+ 		LOG_DEBUG(&quot;Invalid DWT Comparator number in watchpoint&quot;);
+ 		return ERROR_OK;
+ 	}
+-	comparator_list[dwt_num].used = 0;
+-	comparator_list[dwt_num].function = 0;
+-	target_write_u32(target, comparator_list[dwt_num].dwt_comparator_address | 0x8, comparator_list[dwt_num].function);
++
++	comparator = cortex_m3-&gt;dwt_comparator_list + dwt_num;
++	comparator-&gt;used = 0;
++	comparator-&gt;function = 0;
++	target_write_u32(target, comparator-&gt;dwt_comparator_address + 8,
++			comparator-&gt;function);
+ 
+ 	watchpoint-&gt;set = 0;
+ 
+@@ -1156,6 +1176,7 @@ cortex_m3_add_watchpoint(struct target_s *target, watchpoint_t *watchpoint)
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+ 
++	/* REVISIT why check? DWT can be updated with core running ... */
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+ 		LOG_WARNING(&quot;target not halted&quot;);
+@@ -1164,11 +1185,41 @@ cortex_m3_add_watchpoint(struct target_s *target, watchpoint_t *watchpoint)
+ 
+ 	if (cortex_m3-&gt;dwt_comp_available &lt; 1)
+ 	{
++		LOG_DEBUG(&quot;no comparators?&quot;);
+ 		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+ 	}
+ 
+-	if ((watchpoint-&gt;length != 1) &amp;&amp; (watchpoint-&gt;length != 2) &amp;&amp; (watchpoint-&gt;length != 4))
+-	{
++	/* hardware doesn't support data value masking */
++	if (watchpoint-&gt;mask != ~(uint32_t)0) {
++		LOG_DEBUG(&quot;watchpoint value masks not supported&quot;);
++		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	}
++
++	/* hardware allows address masks of up to 32K */
++	unsigned mask;
++
++	for (mask = 0; mask &lt; 16; mask++) {
++		if ((1 &lt;&lt; mask) == watchpoint-&gt;length)
++			break;
++	}
++	if (mask == 16) {
++		LOG_DEBUG(&quot;unsupported watchpoint length&quot;);
++		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	}
++	if (watchpoint-&gt;address &amp; ((1 &lt;&lt; mask) - 1)) {
++		LOG_DEBUG(&quot;watchpoint address is unaligned&quot;);
++		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	}
++
++	/* Caller doesn't seem to be able to describe watching for data
++	 * values of zero; that flags &quot;no value&quot;.
++	 *
++	 * REVISIT This DWT may well be able to watch for specific data
++	 * values.  Requires comparator #1 to set DATAVMATCH and match
++	 * the data, and another comparator (DATAVADDR0) matching addr.
++	 */
++	if (watchpoint-&gt;value) {
++		LOG_DEBUG(&quot;data value watchpoint not YET supported&quot;);
+ 		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+ 	}
+ 
+@@ -1185,6 +1236,7 @@ cortex_m3_remove_watchpoint(struct target_s *target, watchpoint_t *watchpoint)
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+ 
++	/* REVISIT why check? DWT can be updated with core running ... */
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+ 		LOG_WARNING(&quot;target not halted&quot;);
+@@ -1494,11 +1546,18 @@ static int cortex_m3_examine(struct target_s *target)
+ 		target_read_u32(target, DWT_CTRL, &amp;dwtcr);
+ 		cortex_m3-&gt;dwt_num_comp = (dwtcr &gt;&gt; 28) &amp; 0xF;
+ 		cortex_m3-&gt;dwt_comp_available = cortex_m3-&gt;dwt_num_comp;
+-		cortex_m3-&gt;dwt_comparator_list = calloc(cortex_m3-&gt;dwt_num_comp, sizeof(cortex_m3_dwt_comparator_t));
++		cortex_m3-&gt;dwt_comparator_list = calloc(
++				cortex_m3-&gt;dwt_num_comp,
++				sizeof(cortex_m3_dwt_comparator_t));
+ 		for (i = 0; i &lt; cortex_m3-&gt;dwt_num_comp; i++)
+ 		{
+-			cortex_m3-&gt;dwt_comparator_list[i].dwt_comparator_address = DWT_COMP0 + 0x10 * i;
++			cortex_m3-&gt;dwt_comparator_list[i]
++				.dwt_comparator_address = DWT_COMP0 + 0x10 * i;
+ 		}
++		if (cortex_m3-&gt;dwt_num_comp)
++			LOG_DEBUG(&quot;DWT dwtcr 0x%&quot; PRIx32 &quot;, comp %d, watch%s&quot;,
++				dwtcr, cortex_m3-&gt;dwt_num_comp,
++				(dwtcr &amp; (0xf &lt;&lt; 24)) ? &quot; only&quot; : &quot;/trigger&quot;);
+ 	}
+ 
+ 	return ERROR_OK;
+
+commit ff50caa8faaf135426d08f082805b9895b978e9b
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Thu Nov 5 01:02:52 2009 -0800
+
+    ARMv7M: add docs, remove exports
+    
+    Add Doxygen for the exported ARMv7-M interfaces.
+    
+    Make the non-exported stuff static.  Remove functions and
+    data which are now observably unused.
+    
+    Add comment about a small speedup that the run_algorithm()
+    logic could use.  Shrink a few too-long lines.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/armv7m.c b/src/target/armv7m.c
+index 75a2fb9..64bdfd5 100644
+--- a/src/target/armv7m.c
++++ b/src/target/armv7m.c
+@@ -43,7 +43,8 @@
+ #define _DEBUG_INSTRUCTION_EXECUTION_
+ #endif
+ 
+-char* armv7m_mode_strings[] =
++/** Maps from enum armv7m_mode (except ARMV7M_MODE_ANY) to name. */
++char *armv7m_mode_strings[] =
+ {
+ 	&quot;Thread&quot;, &quot;Thread (User)&quot;, &quot;Handler&quot;,
+ };
+@@ -56,16 +57,18 @@ static char *armv7m_exception_strings[] =
+ 	&quot;DebugMonitor&quot;, &quot;RESERVED&quot;, &quot;PendSV&quot;, &quot;SysTick&quot;
+ };
+ 
+-uint8_t armv7m_gdb_dummy_fp_value[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
++static uint8_t armv7m_gdb_dummy_fp_value[12] = {
++	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++};
+ 
+-reg_t armv7m_gdb_dummy_fp_reg =
++static reg_t armv7m_gdb_dummy_fp_reg =
+ {
+ 	&quot;GDB dummy floating-point register&quot;, armv7m_gdb_dummy_fp_value, 0, 1, 96, NULL, 0, NULL, 0
+ };
+ 
+-uint8_t armv7m_gdb_dummy_fps_value[] = {0, 0, 0, 0};
++static uint8_t armv7m_gdb_dummy_fps_value[] = {0, 0, 0, 0};
+ 
+-reg_t armv7m_gdb_dummy_fps_reg =
++static reg_t armv7m_gdb_dummy_fps_reg =
+ {
+ 	&quot;GDB dummy floating-point status register&quot;, armv7m_gdb_dummy_fps_value, 0, 1, 32, NULL, 0, NULL, 0
+ };
+@@ -83,6 +86,9 @@ reg_t armv7m_gdb_dummy_cpsr_reg =
+  * These registers are not memory-mapped.  The ARMv7-M profile includes
+  * memory mapped registers too, such as for the NVIC (interrupt controller)
+  * and SysTick (timer) modules; those can mostly be treated as peripherals.
++ *
++ * The ARMv6-M profile is almost identical in this respect, except that it
++ * doesn't include basepri or faultmask registers.
+  */
+ static const struct {
+ 	unsigned id;
+@@ -121,9 +127,12 @@ static const struct {
+ 
+ #define ARMV7M_NUM_REGS	ARRAY_SIZE(armv7m_regs)
+ 
+-int armv7m_core_reg_arch_type = -1;
+-int armv7m_dummy_core_reg_arch_type = -1;
++static int armv7m_core_reg_arch_type = -1;
+ 
++/**
++ * Restores target context using the cache of core registers set up
++ * by armv7m_build_reg_cache(), calling optional core-specific hooks.
++ */
+ int armv7m_restore_context(target_t *target)
+ {
+ 	int i;
+@@ -151,6 +160,14 @@ int armv7m_restore_context(target_t *target)
+ }
+ 
+ /* Core state functions */
++
++/**
++ * Maps ISR number (from xPSR) to name.
++ * Note that while names and meanings for the first sixteen are standardized
++ * (with zero not a true exception), external interrupts are only numbered.
++ * They are assigned by vendors, which generally assign different numbers to
++ * peripherals (such as UART0 or a USB peripheral controller).
++ */
+ char *armv7m_exception_string(int number)
+ {
+ 	static char enamebuf[32];
+@@ -163,7 +180,7 @@ char *armv7m_exception_string(int number)
+ 	return enamebuf;
+ }
+ 
+-int armv7m_get_core_reg(reg_t *reg)
++static int armv7m_get_core_reg(reg_t *reg)
+ {
+ 	int retval;
+ 	armv7m_core_reg_t *armv7m_reg = reg-&gt;arch_info;
+@@ -180,7 +197,7 @@ int armv7m_get_core_reg(reg_t *reg)
+ 	return retval;
+ }
+ 
+-int armv7m_set_core_reg(reg_t *reg, uint8_t *buf)
++static int armv7m_set_core_reg(reg_t *reg, uint8_t *buf)
+ {
+ 	armv7m_core_reg_t *armv7m_reg = reg-&gt;arch_info;
+ 	target_t *target = armv7m_reg-&gt;target;
+@@ -198,7 +215,7 @@ int armv7m_set_core_reg(reg_t *reg, uint8_t *buf)
+ 	return ERROR_OK;
+ }
+ 
+-int armv7m_read_core_reg(struct target_s *target, int num)
++static int armv7m_read_core_reg(struct target_s *target, int num)
+ {
+ 	uint32_t reg_value;
+ 	int retval;
+@@ -219,7 +236,7 @@ int armv7m_read_core_reg(struct target_s *target, int num)
+ 	return retval;
+ }
+ 
+-int armv7m_write_core_reg(struct target_s *target, int num)
++static int armv7m_write_core_reg(struct target_s *target, int num)
+ {
+ 	int retval;
+ 	uint32_t reg_value;
+@@ -247,6 +264,7 @@ int armv7m_write_core_reg(struct target_s *target, int num)
+ 	return ERROR_OK;
+ }
+ 
++/** Invalidates cache of core registers set up by armv7m_build_reg_cache(). */
+ int armv7m_invalidate_core_regs(target_t *target)
+ {
+ 	/* get pointers to arch-specific information */
+@@ -262,6 +280,12 @@ int armv7m_invalidate_core_regs(target_t *target)
+ 	return ERROR_OK;
+ }
+ 
++/**
++ * Returns generic ARM userspace registers to GDB.
++ * GDB doesn't quite understand that most ARMs don't have floating point
++ * hardware, so this also fakes a set of long-obsolete FPA registers that
++ * are not used in EABI based software stacks.
++ */
+ int armv7m_get_gdb_reg_list(target_t *target, reg_t **reg_list[], int *reg_list_size)
+ {
+ 	/* get pointers to arch-specific information */
+@@ -339,7 +363,12 @@ static int armv7m_run_and_wait(struct target_s *target, uint32_t entry_point, in
+ 	return ERROR_OK;
+ }
+ 
+-int armv7m_run_algorithm(struct target_s *target, int num_mem_params, mem_param_t *mem_params, int num_reg_params, reg_param_t *reg_params, uint32_t entry_point, uint32_t exit_point, int timeout_ms, void *arch_info)
++/** Runs a Thumb algorithm in the target. */
++int armv7m_run_algorithm(struct target_s *target,
++	int num_mem_params, mem_param_t *mem_params,
++	int num_reg_params, reg_param_t *reg_params,
++	uint32_t entry_point, uint32_t exit_point,
++	int timeout_ms, void *arch_info)
+ {
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+@@ -406,6 +435,11 @@ int armv7m_run_algorithm(struct target_s *target, int num_mem_params, mem_param_
+ 		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_CONTROL].valid = 1;
+ 	}
+ 
++	/* REVISIT speed things up (3% or so in one case) by requiring
++	 * algorithms to include a BKPT instruction at each exit point.
++	 * This eliminates overheads of adding/removing a breakpoint.
++	 */
++
+ 	/* ARMV7M always runs in Thumb state */
+ 	if ((retval = breakpoint_add(target, exit_point, 2, BKPT_SOFT)) != ERROR_OK)
+ 	{
+@@ -475,6 +509,7 @@ int armv7m_run_algorithm(struct target_s *target, int num_mem_params, mem_param_
+ 	return retval;
+ }
+ 
++/** Logs summary of ARMv7-M state for a halted target. */
+ int armv7m_arch_state(struct target_s *target)
+ {
+ 	/* get pointers to arch-specific information */
+@@ -498,6 +533,7 @@ int armv7m_arch_state(struct target_s *target)
+ 	return ERROR_OK;
+ }
+ 
++/** Builds cache of architecturally defined registers.  */
+ reg_cache_t *armv7m_build_reg_cache(target_t *target)
+ {
+ 	/* get pointers to arch-specific information */
+@@ -548,13 +584,7 @@ reg_cache_t *armv7m_build_reg_cache(target_t *target)
+ 	return cache;
+ }
+ 
+-int armv7m_init_target(struct command_context_s *cmd_ctx, struct target_s *target)
+-{
+-	armv7m_build_reg_cache(target);
+-
+-	return ERROR_OK;
+-}
+-
++/** Sets up target as a generic ARMv7-M core */
+ int armv7m_init_arch_info(target_t *target, armv7m_common_t *armv7m)
+ {
+ 	/* register arch-specific functions */
+@@ -566,7 +596,9 @@ int armv7m_init_arch_info(target_t *target, armv7m_common_t *armv7m)
+ 	return ERROR_OK;
+ }
+ 
+-int armv7m_checksum_memory(struct target_s *target, uint32_t address, uint32_t count, uint32_t* checksum)
++/** Generates a CRC32 checksum of a memory region. */
++int armv7m_checksum_memory(struct target_s *target,
++		uint32_t address, uint32_t count, uint32_t* checksum)
+ {
+ 	working_area_t *crc_algorithm;
+ 	armv7m_algorithm_t armv7m_info;
+@@ -647,7 +679,9 @@ int armv7m_checksum_memory(struct target_s *target, uint32_t address, uint32_t c
+ 	return ERROR_OK;
+ }
+ 
+-int armv7m_blank_check_memory(struct target_s *target, uint32_t address, uint32_t count, uint32_t* blank)
++/** Checks whether a memory region is zeroed. */
++int armv7m_blank_check_memory(struct target_s *target,
++		uint32_t address, uint32_t count, uint32_t* blank)
+ {
+ 	working_area_t *erase_check_algorithm;
+ 	reg_param_t reg_params[3];
+@@ -657,13 +691,13 @@ int armv7m_blank_check_memory(struct target_s *target, uint32_t address, uint32_
+ 
+ 	static const uint16_t erase_check_code[] =
+ 	{
+-							/* loop: */
++		/* loop: */
+ 		0xF810, 0x3B01,		/* ldrb r3, [r0], #1 */
+ 		0xEA02, 0x0203,		/* and  r2, r2, r3 */
+-		0x3901,				/* subs 	r1, r1, #1 */
+-		0xD1F9,				/* bne		loop */
+-							/* end: */
+-		0xE7FE,				/* b		end */
++		0x3901,				/* subs	r1, r1, #1 */
++		0xD1F9,				/* bne	loop */
++		/* end: */
++		0xE7FE,				/* b	end */
+ 	};
+ 
+ 	/* make sure we have a working area */
+@@ -745,12 +779,11 @@ static int handle_dap_baseaddr_command(struct command_context_s *cmd_ctx,
+ 	return retval;
+ }
+ 
+-
+ /*
+  * Return the debug ap id in hexadecimal;
+  * no extra output to simplify script processing
+  */
+-extern int handle_dap_apid_command(struct command_context_s *cmd_ctx,
++static int handle_dap_apid_command(struct command_context_s *cmd_ctx,
+ 		char *cmd, char **args, int argc)
+ {
+ 	target_t *target = get_current_target(cmd_ctx);
+@@ -796,6 +829,7 @@ static int handle_dap_info_command(struct command_context_s *cmd_ctx,
+ 	return dap_info_command(cmd_ctx, swjdp, apsel);
+ }
+ 
++/** Registers commands used to access DAP resources. */
+ int armv7m_register_commands(struct command_context_s *cmd_ctx)
+ {
+ 	command_t *arm_adi_v5_dap_cmd;
+diff --git a/src/target/armv7m.h b/src/target/armv7m.h
+index 2ee92f4..d9c62a8 100644
+--- a/src/target/armv7m.h
++++ b/src/target/armv7m.h
+@@ -41,7 +41,7 @@ enum armv7m_mode
+ 	ARMV7M_MODE_ANY = -1
+ };
+ 
+-extern char* armv7m_mode_strings[];
++extern char *armv7m_mode_strings[];
+ 
+ enum armv7m_regtype
+ {
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/armv7m.c    |   90 +++++++++----
+ src/target/armv7m.h    |    2 +-
+ src/target/cortex_m3.c |  328 ++++++++++++++++++++++++++++++++++++-----------
+ src/target/cortex_m3.h |    8 +-
+ 4 files changed, 316 insertions(+), 112 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001725.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-9-gd269122
+</A></li>
+	<LI>Next message: <A HREF="001727.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-14-g98788d7
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1726">[ date ]</a>
+              <a href="thread.html#1726">[ thread ]</a>
+              <a href="subject.html#1726">[ subject ]</a>
+              <a href="author.html#1726">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

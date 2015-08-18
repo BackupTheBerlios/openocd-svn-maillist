@@ -1,0 +1,152 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2085 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2085%20-%20trunk/src/jtag&In-Reply-To=%3C200906070523.n575NYNt011107%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000868.html">
+   <LINK REL="Next"  HREF="000870.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2085 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2085%20-%20trunk/src/jtag&In-Reply-To=%3C200906070523.n575NYNt011107%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2085 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Sun Jun  7 07:23:34 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000868.html">[Openocd-svn] r2084 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000870.html">[Openocd-svn] r2086 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#869">[ date ]</a>
+              <a href="thread.html#869">[ thread ]</a>
+              <a href="subject.html#869">[ subject ]</a>
+              <a href="author.html#869">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-07 07:23:30 +0200 (Sun, 07 Jun 2009)
+New Revision: 2085
+
+Modified:
+   trunk/src/jtag/jtag.c
+Log:
+Factoring of jtag_examine_chain for maintainability:
+- Factor output of accepted/incorrect/expected TAP IDs into static helper.
+
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-07 05:23:13 UTC (rev 2084)
++++ trunk/src/jtag/jtag.c	2009-06-07 05:23:30 UTC (rev 2085)
+@@ -985,6 +985,16 @@
+ 	return true;
+ }
+ 
++static void jtag_examine_chain_display(enum log_levels level, const char *msg,
++		const char *name, u32 idcode)
++{
++	log_printf_lf(level, __FILE__, __LINE__, __FUNCTION__,
++			&quot;JTAG tap: %s %16.16s: 0x%08x &quot;
++			&quot;(mfg: 0x%3.3x, part: 0x%4.4x, ver: 0x%1.1x)&quot;,
++		name, msg, idcode,
++		EXTRACT_MFG(idcode), EXTRACT_PART(idcode), EXTRACT_VER(idcode) );
++}
++
+ /* Try to examine chain layout according to IEEE 1149.1 &#167;12
+  */
+ static int jtag_examine_chain(void)
+@@ -1019,10 +1029,6 @@
+ 		}
+ 		else
+ 		{
+-			u32 manufacturer;
+-			u32 part;
+-			u32 version;
+-
+ 			/* some devices, such as AVR will output all 1's instead of TDI
+ 			input value at end of chain. */
+ 			if ((idcode == 0x000000FF)||(idcode == 0xFFFFFFFF))
+@@ -1052,14 +1058,10 @@
+ 				break;
+ 			}
+ 
+-			manufacturer = EXTRACT_MFG(idcode);
+-			part = EXTRACT_PART(idcode);
+-			version = EXTRACT_VER(idcode);
++			jtag_examine_chain_display(LOG_LVL_INFO, &quot;tap/device found&quot;,
++					tap ? tap-&gt;dotted_name : &quot;(not-named)&quot;,
++					idcode);
+ 
+-			LOG_INFO(&quot;JTAG tap: %s tap/device found: 0x%8.8x (Manufacturer: 0x%3.3x, Part: 0x%4.4x, Version: 0x%1.1x)&quot;,
+-					 ((tap != NULL) ? (tap-&gt;dotted_name) : &quot;(not-named)&quot;),
+-				idcode, manufacturer, part, version);
+-
+ 			bit_count += 32;
+ 		}
+ 		device_count++;
+@@ -1093,21 +1095,14 @@
+ 			tap = jtag_tap_next_enabled(tap);
+ 			continue;
+ 		}
+-		LOG_ERROR(&quot;JTAG tap: %s             got: 0x%08x (mfg: 0x%3.3x, part: 0x%4.4x, ver: 0x%1.1x)&quot;,
+-				tap-&gt;dotted_name,
+-				idcode,
+-				EXTRACT_MFG( tap-&gt;idcode ),
+-				EXTRACT_PART( tap-&gt;idcode ),
+-				EXTRACT_VER( tap-&gt;idcode ) );
++		jtag_examine_chain_display(LOG_LVL_ERROR, &quot;got&quot;,
++				tap-&gt;dotted_name, tap-&gt;idcode);
+ 		for (ii = 0; ii &lt; tap-&gt;expected_ids_cnt; ii++) {
+-			LOG_ERROR(&quot;JTAG tap: %s expected %hhu of %hhu: 0x%08x (mfg: 0x%3.3x, part: 0x%4.4x, ver: 0x%1.1x)&quot;,
+-					tap-&gt;dotted_name,
+-					ii + 1,
+-					tap-&gt;expected_ids_cnt,
+-					tap-&gt;expected_ids[ii],
+-					EXTRACT_MFG( tap-&gt;expected_ids[ii] ),
+-					EXTRACT_PART( tap-&gt;expected_ids[ii] ),
+-					EXTRACT_VER( tap-&gt;expected_ids[ii] ) );
++			char msg[20];
++			snprintf(msg, 20, &quot;expected %hhu of %hhu&quot;,
++					ii + 1, tap-&gt;expected_ids_cnt);
++			jtag_examine_chain_display(LOG_LVL_ERROR, msg,
++					tap-&gt;dotted_name, tap-&gt;expected_ids[ii]);
+ 		}
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000868.html">[Openocd-svn] r2084 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000870.html">[Openocd-svn] r2086 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#869">[ date ]</a>
+              <a href="thread.html#869">[ thread ]</a>
+              <a href="subject.html#869">[ subject ]</a>
+              <a href="author.html#869">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

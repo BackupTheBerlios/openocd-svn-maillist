@@ -1,0 +1,196 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2567 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2567%20-%20trunk/src/target&In-Reply-To=%3C200907261959.n6QJxXJv001054%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001349.html">
+   <LINK REL="Next"  HREF="001351.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2567 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2567%20-%20trunk/src/target&In-Reply-To=%3C200907261959.n6QJxXJv001054%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2567 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Sun Jul 26 21:59:33 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001349.html">[Openocd-svn] r2566 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001351.html">[Openocd-svn] r2568 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1350">[ date ]</a>
+              <a href="thread.html#1350">[ thread ]</a>
+              <a href="subject.html#1350">[ subject ]</a>
+              <a href="author.html#1350">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-07-26 21:59:33 +0200 (Sun, 26 Jul 2009)
+New Revision: 2567
+
+Modified:
+   trunk/src/target/arm_disassembler.c
+Log:
+More instruction decoding fixes:
+
+       A5.3.5 Load/store multiple
+       A5.3.7 Load word
+
+There was a longstanding bug in Thumb-1 LDM; the rest of the LDM/STM
+fixes are just using width specs to match UAL syntax, except for two
+opcode name typos.  Load word had two bitmask goofs.
+
+Modified: trunk/src/target/arm_disassembler.c
+===================================================================
+--- trunk/src/target/arm_disassembler.c	2009-07-26 19:58:25 UTC (rev 2566)
++++ trunk/src/target/arm_disassembler.c	2009-07-26 19:59:33 UTC (rev 2567)
+@@ -2853,6 +2853,7 @@
+ 	sprintf(cp, &quot;STR%s.W\tr%d, [r%d, r%d, LSL #%d]&quot;,
+ 			size, rt, rn, (int) opcode &amp; 0x0f,
+ 			(int) (opcode &gt;&gt; 4) &amp; 0x03);
++	return ERROR_OK;
+ 
+ imm12:
+ 	immed = opcode &amp; 0x0fff;
+@@ -3354,18 +3355,21 @@
+ 	int rt = (opcode &gt;&gt; 12) &amp; 0xf;
+ 	int op2 = (opcode &gt;&gt; 6) &amp; 0x3f;
+ 	unsigned immed;
+-	char *p1 = &quot;]&quot;, *p2 = &quot;&quot;;
++	char *p1 = &quot;&quot;, *p2 = &quot;]&quot;;
+ 	char *mnemonic;
+ 
+ 	switch ((opcode &gt;&gt; 23) &amp; 0x3) {
+ 	case 0:
+ 		if ((rn &amp; rt) == 0xf) {
+-preload_immediate_t2:
++pld_literal:
+ 			immed = opcode &amp; 0xfff;
+-preload_immediate_t1:
+-			p1 = (opcode &amp; (1 &lt;&lt; 21)) ? &quot;W&quot; : &quot;&quot;;
+-			sprintf(cp, &quot;PLD%s\t[r%d, #%d]\t; %#6.6x&quot;,
+-					p1, rn, immed, immed);
++			address = thumb_alignpc4(address);
++			if (opcode &amp; (1 &lt;&lt; 23))
++				address += immed;
++			else
++				address -= immed;
++			sprintf(cp, &quot;PLD\tr%d, %#8.8&quot; PRIx32,
++					rt, address);
+ 			return ERROR_OK;
+ 		}
+ 		if (rn == 0x0f &amp;&amp; rt != 0x0f) {
+@@ -3391,12 +3395,17 @@
+ 		if ((op2 &amp; 0x3c) == 0x30) {
+ 			if (rt == 0x0f) {
+ 				immed = opcode &amp; 0xff;
+-				goto preload_immediate_t1;
++				immed = -immed;
++preload_immediate:
++				p1 = (opcode &amp; (1 &lt;&lt; 21)) ? &quot;W&quot; : &quot;&quot;;
++				sprintf(cp, &quot;PLD%s\t[r%d, #%d]\t; %#6.6x&quot;,
++						p1, rn, immed, immed);
++				return ERROR_OK;
+ 			}
+ 			mnemonic = &quot;LDRB&quot;;
+ ldrxb_immediate_t3:
+ 			immed = opcode &amp; 0xff;
+-			if (opcode &amp; 0x200)
++			if (!(opcode &amp; 0x200))
+ 				immed = -immed;
+ 
+ 			/* two indexed modes will write back rn */
+@@ -3432,8 +3441,12 @@
+ 		}
+ 		break;
+ 	case 1:
+-		if (rt == 0xf)
+-			goto preload_immediate_t2;
++		if ((rn &amp; rt) == 0xf)
++			goto pld_literal;
++		if (rt == 0xf) {
++			immed = opcode &amp; 0xfff;
++			goto preload_immediate;
++		}
+ 		if (rn == 0x0f)
+ 			goto ldrb_literal;
+ 		mnemonic = &quot;LDRB.W&quot;;
+@@ -3441,7 +3454,6 @@
+ 		goto ldrxb_immediate_t2;
+ 	case 2:
+ 		if ((rn &amp; rt) == 0xf) {
+-pli_immediate:
+ 			immed = opcode &amp; 0xfff;
+ 			address = thumb_alignpc4(address);
+ 			if (opcode &amp; (1 &lt;&lt; 23))
+@@ -3466,7 +3478,7 @@
+ 			break;
+ 		if ((op2 &amp; 0x3c) == 0x38) {
+ 			immed = opcode &amp; 0xff;
+-			sprintf(cp, &quot;LDRSBT\tr%d, [r%d, #%d]\t; %2.2x&quot;,
++			sprintf(cp, &quot;LDRSBT\tr%d, [r%d, #%d]\t; %#2.2x&quot;,
+ 					rt, rn, immed, immed);
+ 			return ERROR_OK;
+ 		}
+@@ -3474,8 +3486,8 @@
+ 			if (rt == 0xf) {
+ 				immed = opcode &amp; 0xff;
+ 				immed = -immed;	// pli
+-				sprintf(cp, &quot;PLI\t[r%d, #-%d]\t; %2.2x&quot;,
+-						rn, immed, immed);
++				sprintf(cp, &quot;PLI\t[r%d, #%d]\t; -%#2.2x&quot;,
++						rn, immed, -immed);
+ 				return ERROR_OK;
+ 			}
+ 			mnemonic = &quot;LDRSB&quot;;
+@@ -3499,8 +3511,12 @@
+ 		}
+ 		break;
+ 	case 3:
+-		if (rt == 0xf)
+-			goto pli_immediate;
++		if (rt == 0xf) {
++			immed = opcode &amp; 0xfff;
++			sprintf(cp, &quot;PLI\t[r%d, #%d]\t; %#3.3&quot; PRIx32,
++					rn, immed, immed);
++			return ERROR_OK;
++		}
+ 		if (rn == 0xf)
+ 			goto ldrsb_literal;
+ 		immed = opcode &amp; 0xfff;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001349.html">[Openocd-svn] r2566 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001351.html">[Openocd-svn] r2568 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1350">[ date ]</a>
+              <a href="thread.html#1350">[ thread ]</a>
+              <a href="subject.html#1350">[ subject ]</a>
+              <a href="author.html#1350">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

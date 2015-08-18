@@ -1,0 +1,2202 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1275 - in trunk: . doc src src/helper src/jtag	testing testing/build.tests testing/build.tests/mingw32_help	testing/build.tests/mingw32_help/include	testing/build.tests/mingw32_help/include/sys
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1275%20-%20in%20trunk%3A%20.%20doc%20src%20src/helper%20src/jtag%0A%09testing%20testing/build.tests%20testing/build.tests/mingw32_help%0A%09testing/build.tests/mingw32_help/include%0A%09testing/build.tests/mingw32_help/include/sys&In-Reply-To=%3C200812270116.mBR1G2fm010683%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000055.html">
+   <LINK REL="Next"  HREF="000057.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1275 - in trunk: . doc src src/helper src/jtag	testing testing/build.tests testing/build.tests/mingw32_help	testing/build.tests/mingw32_help/include	testing/build.tests/mingw32_help/include/sys</H1>
+    <B>duane at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1275%20-%20in%20trunk%3A%20.%20doc%20src%20src/helper%20src/jtag%0A%09testing%20testing/build.tests%20testing/build.tests/mingw32_help%0A%09testing/build.tests/mingw32_help/include%0A%09testing/build.tests/mingw32_help/include/sys&In-Reply-To=%3C200812270116.mBR1G2fm010683%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1275 - in trunk: . doc src src/helper src/jtag	testing testing/build.tests testing/build.tests/mingw32_help	testing/build.tests/mingw32_help/include	testing/build.tests/mingw32_help/include/sys">duane at mail.berlios.de
+       </A><BR>
+    <I>Sat Dec 27 02:16:02 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000055.html">[Openocd-svn] r1274 - trunk/src/target/target
+</A></li>
+        <LI>Next message: <A HREF="000057.html">[Openocd-svn] r1276 - in trunk/testing: . build.test1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#56">[ date ]</a>
+              <a href="thread.html#56">[ thread ]</a>
+              <a href="subject.html#56">[ subject ]</a>
+              <a href="author.html#56">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: duane
+Date: 2008-12-27 02:15:50 +0100 (Sat, 27 Dec 2008)
+New Revision: 1275
+
+Added:
+   trunk/testing/build.tests/
+   trunk/testing/build.tests/Makefile
+   trunk/testing/build.tests/Makefile.confuse
+   trunk/testing/build.tests/Makefile.ftd2xx
+   trunk/testing/build.tests/Makefile.libftdi
+   trunk/testing/build.tests/Makefile.libusb
+   trunk/testing/build.tests/Makefile.openocd
+   trunk/testing/build.tests/local.uses
+   trunk/testing/build.tests/mingw32_help/
+   trunk/testing/build.tests/mingw32_help/include/
+   trunk/testing/build.tests/mingw32_help/include/elf.h
+   trunk/testing/build.tests/mingw32_help/include/sys/
+   trunk/testing/build.tests/mingw32_help/include/sys/cdefs.h
+   trunk/testing/build.tests/mingw32_help/include/sys/elf32.h
+   trunk/testing/build.tests/mingw32_help/include/sys/elf64.h
+   trunk/testing/build.tests/mingw32_help/include/sys/elf_common.h
+   trunk/testing/build.tests/mingw32_help/include/sys/elf_generic.h
+Modified:
+   trunk/configure.in
+   trunk/doc/openocd.texi
+   trunk/src/Makefile.am
+   trunk/src/helper/options.c
+   trunk/src/jtag/Makefile.am
+Log:
+Build Permutations with ftd2xx and libftdi addressed. Also added a new se of regression makefiles to build openocd in multiple ways
+
+Modified: trunk/configure.in
+===================================================================
+--- trunk/configure.in	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/configure.in	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -28,6 +28,133 @@
+ is_mingw=no
+ is_win32=no
+ 
++# We are not *ALWAYS* being installed in the standard place.
++# We may be installed in a &quot;tool-build&quot; specific location.
++# Normally with other packages - as part of a tool distro.
++# Thus - we should search that 'libdir' also.
++#
++# And - if we are being installed there - the odds are
++# The libraries unique to what we are are there too.
++#
++# what matters is the &quot;exec-prefix&quot;
++if test $exec_prefix != $ac_default_prefix
++then
++    # use build specific install library dir
++    LDFLAGS=&quot;$LDFLAGS -L$libdir&quot;
++    # RPATH becomes an issue on Linux only
++    if test $host_os = linux-gnu
++    then
++	LDFLAGS=&quot;$LDFLAGS -Wl,-rpath,$libdir&quot;
++    fi
++    # The &quot;INCDIR&quot; is also usable
++    CFLAGS=&quot;$CFLAGS -I$includedir&quot;
++fi
++
++AC_ARG_WITH(ftd2xx,
++   AS_HELP_STRING([--with-ftd2xx=&lt;PATH&gt;],[This option has been removed.]),
++[
++# Option Given.
++cat &lt;&lt; __EOF__
++
++The option: --with-ftd2xx=&lt;PATH&gt; has been removed replaced.
++On Linux, the new option is:
++  
++  --with-ftd2xx-linux-tardir=/path/to/files
++
++Where &lt;path&gt; is the path the the directory where the &quot;tar.gz&quot; file
++from FTDICHIP.COM was unpacked, for example:
++
++  --with-ftd2xx-linux-tardir=/home/duane/libftd2xx-linux-tardir=/home/duane/libftd2xx0.4.16
++
++On Cygwin/MingW32, the new option is:
++
++  --with-ftd2xx-win32-zipdir=/path/to/files
++
++Where &lt;path&gt; is the path to the directory where the &quot;zip&quot; file from
++FTDICHIP.COM was unpacked, for example:
++
++  --with-ftd2xx-win32-zipdir=/home/duane/ftd2xx.cdm.files
++
++__EOF__
++
++   AC_MSG_ERROR([Sorry Cannot continue])
++],
++[ 
++# Option not given
++true
++]
++)
++
++#========================================
++# FTD2XXX support comes in 3 forms.
++#    (1) win32 - via a zip file
++#    (2) linux - via a tar file
++#    (3) linux/cygwin/mingw - via libftdi
++#
++# In case (1) and (2) we need to know where the package was unpacked.
++
++AC_ARG_WITH(ftd2xx-win32-zipdir,
++  AS_HELP_STRING([--with-ftd2xx-win32-zipdir],[Where (CYGWIN/MINGW) the zip file from ftdichip.com was unpacked &lt;default=search&gt;]),
++  [
++  # option present
++  if test -d $with_ftd2xx_win32_zipdir
++  then
++	with_ftd2xx_win32_zipdir=`cd $with_ftd2xx_win32_zipdir &amp;&amp; pwd`
++	AC_MSG_NOTICE([Using: ftdichip.com library: $with_ftd2xx_win32_zipdir])
++  else
++	AC_MSG_ERROR([Parameter to --with-ftd2xx-win32-zipdir is not a dir: $with_ftd2xx_win32_zipdir])
++  fi
++  ],
++  [
++  # not given
++  true
++  ]
++)
++	
++
++AC_ARG_WITH(ftd2xx-linux-tardir,
++  AS_HELP_STRING([--with-ftd2xx-linux-tardir], [Where (Linux/Unix) the tar file from ftdichip.com was unpacked &lt;default=search&gt;]),
++  [
++  # Option present
++  if test $is_win32 = yes ; then
++     AC_MSG_ERROR([The option: --with-ftd2xx-linux-tardir is only usable on linux])
++  fi
++  if test -d $with_ftd2xx_linux_tardir
++  then
++	with_ftd2xx_linux_tardir=`cd $with_ftd2xx_linux_tardir &amp;&amp; pwd`
++	AC_MSG_NOTICE([Using: ftdichip.com library: $with_ftd2xx_linux_tardir])
++  else
++	AC_MSG_ERROR([Parameter to --with-ftd2xx-linux-tardir is not a dir: $with_ftd2xx_linux_tardir])
++  fi
++  ],
++  [
++  # Not given 
++  true
++  ]
++)
++
++
++AC_ARG_WITH(ftd2xx-lib,
++	AS_HELP_STRING([--with-ftd2xx-lib], [Use static or shared ftd2xx libs on default static]),
++[
++case &quot;$withval&quot; in
++static)
++	with_ftd2xx_lib=$withval
++	;;
++shared)
++	with_ftd2xx_lib=$withval
++	;;
++*)
++	AC_MSG_ERROR([Option: --with-ftd2xx-lib=static or --with-ftd2xx-lib=shared not, $withval])
++	;;
++esac
++],
++[
++	# Default is static - it is simpler :-(
++	with_ftd2xx_lib=static
++]
++)
++
+ AC_ARG_ENABLE(gccwarnings,
+ 	AS_HELP_STRING([--enable-gccwarnings], [Enable compiler warnings, default no]),
+ 	[gcc_warnings=$enableval], [gcc_warnings=no])
+@@ -52,11 +179,11 @@
+ esac
+ 
+ AC_ARG_ENABLE(ft2232_libftdi,
+-  AS_HELP_STRING([--enable-ft2232_libftdi], [Enable building support for FT2232 based devices using the libftdi driver]), 
++  AS_HELP_STRING([--enable-ft2232_libftdi], [Enable building support for FT2232 based devices using the libftdi driver, opensource alternate of FTD2XX]), 
+   [build_ft2232_libftdi=$enableval], [build_ft2232_libftdi=no])
+ 
+ AC_ARG_ENABLE(ft2232_ftd2xx,
+-  AS_HELP_STRING([--enable-ft2232_ftd2xx], [Enable building support for FT2232 based devices using the FTD2XX driver]), 
++  AS_HELP_STRING([--enable-ft2232_ftd2xx], [Enable building support for FT2232 based devices using the FTD2XX driver from ftdichip.com]), 
+   [build_ft2232_ftd2xx=$enableval], [build_ft2232_ftd2xx=no])
+  
+ AC_ARG_ENABLE(amtjtagaccel,
+@@ -120,11 +247,6 @@
+   AS_HELP_STRING([--enable-rlink], [Enable building support for the Raisonance RLink JTAG Programmer]),
+   [build_rlink=$enableval], [build_rlink=no])
+ 
+-AC_ARG_WITH(ftd2xx,
+-        [AS_HELP_STRING(--with-ftd2xx,
+-           [Where libftd2xx can be found &lt;default=search&gt;])],
+-        [],
+-        with_ftd2xx=search)
+ 
+ case $host in 
+   *-cygwin*) 
+@@ -296,6 +418,198 @@
+   AC_DEFINE(BUILD_RLINK, 0, [0 if you don't want the RLink JTAG driver.])
+ fi
+ 
++#-- Deal with MingW/Cygwin FTD2XX issues
++
++if test $is_win32 = yes; then
++if test &quot;${with_ftd2xx_linux_tardir+set}&quot; = set
++then
++   AC_MSG_ERROR([The option: with_ftd2xx_linux_tardir is for LINUX only.])
++fi
++
++if test $build_ft2232_ftd2xx = yes ; then
++AC_MSG_CHECKING([for ftd2xx.lib exists (win32)])
++
++   # if we are given a zipdir...
++   if test &quot;${with_ftd2xx_win32_zipdir+set}&quot; = set
++   then
++      # Set the CFLAGS for &quot;ftd2xx.h&quot;
++      f=$with_ftd2xx_win32_zipdir/ftd2xx.h
++      if test ! -f $f ; then
++      	 AC_MSG_ERROR([File: $f cannot be found])
++      fi
++      CFLAGS=&quot;$CFLAGS -I$with_ftd2xx_win32_zipdir&quot;
++
++      # And calculate the LDFLAGS for the machine
++      case &quot;$host_cpu&quot; in
++      i?86|x86_*)
++	LDFLAGS=&quot;$LFLAGS -L$with_ftd2xx_win32_zipdir/i386&quot;
++	LIBS=&quot;$LIBS -lftd2xx&quot;
++	f=$with_ftd2xx_win32_zipdir/i386/ftd2xx.lib
++	;;
++      amd64)
++	LDFLAGS=&quot;$LFLAGS -L$with_ftd2xx_win32_zipdir/amd64&quot;
++	LIBS=&quot;$LIBS -lftd2xx&quot;
++	f=$with_ftd2xx_win32_zipdir/amd64/ftd2xx.lib
++	;;
++      *)
++	AC_MSG_ERROR([Unknown Win32 host cpu: $host_cpu])
++        ;;
++       esac
++       if test ! -f $f ; then
++       	  AC_MSG_ERROR([Library: $f not found])
++       fi
++   else
++      LIBS=&quot;$LIBS -lftd2xx&quot;
++      AC_MSG_WARN([ASSUMPTION: The (win32) FTDICHIP.COM files: ftd2xx.h and ftd2xx.lib are in a proper place])
++   fi
++fi
++fi
++
++
++if test $is_win32 = no; then
++
++if test &quot;${with_ftd2xx_win32_zipdir+set}&quot; = set
++then
++   AC_MSG_ERROR([The option: --with-ftd2xx-win32-zipdir is for win32 only])
++fi
++
++if test $build_ft2232_ftd2xx = yes ; then
++   AC_MSG_CHECKING([for libftd2xx.a (linux)])
++   # Must be linux -
++   # Cause FTDICHIP does not supply a MAC-OS version
++   if test $host_os != linux-gnu; then
++      AC_MSG_ERROR([The (linux) ftd2xx library from FTDICHIP.com is linux only. Try --enable-ft2232-libftdi instead])
++   fi
++   # Are we given a TAR directory?
++   if test &quot;${with_ftd2xx_linux_tardir+set}&quot; = set
++   then
++	# The .H file is simple..
++	f=$with_ftd2xx_linux_tardir/ftd2xx.h
++	if test ! -f $f ; then
++	   AC_MSG_ERROR([Option: --with-ftd2xx-linux-tardir appears wrong, cannot find: $f])
++	fi
++	CFLAGS=&quot;$CFLAGS -I$with_ftd2xx_linux_tardir&quot;
++	if test $with_ftd2xx_lib = shared
++	then
++	    LDFLAGS=&quot;$LDFLAGS -L$with_ftd2xx_linux_tardir&quot;
++	    LIBS=&quot;$LIBS -lftd2xx&quot;
++	    AC_MSG_RESULT([ Assuming: -L$with_ftd2xx_linux_tardir -lftd2xx])
++	else
++	    # Test #1 - Future proof - if/when ftdichip fixes their distro.
++	    # Try it with the simple &quot;.a&quot; suffix.
++	    f=$with_ftd2xx_linux_tardir/static_lib/libftd2xx.a
++	    if test -f $f ; then
++	       # Yea we are done
++	       LDFLAGS=&quot;$LDFLAGS -L$with_ftd2xx_linux_tardir/static_lib&quot;
++	       LIBS=&quot;$LIBS -lftd2xx&quot;
++            else
++	       # Test Number2.
++	       # Grr.. perhaps it exists as a version number?
++	       f=&quot;$with_ftd2xx_linux_tardir/static_lib/libftd2xx.a.*.*.*&quot;
++	       count=`ls $f | wc -l`
++	       if test $count -gt 1 ; then
++	          AC_MSG_ERROR([Multiple libftd2xx.a files found in: $with_ftd2xx_linux_tardir/static_lib sorry cannot handle this yet])
++	       fi
++	       if test $count -ne 1 ; then
++	          AC_MSG_ERROR([Not found: $f, option: --with-ftd2xx-linux-tardir appears to be wrong])
++	       fi
++	       # Because the &quot;-l&quot; rules do not understand version numbers...
++	       # we will just stuff the absolute path onto the LIBS variable
++	       f=`ls $f`
++	       #
++	       LIBS=&quot;$LIBS $f -lpthread&quot;
++	       # No need to bother with LDFLAGS...
++	    fi
++	    AC_MSG_RESULT([Found: $f])
++        fi
++   else
++	LIBS=&quot;$LIBS -lftd2xx&quot;
++	AC_MSG_RESULT([Assumed: installed])
++	AC_MSG_WARN([The (linux) FTDICHIP.COM files ftd2xx.h and libftd2xx.so are assumed to be in a proper place])
++   fi
++fi
++fi
++
++if test $build_ft2232_ftd2xx = yes; then
++
++# Before we go any further - make sure we can *BUILD* and *RUN*
++# a simple app with the &quot;ftd2xx.lib&quot; file - in what ever form we where given
++# We should be able to compile, link and run this test program now
++  AC_MSG_CHECKING([Test: Build &amp; Link with ftd2xx])
++
++#
++# Save the LDFLAGS for later..
++LDFLAGS_SAVE=$LDFLAGS
++CFLAGS_SAVE=$CFLAGS
++_LDFLAGS=`eval echo $LDFLAGS`
++_CFLAGS=`eval echo $CFLAGS`
++LDFLAGS=$_LDFLAGS
++CFLAGS=$_CFLAGS
++  AC_RUN_IFELSE(
++[
++#include &quot;confdefs.h&quot;
++#if IS_WIN32
++#include &quot;windows.h&quot;
++#endif
++#include &lt;stdio.h&gt;
++#include &lt;ftd2xx.h&gt;
++
++int
++main( int argc, char **argv )
++{
++	DWORD x;
++	FT_GetLibraryVersion( &amp;x );
++	return 0;
++}
++], [ AC_MSG_RESULT([Success!])] , [ AC_MSG_ERROR([Cannot build &amp; run test program using ftd2xx.lib]) ] )
++LDFLAGS=$LDFLAGS_SAVE
++CFLAGS=$CFLAGS_SAVE
++fi
++
++if test $build_ft2232_libftdi = yes ; then
++   # We assume: the package is preinstalled in the proper place
++   # these present as 2 libraries..
++   LIBS=&quot;$LIBS -lftdi -lusb&quot;
++   # 
++   # Try to build a small program.
++   AC_MSG_CHECKING([Build &amp; Link with libftdi...])
++
++LDFLAGS_SAVE=$LDFLAGS
++CFLAGS_SAVE=$CFLAGS
++_LDFLAGS=`eval echo $LDFLAGS`
++_CFLAGS=`eval echo $CFLAGS`
++LDFLAGS=$_LDFLAGS
++CFLAGS=$_CFLAGS
++
++   AC_RUN_IFELSE(
++[
++#include &lt;stdio.h&gt;
++#include &lt;ftdi.h&gt;
++
++int
++main( int argc, char **argv )
++{
++	struct ftdi_context *p;
++	p = ftdi_new();
++	if( p != NULL ){
++	    return 0;
++	} else {
++	    fprintf( stderr, &quot;calling ftdi_new() failed\n&quot;);
++	    return 1;
++        }
++}
++]
++, 
++[ AC_MSG_RESULT([Success]) ]
++, 
++[ AC_MSG_ERROR([Cannot build &amp; run test program using libftdi]) ] )
++# Restore the 'unexpanded ldflags'
++LDFLAGS=$LDFLAGS_SAVE
++CFLAGS=$CFLAGS_SAVE
++fi
++   
++
++
+ AM_CONFIG_HEADER(config.h)
+ AM_INIT_AUTOMAKE(openocd, 1.0)
+ 
+@@ -321,7 +635,6 @@
+ AM_CONDITIONAL(IS_CYGWIN, test $is_cygwin = yes)
+ AM_CONDITIONAL(IS_MINGW, test $is_mingw = yes)
+ AM_CONDITIONAL(IS_WIN32, test $is_win32 = yes)
+-AM_CONDITIONAL(FTD2XXDIR, test $with_ftd2xx != search)
+ AM_CONDITIONAL(BITQ, test $build_bitq = yes)
+ 
+ AC_LANG_C
+@@ -377,6 +690,6 @@
+ AC_MSG_RESULT([$EXEEXT_FOR_BUILD])
+ AC_SUBST(EXEEXT_FOR_BUILD)
+ 
+-AC_SUBST(WITH_FTD2XX, $with_ftd2xx)
++#AC_SUBST(WITH_FTD2XX, $with_ftd2xx)
+ 
+ AC_OUTPUT(Makefile src/Makefile src/helper/Makefile src/jtag/Makefile src/xsvf/Makefile src/target/Makefile src/server/Makefile src/flash/Makefile src/pld/Makefile doc/Makefile)
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/doc/openocd.texi	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -127,11 +127,13 @@
+ @chapter Building
+ @cindex building OpenOCD
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at section</A> Pre-Built Tools
+ If you are interested in getting actual work done rather than building
+ OpenOCD, then check if your interface supplier provides binaries for
+ you. Chances are that that binary is from some SVN version that is more
+ stable than SVN trunk where bleeding edge development takes place.
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at section</A> Building From Source
+ 
+ You can download the current SVN version with SVN client of your choice from the
+ following repositories:
+@@ -166,8 +168,7 @@
+ homepage (@uref{www.amontec.com}), as the JTAGkey uses a non-standard VID/PID. 
+ @end itemize
+ 
+-libftdi is supported under windows. Versions earlier than 0.13 will require patching.
+-see contrib/libftdi for more details.
++libftdi is supported under windows. Do not use versions earlier then 0.14.
+ 
+ In general, the D2XX driver provides superior performance (several times as fast),
+ but has the draw-back of being binary-only - though that isn't that bad, as it isn't
+@@ -179,36 +180,38 @@
+ @end example
+ Bootstrap generates the configure script, and prepares building on your system.
+ @example
+- ./configure 
++ ./configure [options, see below]
+ @end example
+ Configure generates the Makefiles used to build OpenOCD.
+ @example
+  make 
++ make install
+ @end example
+-Make builds OpenOCD, and places the final executable in ./src/.
++Make builds OpenOCD, and places the final executable in ./src/, the last step, ``make install'' is optional.
+ 
+ The configure script takes several options, specifying which JTAG interfaces
+ should be included:
+ 
+ @itemize @bullet
+ @item
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{--enable-parport}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{--enable-parport} - Bit bang pc printer ports.
+ @item
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{--enable-parport_ppdev}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{--enable-parport_ppdev} - Parallel Port [see below]
+ @item
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{--enable-parport_giveio}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{--enable-parport_giveio} - Parallel Port [see below]
+ @item
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{--enable-amtjtagaccel}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{--enable-amtjtagaccel} - Parallel Port [Amontec, see below]
+ @item
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{--enable-ft2232_ftd2xx}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at footnote</A>{Using the latest D2XX drivers from FTDI and following their installation
+-instructions, I had to use @option{--enable-ft2232_libftd2xx} for OpenOCD to
+-build properly.}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{--enable-ft2232_ftd2xx} - Numerous USB Type ARM JTAG dongles use the FT2232C chip from this FTDICHIP.COM chip (closed source).
+ @item
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{--enable-ft2232_libftdi}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{--enable-ft2232_libftdi} - An open source (free) alternate to FTDICHIP.COM ftd2xx solution (Linux, MacOS, Cygwin)
+ @item
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{--with-ftd2xx=/path/to/d2xx/}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{--with-ftd2xx-win32-zipdir=PATH} - If using FTDICHIP.COM ft2232c, point at the directory where the Win32 FTDICHIP.COM 'CDM' driver zip file was unpacked.
+ @item
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{--with-ftd2xx-linux-tardir=PATH} - Linux only equal of @option{--with-ftd2xx-win32-zipdir}, where you unpacked the TAR.GZ file.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A>
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{--with-ftd2xx-lib=shared|static} - Linux only. Default: static, specifies how the FTDICHIP.COM libftd2xx driver should be linked. Note 'static' only works in conjunction with @option{--with-ftd2xx-linux-tardir}. Shared is supported (12/26/2008), however you must manually install the required header files and shared libraries in an appropriate place. This uses ``libusb'' internally.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A>
+ @option{--enable-gw16012}
+ @item
+ @option{--enable-usbprog}
+@@ -217,24 +220,73 @@
+ @item
+ @option{--enable-presto_ftd2xx}
+ @item
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{--enable-jlink}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{--enable-jlink} - From SEGGER
+ @item
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{--enable-rlink}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{--enable-rlink} - Raisonance.com dongle.
+ @end itemize
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at section</A> Parallel Port Dongles
++
+ If you want to access the parallel port using the PPDEV interface you have to specify
+ both the @option{--enable-parport} AND the @option{--enable-parport_ppdev} option since
+ the @option{--enable-parport_ppdev} option actually is an option to the parport driver
+ (see @uref{<A HREF="http://forum.sparkfun.com/viewtopic.php?t=3795">http://forum.sparkfun.com/viewtopic.php?t=3795</A>} for more info).
+ 
+-Cygwin users have to specify the location of the FTDI D2XX package. This should be an
+-absolute path containing no spaces.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at section</A> FT2232C Based USB Dongles 
+ 
+-Linux users should copy the various parts of the D2XX package to the appropriate
+-locations, i.e. /usr/include, /usr/lib. 
++There are 2 methods of using the FTD2232, either (1) using the
++FTDICHIP.COM closed source driver, or (2) the open (and free) driver
++libftdi. Some claim the (closed) FTDICHIP.COM solution is faster.
+ 
+-Miscellaneous configure options
++The FTDICHIP drivers come as either a (win32) ZIP file, or a (linux)
++TAR.GZ file. You must unpack them ``some where'' convient. As of this
++writing (12/26/2008) FTDICHIP does not supply means to install these
++files ``in an appropriate place'' As a result, there are two
++``./configure'' options that help. 
+ 
++Below is an example build process:
++
++1) Check out the latest version of ``openocd'' from SVN.
++
++2) Download &amp; Unpack either the Windows or Linux FTD2xx Drivers
++    (@uref{<A HREF="http://www.ftdichip.com/Drivers/D2XX.htm">http://www.ftdichip.com/Drivers/D2XX.htm</A>})
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++   /home/duane/ftd2xx.win32    =&gt; the Cygwin/Win32 ZIP file contents.
++   /home/duane/libftd2xx0.4.16 =&gt; the Linux TAR file contents.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
++
++3) Configure with these options:
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++Cygwin FTCICHIP solution
++   ./configure --prefix=/home/duane/mytools \ 
++                  --enable-ft2232_ftd2xx \
++                  --with-ftd2xx-win32-zipdir=/home/duane/ftd2xx.win32
++
++Linux FTDICHIP solution
++   ./configure --prefix=/home/duane/mytools \
++                  --enable-ft2232_ftd2xx \
++                  --with-ft2xx-linux-tardir=/home/duane/libftd2xx0.4.16
++
++Cygwin/Linux LIBFTDI solution
++    Assumes: 
++    1a) For Windows: The windows port of LIBUSB is in place.
++    1b) For Linux: libusb has been built and is inplace.
++
++    2) And libftdi has been built and installed
++    Note: libftdi - relies upon libusb.
++
++    ./configure --prefix=/home/duane/mytools \
++                   --enable-ft2232_libftdi
++       
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
++
++4) Then just type ``make'', and perhaps ``make install''.
++
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at section</A> Miscellaneous configure options
++
+ @itemize @bullet
+ @item
+ @option{--enable-gccwarnings} - enable extra gcc warnings during build
+
+Modified: trunk/src/Makefile.am
+===================================================================
+--- trunk/src/Makefile.am	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/src/Makefile.am	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -55,33 +55,15 @@
+ endif
+ endif
+ 
+-if IS_WIN32
+-if FTD2XXDIR
+-FTD2XXLDADD = @WITH_FTD2XX@/FTD2XX.lib
+-else
+-FTD2XXLDADD = -lftd2xx
+-endif
+-else
+-FTD2XXLDADD = -lftd2xx 
+-endif
+-  
+-if FT2232_FTD2XX
+-FTD2XXLIB = $(FTD2XXLDADD)
+-else
+-if PRESTO_FTD2XX
+-FTD2XXLIB = $(FTD2XXLDADD)
+-else
+-FTD2XXLIB =
+-endif
+-endif
+ 
++
+ openocd_LDADD = $(top_builddir)/src/xsvf/libxsvf.a \
+ 	$(top_builddir)/src/target/libtarget.a $(top_builddir)/src/jtag/libjtag.a \
+ 	$(top_builddir)/src/helper/libhelper.a \
+ 	$(top_builddir)/src/server/libserver.a $(top_builddir)/src/helper/libhelper.a \
+ 	$(top_builddir)/src/flash/libflash.a $(top_builddir)/src/target/libtarget.a \
+ 	$(top_builddir)/src/pld/libpld.a \
+-	$(FTDI2232LIB) $(FTD2XXLIB) $(MINGWLDADD) $(LIBUSB)
++	$(FTDI2232LIB) $(MINGWLDADD) $(LIBUSB)
+ 
+ 
+ if HTTPD
+
+Modified: trunk/src/helper/options.c
+===================================================================
+--- trunk/src/helper/options.c	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/src/helper/options.c	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -178,7 +178,8 @@
+ 	if (version_flag)
+ 	{
+ 		/* Nothing to do, version gets printed automatically. */
+-		exit(-1);
++		// It is not an error to request the VERSION number.
++		exit(0);
+ 	}
+ 	
+ 	return ERROR_OK;
+
+Modified: trunk/src/jtag/Makefile.am
+===================================================================
+--- trunk/src/jtag/Makefile.am	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/src/jtag/Makefile.am	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -1,15 +1,6 @@
+ 
+-if FTD2XXDIR
+-if IS_MINGW
+-FTD2XXINC = <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">-I at WITH_FTD2XX</A>@
+-else
+-FTD2XXINC = <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">-I at WITH_FTD2XX</A>@/
+-endif
+-else
+-FTD2XXINC =
+-endif
+ 
+-INCLUDES = -I$(top_srcdir)/src -I$(top_srcdir)/src/helper $(FTD2XXINC) $(all_includes) -I$(top_srcdir)/src/target 
++INCLUDES = -I$(top_srcdir)/src -I$(top_srcdir)/src/helper  $(all_includes) -I$(top_srcdir)/src/target 
+ METASOURCES = AUTO
+ noinst_LIBRARIES = libjtag.a
+ 
+
+Added: trunk/testing/build.tests/Makefile
+===================================================================
+--- trunk/testing/build.tests/Makefile	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/testing/build.tests/Makefile	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -0,0 +1,90 @@
++# -*- mode: makefile -*-
++#
++default: _complain_
++include ./local.uses
++
++%: _complain_
++
++
++_complain_:
++	@echo &quot;&quot;
++	@echo &quot; Try the target: cygwin.buildtest or linux.buildtest &quot;
++	@echo &quot;&quot;
++
++remove.install:
++	rm -rf ${INSTALL_DIR}
++
++.PHONY: remove.install
++
++cygwin.buildtest:
++	${MAKE} -f Makefile.ftd2xx clean all
++	${MAKE} -f Makefile.openocd cygwin.easy.permutations
++	${MAKE} -f Makefile.openocd mingw32.easy.permutations
++	${MAKE} -f Makefile.libftdi all
++	${MAKE} -f Makefile.openocd cygwin.libftdi
++
++linux.buildtest: 
++	${MAKE} linux.easy.buildtest
++	${MAKE} linux.ftd2xx_installed 
++	${MAKE} linux.ft2232_libftdi
++	@echo &quot;&quot;
++	@echo &quot;&quot;
++	@echo &quot;========================================&quot;
++	@echo &quot; Linux Build Tests Complete &quot;
++	@echo &quot;========================================&quot;
++	@echo &quot;&quot;
++	@echo &quot;&quot;
++
++
++linux.easy.buildtest:
++	@test -d openocd || (echo &quot;Where the source to openocd?&quot; &amp;&amp; exit 1)
++	${MAKE} -f Makefile.openocd bootstrap
++	${MAKE} -f Makefile.ftd2xx  all
++	${MAKE} -f Makefile.openocd linux.easy.permutations
++
++linux.ftd2xx_installed: 
++	${MAKE} remove.install
++	${MAKE} linux.ftd2xx_installed.setup
++	${MAKE} -f Makefile.openocd $@
++
++ linux.ft2232_libftdi:
++	${MAKE} remove.install 
++	${MAKE} -f Makefile.libusb  all
++	${MAKE} -f Makefile.confuse all
++	${MAKE} -f Makefile.libftdi all
++	${MAKE} -f Makefile.openocd $@
++
++# This target is used to &quot;install&quot; files from
++# the FTDICHIP.COM tar.gz unpack directory
++# into &quot;a proper place&quot; - where they should be found.
++linux.ftd2xx_installed.setup:
++	mkdir -p ${INSTALL_DIR}/include
++	mkdir -p ${EXEC_PREFIX}/lib
++	@#
++	@# Sanity check - make sure the .H file is findable
++	@#
++	@f=$(FTD2XX_LINUX_DIR)/ftd2xx.h &amp;&amp; \
++	test -f $$f || (echo &quot;Error: $$f not found&quot; ; exit 1)
++	@#
++	@# Header files are simple... just copy them.
++	@#
++	cp $(FTD2XX_LINUX_DIR)/ftd2xx.h   $(PREFIX)/include/.
++	cp $(FTD2XX_LINUX_DIR)/WinTypes.h $(PREFIX)/include/.
++	@#
++	@# .SO files are harder.
++	@#     (1) copy them, (2) make links
++	@#
++	cp $(FTD2XX_LINUX_DIR)/libftd2xx.so.$(FTD2XX_LINUX_VERSION) $(EXEC_PREFIX)/lib/.
++	cd $(EXEC_PREFIX)/lib &amp;&amp; rm -f libftd2xx.so.0
++	cd $(EXEC_PREFIX)/lib &amp;&amp; ln -s libftd2xx.so.$(FTD2XX_LINUX_VERSION) libftd2xx.so.0
++	cd $(EXEC_PREFIX)/lib &amp;&amp; rm -f libftd2xx.so
++	cd $(EXEC_PREFIX)/lib &amp;&amp; ln -s libftd2xx.so.$(FTD2XX_LINUX_VERSION) libftd2xx.so
++
++
++.PHONY: linux.buildtest \
++	linux.easy.buildtest \
++	linux.ftd2xx_installed \
++	linux.ft22232_libftdi \
++	linux.ftd2xx_installed.setup
++
++
+
+
+Property changes on: trunk/testing/build.tests/Makefile
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/testing/build.tests/Makefile.confuse
+===================================================================
+--- trunk/testing/build.tests/Makefile.confuse	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/testing/build.tests/Makefile.confuse	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -0,0 +1,46 @@
++# -*- mode: makefile -*-
++default: _complain_
++include ./local.uses
++
++TARFILE_LOCAL=${VIRGINS}/confuse-${LIBCONFUSE_VERSION}.tar.gz
++TARFILE_URL  =<A HREF="http://www.intra2net.com/de/produkte/opensource/ftdi/TGZ/confuse-${LIBCONFUSE_VERSION">http://www.intra2net.com/de/produkte/opensource/ftdi/TGZ/confuse-${LIBCONFUSE_VERSION</A>}.tar.gz
++
++CONFUSE_SRC_DIR   =${HERE}/confuse-${LIBCONFUSE_VERSION}
++CONFUSE_BUILD_DIR =${HERE}/confuse-build
++
++download:
++	wget -O ${TARFILE_LOCAL} ${TARFILE_URL}
++
++unpack:
++	rm -rf ${CONFUSE_SRC_DIR}
++	tar xfz ${TARFILE_LOCAL}
++
++clean::
++	rm -rf ${CONFUSE_SRC_DIR}
++
++configure:
++	rm -rf ${CONFUSE_BUILD_DIR} 
++	mkdir ${CONFUSE_BUILD_DIR}
++	cd ${CONFUSE_BUILD_DIR} &amp;&amp; ${CONFUSE_SRC_DIR}/configure \
++	   --prefix=${PREFIX} \
++	   --exec-prefix=${EXEC_PREFIX}
++
++clean::
++	rm -rf ${CONFUSE_BUILD_DIR}
++
++build:
++	cd ${CONFUSE_BUILD_DIR} &amp;&amp; ${MAKE}
++
++install:
++	cd ${CONFUSE_BUILD_DIR} &amp;&amp; ${MAKE} install
++
++all: unpack configure build install
++
++_complain_:
++	@echo &quot;&quot;
++	@echo &quot;Please try one of these targets: bootstrap, clean, configure, build, install&quot;
++	@echo &quot; Or read the makefile and learn about the permutation test targets&quot;
++	@echo &quot;&quot;
++	@echo &quot;You also might find the download and unpack targets helpful.&quot;
++	@echo &quot;&quot;
++	@exit 1
+
+Added: trunk/testing/build.tests/Makefile.ftd2xx
+===================================================================
+--- trunk/testing/build.tests/Makefile.ftd2xx	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/testing/build.tests/Makefile.ftd2xx	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -0,0 +1,88 @@
++# -*- mode: makefile -*-
++#
++default: _complain_
++
++include ./local.uses
++
++# WARNING... the file on the ftdi chip site has a SPACE in the filename GRRR!!!
++# We fix that with the &quot;-O&quot; option to wget.
++ZIPFILE_LOCAL=${VIRGINS}/cdm.${FTD2XX_WIN32_VERSION}.zip
++ZIPFILE_URL  =&quot;<A HREF="http://www.ftdichip.com/Drivers/CDM/CDM">http://www.ftdichip.com/Drivers/CDM/CDM</A> ${FTD2XX_WIN32_VERSION}.zip&quot;
++
++TARFILE_LOCAL=${VIRGINS}/libftd2xx${FTD2XX_LINUX_VERSION}.tar.gz
++TARFILE_URL  =<A HREF="http://www.ftdichip.com/Drivers/D2XX/Linux/libftd2xx${FTD2XX_LINUX_VERSION">http://www.ftdichip.com/Drivers/D2XX/Linux/libftd2xx${FTD2XX_LINUX_VERSION</A>}.tar.gz
++
++TARFILE_64_LOCAL=${VIRGINS}/libftd2xx${FTD2XX_LINUX_VERSION}_x86_64.tar.gz
++TARFILE_64_URL  =<A HREF="http://www.ftdichip.com/Drivers/D2XX/Linux/libftd2xx${FTD2XX_LINUX_VERSION">http://www.ftdichip.com/Drivers/D2XX/Linux/libftd2xx${FTD2XX_LINUX_VERSION</A>}_x86_64.tar.gz
++
++
++download.win32:
++	mkdir -p ${VIRGINS}
++	wget -O ${ZIPFILE_LOCAL} ${ZIPFILE_URL}
++
++unpack.win32:
++	rm -rf ${FTD2XX_WIN32_DIR}
++	mkdir -p ${FTD2XX_WIN32_DIR}
++	cd ${FTD2XX_WIN32_DIR} &amp;&amp; unzip ${ZIPFILE_LOCAL}
++
++clean::
++	rm -rf ${FTD2XX_WIN32_DIR}
++
++download.linux:
++	mkdir -p ${VIRGINS}
++	wget -O ${TARFILE_LOCAL} ${TARFILE_URL}
++
++clean:: 
++	rm -rf ${FTD2XX_LINUX_DIR}
++
++unpack.linux:
++	rm -rf ${FTD2XX_LINUX_DIR}
++	mkdir -p ${FTD2XX_LINUX_DIR}
++	tar xfz ${TARFILE_LOCAL}
++
++download.linux.x86_64:
++	mkdir -p ${VIRGINS}
++	wget -O ${TARFILE_LOCAL} ${TARFILE_URL}
++
++unpack.linux.x86_64:
++	rm -rf ${FTD2XX_LINUX_64_DIR}
++	mkdir -p ${FTD2XX_LINUX_64_DIR}
++	tar xfz ${TARFILE_64_LOCAL}
++
++clean::
++	rm -rf ${FTD2XX_LINUX_64_DIR}
++
++download: download.win32 download.linux
++
++unpack.cygwin unpack.mingw32: unpack.win32
++
++unpack: unpack.${BUILD_SYSNAME}
++
++# Nothing to do here
++build:
++	@echo &quot;Done&quot;
++
++#Nothing to do here
++configure:
++	@echo &quot;Done&quot;
++
++# Nothing to do here
++install: 
++	@echo &quot;Done&quot;
++
++all: unpack configure build install
++
++.PHONY: install
++
++# Nothing to do here
++clean::
++	@echo &quot;Done&quot;
++
++_complain_:
++	@echo &quot;&quot;
++	@echo &quot;Please try one of these targets: bootstrap, clean, configure, build, install&quot;
++	@echo &quot; Or read the makefile and learn about the permutation test targets&quot;
++	@echo &quot;&quot;
++	@echo &quot;You also might find the download and unpack targets helpful.&quot;
++	@echo &quot;&quot;
++	@exit 1
+
+
+Property changes on: trunk/testing/build.tests/Makefile.ftd2xx
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/testing/build.tests/Makefile.libftdi
+===================================================================
+--- trunk/testing/build.tests/Makefile.libftdi	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/testing/build.tests/Makefile.libftdi	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -0,0 +1,51 @@
++# -*- mode: makefile -*-
++default: _complain_
++include ./local.uses
++
++TARFILE_LOCAL    = ${VIRGINS}/libftdi-${LIBFTDI_VERSION}.tar.gz
++TARFILE_URL      = <A HREF="http://www.intra2net.com/de/produkte/opensource/ftdi/TGZ/libftdi-${LIBFTDI_VERSION">http://www.intra2net.com/de/produkte/opensource/ftdi/TGZ/libftdi-${LIBFTDI_VERSION</A>}.tar.gz
++
++LIBFTDI_SRC_DIR  = ${HERE}/libftdi-${LIBFTDI_VERSION}
++LIBFTDI_BUILD_DIR= ${HERE}/libftdi-build
++
++download:
++	mkdir -p virgins
++	wget -O  ${TARFILE_LOCAL} ${TARFILE_URL}
++
++clean::
++	rm -rf ${LIBFTDI_SRC_DIR}
++
++unpack:
++	tar xf ${TARFILE_LOCAL}
++
++PATH := ${EXEC_PREFIX}/bin:${PATH}
++export PATH
++
++clean::
++	rm -rf ${LIBFTDI_BUILD_DIR}
++
++configure:
++	rm -rf ${LIBFTDI_BUILD_DIR}
++	mkdir -p ${LIBFTDI_BUILD_DIR}
++	cd ${LIBFTDI_BUILD_DIR} &amp;&amp; ${LIBFTDI_SRC_DIR}/configure \
++		--prefix=${PREFIX} \
++		--exec-prefix=${EXEC_PREFIX}
++
++build:
++	cd ${LIBFTDI_BUILD_DIR} &amp;&amp; ${MAKE}
++
++install: 
++	cd ${LIBFTDI_BUILD_DIR} &amp;&amp; ${MAKE} install
++
++all: unpack configure build install
++
++.PHONY: install
++
++_complain_:
++	@echo &quot;&quot;
++	@echo &quot;Please try one of these targets: bootstrap, clean, configure, build, install&quot;
++	@echo &quot; Or read the makefile and learn about the permutation test targets&quot;
++	@echo &quot;&quot;
++	@echo &quot;You also might find the download and unpack targets helpful.&quot;
++	@echo &quot;&quot;
++	@exit 1
+
+
+Property changes on: trunk/testing/build.tests/Makefile.libftdi
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/testing/build.tests/Makefile.libusb
+===================================================================
+--- trunk/testing/build.tests/Makefile.libusb	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/testing/build.tests/Makefile.libusb	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -0,0 +1,55 @@
++# -*- mode: makefile -*-
++default: _complain_
++
++include ./local.uses
++
++ifeq (x&quot;$BUILD_SYSNAME&quot;,x&quot;cygwin&quot;)
++$(error Please use the Win32 specific port of LibUSB not the Unix version)
++endif
++ifeq (x&quot;$BUILD_SYSNAME&quot;,x&quot;mingw32&quot;)
++$(error Please use the win32 specific port of LibUSB not the Unix version)
++endif 
++
++TARFILE_LOCAL    = ${VIRGINS}/libusb-${LIBUSB_VERSION}.tar.bz2
++TARFILE_URL      = <A HREF="http://downloads.sourceforge.net/libusb/libusb-${LIBUSB_VERSION">http://downloads.sourceforge.net/libusb/libusb-${LIBUSB_VERSION</A>}.tar.gz
++
++LIBUSB_SRC_DIR   = ${HERE}/libusb-${LIBUSB_VERSION}
++LIBUSB_BUILD_DIR = ${HERE}/libusb-build
++
++download:
++	wget -O ${TARFILE_LOCAL} ${TARFILE_URL}
++
++unpack:
++	rm -rf ${LIBUSB_SRC_DIR}
++	tar xfz ${TARFILE_LOCAL}
++
++clean::
++	rm -rf ${LIBUSB_SRC_DIR}
++
++configure:
++	rm -rf ${LIBUSB_BUILD_DIR}
++	mkdir -p ${LIBUSB_BUILD_DIR}
++	cd ${LIBUSB_BUILD_DIR} &amp;&amp; ${LIBUSB_SRC_DIR}/configure \
++		--prefix=${PREFIX} --exec-prefix=${EXEC_PREFIX}
++
++clean::
++	rm -rf ${LIBUSB_BUILD_DIR}
++
++build:
++	cd ${LIBUSB_BUILD_DIR} &amp;&amp; ${MAKE}
++
++install: 
++	cd ${LIBUSB_BUILD_DIR} &amp;&amp; ${MAKE} install
++
++all: unpack configure build install
++
++.PHONY: install
++
++_complain_:
++	@echo &quot;&quot;
++	@echo &quot;Please try one of these targets: bootstrap, clean, configure, build, install&quot;
++	@echo &quot; Or read the makefile and learn about the permutation test targets&quot;
++	@echo &quot;&quot;
++	@echo &quot;You also might find the download and unpack targets helpful.&quot;
++	@echo &quot;&quot;
++	@exit 1
+
+
+Property changes on: trunk/testing/build.tests/Makefile.libusb
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/testing/build.tests/Makefile.openocd
+===================================================================
+--- trunk/testing/build.tests/Makefile.openocd	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/testing/build.tests/Makefile.openocd	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -0,0 +1,193 @@
++# -*- mode: makefile -*-
++#
++default: _complain_
++
++include ./local.uses
++
++
++SRC_DIR      ?= $(HERE)/openocd
++BUILD_SUFFIX ?= $(BUILD_MACHINE)
++BUILD_DIR =$(HERE)/openocd.$(BUILD_SUFFIX)
++
++checkout:
++	svn co <A HREF="https://svn.berlios.de/svnroot/repos/openocd/trunk">https://svn.berlios.de/svnroot/repos/openocd/trunk</A> openocd
++
++remove.install:
++	rm -rf ${INSTALL_DIR}
++
++#========================================
++# Win32 Build Permutations
++#   none
++#   parport
++#   ftd2xx - (ftdichip)
++#   libftd
++CONFIG_OPTIONS_win32_none     = 
++CONFIG_OPTIONS_win32_parport  = --enable-parport
++CONFIG_OPTIONS_win32_ftd2xx   = --enable-parport --enable-ft2232_ftd2xx --with-ftd2xx-win32-zipdir=$(FTD2XX_WIN32_DIR)
++
++CYGWIN_EASY_PERMUTATIONS += none
++CYGWIN_EASY_PERMUTATIONS += parport
++CYGWIN_EASY_PERMUTATIONS += ftd2xx
++
++MINGW32_EASY_PERMUTATIONS += none
++MINGW32_EASY_PERMUTATIONS += parport
++MINGW32_EASY_PERMUTATIONS += ftd2xx
++
++
++# This is not a possible permutation, it is manual :-(
++# Why? Because &quot;libftdi&quot; installs things into install/include
++# which would efect the 'ftd2xx' win32 build
++CONFIG_OPTIONS_win32_libftdi  = --enable-parport --enable-ft2232_libftdi
++
++# Default build for win32... is the ftd2xx type build.
++PERMUTE_win32          ?= $(BUILD_SYSNAME)_ftd2xx
++CONFIG_OPTIONS_win32   ?= $(CONFIG_OPTIONS_win32_$(PERMUTE_win32))
++CONFIG_OPTIONS_cygwin   = $(CONFIG_OPTIONS_win32)
++CONFIG_OPTIONS_mingw32  = $(CONFIG_OPTIONS_win32)
++
++#========================================
++# Linux Build Permuatations
++#    none
++#    parport
++#    ft2232_ftd2xx
++#    ft2232_libftdi 
++CONFIG_OPTIONS_linux_none    =
++LINUX_EASY_PERMUTATIONS     += none
++
++CONFIG_OPTIONS_linux_parport = --enable-parport
++LINUX_EASY_PERMUTATIONS     += parport
++
++CONFIG_OPTIONS_linux_ft2232_libftdi = --enable-parport --enable-ft2232-libftdi
++#this cannot be done as part of the permutations.
++#LINUX_EASY_PERMUTATIONS += ft2232_libftdi
++
++CONFIG_OPTIONS_linux_ft2232_ftd2xx_static  = \
++	--enable-parport \
++	--enable-ft2232-ftd2xx --with-ftd2xx-lib=static --with-ftd2xx-linux-tardir=$(FTD2XX_LINUX_DIR)
++LINUX_EASY_PERMUTATIONS += ft2232_ftd2xx_static
++
++# this is not a possible permutation it is manual :-(
++# why? because it interfers with the other permutations
++# by &quot;installing files&quot; in the $(INSTALL_DIR)
++CONFIG_OPTIONS_linux_ftd2xx_installed  = \
++	--enable-parport \
++	--enable-ft2232-ftd2xx \
++	--with-ftd2xx-lib=shared
++
++# The default build permutation is
++PERMUTE_linux ?= ft2232_ftd2xx_static
++CONFIG_OPTIONS_linux = $(CONFIG_OPTIONS_linux_$(PERMUTE_linux))
++
++CONFIG_OPTIONS_darwin=\
++	--enable-ftd2232-libftdi
++
++# Which build are we doing?
++CONFIG_OPTIONS := $(CONFIG_OPTIONS_$(BUILD_SYSNAME))
++
++bootstrap:
++	cd $(SRC_DIR) &amp;&amp; bash ./bootstrap
++
++clean::
++	rm -rf $(BUILD_DIR)
++
++ifndef CFLAGS
++_CFLAGS=true
++else
++_CFLAGS=export CFLAGS=&quot;${CFLAGS}&quot;
++endif
++
++
++# if this was given... then pass it on 
++configure:
++	@echo &quot;     Build Sysname: $(BUILD_SYSNAME)&quot;
++	@echo &quot;    Config Options: $(CONFIG_OPTIONS)&quot;
++	rm -rf $(BUILD_DIR)
++	mkdir $(BUILD_DIR)
++	${_CFLAGS} &amp;&amp; \
++	cd $(BUILD_DIR) &amp;&amp; \
++		$(SRC_DIR)/configure \
++			--prefix=$(PREFIX) \
++			--exec-prefix=$(EXEC_PREFIX) \
++			$(CONFIG_OPTIONS)
++
++build:
++	cd $(BUILD_DIR) &amp;&amp; $(MAKE)
++
++install:
++	cd $(BUILD_DIR) &amp;&amp; $(MAKE) install
++
++all: configure build install
++
++.PHONY: install
++
++# The &quot;cygwin.libftdi&quot; requires that libftdi be built
++# and installed *PRIOR* to running this target.
++# it is not part of the permutations because ... 
++# it interfers with the ftd2xx based builds
++cygwin.libftdi: 
++	$(MAKE) -f Makefile.openocd bootstrap
++	$(MAKE) BUILD_SUFFIX=$@ PERMUTE_win32=libftdi -f Makefile.openocd all
++
++cygwin.easy.permutations: remove.install ${CYGWIN_EASY_PERMUTATIONS:%=_cygwin.%}
++
++_cygwin.%:
++	@echo &quot;&quot;
++	@echo &quot;&quot;
++	@echo &quot;========================================&quot;
++	@echo &quot;Permutation Build... $@&quot;
++	@echo &quot;========================================&quot;
++	@echo &quot;&quot;
++	@echo &quot;&quot;
++	$(MAKE) PERMUTE_win32=$* BUILD_SUFFIX=cygwin.$* -f Makefile.openocd all 
++	$(EXEC_PREFIX)/bin/openocd -v   
++
++mingw32.easy.permutations: remove.install ${MINGW32_EASY_PERMUTATIONS:%=_mingw32.%}
++
++# I (duane) build openocd-mingw32 via Cygwin.
++# Sadly, the &quot;mingw32&quot; buid for cygwin does not include
++# the required &quot;elf.h&quot; header files... so ... 
++# we have them in our own private helper place.
++_mingw32.%:
++	@echo &quot;&quot;
++	@echo &quot;&quot;
++	@echo &quot;========================================&quot;
++	@echo &quot;Permutation Build... $@&quot;
++	@echo &quot;========================================&quot;
++	@echo &quot;&quot;
++	@echo &quot;&quot;
++	CFLAGS=&quot;-mno-cygwin -I$(HERE)/mingw32_help/include&quot; \
++	$(MAKE) -f Makefile.openocd all ;\
++	$(EXEC_PREFIX)/bin/openocd -v   
++
++win32.permutations: mingw32.permutations cygwin.permutations
++
++
++# SMOKE TEST - Build every linux permuation...
++# If &quot;openocd -v&quot; does exit(0) we are good enough.
++
++linux.easy.permutations: remove.install ${LINUX_EASY_PERMUTATIONS:%=_linux.%}
++
++
++_linux.%:
++	@echo &quot;&quot;
++	@echo &quot;&quot;
++	@echo &quot;========================================&quot;
++	@echo &quot;Permutation Build... $@&quot;
++	@echo &quot;========================================&quot;
++	@echo &quot;&quot;
++	@echo &quot;&quot;
++	$(MAKE) PERMUTE_linux=$* BUILD_SUFFIX=linux.$* -f Makefile.openocd all 
++	$(EXEC_PREFIX)/bin/openocd -v   
++
++linux.ftd2xx_installed:
++	${MAKE} -f Makefile.openocd _$@
++
++linux.ft2232_libftdi:
++	${MAKE} -f Makefile.openocd _$@
++
++_complain_:
++	@echo &quot;&quot;
++	@echo &quot;Please try one of these targets: bootstrap, clean, configure, build, install&quot;
++	@echo &quot; Or read the makefile and learn about the permutation test targets&quot;
++	@echo &quot;&quot;
++	@exit 1
+
+
+Property changes on: trunk/testing/build.tests/Makefile.openocd
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/testing/build.tests/local.uses
+===================================================================
+--- trunk/testing/build.tests/local.uses	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/testing/build.tests/local.uses	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -0,0 +1,39 @@
++# -*- mode: makefile -*-
++HERE := $(shell pwd)
++
++# Solve problems on systems with DASH.. Grrr...
++SHELL=/bin/bash
++export SHELL
++
++VIRGINS=${HERE}/virgins
++
++# Determine the build platform.
++BUILD_SYSNAME_Linux      =linux
++BUILD_SYSNAME_linux      =linux
++BUILD_SYSNAME_CYGWIN_NT  =cygwin
++BUILD_SYSNAME_MINGW32_NT =mingw32
++BUILD_SYSNAME_Darwin     =darwin
++BUILD_SYSNAME_darwin     =darwin
++BUILD_SYSNAME :=$(BUILD_SYSNAME_$(shell uname --sysname | cut -d'-' -f1))
++
++# And machine (ie: i686, x86_64, or what)
++BUILD_MACHINE :=$(BUILD_SYSNAME).$(shell uname -m)
++
++
++INSTALL_DIR     := $(HERE)/install
++PREFIX          := ${INSTALL_DIR}
++EXEC_PREFIX     := ${INSTALL_DIR}/${BUILD_MACHINE}
++
++LIBFTDI_VERSION=0.14
++LIBCONFUSE_VERSION=2.5
++
++LIBUSB_VERSION_linux=0.1.12
++
++LIBUSB_VERSION=${LIBUSB_VERSION_${BUILD_SYSNAME}}
++
++FTD2XX_WIN32_VERSION=2.04.14
++FTD2XX_WIN32_DIR    = ${HERE}/ftd2xx.win32
++
++FTD2XX_LINUX_VERSION=0.4.16
++FTD2XX_LINUX_DIR    = ${HERE}/libftd2xx${FTD2XX_LINUX_VERSION}
++FTD2XX_LINUX_64_DIR = ${HERE}/libftd2xx${FTD2XX_LINUX_VERSION}_x86_64
+
+
+Property changes on: trunk/testing/build.tests/local.uses
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/testing/build.tests/mingw32_help/include/elf.h
+===================================================================
+--- trunk/testing/build.tests/mingw32_help/include/elf.h	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/testing/build.tests/mingw32_help/include/elf.h	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -0,0 +1,38 @@
++/* elf.h
++
++  Copyright 2005 Red Hat, Inc.
++
++This file is part of Cygwin.
++
++This software is a copyrighted work licensed under the terms of the
++Cygwin license.  Please consult the file &quot;CYGWIN_LICENSE&quot; for
++details. */
++
++#ifndef	_ELF_H_
++#define	_ELF_H_
++
++#include &lt;stdint.h&gt;
++
++typedef signed char int8_t;
++typedef unsigned char u_int8_t;
++typedef short int16_t;
++typedef unsigned short u_int16_t;
++typedef int int32_t;
++typedef unsigned int u_int32_t;
++typedef long long int64_t;
++typedef unsigned long long u_int64_t;
++typedef int32_t register_t;
++
++
++#ifdef __cplusplus
++extern &quot;C&quot; {
++#endif
++#include &lt;sys/types.h&gt;
++#include &lt;sys/elf32.h&gt;
++#include &lt;sys/elf64.h&gt;
++#include &lt;sys/elf_generic.h&gt;
++#ifdef __cplusplus
++}
++#endif
++
++#endif /*_ELF_H_*/
+
+
+Property changes on: trunk/testing/build.tests/mingw32_help/include/elf.h
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/testing/build.tests/mingw32_help/include/sys/cdefs.h
+===================================================================
+--- trunk/testing/build.tests/mingw32_help/include/sys/cdefs.h	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/testing/build.tests/mingw32_help/include/sys/cdefs.h	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -0,0 +1,23 @@
++/* sys/cdefs.h
++
++   Copyright 1998, 2000, 2001 Red Hat, Inc.
++
++This file is part of Cygwin.
++
++This software is a copyrighted work licensed under the terms of the
++Cygwin license.  Please consult the file &quot;CYGWIN_LICENSE&quot; for
++details. */
++
++#ifndef	_SYS_CDEFS_H
++#define _SYS_CDEFS_H
++#ifdef	__cplusplus
++#define	__BEGIN_DECLS	extern &quot;C&quot; {
++#define	__END_DECLS	}
++#else
++#define	__BEGIN_DECLS
++#define	__END_DECLS
++#endif
++#define __P(protos)     protos		/* full-blown ANSI C */
++#define  __CONCAT(__x,__y)   __x##__y
++#endif
++
+
+
+Property changes on: trunk/testing/build.tests/mingw32_help/include/sys/cdefs.h
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/testing/build.tests/mingw32_help/include/sys/elf32.h
+===================================================================
+--- trunk/testing/build.tests/mingw32_help/include/sys/elf32.h	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/testing/build.tests/mingw32_help/include/sys/elf32.h	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -0,0 +1,156 @@
++/*-
++ * Copyright (c) 1996-1998 John D. Polstra.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
++ *
++ * $FreeBSD: src/sys/sys/elf32.h,v 1.8 2002/05/30 08:32:18 dfr Exp $
++ */
++
++#ifndef _SYS_ELF32_H_
++#define _SYS_ELF32_H_ 1
++
++#include &lt;sys/elf_common.h&gt;
++
++/*
++ * ELF definitions common to all 32-bit architectures.
++ */
++
++typedef u_int32_t	Elf32_Addr;
++typedef u_int16_t	Elf32_Half;
++typedef u_int32_t	Elf32_Off;
++typedef int32_t		Elf32_Sword;
++typedef u_int32_t	Elf32_Word;
++typedef u_int32_t	Elf32_Size;
++typedef Elf32_Off	Elf32_Hashelt;
++
++/*
++ * ELF header.
++ */
++
++typedef struct {
++	unsigned char	e_ident[EI_NIDENT];	/* File identification. */
++	Elf32_Half	e_type;		/* File type. */
++	Elf32_Half	e_machine;	/* Machine architecture. */
++	Elf32_Word	e_version;	/* ELF format version. */
++	Elf32_Addr	e_entry;	/* Entry point. */
++	Elf32_Off	e_phoff;	/* Program header file offset. */
++	Elf32_Off	e_shoff;	/* Section header file offset. */
++	Elf32_Word	e_flags;	/* Architecture-specific flags. */
++	Elf32_Half	e_ehsize;	/* Size of ELF header in bytes. */
++	Elf32_Half	e_phentsize;	/* Size of program header entry. */
++	Elf32_Half	e_phnum;	/* Number of program header entries. */
++	Elf32_Half	e_shentsize;	/* Size of section header entry. */
++	Elf32_Half	e_shnum;	/* Number of section header entries. */
++	Elf32_Half	e_shstrndx;	/* Section name strings section. */
++} Elf32_Ehdr;
++
++/*
++ * Section header.
++ */
++
++typedef struct {
++	Elf32_Word	sh_name;	/* Section name (index into the
++					   section header string table). */
++	Elf32_Word	sh_type;	/* Section type. */
++	Elf32_Word	sh_flags;	/* Section flags. */
++	Elf32_Addr	sh_addr;	/* Address in memory image. */
++	Elf32_Off	sh_offset;	/* Offset in file. */
++	Elf32_Size	sh_size;	/* Size in bytes. */
++	Elf32_Word	sh_link;	/* Index of a related section. */
++	Elf32_Word	sh_info;	/* Depends on section type. */
++	Elf32_Size	sh_addralign;	/* Alignment in bytes. */
++	Elf32_Size	sh_entsize;	/* Size of each entry in section. */
++} Elf32_Shdr;
++
++/*
++ * Program header.
++ */
++
++typedef struct {
++	Elf32_Word	p_type;		/* Entry type. */
++	Elf32_Off	p_offset;	/* File offset of contents. */
++	Elf32_Addr	p_vaddr;	/* Virtual address in memory image. */
++	Elf32_Addr	p_paddr;	/* Physical address (not used). */
++	Elf32_Size	p_filesz;	/* Size of contents in file. */
++	Elf32_Size	p_memsz;	/* Size of contents in memory. */
++	Elf32_Word	p_flags;	/* Access permission flags. */
++	Elf32_Size	p_align;	/* Alignment in memory and file. */
++} Elf32_Phdr;
++
++/*
++ * Dynamic structure.  The &quot;.dynamic&quot; section contains an array of them.
++ */
++
++typedef struct {
++	Elf32_Sword	d_tag;		/* Entry type. */
++	union {
++		Elf32_Size	d_val;	/* Integer value. */
++		Elf32_Addr	d_ptr;	/* Address value. */
++	} d_un;
++} Elf32_Dyn;
++
++/*
++ * Relocation entries.
++ */
++
++/* Relocations that don't need an addend field. */
++typedef struct {
++	Elf32_Addr	r_offset;	/* Location to be relocated. */
++	Elf32_Word	r_info;		/* Relocation type and symbol index. */
++} Elf32_Rel;
++
++/* Relocations that need an addend field. */
++typedef struct {
++	Elf32_Addr	r_offset;	/* Location to be relocated. */
++	Elf32_Word	r_info;		/* Relocation type and symbol index. */
++	Elf32_Sword	r_addend;	/* Addend. */
++} Elf32_Rela;
++
++/* Macros for accessing the fields of r_info. */
++#define ELF32_R_SYM(info)	((info) &gt;&gt; 8)
++#define ELF32_R_TYPE(info)	((unsigned char)(info))
++
++/* Macro for constructing r_info from field values. */
++#define ELF32_R_INFO(sym, type)	(((sym) &lt;&lt; 8) + (unsigned char)(type))
++
++/*
++ * Symbol table entries.
++ */
++
++typedef struct {
++	Elf32_Word	st_name;	/* String table index of name. */
++	Elf32_Addr	st_value;	/* Symbol value. */
++	Elf32_Size	st_size;	/* Size of associated object. */
++	unsigned char	st_info;	/* Type and binding information. */
++	unsigned char	st_other;	/* Reserved (not used). */
++	Elf32_Half	st_shndx;	/* Section index of symbol. */
++} Elf32_Sym;
++
++/* Macros for accessing the fields of st_info. */
++#define ELF32_ST_BIND(info)		((info) &gt;&gt; 4)
++#define ELF32_ST_TYPE(info)		((info) &amp; 0xf)
++
++/* Macro for constructing st_info from field values. */
++#define ELF32_ST_INFO(bind, type)	(((bind) &lt;&lt; 4) + ((type) &amp; 0xf))
++
++#endif /* !_SYS_ELF32_H_ */
+
+
+Property changes on: trunk/testing/build.tests/mingw32_help/include/sys/elf32.h
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/testing/build.tests/mingw32_help/include/sys/elf64.h
+===================================================================
+--- trunk/testing/build.tests/mingw32_help/include/sys/elf64.h	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/testing/build.tests/mingw32_help/include/sys/elf64.h	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -0,0 +1,172 @@
++/*-
++ * Copyright (c) 1996-1998 John D. Polstra.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
++ *
++ * $FreeBSD: src/sys/sys/elf64.h,v 1.10 2002/05/30 08:32:18 dfr Exp $
++ */
++
++#ifndef _SYS_ELF64_H_
++#define _SYS_ELF64_H_ 1
++
++#include &lt;sys/elf_common.h&gt;
++
++/*
++ * ELF definitions common to all 64-bit architectures.
++ */
++
++typedef uint64_t	Elf64_Addr;
++typedef uint16_t	Elf64_Half;
++typedef uint32_t	Elf64_Word;
++typedef int32_t		Elf64_Sword;
++typedef uint64_t	Elf64_Xword;
++typedef int64_t		Elf64_Sxword;
++typedef uint64_t	Elf64_Off;
++typedef uint16_t	Elf64_Section;
++typedef Elf64_Half	Elf64_Versym;
++typedef uint16_t	Elf64_Quarter;
++
++/*
++ * Types of dynamic symbol hash table bucket and chain elements.
++ *
++ * This is inconsistent among 64 bit architectures, so a machine dependent
++ * typedef is required.
++ */
++
++#ifdef __alpha__
++typedef Elf64_Off	Elf64_Hashelt;
++#else
++typedef Elf64_Half	Elf64_Hashelt;
++#endif
++
++/*
++ * ELF header.
++ */
++
++typedef struct {
++	unsigned char	e_ident[EI_NIDENT];	/* File identification. */
++	Elf64_Half	e_type;		/* File type. */
++	Elf64_Half	e_machine;	/* Machine architecture. */
++	Elf64_Word	e_version;	/* ELF format version. */
++	Elf64_Addr	e_entry;	/* Entry point. */
++	Elf64_Off	e_phoff;	/* Program header file offset. */
++	Elf64_Off	e_shoff;	/* Section header file offset. */
++	Elf64_Word	e_flags;	/* Architecture-specific flags. */
++	Elf64_Half	e_ehsize;	/* Size of ELF header in bytes. */
++	Elf64_Half	e_phentsize;	/* Size of program header entry. */
++	Elf64_Half	e_phnum;	/* Number of program header entries. */
++	Elf64_Half	e_shentsize;	/* Size of section header entry. */
++	Elf64_Half	e_shnum;	/* Number of section header entries. */
++	Elf64_Half	e_shstrndx;	/* Section name strings section. */
++} Elf64_Ehdr;
++
++/*
++ * Section header.
++ */
++
++typedef struct {
++	Elf64_Word	sh_name;	/* Section name (index into the
++					   section header string table). */
++	Elf64_Word	sh_type;	/* Section type. */
++	Elf64_Xword	sh_flags;	/* Section flags. */
++	Elf64_Addr	sh_addr;	/* Address in memory image. */
++	Elf64_Off	sh_offset;	/* Offset in file. */
++	Elf64_Xword	sh_size;	/* Size in bytes. */
++	Elf64_Word	sh_link;	/* Index of a related section. */
++	Elf64_Word	sh_info;	/* Depends on section type. */
++	Elf64_Xword	sh_addralign;	/* Alignment in bytes. */
++	Elf64_Xword	sh_entsize;	/* Size of each entry in section. */
++} Elf64_Shdr;
++
++/*
++ * Program header.
++ */
++
++typedef struct {
++	Elf64_Word	p_type;		/* Entry type. */
++	Elf64_Word	p_flags;	/* Access permission flags. */
++	Elf64_Off	p_offset;	/* File offset of contents. */
++	Elf64_Addr	p_vaddr;	/* Virtual address in memory image. */
++	Elf64_Addr	p_paddr;	/* Physical address (not used). */
++	Elf64_Xword	p_filesz;	/* Size of contents in file. */
++	Elf64_Xword	p_memsz;	/* Size of contents in memory. */
++	Elf64_Xword	p_align;	/* Alignment in memory and file. */
++} Elf64_Phdr;
++
++/*
++ * Dynamic structure.  The &quot;.dynamic&quot; section contains an array of them.
++ */
++
++typedef struct {
++	Elf64_Sxword	d_tag;		/* Entry type. */
++	union {
++		Elf64_Xword	d_val;	/* Integer value. */
++		Elf64_Addr	d_ptr;	/* Address value. */
++	} d_un;
++} Elf64_Dyn;
++
++/*
++ * Relocation entries.
++ */
++
++/* Relocations that don't need an addend field. */
++typedef struct {
++	Elf64_Addr	r_offset;	/* Location to be relocated. */
++	Elf64_Xword	r_info;		/* Relocation type and symbol index. */
++} Elf64_Rel;
++
++/* Relocations that need an addend field. */
++typedef struct {
++	Elf64_Addr	r_offset;	/* Location to be relocated. */
++	Elf64_Xword	r_info;		/* Relocation type and symbol index. */
++	Elf64_Sxword	r_addend;	/* Addend. */
++} Elf64_Rela;
++
++/* Macros for accessing the fields of r_info. */
++#define ELF64_R_SYM(info)	((info) &gt;&gt; 32)
++#define ELF64_R_TYPE(info)	((unsigned char)(info))
++
++/* Macro for constructing r_info from field values. */
++#define ELF64_R_INFO(sym, type)	(((sym) &lt;&lt; 32) + (unsigned char)(type))
++
++/*
++ * Symbol table entries.
++ */
++
++typedef struct {
++	Elf64_Word	st_name;	/* String table index of name. */
++	unsigned char	st_info;	/* Type and binding information. */
++	unsigned char	st_other;	/* Reserved (not used). */
++	Elf64_Section	st_shndx;	/* Section index of symbol. */
++	Elf64_Addr	st_value;	/* Symbol value. */
++	Elf64_Xword	st_size;	/* Size of associated object. */
++} Elf64_Sym;
++
++/* Macros for accessing the fields of st_info. */
++#define ELF64_ST_BIND(info)		((info) &gt;&gt; 4)
++#define ELF64_ST_TYPE(info)		((info) &amp; 0xf)
++
++/* Macro for constructing st_info from field values. */
++#define ELF64_ST_INFO(bind, type)	(((bind) &lt;&lt; 4) + ((type) &amp; 0xf))
++
++#endif /* !_SYS_ELF64_H_ */
+
+
+Property changes on: trunk/testing/build.tests/mingw32_help/include/sys/elf64.h
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/testing/build.tests/mingw32_help/include/sys/elf_common.h
+===================================================================
+--- trunk/testing/build.tests/mingw32_help/include/sys/elf_common.h	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/testing/build.tests/mingw32_help/include/sys/elf_common.h	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -0,0 +1,299 @@
++/*-
++ * Copyright (c) 1998 John D. Polstra.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
++ *
++ * $FreeBSD: src/sys/sys/elf_common.h,v 1.15 2004/05/05 02:38:54 marcel Exp $
++ */
++
++#ifndef _SYS_ELF_COMMON_H_
++#define _SYS_ELF_COMMON_H_ 1
++
++/*
++ * ELF definitions that are independent of architecture or word size.
++ */
++
++/*
++ * Note header.  The &quot;.note&quot; section contains an array of notes.  Each
++ * begins with this header, aligned to a word boundary.  Immediately
++ * following the note header is n_namesz bytes of name, padded to the
++ * next word boundary.  Then comes n_descsz bytes of descriptor, again
++ * padded to a word boundary.  The values of n_namesz and n_descsz do
++ * not include the padding.
++ */
++
++typedef struct {
++	u_int32_t	n_namesz;	/* Length of name. */
++	u_int32_t	n_descsz;	/* Length of descriptor. */
++	u_int32_t	n_type;		/* Type of this note. */
++} Elf_Note;
++
++/* Indexes into the e_ident array.  Keep synced with
++   <A HREF="http://www.sco.com/developer/gabi/ch4.eheader.html">http://www.sco.com/developer/gabi/ch4.eheader.html</A> */
++#define EI_MAG0		0	/* Magic number, byte 0. */
++#define EI_MAG1		1	/* Magic number, byte 1. */
++#define EI_MAG2		2	/* Magic number, byte 2. */
++#define EI_MAG3		3	/* Magic number, byte 3. */
++#define EI_CLASS	4	/* Class of machine. */
++#define EI_DATA		5	/* Data format. */
++#define EI_VERSION	6	/* ELF format version. */
++#define EI_OSABI	7	/* Operating system / ABI identification */
++#define EI_ABIVERSION	8	/* ABI version */
++#define OLD_EI_BRAND	8	/* Start of architecture identification. */
++#define EI_PAD		9	/* Start of padding (per SVR4 ABI). */
++#define EI_NIDENT	16	/* Size of e_ident array. */
++
++/* Values for the magic number bytes. */
++#define ELFMAG0		0x7f
++#define ELFMAG1		'E'
++#define ELFMAG2		'L'
++#define ELFMAG3		'F'
++#define ELFMAG		&quot;\177ELF&quot;	/* magic string */
++#define SELFMAG		4		/* magic string size */
++
++/* Values for e_ident[EI_VERSION] and e_version. */
++#define EV_NONE		0
++#define EV_CURRENT	1
++
++/* Values for e_ident[EI_CLASS]. */
++#define ELFCLASSNONE	0	/* Unknown class. */
++#define ELFCLASS32	1	/* 32-bit architecture. */
++#define ELFCLASS64	2	/* 64-bit architecture. */
++
++/* Values for e_ident[EI_DATA]. */
++#define ELFDATANONE	0	/* Unknown data format. */
++#define ELFDATA2LSB	1	/* 2's complement little-endian. */
++#define ELFDATA2MSB	2	/* 2's complement big-endian. */
++
++/* Values for e_ident[EI_OSABI]. */
++#define ELFOSABI_SYSV		0	/* UNIX System V ABI */
++#define ELFOSABI_NONE		ELFOSABI_SYSV	/* symbol used in old spec */
++#define ELFOSABI_HPUX		1	/* HP-UX operating system */
++#define ELFOSABI_NETBSD		2	/* NetBSD */
++#define ELFOSABI_LINUX		3	/* GNU/Linux */
++#define ELFOSABI_HURD		4	/* GNU/Hurd */
++#define ELFOSABI_86OPEN		5	/* 86Open common IA32 ABI */
++#define ELFOSABI_SOLARIS	6	/* Solaris */
++#define ELFOSABI_MONTEREY	7	/* Monterey */
++#define ELFOSABI_IRIX		8	/* IRIX */
++#define ELFOSABI_FREEBSD	9	/* FreeBSD */
++#define ELFOSABI_TRU64		10	/* TRU64 UNIX */
++#define ELFOSABI_MODESTO	11	/* Novell Modesto */
++#define ELFOSABI_OPENBSD	12	/* OpenBSD */
++#define ELFOSABI_ARM		97	/* ARM */
++#define ELFOSABI_STANDALONE	255	/* Standalone (embedded) application */
++
++/* e_ident */
++#define IS_ELF(ehdr)	((ehdr).e_ident[EI_MAG0] == ELFMAG0 &amp;&amp; \
++			 (ehdr).e_ident[EI_MAG1] == ELFMAG1 &amp;&amp; \
++			 (ehdr).e_ident[EI_MAG2] == ELFMAG2 &amp;&amp; \
++			 (ehdr).e_ident[EI_MAG3] == ELFMAG3)
++
++/* Values for e_type. */
++#define ET_NONE		0	/* Unknown type. */
++#define ET_REL		1	/* Relocatable. */
++#define ET_EXEC		2	/* Executable. */
++#define ET_DYN		3	/* Shared object. */
++#define ET_CORE		4	/* Core file. */
++
++/* Values for e_machine. */
++#define EM_NONE		0	/* Unknown machine. */
++#define EM_M32		1	/* AT&amp;T WE32100. */
++#define EM_SPARC	2	/* Sun SPARC. */
++#define EM_386		3	/* Intel i386. */
++#define EM_68K		4	/* Motorola 68000. */
++#define EM_88K		5	/* Motorola 88000. */
++#define EM_486		6	/* Intel i486. */
++#define EM_860		7	/* Intel i860. */
++#define EM_MIPS		8	/* MIPS R3000 Big-Endian only */
++
++/* Extensions.  This list is not complete. */
++#define EM_S370		9	/* IBM System/370 */
++#define EM_MIPS_RS4_BE	10	/* MIPS R4000 Big-Endian */ /* Depreciated */
++#define EM_PARISC	15	/* HPPA */
++#define EM_SPARC32PLUS	18	/* SPARC v8plus */
++#define EM_PPC		20	/* PowerPC 32-bit */
++#define EM_PPC64	21	/* PowerPC 64-bit */
++#define EM_ARM		40	/* ARM */
++#define EM_SPARCV9	43	/* SPARC v9 64-bit */
++#define EM_IA_64	50	/* Intel IA-64 Processor */
++#define EM_X86_64	62	/* Advanced Micro Devices x86-64 */
++#define EM_ALPHA	0x9026	/* Alpha (written in the absence of an ABI */
++
++/* Special section indexes. */
++#define SHN_UNDEF	     0		/* Undefined, missing, irrelevant. */
++#define SHN_LORESERVE	0xff00		/* First of reserved range. */
++#define SHN_LOPROC	0xff00		/* First processor-specific. */
++#define SHN_HIPROC	0xff1f		/* Last processor-specific. */
++#define SHN_ABS		0xfff1		/* Absolute values. */
++#define SHN_COMMON	0xfff2		/* Common data. */
++#define SHN_HIRESERVE	0xffff		/* Last of reserved range. */
++
++/* sh_type */
++#define SHT_NULL	0		/* inactive */
++#define SHT_PROGBITS	1		/* program defined information */
++#define SHT_SYMTAB	2		/* symbol table section */
++#define SHT_STRTAB	3		/* string table section */
++#define SHT_RELA	4		/* relocation section with addends */
++#define SHT_HASH	5		/* symbol hash table section */
++#define SHT_DYNAMIC	6		/* dynamic section */
++#define SHT_NOTE	7		/* note section */
++#define SHT_NOBITS	8		/* no space section */
++#define SHT_REL		9		/* relocation section - no addends */
++#define SHT_SHLIB	10		/* reserved - purpose unknown */
++#define SHT_DYNSYM	11		/* dynamic symbol table section */
++#define SHT_NUM		12		/* number of section types */
++#define SHT_LOOS	0x60000000	/* First of OS specific semantics */
++#define SHT_HIOS	0x6fffffff	/* Last of OS specific semantics */
++#define SHT_LOPROC	0x70000000	/* reserved range for processor */
++#define SHT_HIPROC	0x7fffffff	/* specific section header types */
++#define SHT_LOUSER	0x80000000	/* reserved range for application */
++#define SHT_HIUSER	0xffffffff	/* specific indexes */
++
++/* Flags for sh_flags. */
++#define SHF_WRITE	0x1		/* Section contains writable data. */
++#define SHF_ALLOC	0x2		/* Section occupies memory. */
++#define SHF_EXECINSTR	0x4		/* Section contains instructions. */
++#define SHF_TLS		0x400		/* Section contains TLS data. */
++#define SHF_MASKPROC	0xf0000000	/* Reserved for processor-specific. */
++
++/* Values for p_type. */
++#define PT_NULL		0	/* Unused entry. */
++#define PT_LOAD		1	/* Loadable segment. */
++#define PT_DYNAMIC	2	/* Dynamic linking information segment. */
++#define PT_INTERP	3	/* Pathname of interpreter. */
++#define PT_NOTE		4	/* Auxiliary information. */
++#define PT_SHLIB	5	/* Reserved (not used). */
++#define PT_PHDR		6	/* Location of program header itself. */
++#define	PT_TLS		7	/* Thread local storage segment */
++
++#define PT_COUNT	8	/* Number of defined p_type values. */
++
++#define	PT_LOOS		0x60000000	/* OS-specific */
++#define	PT_HIOS		0x6fffffff	/* OS-specific */
++#define PT_LOPROC	0x70000000	/* First processor-specific type. */
++#define PT_HIPROC	0x7fffffff	/* Last processor-specific type. */
++
++/* Values for p_flags. */
++#define PF_X		0x1	/* Executable. */
++#define PF_W		0x2	/* Writable. */
++#define PF_R		0x4	/* Readable. */
++
++/* Values for d_tag. */
++#define DT_NULL		0	/* Terminating entry. */
++#define DT_NEEDED	1	/* String table offset of a needed shared
++				   library. */
++#define DT_PLTRELSZ	2	/* Total size in bytes of PLT relocations. */
++#define DT_PLTGOT	3	/* Processor-dependent address. */
++#define DT_HASH		4	/* Address of symbol hash table. */
++#define DT_STRTAB	5	/* Address of string table. */
++#define DT_SYMTAB	6	/* Address of symbol table. */
++#define DT_RELA		7	/* Address of ElfNN_Rela relocations. */
++#define DT_RELASZ	8	/* Total size of ElfNN_Rela relocations. */
++#define DT_RELAENT	9	/* Size of each ElfNN_Rela relocation entry. */
++#define DT_STRSZ	10	/* Size of string table. */
++#define DT_SYMENT	11	/* Size of each symbol table entry. */
++#define DT_INIT		12	/* Address of initialization function. */
++#define DT_FINI		13	/* Address of finalization function. */
++#define DT_SONAME	14	/* String table offset of shared object
++				   name. */
++#define DT_RPATH	15	/* String table offset of library path. [sup] */
++#define DT_SYMBOLIC	16	/* Indicates &quot;symbolic&quot; linking. [sup] */
++#define DT_REL		17	/* Address of ElfNN_Rel relocations. */
++#define DT_RELSZ	18	/* Total size of ElfNN_Rel relocations. */
++#define DT_RELENT	19	/* Size of each ElfNN_Rel relocation. */
++#define DT_PLTREL	20	/* Type of relocation used for PLT. */
++#define DT_DEBUG	21	/* Reserved (not used). */
++#define DT_TEXTREL	22	/* Indicates there may be relocations in
++				   non-writable segments. [sup] */
++#define DT_JMPREL	23	/* Address of PLT relocations. */
++#define	DT_BIND_NOW	24	/* [sup] */
++#define	DT_INIT_ARRAY	25	/* Address of the array of pointers to
++				   initialization functions */
++#define	DT_FINI_ARRAY	26	/* Address of the array of pointers to
++				   termination functions */
++#define	DT_INIT_ARRAYSZ	27	/* Size in bytes of the array of
++				   initialization functions. */
++#define	DT_FINI_ARRAYSZ	28	/* Size in bytes of the array of
++				   terminationfunctions. */
++#define	DT_RUNPATH	29	/* String table offset of a null-terminated
++				   library search path string. */
++#define	DT_FLAGS	30	/* Object specific flag values. */
++#define	DT_ENCODING	32	/* Values greater than or equal to DT_ENCODING
++				   and less than DT_LOOS follow the rules for
++				   the interpretation of the d_un union
++				   as follows: even == 'd_ptr', even == 'd_val'
++				   or none */
++#define	DT_PREINIT_ARRAY 32	/* Address of the array of pointers to
++				   pre-initialization functions. */
++#define	DT_PREINIT_ARRAYSZ 33	/* Size in bytes of the array of
++				   pre-initialization functions. */
++
++#define	DT_COUNT	33	/* Number of defined d_tag values. */
++
++#define	DT_LOOS		0x6000000d	/* First OS-specific */
++#define	DT_HIOS		0x6fff0000	/* Last OS-specific */
++#define	DT_LOPROC	0x70000000	/* First processor-specific type. */
++#define	DT_HIPROC	0x7fffffff	/* Last processor-specific type. */
++
++/* Values for DT_FLAGS */
++#define	DF_ORIGIN	0x0001	/* Indicates that the object being loaded may
++				   make reference to the $ORIGIN substitution
++				   string */
++#define	DF_SYMBOLIC	0x0002	/* Indicates &quot;symbolic&quot; linking. */
++#define	DF_TEXTREL	0x0004	/* Indicates there may be relocations in
++				   non-writable segments. */
++#define	DF_BIND_NOW	0x0008	/* Indicates that the dynamic linker should
++				   process all relocations for the object
++				   containing this entry before transferring
++				   control to the program. */
++#define	DF_STATIC_TLS	0x0010	/* Indicates that the shared object or
++				   executable contains code using a static
++				   thread-local storage scheme. */
++
++/* Values for n_type.  Used in core files. */
++#define NT_PRSTATUS	1	/* Process status. */
++#define NT_FPREGSET	2	/* Floating point registers. */
++#define NT_PRPSINFO	3	/* Process state info. */
++
++/* Symbol Binding - ELFNN_ST_BIND - st_info */
++#define STB_LOCAL	0	/* Local symbol */
++#define STB_GLOBAL	1	/* Global symbol */
++#define STB_WEAK	2	/* like global - lower precedence */
++#define STB_LOPROC	13	/* reserved range for processor */
++#define STB_HIPROC	15	/*  specific symbol bindings */
++
++/* Symbol type - ELFNN_ST_TYPE - st_info */
++#define STT_NOTYPE	0	/* Unspecified type. */
++#define STT_OBJECT	1	/* Data object. */
++#define STT_FUNC	2	/* Function. */
++#define STT_SECTION	3	/* Section. */
++#define STT_FILE	4	/* Source file. */
++#define STT_TLS		6	/* TLS object. */
++#define STT_LOPROC	13	/* reserved range for processor */
++#define STT_HIPROC	15	/*  specific symbol types */
++
++/* Special symbol table indexes. */
++#define STN_UNDEF	0	/* Undefined symbol index. */
++
++#endif /* !_SYS_ELF_COMMON_H_ */
+
+
+Property changes on: trunk/testing/build.tests/mingw32_help/include/sys/elf_common.h
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/testing/build.tests/mingw32_help/include/sys/elf_generic.h
+===================================================================
+--- trunk/testing/build.tests/mingw32_help/include/sys/elf_generic.h	2008-12-24 23:22:22 UTC (rev 1274)
++++ trunk/testing/build.tests/mingw32_help/include/sys/elf_generic.h	2008-12-27 01:15:50 UTC (rev 1275)
+@@ -0,0 +1,91 @@
++/*-
++ * Copyright (c) 1998 John D. Polstra.
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
++ *
++ * $FreeBSD: src/sys/sys/elf_generic.h,v 1.6 2002/07/20 02:56:11 peter Exp $
++ */
++
++#ifndef _SYS_ELF_GENERIC_H_
++#define _SYS_ELF_GENERIC_H_ 1
++
++#include &lt;sys/cdefs.h&gt;
++
++/*
++ * Definitions of generic ELF names which relieve applications from
++ * needing to know the word size.
++ */
++
++#ifndef __ELF_WORD_SIZE
++# define __ELF_WORD_SIZE 32
++#endif
++
++#if __ELF_WORD_SIZE != 32 &amp;&amp; __ELF_WORD_SIZE != 64
++#error &quot;__ELF_WORD_SIZE must be defined as 32 or 64&quot;
++#endif
++
++#define ELF_CLASS	__CONCAT(ELFCLASS,__ELF_WORD_SIZE)
++
++#if BYTE_ORDER == LITTLE_ENDIAN
++#define ELF_DATA	ELFDATA2LSB
++#elif BYTE_ORDER == BIG_ENDIAN
++#define ELF_DATA	ELFDATA2MSB
++#else
++#error &quot;Unknown byte order&quot;
++#endif
++
++#if __ELF_WORD_SIZE == 32
++#define __elfN(x)	elf32_##x
++#define __ElfN(x)	Elf32_##x
++#define __ELFN(x)	ELF32_##x
++#else
++#define __elfN(x)	elf364_##x
++#define __ElfN(x)	Elf364_##x
++#define __ELFN(x)	ELF364_##x
++#endif
++#define __ElfType(x)	typedef __ElfN(x) Elf_##x
++
++#define FOO
++__ElfType(Addr);
++__ElfType(Half);
++__ElfType(Off);
++__ElfType(Sword);
++__ElfType(Word);
++__ElfType(Size);
++__ElfType(Hashelt);
++__ElfType(Ehdr);
++__ElfType(Shdr);
++__ElfType(Phdr);
++__ElfType(Dyn);
++__ElfType(Rel);
++__ElfType(Rela);
++__ElfType(Sym);
++
++#define ELF_R_SYM	__ELFN(R_SYM)
++#define ELF_R_TYPE	__ELFN(R_TYPE)
++#define ELF_R_INFO	__ELFN(R_INFO)
++#define ELF_ST_BIND	__ELFN(ST_BIND)
++#define ELF_ST_TYPE	__ELFN(ST_TYPE)
++#define ELF_ST_INFO	__ELFN(ST_INFO)
++
++#endif /* !_SYS_ELF_GENERIC_H_ */
+
+
+Property changes on: trunk/testing/build.tests/mingw32_help/include/sys/elf_generic.h
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000055.html">[Openocd-svn] r1274 - trunk/src/target/target
+</A></li>
+	<LI>Next message: <A HREF="000057.html">[Openocd-svn] r1276 - in trunk/testing: . build.test1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#56">[ date ]</a>
+              <a href="thread.html#56">[ thread ]</a>
+              <a href="subject.html#56">[ subject ]</a>
+              <a href="author.html#56">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

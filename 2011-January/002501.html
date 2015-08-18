@@ -1,0 +1,226 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-721-g9629adc
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-721-g9629adc&In-Reply-To=%3CE1Pi4XK-0007SP-4M%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002500.html">
+   <LINK REL="Next"  HREF="002502.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-721-g9629adc</H1>
+    <B>Spencer Oliver</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-721-g9629adc&In-Reply-To=%3CE1Pi4XK-0007SP-4M%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-721-g9629adc">ntfreak at users.sourceforge.net
+       </A><BR>
+    <I>Wed Jan 26 13:31:43 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002500.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-720-g5b34018
+</A></li>
+        <LI>Next message: <A HREF="002502.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-722-g4df93cb
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2501">[ date ]</a>
+              <a href="thread.html#2501">[ thread ]</a>
+              <a href="subject.html#2501">[ subject ]</a>
+              <a href="author.html#2501">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  9629adcbde2bfac67296ad954c2233f725e1570e (commit)
+      from  5b34018ccd244e888e8b7e1619e0e979b2a6147e (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 9629adcbde2bfac67296ad954c2233f725e1570e
+Author: Mathias K &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">kesmtp at freenet.de</A>&gt;
+Date:   Wed Jan 26 12:28:48 2011 +0000
+
+    add basic TI xds100v2 support
+    
+    Signed-off-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ntfreak at users.sourceforge.net</A>&gt;
+
+diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+index 54f7c26..f8b2927 100644
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -190,6 +190,7 @@ static int ktlink_init(void);
+ static int redbee_init(void);
+ static int lisa_l_init(void);
+ static int flossjtag_init(void);
++static int xds100v2_init(void);
+ 
+ /* reset procedures for supported layouts */
+ static void ftx23_reset(int trst, int srst);
+@@ -205,6 +206,7 @@ static void icebear_jtag_reset(int trst, int srst);
+ static void signalyzer_h_reset(int trst, int srst);
+ static void ktlink_reset(int trst, int srst);
+ static void redbee_reset(int trst, int srst);
++static void xds100v2_reset(int trst, int srst);
+ 
+ /* blink procedures for layouts that support a blinking led */
+ static void olimex_jtag_blink(void);
+@@ -318,6 +320,10 @@ static const struct ft2232_layout  ft2232_layouts[] =
+ 		.reset = ftx23_reset,
+ 		.blink = flossjtag_blink,
+ 	},
++	{ .name = &quot;xds100v2&quot;,
++		.init = xds100v2_init,
++		.reset = xds100v2_reset,
++	},
+ 	{ .name = NULL, /* END OF TABLE */ },
+ };
+ 
+@@ -1683,6 +1689,36 @@ static void redbee_reset(int trst, int srst)
+ 			high_direction);
+ }
+ 
++static void xds100v2_reset(int trst, int srst)
++{
++	if (trst == 1)
++	{
++		tap_set_state(TAP_RESET);
++		high_output &amp;= ~nTRST;
++	}
++	else if (trst == 0)
++	{
++		high_output |= nTRST;
++	}
++
++	if (srst == 1)
++	{
++		high_output |= nSRST;
++	}
++	else if (srst == 0)
++	{
++		high_output &amp;= ~nSRST;
++	}
++
++	/* command &quot;set data bits low byte&quot; */
++	buffer_write(0x82);
++	buffer_write(high_output);
++	buffer_write(high_direction);
++	LOG_DEBUG(&quot;trst: %i, srst: %i, high_output: 0x%2.2x, &quot;
++			&quot;high_direction: 0x%2.2x&quot;, trst, srst, high_output,
++			high_direction);
++}
++
+ static int ft2232_execute_runtest(struct jtag_command *cmd)
+ {
+ 	int retval;
+@@ -3172,6 +3208,64 @@ static int flossjtag_init(void)
+ 	return ftx232_dbus_write();
+ }
+ 
++static int xds100v2_init(void)
++{
++	uint8_t  buf[3];
++	uint32_t bytes_written;
++
++	low_output    = 0x3A;
++	low_direction = 0x7B;
++
++	/* initialize low byte for jtag */
++	buf[0] = 0x80;          /* command &quot;set data bits low byte&quot; */
++	buf[1] = low_output;    /* value (TMS = 1,TCK = 0, TDI = 0, nOE = 0) */
++	buf[2] = low_direction; /* dir (output = 1), TCK/TDI/TMS = out, TDO = in, nOE[12]=out, n[ST]srst = out */
++	LOG_DEBUG(&quot;%2.2x %2.2x %2.2x&quot;, buf[0], buf[1], buf[2]);
++
++	if (ft2232_write(buf, sizeof(buf), &amp;bytes_written) != ERROR_OK)
++	{
++		LOG_ERROR(&quot;couldn't initialize FT2232 with 'xds100v2' layout&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	nTRST    = 0x10;
++	nTRSTnOE = 0x0;     /* not output enable for nTRST */
++	nSRST    = 0x00;    /* TODO: SRST is not supported yet */
++	nSRSTnOE = 0x00;    /* no output enable for nSRST */
++
++	high_output    = 0x00;
++	high_direction = 0x59;
++
++	/* initialize high port */
++	buf[0] = 0x82;              /* command &quot;set data bits high byte&quot; */
++	buf[1] = high_output;       /* value */
++	buf[2] = high_direction;    /* all outputs (xRST and xRSTnOE) */
++	LOG_DEBUG(&quot;%2.2x %2.2x %2.2x&quot;, buf[0], buf[1], buf[2]);
++
++	if (ft2232_write(buf, sizeof(buf), &amp;bytes_written) != ERROR_OK)
++	{
++		LOG_ERROR(&quot;couldn't initialize FT2232 with 'xds100v2' layout&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	high_output    = 0x86;
++	high_direction = 0x59;
++
++	/* initialize high port */
++	buf[0] = 0x82;              /* command &quot;set data bits high byte&quot; */
++	buf[1] = high_output;       /* value */
++	buf[2] = high_direction;    /* all outputs (xRST and xRSTnOE) */
++	LOG_DEBUG(&quot;%2.2x %2.2x %2.2x&quot;, buf[0], buf[1], buf[2]);
++
++	if (ft2232_write(buf, sizeof(buf), &amp;bytes_written) != ERROR_OK)
++	{
++		LOG_ERROR(&quot;couldn't initialize FT2232 with 'xds100v2' layout&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	return ERROR_OK;
++}
++
+ static void olimex_jtag_blink(void)
+ {
+ 	/* Olimex ARM-USB-OCD has a LED connected to ACBUS3
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/drivers/ft2232.c |   94 +++++++++++++++++++++++++++++++++++++++++++++
+ 1 files changed, 94 insertions(+), 0 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002500.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-720-g5b34018
+</A></li>
+	<LI>Next message: <A HREF="002502.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-722-g4df93cb
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2501">[ date ]</a>
+              <a href="thread.html#2501">[ thread ]</a>
+              <a href="subject.html#2501">[ subject ]</a>
+              <a href="author.html#2501">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

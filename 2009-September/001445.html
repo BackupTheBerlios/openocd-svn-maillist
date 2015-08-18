@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2662 - trunk/tcl/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2662%20-%20trunk/tcl/target&In-Reply-To=%3C200909021734.n82HYZtl002824%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001444.html">
+   <LINK REL="Next"  HREF="001446.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2662 - trunk/tcl/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2662%20-%20trunk/tcl/target&In-Reply-To=%3C200909021734.n82HYZtl002824%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2662 - trunk/tcl/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep  2 19:34:35 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001444.html">[Openocd-svn] r2661 - in trunk/tcl/chip: atmel/at91 st/stm32
+</A></li>
+        <LI>Next message: <A HREF="001446.html">[Openocd-svn] r2663 - trunk/src/flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1445">[ date ]</a>
+              <a href="thread.html#1445">[ thread ]</a>
+              <a href="subject.html#1445">[ subject ]</a>
+              <a href="author.html#1445">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-09-02 19:34:35 +0200 (Wed, 02 Sep 2009)
+New Revision: 2662
+
+Added:
+   trunk/tcl/target/ar71xx.cfg
+Log:
+David Claffey &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dnclaffey at gmail.com</A>&gt; tested with the Atheros reference design &quot;PB44&quot;
+
+Added: trunk/tcl/target/ar71xx.cfg
+===================================================================
+--- trunk/tcl/target/ar71xx.cfg	2009-09-02 00:17:39 UTC (rev 2661)
++++ trunk/tcl/target/ar71xx.cfg	2009-09-02 17:34:35 UTC (rev 2662)
+@@ -0,0 +1,56 @@
++# Atheros AR71xx MIPS 24Kc SoC.
++# tested on PB44 refererence board
++
++jtag_nsrst_delay 100
++jtag_ntrst_delay 100
++
++reset_config trst_and_srst
++
++set CHIPNAME ar71xx
++
++jtag newtap $CHIPNAME cpu -irlen 5 -ircapture 0x1 -irmask 0x1f -expected-id 1
++
++set TARGETNAME [format &quot;%s.cpu&quot; $CHIPNAME]
++target create $TARGETNAME mips_m4k -endian big -chain-position $TARGETNAME
++
++$TARGETNAME configure -event reset-init {
++	#setup PLL to lowest common denominator 300/300/150 setting
++	mww 0xb8050000 0x000f40a3	# reset val + CPU:3 DDR:3 AHB:0
++	mww 0xb8050000 0x800f40a3	# send to PLL
++
++	#next command will reset for PLL changes to take effect
++	mww 0xb8050008 3		# set reset_switch and clock_switch (resets SoC)
++	reset halt     			# let openocd know that it is in the reset state
++
++	#initialize_pll
++	mww 0xb8050000 0x800f0080	# set sw_update bit
++	mww 0xb8050008 0		# clear reset_switch bit
++	mww 0xb8050000 0x800f00e8       # clr pwrdwn &amp; bypass
++	mww 0xb8050008 1		# set clock_switch bit
++	sleep 1                         # wait for lock
++	
++	# Setup DDR config and flash mapping
++	mww 0xb8000000 0xefbc8cd0       # DDR cfg cdl val (rst: 0x5bfc8d0)
++	mww 0xb8000004 0x8e7156a2       # DDR cfg2 cdl val (rst: 0x80d106a8)
++	
++	mww 0xb8000010 8		# force precharge all banks
++	mww 0xb8000010 1 		# force EMRS update cycle
++	mww 0xb800000c 0                # clr ext. mode register
++	mww 0xb8000010 2 		# force auto refresh all banks
++	mww 0xb8000010 8		# force precharge all banks
++	mww 0xb8000008 0x31             # set DDR mode value CAS=3
++	mww 0xb8000010 1 		# force EMRS update cycle
++	mww 0xb8000014 0x461b           # DDR refresh value
++	mww 0xb8000018 0xffff           # DDR Read Data This Cycle value (16bit: 0xffff)
++	mww 0xb800001c 0x7              # delay added to the DQS line (normal = 7)
++	mww 0xb8000020 0
++	mww 0xb8000024 0
++	mww 0xb8000028 0
++}	
++
++# setup working area somewhere in RAM
++$TARGETNAME configure -work-area-phys 0xa0600000 -work-area-size 0x20000
++
++# serial SPI capable flash
++# flash bank &lt;driver&gt; &lt;base&gt; &lt;size&gt; &lt;chip_width&gt; &lt;bus_width&gt;
++
+
+
+Property changes on: trunk/tcl/target/ar71xx.cfg
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001444.html">[Openocd-svn] r2661 - in trunk/tcl/chip: atmel/at91 st/stm32
+</A></li>
+	<LI>Next message: <A HREF="001446.html">[Openocd-svn] r2663 - trunk/src/flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1445">[ date ]</a>
+              <a href="thread.html#1445">[ thread ]</a>
+              <a href="subject.html#1445">[ subject ]</a>
+              <a href="author.html#1445">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

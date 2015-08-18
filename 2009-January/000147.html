@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1363 - in trunk/src/target: . test
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1363%20-%20in%20trunk/src/target%3A%20.%20test&In-Reply-To=%3C200901281308.n0SD8Buw004018%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000146.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1363 - in trunk/src/target: . test</H1>
+    <B>oharboe at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1363%20-%20in%20trunk/src/target%3A%20.%20test&In-Reply-To=%3C200901281308.n0SD8Buw004018%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1363 - in trunk/src/target: . test">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Wed Jan 28 14:08:11 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000146.html">[Openocd-svn] r1362 - trunk/testing/examples/ledtest-imx31pdk
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#147">[ date ]</a>
+              <a href="thread.html#147">[ thread ]</a>
+              <a href="subject.html#147">[ subject ]</a>
+              <a href="author.html#147">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-01-28 14:08:06 +0100 (Wed, 28 Jan 2009)
+New Revision: 1363
+
+Added:
+   trunk/src/target/test/
+   trunk/src/target/test/syntax1.cfg
+Modified:
+   trunk/src/target/Makefile.am
+   trunk/src/target/target.c
+Log:
+chain position is now required when creating a target
+
+Modified: trunk/src/target/Makefile.am
+===================================================================
+--- trunk/src/target/Makefile.am	2009-01-26 07:38:08 UTC (rev 1362)
++++ trunk/src/target/Makefile.am	2009-01-28 13:08:06 UTC (rev 1363)
+@@ -29,4 +29,7 @@
+ # Various preconfigured boards
+ nobase_dist_pkglib_DATA += $(wildcard $(srcdir)/board/*.cfg)
+ 
++# test files
++nobase_dist_pkglib_DATA += $(wildcard $(srcdir)/test/*.cfg)
++
+ MAINTAINERCLEANFILES = Makefile.in
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-01-26 07:38:08 UTC (rev 1362)
++++ trunk/src/target/target.c	2009-01-28 13:08:06 UTC (rev 1363)
+@@ -3341,6 +3341,8 @@
+ 			break;
+ 		}
+ 	} /* while( goi-&gt;argc ) */
++
++
+ 		/* done - we return */
+ 	return JIM_OK;
+ }
+@@ -3839,6 +3841,13 @@
+ 	/* Do the rest as &quot;configure&quot; options */
+ 	goi-&gt;isconfigure = 1;
+ 	e = target_configure( goi, target);
++
++	if (target-&gt;tap == NULL)
++	{
++		Jim_SetResultString( interp, &quot;-chain-position required when creating target&quot;, -1);
++		e=JIM_ERR;
++	}
++
+ 	if( e != JIM_OK ){
+ 		free( target-&gt;type );
+ 		free( target );
+
+Added: trunk/src/target/test/syntax1.cfg
+===================================================================
+--- trunk/src/target/test/syntax1.cfg	2009-01-26 07:38:08 UTC (rev 1362)
++++ trunk/src/target/test/syntax1.cfg	2009-01-28 13:08:06 UTC (rev 1363)
+@@ -0,0 +1,29 @@
++jtag_nsrst_delay 200
++jtag_ntrst_delay 200
++
++#use combined on interfaces or targets that can't set TRST/SRST separately
++reset_config trst_and_srst srst_pulls_trst
++
++#LPCs need reset pulled while RTCK is low. 0 to activate JTAG, power-on reset is not enough
++jtag_reset 1 1
++jtag_reset 0 0
++
++#jtag scan chain
++#format L IRC IRCM IDCODE (Length, IR Capture, IR Capture Mask, IDCODE)
++jtag newtap lpc2148 one -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id 0x4f1f0f0f
++
++#target configuration
++#daemon_startup reset
++
++set _TARGETNAME [format &quot;%s.cpu&quot; lpc2148]
++target create lpc2148.cpu arm7tdmi -endian little -work-area-size 0x4000 -work-area-phys 0x40000000 -work-area-virt 0 -work-area-backup 0
++
++$_TARGETNAME configure -event reset-init { 
++soft_reset_halt 
++mvb 0xE01FC040 0x01 
++}
++
++
++
++flash bank lpc2000 0x0 0x7d000 0 0 0 lpc2000_v2 14765
++
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000146.html">[Openocd-svn] r1362 - trunk/testing/examples/ledtest-imx31pdk
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#147">[ date ]</a>
+              <a href="thread.html#147">[ thread ]</a>
+              <a href="subject.html#147">[ subject ]</a>
+              <a href="author.html#147">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

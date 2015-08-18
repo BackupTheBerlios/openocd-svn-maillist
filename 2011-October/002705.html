@@ -1,0 +1,172 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-112-g5a7cff2
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-112-g5a7cff2&In-Reply-To=%3Cmailman.190.1331736158.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002704.html">
+   <LINK REL="Next"  HREF="002706.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-112-g5a7cff2</H1>
+    <B>OpenOCD-Gerrit</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-112-g5a7cff2&In-Reply-To=%3Cmailman.190.1331736158.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-112-g5a7cff2">openocd-gerrit at users.sourceforge.net
+       </A><BR>
+    <I>Thu Oct 13 20:54:33 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002704.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-111-g2c6d312
+</A></li>
+        <LI>Next message: <A HREF="002706.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-113-g8cd3832
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2705">[ date ]</a>
+              <a href="thread.html#2705">[ thread ]</a>
+              <a href="subject.html#2705">[ subject ]</a>
+              <a href="author.html#2705">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  5a7cff26a502ecc5dbd027ebb9d28d95782681a8 (commit)
+      from  2c6d312ec9e1aec514e80b7c317ed93d72197ba2 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 5a7cff26a502ecc5dbd027ebb9d28d95782681a8
+Author: Michel Jaouen &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">michel.jaouen at stericsson.com</A>&gt;
+Date:   Mon Oct 3 19:05:59 2011 +0200
+
+    breakpoint : smp software breakpoint issue
+    
+    Change-Id: Iefe78bad71d4fdb38ae412ab8fe2f6282836c22e
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+    Reviewed-on: <A HREF="http://openocd.zylin.com/14">http://openocd.zylin.com/14</A>
+    Tested-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">spen at spen-soft.co.uk</A>&gt;
+    Reviewed-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">spen at spen-soft.co.uk</A>&gt;
+
+diff --git a/src/target/breakpoints.c b/src/target/breakpoints.c
+index e722f67..c0905ed 100644
+--- a/src/target/breakpoints.c
++++ b/src/target/breakpoints.c
+@@ -228,6 +228,9 @@ int breakpoint_add(struct target *target, uint32_t address, uint32_t length, enu
+ 		struct target_list *head;
+ 		struct target *curr;
+ 		head = target-&gt;head;
++		if (type == BKPT_SOFT)
++			return(breakpoint_add_internal(head-&gt;target, address,length, type));
++
+ 		while(head != (struct target_list*)NULL)
+ 		{
+ 			curr = head-&gt;target;
+@@ -312,7 +315,7 @@ static void breakpoint_free(struct target *target, struct breakpoint *breakpoint
+ 	free(breakpoint);
+ }
+ 
+-void breakpoint_remove_internal(struct target *target, uint32_t address)
++int breakpoint_remove_internal(struct target *target, uint32_t address)
+ {
+ 	struct breakpoint *breakpoint = target-&gt;breakpoints;
+ 
+@@ -330,14 +333,18 @@ void breakpoint_remove_internal(struct target *target, uint32_t address)
+ 	if (breakpoint)
+ 	{
+ 		breakpoint_free(target, breakpoint);
++		return 1;
+ 	}
+ 	else
+ 	{
+-		LOG_ERROR(&quot;no breakpoint at address 0x%8.8&quot; PRIx32 &quot; found&quot;, address);
++		if (!target-&gt;smp)
++			LOG_ERROR(&quot;no breakpoint at address 0x%8.8&quot; PRIx32 &quot; found&quot;, address);
++		return 0;
+ 	}
+ }
+ void breakpoint_remove(struct target *target, uint32_t address)
+ {
++	int found = 0;
+ 	if (target-&gt;smp)
+ 	{
+ 		struct target_list *head;
+@@ -346,9 +353,11 @@ void breakpoint_remove(struct target *target, uint32_t address)
+ 		while(head != (struct target_list*)NULL)
+ 		{
+ 			curr = head-&gt;target;
+-			breakpoint_remove_internal(curr, address);
++			found += breakpoint_remove_internal(curr, address);
+ 			head = head-&gt;next;
+ 		}
++		if (found == 0)
++			LOG_ERROR(&quot;no breakpoint at address 0x%8.8&quot; PRIx32 &quot; found&quot;, address);
+ 	}
+ 	else  breakpoint_remove_internal(target, address);
+ }
+diff --git a/src/target/target.c b/src/target/target.c
+index 6a60b4e..e03b398 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -3098,6 +3098,13 @@ COMMAND_HANDLER(handle_bp_command)
+ 	{
+ 		case 0:
+ 			return handle_bp_command_list(CMD_CTX);
++
++		case 2:
++			asid = 0;
++			COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], addr);
++			COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], length);
++			return handle_bp_command_set(CMD_CTX, addr, asid, length, hw);
++
+ 		case 3:
+ 
+ 			if(strcmp(CMD_ARGV[2], &quot;hw&quot;) == 0)
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/breakpoints.c |   15 ++++++++++++---
+ src/target/target.c      |    7 +++++++
+ 2 files changed, 19 insertions(+), 3 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002704.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-111-g2c6d312
+</A></li>
+	<LI>Next message: <A HREF="002706.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-113-g8cd3832
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2705">[ date ]</a>
+              <a href="thread.html#2705">[ thread ]</a>
+              <a href="subject.html#2705">[ subject ]</a>
+              <a href="author.html#2705">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

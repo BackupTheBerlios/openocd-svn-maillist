@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1680 - trunk/src/target/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1680%20-%20trunk/src/target/target&In-Reply-To=%3C200905082027.n48KRJFp005344%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000463.html">
+   <LINK REL="Next"  HREF="000465.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1680 - trunk/src/target/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1680%20-%20trunk/src/target/target&In-Reply-To=%3C200905082027.n48KRJFp005344%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1680 - trunk/src/target/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Fri May  8 22:27:19 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000463.html">[Openocd-svn] r1679 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000465.html">[Openocd-svn] r1681 -	zy1000/trunk/ecoshal/hal/zylin/phi/current/include/pkgconf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#464">[ date ]</a>
+              <a href="thread.html#464">[ thread ]</a>
+              <a href="subject.html#464">[ subject ]</a>
+              <a href="author.html#464">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-05-08 22:27:19 +0200 (Fri, 08 May 2009)
+New Revision: 1680
+
+Added:
+   trunk/src/target/target/ti_dm6446.cfg
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt; DaVinci dm6446
+
+Added: trunk/src/target/target/ti_dm6446.cfg
+===================================================================
+--- trunk/src/target/target/ti_dm6446.cfg	2009-05-08 19:24:40 UTC (rev 1679)
++++ trunk/src/target/target/ti_dm6446.cfg	2009-05-08 20:27:19 UTC (rev 1680)
+@@ -0,0 +1,66 @@
++#
++# Texas Instruments DaVinci family:  TMS320DM6446
++#
++if { [info exists CHIPNAME] } {
++   set  _CHIPNAME $CHIPNAME
++} else {
++   set  _CHIPNAME dm6446
++}
++if { [info exists ENDIAN] } {
++   set  _ENDIAN $ENDIAN
++} else {
++   set  _ENDIAN little
++}
++
++#
++# For now, expect EMU0/EMU1 jumpered LOW (not TI's default) so ARM and ETB
++# are enabled without making ICEpick route ARM and ETB into the JTAG chain.
++#
++# Also note:  when running without RTCK before the PLLs are set up, you
++# may need to slow the JTAG clock down quite a lot (under 2 MHz).
++#
++
++# Subsidiary TAP: ARM ETB11, with scan chain for 4K of ETM trace buffer
++if { [info exists ETB_TAPID ] } {
++   set _ETB_TAPID $ETB_TAPID
++} else {
++   set _ETB_TAPID 0x2b900f0f
++}
++jtag newtap $_CHIPNAME etb -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_ETB_TAPID
++
++# Subsidiary TAP: ARM926ejs with scan chains for ARM Debug, EmbeddedICE-RT, ETM.
++if { [info exists CPU_TAPID ] } {
++   set _CPU_TAPID $CPU_TAPID
++} else {
++   set _CPU_TAPID 0x07926001
++}
++jtag newtap $_CHIPNAME arm -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_CPU_TAPID
++
++# Subsidiary TAP: C64x+ DSP ... NOT CURRENTLY INCLUDED, must add via ICEpick.
++# Documentation for DSP JTAG interfaces evidently needs NDAs.
++
++# Primary TAP: ICEpick (JTAG route controller) and boundary scan
++if { [info exists JRC_TAPID ] } {
++   set _JRC_TAPID $JRC_TAPID
++} else {
++   set _JRC_TAPID 0x0b70002f
++}
++jtag newtap $_CHIPNAME jrc -irlen 6 -ircapture 0x1 -irmask 0x3f -expected-id $_JRC_TAPID
++
++# GDB target:  the ARM, using SRAM1 for scratch.  SRAM0 (also 8K)
++# and the ETB memory (4K) are other options, while trace is unused.
++set _TARGETNAME $_CHIPNAME.arm
++
++target create $_TARGETNAME arm926ejs -endian $_ENDIAN -chain-position $_TARGETNAME
++$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x0000a000 -work-area-size 0x2000 -work-area-backup 0
++
++arm7_9 dbgrq enable
++arm7_9 fast_memory_access enable
++arm7_9 dcc_downloads enable
++
++# trace setup
++# FIXME we ought to be able to say &quot;... config $_TARGETNAME ...&quot;
++# (not &quot;config 0&quot;) facilitating additional targets (e.g. other chips)
++etm config 0 16 normal full etb
++etb config 0 $_CHIPNAME.etb
++
+
+
+Property changes on: trunk/src/target/target/ti_dm6446.cfg
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000463.html">[Openocd-svn] r1679 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000465.html">[Openocd-svn] r1681 -	zy1000/trunk/ecoshal/hal/zylin/phi/current/include/pkgconf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#464">[ date ]</a>
+              <a href="thread.html#464">[ thread ]</a>
+              <a href="subject.html#464">[ subject ]</a>
+              <a href="author.html#464">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

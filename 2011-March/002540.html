@@ -1,0 +1,265 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-794-g9eeb02c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-794-g9eeb02c&In-Reply-To=%3Cmailman.25.1331736153.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002539.html">
+   <LINK REL="Next"  HREF="002541.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-794-g9eeb02c</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-794-g9eeb02c&In-Reply-To=%3Cmailman.25.1331736153.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-794-g9eeb02c">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Tue Mar 15 10:38:46 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002539.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-791-gbb0d11c
+</A></li>
+        <LI>Next message: <A HREF="002541.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-797-g33a17fd
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2540">[ date ]</a>
+              <a href="thread.html#2540">[ thread ]</a>
+              <a href="subject.html#2540">[ subject ]</a>
+              <a href="author.html#2540">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  9eeb02c16510629f2431cf78c0fec00667db4fe6 (commit)
+       via  2321bb3c42b1d47374e51d9e5aa548a37a70b53a (commit)
+       via  4da640563b95939cd3fe9275053ba3181de723c4 (commit)
+      from  bb0d11cba989832c0f27c2e5b664bfdc26b98cc9 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 9eeb02c16510629f2431cf78c0fec00667db4fe6
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Thu Mar 3 10:16:17 2011 +0100
+
+    zy1000: switch to pthread
+    
+    pthreads work under Linux and eCos.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index f972191..71ae6f4 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -45,6 +45,8 @@
+ #include &quot;config.h&quot;
+ #endif
+ 
++#include &lt;pthread.h&gt;
++
+ #include &lt;target/embeddedice.h&gt;
+ #include &lt;jtag/minidriver.h&gt;
+ #include &lt;jtag/interface.h&gt;
+@@ -1026,7 +1028,6 @@ static const struct command_registration zy1000_commands[] = {
+ };
+ 
+ 
+-#if !BUILD_ZY1000_MASTER || BUILD_ECOSBOARD
+ static int tcp_ip = -1;
+ 
+ /* Write large packets if we can */
+@@ -1098,7 +1099,6 @@ static bool readLong(uint32_t *out_data)
+ 	*out_data = data;
+ 	return true;
+ }
+-#endif
+ 
+ enum ZY1000_CMD
+ {
+@@ -1353,14 +1353,15 @@ static void writeShiftValue(uint8_t *data, int bits)
+ 
+ #endif
+ 
+-#if BUILD_ECOSBOARD
+-static char tcpip_stack[2048];
+-static cyg_thread tcpip_thread_object;
+-static cyg_handle_t tcpip_thread_handle;
++#if BUILD_ZY1000_MASTER
++
++pthread_t thread;
+ 
++#if BUILD_ECOSBOARD
+ static char watchdog_stack[2048];
+ static cyg_thread watchdog_thread_object;
+ static cyg_handle_t watchdog_thread_handle;
++#endif
+ 
+ /* Infinite loop peeking &amp; poking */
+ static void tcpipserver(void)
+@@ -1412,7 +1413,7 @@ static void tcpipserver(void)
+ }
+ 
+ 
+-static void tcpip_server(cyg_addrword_t data)
++static void *tcpip_server(void *data)
+ {
+ 	int so_reuseaddr_option = 1;
+ 
+@@ -1474,8 +1475,10 @@ static void tcpip_server(cyg_addrword_t data)
+ 		close(tcp_ip);
+ 
+ 	}
++	/* Never reached actually */
+ 	close(fd);
+ 
++	return NULL;
+ }
+ 
+ #ifdef WATCHDOG_BASE
+@@ -1616,12 +1619,10 @@ int zy1000_init(void)
+ 		return retval;
+ 	zy1000_speed(jtag_speed_var);
+ 
++#if BUILD_ZY1000_MASTER
++	pthread_create(&amp;thread, NULL, tcpip_server, NULL);
+ 
+ #if BUILD_ECOSBOARD
+-	cyg_thread_create(1, tcpip_server, (cyg_addrword_t) 0, &quot;tcip/ip server&quot;,
+-			(void *) tcpip_stack, sizeof(tcpip_stack),
+-			&amp;tcpip_thread_handle, &amp;tcpip_thread_object);
+-	cyg_thread_resume(tcpip_thread_handle);
+ #ifdef WATCHDOG_BASE
+ 	cyg_thread_create(1, watchdog_server, (cyg_addrword_t) 0, &quot;watchdog tcip/ip server&quot;,
+ 			(void *) watchdog_stack, sizeof(watchdog_stack),
+@@ -1629,6 +1630,7 @@ int zy1000_init(void)
+ 	cyg_thread_resume(watchdog_thread_handle);
+ #endif
+ #endif
++#endif
+ 
+ 	return ERROR_OK;
+ }
+
+commit 2321bb3c42b1d47374e51d9e5aa548a37a70b53a
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Thu Mar 3 09:22:25 2011 +0100
+
+    zy1000: fix JTAG over TCP/IP performance problem
+    
+    only flush write queue just before waiting for more data,
+    rather than when fetching more data from the buffer.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index a8f7ffc..f972191 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -1063,14 +1063,6 @@ static bool writeLong(uint32_t l)
+ 
+ static bool readLong(uint32_t *out_data)
+ {
+-	if (out_pos &gt; 0)
+-	{
+-		if (!flush_writes())
+-		{
+-			return false;
+-		}
+-	}
+-
+ 	uint32_t data = 0;
+ 	int i;
+ 	for (i = 0; i &lt; 4; i++)
+@@ -1078,6 +1070,17 @@ static bool readLong(uint32_t *out_data)
+ 		uint8_t c;
+ 		if (in_pos == in_write)
+ 		{
++			/* If we have some data that we can send, send them before
++			 * we wait for more data
++			 */
++			if (out_pos &gt; 0)
++			{
++				if (!flush_writes())
++				{
++					return false;
++				}
++			}
++
+ 			/* read more */
+ 			int t;
+ 			t = read(tcp_ip, in_buffer, sizeof(in_buffer));
+
+commit 4da640563b95939cd3fe9275053ba3181de723c4
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Thu Mar 3 09:16:11 2011 +0100
+
+    zy1000: fix incorrect usage of jtag_sleep()
+    
+    Found by inspection: the correct thing in the context is to use
+    usleep() rather than jtag_sleep(). Relates to JTAG over TCP/IP
+    only.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index 3344e0e..a8f7ffc 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -1393,7 +1393,8 @@ static void tcpipserver(void)
+ 				uint32_t data;
+ 				if (!readLong(&amp;data))
+ 					return;
+-				jtag_sleep(data);
++				/* Wait for some us */
++				usleep(data);
+ 				break;
+ 			}
+ 			case ZY1000_CMD_WAITIDLE:
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/zy1000/zy1000.c |   46 ++++++++++++++++++++++++++--------------------
+ 1 files changed, 26 insertions(+), 20 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002539.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-791-gbb0d11c
+</A></li>
+	<LI>Next message: <A HREF="002541.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-797-g33a17fd
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2540">[ date ]</a>
+              <a href="thread.html#2540">[ thread ]</a>
+              <a href="subject.html#2540">[ subject ]</a>
+              <a href="author.html#2540">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

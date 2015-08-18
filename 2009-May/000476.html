@@ -1,0 +1,268 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1692 - trunk/src/jtag zy1000/trunk/build/include
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1692%20-%20trunk/src/jtag%20zy1000/trunk/build/include&In-Reply-To=%3C200905101948.n4AJmBuK023342%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000475.html">
+   <LINK REL="Next"  HREF="000477.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1692 - trunk/src/jtag zy1000/trunk/build/include</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1692%20-%20trunk/src/jtag%20zy1000/trunk/build/include&In-Reply-To=%3C200905101948.n4AJmBuK023342%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1692 - trunk/src/jtag zy1000/trunk/build/include">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Sun May 10 21:48:11 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000475.html">[Openocd-svn] r1691 - in trunk/src: . helper
+</A></li>
+        <LI>Next message: <A HREF="000477.html">[Openocd-svn] r1693 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#476">[ date ]</a>
+              <a href="thread.html#476">[ thread ]</a>
+              <a href="subject.html#476">[ subject ]</a>
+              <a href="author.html#476">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-05-10 21:48:09 +0200 (Sun, 10 May 2009)
+New Revision: 1692
+
+Modified:
+   trunk/src/jtag/jtag.c
+   trunk/src/jtag/jtag.h
+   zy1000/trunk/build/include/jtag_minidriver.h
+Log:
+Wrote up post processing JTAG API. Not used yet, but reference implementation will be used in subsequent explanations of new scheme + patches to use it.
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-05-10 19:44:38 UTC (rev 1691)
++++ trunk/src/jtag/jtag.c	2009-05-10 19:48:09 UTC (rev 1692)
+@@ -76,6 +76,24 @@
+ int jtag_trst = 0;
+ int jtag_srst = 0;
+ 
++#ifndef HAVE_JTAG_MINIDRIVER_H
++struct jtag_callback_entry
++{
++	struct jtag_callback_entry *next;
++
++	jtag_callback_t callback;
++	u8 *in;
++	jtag_callback_data_t data1;
++	jtag_callback_data_t data2;
++
++};
++
++
++static struct jtag_callback_entry *jtag_callback_queue_head = NULL;
++static struct jtag_callback_entry *jtag_callback_queue_tail = NULL;
++#endif
++
++
+ jtag_command_t *jtag_command_queue = NULL;
+ jtag_command_t **last_comand_pointer = &amp;jtag_command_queue;
+ static jtag_tap_t *jtag_all_taps = NULL;
+@@ -1434,8 +1452,47 @@
+ 	return type;
+ }
+ 
+-int MINIDRIVER(interface_jtag_execute_queue)(void)
++
++#ifndef HAVE_JTAG_MINIDRIVER_H
++/* add callback to end of queue */
++void jtag_add_callback3(jtag_callback_t callback, u8 *in, jtag_callback_data_t data1, jtag_callback_data_t data2)
+ {
++	struct jtag_callback_entry *entry=cmd_queue_alloc(sizeof(struct jtag_callback_entry));
++
++	entry-&gt;next=NULL;
++	entry-&gt;callback=callback;
++	entry-&gt;in=in;
++	entry-&gt;data1=data1;
++	entry-&gt;data2=data2;
++
++	if (jtag_callback_queue_head==NULL)
++	{
++		jtag_callback_queue_head=entry;
++		jtag_callback_queue_tail=entry;
++	} else
++	{
++		jtag_callback_queue_tail-&gt;next=entry;
++		jtag_callback_queue_tail=entry;
++	}
++}
++
++
++static int jtag_convert_to_callback3(u8 *in, jtag_callback_data_t data1, jtag_callback_data_t data2)
++{
++	((jtag_callback1_t)data1)(in);
++	return ERROR_OK;
++}
++
++void jtag_add_callback(jtag_callback1_t callback, u8 *in)
++{
++	jtag_add_callback3(jtag_convert_to_callback3, in, (jtag_callback_data_t)callback, 0);
++}
++#endif
++
++#ifndef HAVE_JTAG_MINIDRIVER_H
++
++int interface_jtag_execute_queue(void)
++{
+ 	int retval;
+ 
+ 	if (jtag==NULL)
+@@ -1446,13 +1503,28 @@
+ 
+ 	retval = jtag-&gt;execute_queue();
+ 
++	if (retval == ERROR_OK)
++	{
++		struct jtag_callback_entry *entry;
++		for (entry=jtag_callback_queue_head; entry!=NULL; entry=entry-&gt;next)
++		{
++			retval=entry-&gt;callback(entry-&gt;in, entry-&gt;data1, entry-&gt;data2);
++			if (retval!=ERROR_OK)
++				break;
++		}
++	}
++
+ 	cmd_queue_free();
+ 
++	jtag_callback_queue_head = NULL;
++	jtag_callback_queue_tail = NULL;
++
+ 	jtag_command_queue = NULL;
+ 	last_comand_pointer = &amp;jtag_command_queue;
+ 
+ 	return retval;
+ }
++#endif
+ 
+ void jtag_execute_queue_noclear(void)
+ {
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-05-10 19:44:38 UTC (rev 1691)
++++ trunk/src/jtag/jtag.h	2009-05-10 19:48:09 UTC (rev 1692)
+@@ -568,6 +568,70 @@
+ extern void jtag_add_plain_dr_scan(int num_fields, scan_field_t* fields, tap_state_t endstate);
+ extern int  interface_jtag_add_plain_dr_scan(int num_fields, scan_field_t* fields, tap_state_t endstate);
+ 
++
++/* Simplest/typical callback - do some conversion on the data clocked in.
++ * This callback is for such conversion that can not fail.
++ * For conversion types or checks that can
++ * fail, use the jtag_callback_t variant */
++typedef void (*jtag_callback1_t)(u8 *in);
++
++#ifndef HAVE_JTAG_MINIDRIVER_H
++/* A simpler version of jtag_add_callback3 */
++extern void jtag_add_callback(jtag_callback1_t, u8 *in);
++#else
++/* implemented by minidriver */
++#endif
++
++/* This type can store an integer safely by a normal cast on 64 and
++ * 32 bit systems. */
++typedef void *jtag_callback_data_t;
++
++/* The generic callback mechanism.
++ *
++ * The callback is invoked with three arguments. The first argument is
++ * the pointer to the data clocked in.
++ */
++typedef int (*jtag_callback_t)(u8 *in, jtag_callback_data_t data1, jtag_callback_data_t data2);
++
++
++/* This callback can be executed immediately the queue has been flushed. Note that
++ * the JTAG queue can either be executed synchronously or asynchronously. Typically
++ * for USB the queue is executed asynchronously. For low latency interfaces, the
++ * queue may be executed synchronously.
++ *
++ * These callbacks are typically executed *after* the *entire* JTAG queue has been
++ * executed for e.g. USB interfaces.
++ *
++ * The callbacks are guaranteeed to be invoked in the order that they were queued.
++ *
++ * The strange name is due to C's lack of overloading using function arguments
++ *
++ * The callback mechansim is very general and does not really make any assumptions
++ * about what the callback does and what the arguments are.
++ *
++ * in - typically used to point to the data to operate on. More often than not
++ * this will be the data clocked in during a shift operation
++ *
++ * data1 - an integer that is big enough to be used either as an 'int' or
++ * cast to/from a pointer
++ *
++ * data2 - an integer that is big enough to be used either as an 'int' or
++ * cast to/from a pointer
++ *
++ * Why stop at 'data2' for arguments? Somewhat historical reasons. This is
++ * sufficient to implement the jtag_check_value_mask(), besides the
++ * line is best drawn somewhere...
++ *
++ * If the execution of the queue fails before the callbacks, then the
++ * callbacks may or may not be invoked depending on driver implementation.
++ */
++#ifndef HAVE_JTAG_MINIDRIVER_H
++extern void jtag_add_callback3(jtag_callback_t, u8 *in, jtag_callback_data_t data1, jtag_callback_data_t data2);
++#else
++/* implemented by minidriver */
++#endif
++
++
+ /* run a TAP_RESET reset. End state is TAP_RESET, regardless
+  * of start state.
+  */
+
+Modified: zy1000/trunk/build/include/jtag_minidriver.h
+===================================================================
+--- zy1000/trunk/build/include/jtag_minidriver.h	2009-05-10 19:44:38 UTC (rev 1691)
++++ zy1000/trunk/build/include/jtag_minidriver.h	2009-05-10 19:48:09 UTC (rev 1692)
+@@ -208,3 +208,6 @@
+ 	}
+ }
+ 
++#define jtag_add_callback(callback, in) callback(in)
++
++#define jtag_add_callback3(callback, in, data1, data2) jtag_set_error(callback(in, data1, data2))
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000475.html">[Openocd-svn] r1691 - in trunk/src: . helper
+</A></li>
+	<LI>Next message: <A HREF="000477.html">[Openocd-svn] r1693 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#476">[ date ]</a>
+              <a href="thread.html#476">[ thread ]</a>
+              <a href="subject.html#476">[ subject ]</a>
+              <a href="author.html#476">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

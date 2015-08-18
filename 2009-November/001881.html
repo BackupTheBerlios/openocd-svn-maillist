@@ -1,0 +1,2832 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-701-g070259c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-701-g070259c&In-Reply-To=%3CE1NEUSz-00017d-41%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001880.html">
+   <LINK REL="Next"  HREF="001882.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-701-g070259c</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-701-g070259c&In-Reply-To=%3CE1NEUSz-00017d-41%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-701-g070259c">zwelch at users.sourceforge.net
+       </A><BR>
+    <I>Sat Nov 28 22:04:28 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001880.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-694-g2da2864
+</A></li>
+        <LI>Next message: <A HREF="001882.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-703-g01f9313
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1881">[ date ]</a>
+              <a href="thread.html#1881">[ thread ]</a>
+              <a href="subject.html#1881">[ subject ]</a>
+              <a href="author.html#1881">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  070259cadbb0f142f6546c55f8044199c6aea9b9 (commit)
+       via  cb8d567b7524b96d034344a2027e33d7f44f48ec (commit)
+       via  f8a62fb9c62f165696cc34eeb23b2bc1f6a79000 (commit)
+       via  7124be824792eee3f973eb2cf7e1c851cbd2a923 (commit)
+       via  4ff5eda576d75ee57ba448d2136867c791d215a8 (commit)
+       via  0377e5b54d6db196cfeeaaa70824c581317e2290 (commit)
+       via  c4992c6d863d0ead91d84d19bbfe1643d720b205 (commit)
+      from  2da2864632c281a2523f924b406e532d610857a6 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 070259cadbb0f142f6546c55f8044199c6aea9b9
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Wed Nov 25 16:36:46 2009 -0800
+
+    explode tcl_target_func into many handlers
+    
+    Eliminate the monolithic tcl_target_func by registering each of its
+    commands using the new chained command registration mechanism.
+    
+    Also chains the target's commands under the CPU command, though these
+    may not work properly without some further modification.
+
+diff --git a/src/target/target.c b/src/target/target.c
+index d9552a5..3a84040 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -3366,7 +3366,7 @@ static int target_array2mem(Jim_Interp *interp, struct target *target, int argc,
+ 	 * argv[4] = count to write
+ 	 */
+ 	if (argc != 4) {
+-		Jim_WrongNumArgs(interp, 1, argv, &quot;varname width addr nelems&quot;);
++		Jim_WrongNumArgs(interp, 0, argv, &quot;varname width addr nelems&quot;);
+ 		return JIM_ERR;
+ 	}
+ 	varname = Jim_GetString(argv[0], &amp;len);
+@@ -3849,422 +3849,537 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 	return JIM_OK;
+ }
+ 
+-/** this is the 'tcl' handler for the target specific command */
+-static int tcl_target_func(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++static int jim_target_configure(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+ 	Jim_GetOptInfo goi;
+-	jim_wide a,b,c;
+-	int x,y,z;
+-	uint8_t  target_buf[32];
+-	Jim_Nvp *n;
+-	struct target *target;
+-	struct command_context *cmd_ctx;
+-	int e;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
++	goi.isconfigure = strcmp(Jim_GetString(argv[0], NULL), &quot;configure&quot;) == 0;
++	int need_args = 1 + goi.isconfigure;
++	if (goi.argc &lt; need_args)
++	{
++		Jim_WrongNumArgs(goi.interp, goi.argc, goi.argv,
++			goi.isconfigure
++				? &quot;missing: -option VALUE ...&quot;
++				: &quot;missing: -option ...&quot;);
++		return JIM_ERR;
++	}
++	struct target *target = Jim_CmdPrivData(goi.interp);
++	return target_configure(&amp;goi, target);
++}
+ 
+-	enum {
+-		TS_CMD_CONFIGURE,
+-		TS_CMD_CGET,
+-
+-		TS_CMD_MWW, TS_CMD_MWH, TS_CMD_MWB,
+-		TS_CMD_MDW, TS_CMD_MDH, TS_CMD_MDB,
+-		TS_CMD_MRW, TS_CMD_MRH, TS_CMD_MRB,
+-		TS_CMD_MEM2ARRAY, TS_CMD_ARRAY2MEM,
+-		TS_CMD_EXAMINE,
+-		TS_CMD_POLL,
+-		TS_CMD_RESET,
+-		TS_CMD_HALT,
+-		TS_CMD_WAITSTATE,
+-		TS_CMD_EVENTLIST,
+-		TS_CMD_CURSTATE,
+-		TS_CMD_INVOKE_EVENT,
+-	};
++static int jim_target_mw(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	const char *cmd_name = Jim_GetString(argv[0], NULL);
+ 
+-	static const Jim_Nvp target_options[] = {
+-		{ .name = &quot;configure&quot;, .value = TS_CMD_CONFIGURE },
+-		{ .name = &quot;cget&quot;, .value = TS_CMD_CGET },
+-		{ .name = &quot;mww&quot;, .value = TS_CMD_MWW },
+-		{ .name = &quot;mwh&quot;, .value = TS_CMD_MWH },
+-		{ .name = &quot;mwb&quot;, .value = TS_CMD_MWB },
+-		{ .name = &quot;mdw&quot;, .value = TS_CMD_MDW },
+-		{ .name = &quot;mdh&quot;, .value = TS_CMD_MDH },
+-		{ .name = &quot;mdb&quot;, .value = TS_CMD_MDB },
+-		{ .name = &quot;mem2array&quot;, .value = TS_CMD_MEM2ARRAY },
+-		{ .name = &quot;array2mem&quot;, .value = TS_CMD_ARRAY2MEM },
+-		{ .name = &quot;eventlist&quot;, .value = TS_CMD_EVENTLIST },
+-		{ .name = &quot;curstate&quot;,  .value = TS_CMD_CURSTATE },
+-
+-		{ .name = &quot;arp_examine&quot;, .value = TS_CMD_EXAMINE },
+-		{ .name = &quot;arp_poll&quot;, .value = TS_CMD_POLL },
+-		{ .name = &quot;arp_reset&quot;, .value = TS_CMD_RESET },
+-		{ .name = &quot;arp_halt&quot;, .value = TS_CMD_HALT },
+-		{ .name = &quot;arp_waitstate&quot;, .value = TS_CMD_WAITSTATE },
+-		{ .name = &quot;invoke-event&quot;, .value = TS_CMD_INVOKE_EVENT },
+-
+-		{ .name = NULL, .value = -1 },
+-	};
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
+ 
+-	/* go past the &quot;command&quot; */
+-	Jim_GetOpt_Setup(&amp;goi, interp, argc-1, argv + 1);
++	if (goi.argc != 2 &amp;&amp; goi.argc != 3)
++	{
++		Jim_SetResult_sprintf(goi.interp,
++				&quot;usage: %s &lt;address&gt; &lt;data&gt; [&lt;count&gt;]&quot;, cmd_name);
++		return JIM_ERR;
++	}
+ 
+-	target = Jim_CmdPrivData(goi.interp);
+-	cmd_ctx = Jim_GetAssocData(goi.interp, &quot;context&quot;);
++	jim_wide a;
++	int e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
++	if (e != JIM_OK)
++		return e;
+ 
+-	/* commands here are in an NVP table */
+-	e = Jim_GetOpt_Nvp(&amp;goi, target_options, &amp;n);
+-	if (e != JIM_OK) {
+-		Jim_GetOpt_NvpUnknown(&amp;goi, target_options, 0);
++	jim_wide b;
++	e = Jim_GetOpt_Wide(&amp;goi, &amp;b);
++	if (e != JIM_OK)
+ 		return e;
++
++	jim_wide c = 1;
++	if (goi.argc == 3)
++	{
++		e = Jim_GetOpt_Wide(&amp;goi, &amp;c);
++		if (e != JIM_OK)
++			return e;
+ 	}
+-	/* Assume blank result */
+-	Jim_SetEmptyResult(goi.interp);
+ 
+-	switch (n-&gt;value) {
+-	case TS_CMD_CONFIGURE:
+-		if (goi.argc &lt; 2) {
+-			Jim_WrongNumArgs(goi.interp, goi.argc, goi.argv, &quot;missing: -option VALUE ...&quot;);
+-			return JIM_ERR;
+-		}
+-		goi.isconfigure = 1;
+-		return target_configure(&amp;goi, target);
+-	case TS_CMD_CGET:
+-		// some things take params
+-		if (goi.argc &lt; 1) {
+-			Jim_WrongNumArgs(goi.interp, 0, goi.argv, &quot;missing: ?-option?&quot;);
+-			return JIM_ERR;
+-		}
+-		goi.isconfigure = 0;
+-		return target_configure(&amp;goi, target);
+-		break;
+-	case TS_CMD_MWW:
+-	case TS_CMD_MWH:
+-	case TS_CMD_MWB:
+-		/* argv[0] = cmd
+-		 * argv[1] = address
+-		 * argv[2] = data
+-		 * argv[3] = optional count.
+-		 */
++	struct target *target = Jim_CmdPrivData(goi.interp);
++	uint8_t  target_buf[32];
++	if (strcasecmp(cmd_name, &quot;mww&quot;) == 0) {
++		target_buffer_set_u32(target, target_buf, b);
++		b = 4;
++	}
++	else if (strcasecmp(cmd_name, &quot;mwh&quot;) == 0) {
++		target_buffer_set_u16(target, target_buf, b);
++		b = 2;
++	}
++	else if (strcasecmp(cmd_name, &quot;mwb&quot;) == 0) {
++		target_buffer_set_u8(target, target_buf, b);
++		b = 1;
++	} else {
++		LOG_ERROR(&quot;command '%s' unknown: &quot;, cmd_name);
++		return JIM_ERR;
++	}
+ 
+-		if ((goi.argc == 2) || (goi.argc == 3)) {
+-			/* all is well */
+-		} else {
+-		mwx_error:
+-			Jim_SetResult_sprintf(goi.interp, &quot;expected: %s ADDR DATA [COUNT]&quot;, n-&gt;name);
++	for (jim_wide x = 0; x &lt; c; x++)
++	{
++		e = target_write_memory(target, a, b, 1, target_buf);
++		if (e != ERROR_OK)
++		{
++			Jim_SetResult_sprintf(interp,
++					&quot;Error writing @ 0x%08x: %d\n&quot;, (int)(a), e);
+ 			return JIM_ERR;
+ 		}
++		/* b = width */
++		a = a + b;
++	}
++	return JIM_OK;
++}
+ 
+-		e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
+-		if (e != JIM_OK) {
+-			goto mwx_error;
+-		}
++static int jim_target_md(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	const char *cmd_name = Jim_GetString(argv[0], NULL);
+ 
+-		e = Jim_GetOpt_Wide(&amp;goi, &amp;b);
+-		if (e != JIM_OK) {
+-			goto mwx_error;
+-		}
+-		if (goi.argc == 3) {
+-			e = Jim_GetOpt_Wide(&amp;goi, &amp;c);
+-			if (e != JIM_OK) {
+-				goto mwx_error;
+-			}
+-		} else {
+-			c = 1;
+-		}
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
+ 
+-		switch (n-&gt;value) {
+-		case TS_CMD_MWW:
+-			target_buffer_set_u32(target, target_buf, b);
+-			b = 4;
+-			break;
+-		case TS_CMD_MWH:
+-			target_buffer_set_u16(target, target_buf, b);
+-			b = 2;
+-			break;
+-		case TS_CMD_MWB:
+-			target_buffer_set_u8(target, target_buf, b);
+-			b = 1;
+-			break;
+-		}
+-		for (x = 0 ; x &lt; c ; x++) {
+-			e = target_write_memory(target, a, b, 1, target_buf);
+-			if (e != ERROR_OK) {
+-				Jim_SetResult_sprintf(interp, &quot;Error writing @ 0x%08x: %d\n&quot;, (int)(a), e);
+-				return JIM_ERR;
+-			}
+-			/* b = width */
+-			a = a + b;
+-		}
+-		return JIM_OK;
+-		break;
++	if ((goi.argc == 2) || (goi.argc == 3))
++	{
++		Jim_SetResult_sprintf(goi.interp,
++				&quot;usage: %s &lt;address&gt; [&lt;count&gt;]&quot;, cmd_name);
++		return JIM_ERR;
++	}
+ 
+-		/* display */
+-	case TS_CMD_MDW:
+-	case TS_CMD_MDH:
+-	case TS_CMD_MDB:
+-		/* argv[0] = command
+-		 * argv[1] = address
+-		 * argv[2] = optional count
+-		 */
+-		if ((goi.argc == 2) || (goi.argc == 3)) {
+-			Jim_SetResult_sprintf(goi.interp, &quot;expected: %s ADDR [COUNT]&quot;, n-&gt;name);
+-			return JIM_ERR;
+-		}
+-		e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
++	jim_wide a;
++	int e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
++	if (e != JIM_OK) {
++		return JIM_ERR;
++	}
++	jim_wide c;
++	if (goi.argc) {
++		e = Jim_GetOpt_Wide(&amp;goi, &amp;c);
+ 		if (e != JIM_OK) {
+ 			return JIM_ERR;
+ 		}
+-		if (goi.argc) {
+-			e = Jim_GetOpt_Wide(&amp;goi, &amp;c);
+-			if (e != JIM_OK) {
+-				return JIM_ERR;
+-			}
+-		} else {
+-			c = 1;
++	} else {
++		c = 1;
++	}
++	jim_wide b = 1; /* shut up gcc */
++	if (strcasecmp(cmd_name, &quot;mdw&quot;) == 0)
++		b = 4;
++	else if (strcasecmp(cmd_name, &quot;mdh&quot;) == 0)
++		b = 2;
++	else if (strcasecmp(cmd_name, &quot;mdb&quot;) == 0)
++		b = 1;
++	else {
++		LOG_ERROR(&quot;command '%s' unknown: &quot;, cmd_name);
++		return JIM_ERR;
++	}
++
++	/* convert count to &quot;bytes&quot; */
++	c = c * b;
++
++	struct target *target = Jim_CmdPrivData(goi.interp);
++	uint8_t  target_buf[32];
++	jim_wide x, y, z;
++	while (c &gt; 0) {
++		y = c;
++		if (y &gt; 16) {
++			y = 16;
+ 		}
+-		b = 1; /* shut up gcc */
+-		switch (n-&gt;value) {
+-		case TS_CMD_MDW:
+-			b =  4;
+-			break;
+-		case TS_CMD_MDH:
+-			b = 2;
+-			break;
+-		case TS_CMD_MDB:
+-			b = 1;
+-			break;
++		e = target_read_memory(target, a, b, y / b, target_buf);
++		if (e != ERROR_OK) {
++			Jim_SetResult_sprintf(interp, &quot;error reading target @ 0x%08lx&quot;, (int)(a));
++			return JIM_ERR;
+ 		}
+ 
+-		/* convert to &quot;bytes&quot; */
+-		c = c * b;
+-		/* count is now in 'BYTES' */
+-		while (c &gt; 0) {
+-			y = c;
+-			if (y &gt; 16) {
+-				y = 16;
++		Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;0x%08x &quot;, (int)(a));
++		switch (b) {
++		case 4:
++			for (x = 0; x &lt; 16 &amp;&amp; x &lt; y; x += 4)
++			{
++				z = target_buffer_get_u32(target, &amp;(target_buf[ x * 4 ]));
++				Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;%08x &quot;, (int)(z));
+ 			}
+-			e = target_read_memory(target, a, b, y / b, target_buf);
+-			if (e != ERROR_OK) {
+-				Jim_SetResult_sprintf(interp, &quot;error reading target @ 0x%08lx&quot;, (int)(a));
+-				return JIM_ERR;
++			for (; (x &lt; 16) ; x += 4) {
++				Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;         &quot;);
+ 			}
+-
+-			Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;0x%08x &quot;, (int)(a));
+-			switch (b) {
+-			case 4:
+-				for (x = 0 ; (x &lt; 16) &amp;&amp; (x &lt; y) ; x += 4) {
+-					z = target_buffer_get_u32(target, &amp;(target_buf[ x * 4 ]));
+-					Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;%08x &quot;, (int)(z));
+-				}
+-				for (; (x &lt; 16) ; x += 4) {
+-					Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;         &quot;);
+-				}
+-				break;
+-			case 2:
+-				for (x = 0 ; (x &lt; 16) &amp;&amp; (x &lt; y) ; x += 2) {
+-					z = target_buffer_get_u16(target, &amp;(target_buf[ x * 2 ]));
+-					Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;%04x &quot;, (int)(z));
+-				}
+-				for (; (x &lt; 16) ; x += 2) {
+-					Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;     &quot;);
+-				}
+-				break;
+-			case 1:
+-			default:
+-				for (x = 0 ; (x &lt; 16) &amp;&amp; (x &lt; y) ; x += 1) {
+-					z = target_buffer_get_u8(target, &amp;(target_buf[ x * 4 ]));
+-					Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;%02x &quot;, (int)(z));
+-				}
+-				for (; (x &lt; 16) ; x += 1) {
+-					Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;   &quot;);
+-				}
+-				break;
++			break;
++		case 2:
++			for (x = 0; x &lt; 16 &amp;&amp; x &lt; y; x += 2)
++			{
++				z = target_buffer_get_u16(target, &amp;(target_buf[ x * 2 ]));
++				Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;%04x &quot;, (int)(z));
+ 			}
+-			/* ascii-ify the bytes */
+-			for (x = 0 ; x &lt; y ; x++) {
+-				if ((target_buf[x] &gt;= 0x20) &amp;&amp;
+-					(target_buf[x] &lt;= 0x7e)) {
+-					/* good */
+-				} else {
+-					/* smack it */
+-					target_buf[x] = '.';
+-				}
++			for (; (x &lt; 16) ; x += 2) {
++				Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;     &quot;);
+ 			}
+-			/* space pad  */
+-			while (x &lt; 16) {
+-				target_buf[x] = ' ';
+-				x++;
++			break;
++		case 1:
++		default:
++			for (x = 0 ; (x &lt; 16) &amp;&amp; (x &lt; y) ; x += 1) {
++				z = target_buffer_get_u8(target, &amp;(target_buf[ x * 4 ]));
++				Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;%02x &quot;, (int)(z));
+ 			}
+-			/* terminate */
+-			target_buf[16] = 0;
+-			/* print - with a newline */
+-			Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;%s\n&quot;, target_buf);
+-			/* NEXT... */
+-			c -= 16;
+-			a += 16;
+-		}
+-		return JIM_OK;
+-	case TS_CMD_MEM2ARRAY:
+-		return target_mem2array(goi.interp, target, goi.argc, goi.argv);
+-		break;
+-	case TS_CMD_ARRAY2MEM:
+-		return target_array2mem(goi.interp, target, goi.argc, goi.argv);
+-		break;
+-	case TS_CMD_EXAMINE:
+-		if (goi.argc) {
+-			Jim_WrongNumArgs(goi.interp, 2, argv, &quot;[no parameters]&quot;);
+-			return JIM_ERR;
+-		}
+-		if (!target-&gt;tap-&gt;enabled)
+-			goto err_tap_disabled;
+-		e = target-&gt;type-&gt;examine(target);
+-		if (e != ERROR_OK) {
+-			Jim_SetResult_sprintf(interp, &quot;examine-fails: %d&quot;, e);
+-			return JIM_ERR;
+-		}
+-		return JIM_OK;
+-	case TS_CMD_POLL:
+-		if (goi.argc) {
+-			Jim_WrongNumArgs(goi.interp, 2, argv, &quot;[no parameters]&quot;);
+-			return JIM_ERR;
+-		}
+-		if (!target-&gt;tap-&gt;enabled)
+-			goto err_tap_disabled;
+-		if (!(target_was_examined(target))) {
+-			e = ERROR_TARGET_NOT_EXAMINED;
+-		} else {
+-			e = target-&gt;type-&gt;poll(target);
+-		}
+-		if (e != ERROR_OK) {
+-			Jim_SetResult_sprintf(interp, &quot;poll-fails: %d&quot;, e);
+-			return JIM_ERR;
+-		} else {
+-			return JIM_OK;
+-		}
+-		break;
+-	case TS_CMD_RESET:
+-		if (goi.argc != 2) {
+-			Jim_WrongNumArgs(interp, 2, argv,
+-					&quot;([tT]|[fF]|assert|deassert) BOOL&quot;);
+-			return JIM_ERR;
+-		}
+-		e = Jim_GetOpt_Nvp(&amp;goi, nvp_assert, &amp;n);
+-		if (e != JIM_OK) {
+-			Jim_GetOpt_NvpUnknown(&amp;goi, nvp_assert, 1);
+-			return e;
+-		}
+-		/* the halt or not param */
+-		e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
+-		if (e != JIM_OK) {
+-			return e;
+-		}
+-		if (!target-&gt;tap-&gt;enabled)
+-			goto err_tap_disabled;
+-		if (!target-&gt;type-&gt;assert_reset
+-				|| !target-&gt;type-&gt;deassert_reset) {
+-			Jim_SetResult_sprintf(interp,
+-					&quot;No target-specific reset for %s&quot;,
+-					target_name(target));
+-			return JIM_ERR;
+-		}
+-		/* determine if we should halt or not. */
+-		target-&gt;reset_halt = !!a;
+-		/* When this happens - all workareas are invalid. */
+-		target_free_all_working_areas_restore(target, 0);
+-
+-		/* do the assert */
+-		if (n-&gt;value == NVP_ASSERT) {
+-			e = target-&gt;type-&gt;assert_reset(target);
+-		} else {
+-			e = target-&gt;type-&gt;deassert_reset(target);
+-		}
+-		return (e == ERROR_OK) ? JIM_OK : JIM_ERR;
+-	case TS_CMD_HALT:
+-		if (goi.argc) {
+-			Jim_WrongNumArgs(goi.interp, 0, argv, &quot;halt [no parameters]&quot;);
+-			return JIM_ERR;
+-		}
+-		if (!target-&gt;tap-&gt;enabled)
+-			goto err_tap_disabled;
+-		e = target-&gt;type-&gt;halt(target);
+-		return (e == ERROR_OK) ? JIM_OK : JIM_ERR;
+-	case TS_CMD_WAITSTATE:
+-		/* params:  &lt;name&gt;  statename timeoutmsecs */
+-		if (goi.argc != 2) {
+-			Jim_SetResult_sprintf(goi.interp, &quot;%s STATENAME TIMEOUTMSECS&quot;, n-&gt;name);
+-			return JIM_ERR;
+-		}
+-		e = Jim_GetOpt_Nvp(&amp;goi, nvp_target_state, &amp;n);
+-		if (e != JIM_OK) {
+-			Jim_GetOpt_NvpUnknown(&amp;goi, nvp_target_state,1);
+-			return e;
+-		}
+-		e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
+-		if (e != JIM_OK) {
+-			return e;
+-		}
+-		if (!target-&gt;tap-&gt;enabled)
+-			goto err_tap_disabled;
+-		e = target_wait_state(target, n-&gt;value, a);
+-		if (e != ERROR_OK) {
+-			Jim_SetResult_sprintf(goi.interp,
+-					&quot;target: %s wait %s fails (%d) %s&quot;,
+-					target_name(target), n-&gt;name,
+-					e, target_strerror_safe(e));
+-			return JIM_ERR;
+-		} else {
+-			return JIM_OK;
+-		}
+-	case TS_CMD_EVENTLIST:
+-		/* List for human, Events defined for this target.
+-		 * scripts/programs should use 'name cget -event NAME'
+-		 */
+-		{
+-			struct target_event_action *teap;
+-			teap = target-&gt;event_action;
+-			command_print(cmd_ctx,
+-					&quot;Event actions for target (%d) %s\n&quot;,
+-					target-&gt;target_number,
+-					target_name(target));
+-			command_print(cmd_ctx, &quot;%-25s | Body&quot;, &quot;Event&quot;);
+-			command_print(cmd_ctx, &quot;------------------------- | ----------------------------------------&quot;);
+-			while (teap) {
+-				command_print(cmd_ctx,
+-							   &quot;%-25s | %s&quot;,
+-							   Jim_Nvp_value2name_simple(nvp_target_event, teap-&gt;event)-&gt;name,
+-							   Jim_GetString(teap-&gt;body, NULL));
+-				teap = teap-&gt;next;
++			for (; (x &lt; 16) ; x += 1) {
++				Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;   &quot;);
+ 			}
+-			command_print(cmd_ctx, &quot;***END***&quot;);
+-			return JIM_OK;
+-		}
+-	case TS_CMD_CURSTATE:
+-		if (goi.argc != 0) {
+-			Jim_WrongNumArgs(goi.interp, 0, argv, &quot;[no parameters]&quot;);
+-			return JIM_ERR;
++			break;
+ 		}
+-		Jim_SetResultString(goi.interp,
+-							target_state_name( target ),
+-							-1);
+-		return JIM_OK;
+-	case TS_CMD_INVOKE_EVENT:
+-		if (goi.argc != 1) {
+-			Jim_SetResult_sprintf(goi.interp, &quot;%s ?EVENTNAME?&quot;,n-&gt;name);
+-			return JIM_ERR;
++		/* ascii-ify the bytes */
++		for (x = 0 ; x &lt; y ; x++) {
++			if ((target_buf[x] &gt;= 0x20) &amp;&amp;
++				(target_buf[x] &lt;= 0x7e)) {
++				/* good */
++			} else {
++				/* smack it */
++				target_buf[x] = '.';
++			}
+ 		}
+-		e = Jim_GetOpt_Nvp(&amp;goi, nvp_target_event, &amp;n);
+-		if (e != JIM_OK) {
+-			Jim_GetOpt_NvpUnknown(&amp;goi, nvp_target_event, 1);
+-			return e;
++		/* space pad  */
++		while (x &lt; 16) {
++			target_buf[x] = ' ';
++			x++;
+ 		}
+-		target_handle_event(target, n-&gt;value);
+-		return JIM_OK;
++		/* terminate */
++		target_buf[16] = 0;
++		/* print - with a newline */
++		Jim_fprintf(interp, interp-&gt;cookie_stdout, &quot;%s\n&quot;, target_buf);
++		/* NEXT... */
++		c -= 16;
++		a += 16;
+ 	}
+-	return JIM_ERR;
++	return JIM_OK;
++}
++
++static int jim_target_mem2array(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	struct target *target = Jim_CmdPrivData(interp);
++	return target_mem2array(interp, target, argc - 1, argv + 1);
++}
++
++static int jim_target_array2mem(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	struct target *target = Jim_CmdPrivData(interp);
++	return target_array2mem(interp, target, argc - 1, argv + 1);
++}
+ 
+-err_tap_disabled:
++static int jim_target_tap_disabled(Jim_Interp *interp)
++{
+ 	Jim_SetResult_sprintf(interp, &quot;[TAP is disabled]&quot;);
+ 	return JIM_ERR;
+ }
+ 
++static int jim_target_examine(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;[no parameters]&quot;);
++		return JIM_ERR;
++	}
++	struct target *target = Jim_CmdPrivData(interp);
++	if (!target-&gt;tap-&gt;enabled)
++		return jim_target_tap_disabled(interp);
++
++	int e = target-&gt;type-&gt;examine(target);
++	if (e != ERROR_OK)
++	{
++		Jim_SetResult_sprintf(interp, &quot;examine-fails: %d&quot;, e);
++		return JIM_ERR;
++	}
++	return JIM_OK;
++}
++
++static int jim_target_poll(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;[no parameters]&quot;);
++		return JIM_ERR;
++	}
++	struct target *target = Jim_CmdPrivData(interp);
++	if (!target-&gt;tap-&gt;enabled)
++		return jim_target_tap_disabled(interp);
++
++	int e;
++	if (!(target_was_examined(target))) {
++		e = ERROR_TARGET_NOT_EXAMINED;
++	} else {
++		e = target-&gt;type-&gt;poll(target);
++	}
++	if (e != ERROR_OK)
++	{
++		Jim_SetResult_sprintf(interp, &quot;poll-fails: %d&quot;, e);
++		return JIM_ERR;
++	}
++	return JIM_OK;
++}
++
++static int jim_target_reset(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
++
++	if (goi.argc != 2)
++	{
++		Jim_WrongNumArgs(interp, 0, argv,
++				&quot;([tT]|[fF]|assert|deassert) BOOL&quot;);
++		return JIM_ERR;
++	}
++
++	Jim_Nvp *n;
++	int e = Jim_GetOpt_Nvp(&amp;goi, nvp_assert, &amp;n);
++	if (e != JIM_OK)
++	{
++		Jim_GetOpt_NvpUnknown(&amp;goi, nvp_assert, 1);
++		return e;
++	}
++	/* the halt or not param */
++	jim_wide a;
++	e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
++	if (e != JIM_OK)
++		return e;
++
++	struct target *target = Jim_CmdPrivData(goi.interp);
++	if (!target-&gt;tap-&gt;enabled)
++		return jim_target_tap_disabled(interp);
++	if (!target-&gt;type-&gt;assert_reset || !target-&gt;type-&gt;deassert_reset)
++	{
++		Jim_SetResult_sprintf(interp,
++				&quot;No target-specific reset for %s&quot;,
++				target_name(target));
++		return JIM_ERR;
++	}
++	/* determine if we should halt or not. */
++	target-&gt;reset_halt = !!a;
++	/* When this happens - all workareas are invalid. */
++	target_free_all_working_areas_restore(target, 0);
++
++	/* do the assert */
++	if (n-&gt;value == NVP_ASSERT) {
++		e = target-&gt;type-&gt;assert_reset(target);
++	} else {
++		e = target-&gt;type-&gt;deassert_reset(target);
++	}
++	return (e == ERROR_OK) ? JIM_OK : JIM_ERR;
++}
++
++static int jim_target_halt(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 1) {
++		Jim_WrongNumArgs(interp, 1, argv, &quot;[no parameters]&quot;);
++		return JIM_ERR;
++	}
++	struct target *target = Jim_CmdPrivData(interp);
++	if (!target-&gt;tap-&gt;enabled)
++		return jim_target_tap_disabled(interp);
++	int e = target-&gt;type-&gt;halt(target);
++	return (e == ERROR_OK) ? JIM_OK : JIM_ERR;
++}
++
++static int jim_target_wait_state(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
++
++	/* params:  &lt;name&gt;  statename timeoutmsecs */
++	if (goi.argc != 2)
++	{
++		const char *cmd_name = Jim_GetString(argv[0], NULL);
++		Jim_SetResult_sprintf(goi.interp,
++				&quot;%s &lt;state_name&gt; &lt;timeout_in_msec&gt;&quot;, cmd_name);
++		return JIM_ERR;
++	}
++
++	Jim_Nvp *n;
++	int e = Jim_GetOpt_Nvp(&amp;goi, nvp_target_state, &amp;n);
++	if (e != JIM_OK) {
++		Jim_GetOpt_NvpUnknown(&amp;goi, nvp_target_state,1);
++		return e;
++	}
++	jim_wide a;
++	e = Jim_GetOpt_Wide(&amp;goi, &amp;a);
++	if (e != JIM_OK) {
++		return e;
++	}
++	struct target *target = Jim_CmdPrivData(interp);
++	if (!target-&gt;tap-&gt;enabled)
++		return jim_target_tap_disabled(interp);
++
++	e = target_wait_state(target, n-&gt;value, a);
++	if (e != ERROR_OK)
++	{
++		Jim_SetResult_sprintf(goi.interp,
++				&quot;target: %s wait %s fails (%d) %s&quot;,
++				target_name(target), n-&gt;name,
++				e, target_strerror_safe(e));
++		return JIM_ERR;
++	}
++	return JIM_OK;
++}
++/* List for human, Events defined for this target.
++ * scripts/programs should use 'name cget -event NAME'
++ */
++static int jim_target_event_list(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	struct command_context *cmd_ctx = Jim_GetAssocData(interp, &quot;context&quot;);
++	struct target *target = Jim_CmdPrivData(interp);
++	struct target_event_action *teap = target-&gt;event_action;
++	command_print(cmd_ctx, &quot;Event actions for target (%d) %s\n&quot;,
++				   target-&gt;target_number,
++				   target_name(target));
++	command_print(cmd_ctx, &quot;%-25s | Body&quot;, &quot;Event&quot;);
++	command_print(cmd_ctx, &quot;------------------------- | &quot;
++			&quot;----------------------------------------&quot;);
++	while (teap)
++	{
++		Jim_Nvp *opt = Jim_Nvp_value2name_simple(nvp_target_event, teap-&gt;event);
++		command_print(cmd_ctx, &quot;%-25s | %s&quot;,
++				opt-&gt;name, Jim_GetString(teap-&gt;body, NULL));
++		teap = teap-&gt;next;
++	}
++	command_print(cmd_ctx, &quot;***END***&quot;);
++	return JIM_OK;
++}
++static int jim_target_current_state(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;[no parameters]&quot;);
++		return JIM_ERR;
++	}
++	struct target *target = Jim_CmdPrivData(interp);
++	Jim_SetResultString(interp, target_state_name(target), -1);
++	return JIM_OK;
++}
++static int jim_target_invoke_event(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
++	if (goi.argc != 1)
++	{
++		const char *cmd_name = Jim_GetString(argv[0], NULL);
++		Jim_SetResult_sprintf(goi.interp, &quot;%s &lt;eventname&gt;&quot;, cmd_name);
++		return JIM_ERR;
++	}
++	Jim_Nvp *n;
++	int e = Jim_GetOpt_Nvp(&amp;goi, nvp_target_event, &amp;n);
++	if (e != JIM_OK)
++	{
++		Jim_GetOpt_NvpUnknown(&amp;goi, nvp_target_event, 1);
++		return e;
++	}
++	struct target *target = Jim_CmdPrivData(interp);
++	target_handle_event(target, n-&gt;value);
++	return JIM_OK;
++}
++
++static const struct command_registration target_instance_command_handlers[] = {
++	{
++		.name = &quot;configure&quot;,
++		.mode = COMMAND_CONFIG,
++		.jim_handler = &amp;jim_target_configure,
++		.usage = &quot;[&lt;target_options&gt; ...]&quot;,
++		.help  = &quot;configure a new target for use&quot;,
++	},
++	{
++		.name = &quot;cget&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_target_configure,
++		.usage = &quot;&lt;target_type&gt; [&lt;target_options&gt; ...]&quot;,
++		.help  = &quot;configure a new target for use&quot;,
++	},
++	{
++		.name = &quot;mww&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_mw,
++		.usage = &quot;&lt;address&gt; &lt;data&gt; [&lt;count&gt;]&quot;,
++		.help = &quot;Write 32-bit word(s) to target memory&quot;,
++	},
++	{
++		.name = &quot;mwh&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_mw,
++		.usage = &quot;&lt;address&gt; &lt;data&gt; [&lt;count&gt;]&quot;,
++		.help = &quot;Write 16-bit half-word(s) to target memory&quot;,
++	},
++	{
++		.name = &quot;mwb&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_mw,
++		.usage = &quot;&lt;address&gt; &lt;data&gt; [&lt;count&gt;]&quot;,
++		.help = &quot;Write byte(s) to target memory&quot;,
++	},
++	{
++		.name = &quot;mdw&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_md,
++		.usage = &quot;&lt;address&gt; [&lt;count&gt;]&quot;,
++		.help = &quot;Display target memory as 32-bit words&quot;,
++	},
++	{
++		.name = &quot;mdh&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_md,
++		.usage = &quot;&lt;address&gt; [&lt;count&gt;]&quot;,
++		.help = &quot;Display target memory as 16-bit half-words&quot;,
++	},
++	{
++		.name = &quot;mdb&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_md,
++		.usage = &quot;&lt;address&gt; [&lt;count&gt;]&quot;,
++		.help = &quot;Display target memory as 8-bit bytes&quot;,
++	},
++	{
++		.name = &quot;array2mem&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_array2mem,
++	},
++	{
++		.name = &quot;mem2array&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_mem2array,
++	},
++	{
++		.name = &quot;eventlist&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_event_list,
++	},
++	{
++		.name = &quot;curstate&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_current_state,
++	},
++	{
++		.name = &quot;arp_examine&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_examine,
++	},
++	{
++		.name = &quot;arp_poll&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_poll,
++	},
++	{
++		.name = &quot;arp_reset&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_reset,
++	},
++	{
++		.name = &quot;arp_halt&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_halt,
++	},
++	{
++		.name = &quot;arp_waitstate&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_wait_state,
++	},
++	{
++		.name = &quot;invoke-event&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_target_invoke_event,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
+ static int target_create(Jim_GetOptInfo *goi)
+ {
+ 	Jim_Obj *new_cmd;
+@@ -4412,16 +4527,35 @@ static int target_create(Jim_GetOptInfo *goi)
+ 		}
+ 		*tpp = target;
+ 	}
+-
++	
+ 	/* now - create the new target name command */
+-	const struct command_registration target_command = {
+-		.name = cp,
+-		.jim_handler = &amp;tcl_target_func,
+-		.jim_handler_data = target,
+-		.help = &quot;target command group&quot;,
++	const const struct command_registration target_subcommands[] = {
++		{
++			.chain = target_instance_command_handlers,
++		},
++		{
++			.chain = target-&gt;type-&gt;commands,
++		},
++		COMMAND_REGISTRATION_DONE
+ 	};
+-	struct command *c = register_command(cmd_ctx, NULL, &amp;target_command);
+-	return (NULL != c) ? ERROR_OK : ERROR_FAIL;
++	const const struct command_registration target_commands[] = {
++		{
++			.name = cp,
++			.mode = COMMAND_ANY,
++			.help = &quot;target command group&quot;,
++			.chain = target_subcommands,
++		},
++		COMMAND_REGISTRATION_DONE
++	};
++	e = register_commands(cmd_ctx, NULL, target_commands);
++	if (ERROR_OK != e)
++		return JIM_ERR;
++
++	struct command *c = command_find_in_context(cmd_ctx, cp);
++	assert(c);
++	command_set_handler_data(c, target);
++
++	return (ERROR_OK == e) ? JIM_OK : JIM_ERR;
+ }
+ 
+ static int jim_target_current(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+
+commit cb8d567b7524b96d034344a2027e33d7f44f48ec
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Wed Nov 25 12:57:28 2009 -0800
+
+    split jim_target into multiple handlers
+    
+    The 'target' command group was implemented using its own command
+    dispatching, which can be eliminated by using the new chained command
+    registration mechanism.  This patch splits the jim_target() function
+    into individual handlers, which makes them to be visible to the help and
+    usage commands.  These one-trick handlers are much easier to understand.
+
+diff --git a/src/target/target.c b/src/target/target.c
+index 28387f4..d9552a5 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -4424,129 +4424,156 @@ static int target_create(Jim_GetOptInfo *goi)
+ 	return (NULL != c) ? ERROR_OK : ERROR_FAIL;
+ }
+ 
+-static int jim_target(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++static int jim_target_current(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+-	int x,r,e;
+-	jim_wide w;
+-	struct command_context *cmd_ctx;
+-	struct target *target;
+-	Jim_GetOptInfo goi;
+-	enum tcmd {
+-		/* TG = target generic */
+-		TG_CMD_CREATE,
+-		TG_CMD_TYPES,
+-		TG_CMD_NAMES,
+-		TG_CMD_CURRENT,
+-		TG_CMD_NUMBER,
+-		TG_CMD_COUNT,
+-	};
+-	const char *target_cmds[] = {
+-		&quot;create&quot;, &quot;types&quot;, &quot;names&quot;, &quot;current&quot;, &quot;number&quot;,
+-		&quot;count&quot;,
+-		NULL /* terminate */
+-	};
+-
+-	LOG_DEBUG(&quot;Target command params:&quot;);
+-	LOG_DEBUG(&quot;%s&quot;, Jim_Debug_ArgvString(interp, argc, argv));
+-
+-	cmd_ctx = Jim_GetAssocData(interp, &quot;context&quot;);
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;Too many parameters&quot;);
++		return JIM_ERR;
++	}
++	struct command_context *cmd_ctx = Jim_GetAssocData(interp, &quot;context&quot;);
++	Jim_SetResultString(interp, get_current_target(cmd_ctx)-&gt;cmd_name, -1);
++	return JIM_OK;
++}
+ 
+-	Jim_GetOpt_Setup(&amp;goi, interp, argc-1, argv + 1);
++static int jim_target_types(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;Too many parameters&quot;);
++		return JIM_ERR;
++	}
++	Jim_SetResult(interp, Jim_NewListObj(interp, NULL, 0));
++	for (unsigned x = 0; NULL != target_types[x]; x++)
++	{
++		Jim_ListAppendElement(interp, Jim_GetResult(interp),
++			Jim_NewStringObj(interp, target_types[x]-&gt;name, -1));
++	}
++	return JIM_OK;
++}
+ 
+-	if (goi.argc == 0) {
+-		Jim_WrongNumArgs(interp, 1, argv, &quot;missing: command ...&quot;);
++static int jim_target_names(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;Too many parameters&quot;);
+ 		return JIM_ERR;
+ 	}
++	Jim_SetResult(interp, Jim_NewListObj(interp, NULL, 0));
++	struct target *target = all_targets;
++	while (target)
++	{
++		Jim_ListAppendElement(interp, Jim_GetResult(interp),
++			Jim_NewStringObj(interp, target_name(target), -1));
++		target = target-&gt;next;
++	}
++	return JIM_OK;
++}
+ 
+-	/* Jim_GetOpt_Debug(&amp;goi); */
+-	r = Jim_GetOpt_Enum(&amp;goi, target_cmds, &amp;x);
+-	if (r != JIM_OK) {
+-		return r;
++static int jim_target_create(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
++	if (goi.argc &lt; 3)
++	{
++		Jim_WrongNumArgs(goi.interp, goi.argc, goi.argv,
++			&quot;&lt;name&gt; &lt;target_type&gt; [&lt;target_options&gt; ...]&quot;);
++		return JIM_ERR;
+ 	}
++	return target_create(&amp;goi);
++}
+ 
+-	switch (x) {
+-	default:
+-		Jim_Panic(goi.interp,&quot;Why am I here?&quot;);
++static int jim_target_number(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc - 1, argv + 1);
++
++	/* It's OK to remove this mechanism sometime after August 2010 or so */
++	LOG_WARNING(&quot;don't use numbers as target identifiers; use names&quot;);
++	if (goi.argc != 1)
++	{
++		Jim_SetResult_sprintf(goi.interp, &quot;usage: target number &lt;number&gt;&quot;);
+ 		return JIM_ERR;
+-	case TG_CMD_CURRENT:
+-		if (goi.argc != 0) {
+-			Jim_WrongNumArgs(goi.interp, 1, goi.argv, &quot;Too many parameters&quot;);
+-			return JIM_ERR;
+-		}
+-		Jim_SetResultString(goi.interp,
+-				target_name(get_current_target(cmd_ctx)),
+-				-1);
+-		return JIM_OK;
+-	case TG_CMD_TYPES:
+-		if (goi.argc != 0) {
+-			Jim_WrongNumArgs(goi.interp, 1, goi.argv, &quot;Too many parameters&quot;);
+-			return JIM_ERR;
+-		}
+-		Jim_SetResult(goi.interp, Jim_NewListObj(goi.interp, NULL, 0));
+-		for (x = 0 ; target_types[x] ; x++) {
+-			Jim_ListAppendElement(goi.interp,
+-								   Jim_GetResult(goi.interp),
+-								   Jim_NewStringObj(goi.interp, target_types[x]-&gt;name, -1));
+-		}
+-		return JIM_OK;
+-	case TG_CMD_NAMES:
+-		if (goi.argc != 0) {
+-			Jim_WrongNumArgs(goi.interp, 1, goi.argv, &quot;Too many parameters&quot;);
+-			return JIM_ERR;
+-		}
+-		Jim_SetResult(goi.interp, Jim_NewListObj(goi.interp, NULL, 0));
+-		target = all_targets;
+-		while (target) {
+-			Jim_ListAppendElement(goi.interp,
+-					Jim_GetResult(goi.interp),
+-					Jim_NewStringObj(goi.interp,
+-						target_name(target), -1));
+-			target = target-&gt;next;
+-		}
+-		return JIM_OK;
+-	case TG_CMD_CREATE:
+-		if (goi.argc &lt; 3) {
+-			Jim_WrongNumArgs(goi.interp, goi.argc, goi.argv, &quot;?name  ... config options ...&quot;);
+-			return JIM_ERR;
+-		}
+-		return target_create(&amp;goi);
+-		break;
+-	case TG_CMD_NUMBER:
+-		/* It's OK to remove this mechanism sometime after August 2010 or so */
+-		LOG_WARNING(&quot;don't use numbers as target identifiers; use names&quot;);
+-		if (goi.argc != 1) {
+-			Jim_SetResult_sprintf(goi.interp, &quot;expected: target number ?NUMBER?&quot;);
+-			return JIM_ERR;
+-		}
+-		e = Jim_GetOpt_Wide(&amp;goi, &amp;w);
+-		if (e != JIM_OK) {
+-			return JIM_ERR;
+-		}
+-		for (x = 0, target = all_targets; target; target = target-&gt;next, x++) {
+-			if (target-&gt;target_number == w)
+-				break;
+-		}
+-		if (target == NULL) {
+-			Jim_SetResult_sprintf(goi.interp,
+-					&quot;Target: number %d does not exist&quot;, (int)(w));
+-			return JIM_ERR;
+-		}
+-		Jim_SetResultString(goi.interp, target_name(target), -1);
+-		return JIM_OK;
+-	case TG_CMD_COUNT:
+-		if (goi.argc != 0) {
+-			Jim_WrongNumArgs(goi.interp, 0, goi.argv, &quot;&lt;no parameters&gt;&quot;);
+-			return JIM_ERR;
+-		}
+-		for (x = 0, target = all_targets; target; target = target-&gt;next, x++)
++	}
++	jim_wide w;
++	int e = Jim_GetOpt_Wide(&amp;goi, &amp;w);
++	if (e != JIM_OK)
++		return JIM_ERR;
++
++	struct target *target;
++	for (target = all_targets; NULL != target; target = target-&gt;next)
++	{
++		if (target-&gt;target_number != w)
+ 			continue;
+-		Jim_SetResult(goi.interp, Jim_NewIntObj(goi.interp, x));
++
++		Jim_SetResultString(goi.interp, target_name(target), -1);
+ 		return JIM_OK;
+ 	}
+-
++	Jim_SetResult_sprintf(goi.interp,
++			&quot;Target: number %d does not exist&quot;, (int)(w));
+ 	return JIM_ERR;
+ }
+ 
++static int jim_target_count(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;&lt;no parameters&gt;&quot;);
++		return JIM_ERR;
++	}
++	unsigned count = 0;
++	struct target *target = all_targets;
++	while (NULL != target)
++	{
++		target = target-&gt;next;
++		count++;
++	}
++	Jim_SetResult(interp, Jim_NewIntObj(interp, count));
++	return JIM_OK;
++}
++
++static const struct command_registration target_subcommand_handlers[] = {
++	{
++		.name = &quot;create&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_target_create,
++		.usage = &quot;&lt;name&gt; &lt;type&gt; ...&quot;,
++		.help = &quot;Returns the currently selected target&quot;,
++	},
++	{
++		.name = &quot;current&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_target_current,
++		.help = &quot;Returns the currently selected target&quot;,
++	},
++	{
++		.name = &quot;types&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_target_types,
++		.help = &quot;Returns the available target types as a list of strings&quot;,
++	},
++	{
++		.name = &quot;names&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_target_names,
++		.help = &quot;Returns the names of all targets as a list of strings&quot;,
++	},
++	{
++		.name = &quot;number&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_target_number,
++		.usage = &quot;&lt;number&gt;&quot;,
++		.help = &quot;Returns the name of target &lt;n&gt;&quot;,
++	},
++	{
++		.name = &quot;count&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_target_count,
++		.help = &quot;Returns the number of targets as an integer&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
+ 
+ struct FastLoad
+ {
+@@ -4816,8 +4843,9 @@ static const struct command_registration target_command_handlers[] = {
+ 	{
+ 		.name = &quot;target&quot;,
+ 		.mode = COMMAND_CONFIG,
+-		.jim_handler = &amp;jim_target,
+ 		.help = &quot;configure target&quot;,
++
++		.chain = target_subcommand_handlers,
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+
+commit f8a62fb9c62f165696cc34eeb23b2bc1f6a79000
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 26 14:04:02 2009 -0800
+
+    split jim_newtap_cmd into pieces
+    
+    Moves the ID and IR-related option parsing to static helpers, removing
+    two levels of indent.
+
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index bb86a32..7ec7fa4 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -406,26 +406,106 @@ static int is_bad_irval(int ir_length, jim_wide w)
+ 	return (w &amp; v) != 0;
+ }
+ 
++static int jim_newtap_expected_id(Jim_Nvp *n, Jim_GetOptInfo *goi,
++		struct jtag_tap *pTap)
++{
++	jim_wide w;
++	int e = Jim_GetOpt_Wide(goi, &amp;w);
++	if (e != JIM_OK) {
++		Jim_SetResult_sprintf(goi-&gt;interp, &quot;option: %s bad parameter&quot;, n-&gt;name);
++		return e;
++	}
++
++	unsigned expected_len = sizeof(uint32_t) * pTap-&gt;expected_ids_cnt;
++	uint32_t *new_expected_ids = malloc(expected_len + sizeof(uint32_t));
++	if (new_expected_ids == NULL)
++	{
++		Jim_SetResult_sprintf(goi-&gt;interp, &quot;no memory&quot;);
++		return JIM_ERR;
++	}
++
++	memcpy(new_expected_ids, pTap-&gt;expected_ids, expected_len);
++
++	new_expected_ids[pTap-&gt;expected_ids_cnt] = w;
++
++	free(pTap-&gt;expected_ids);
++	pTap-&gt;expected_ids = new_expected_ids;
++	pTap-&gt;expected_ids_cnt++;
++
++	return JIM_OK;
++}
++
++#define NTAP_OPT_IRLEN     0
++#define NTAP_OPT_IRMASK    1
++#define NTAP_OPT_IRCAPTURE 2
++#define NTAP_OPT_ENABLED   3
++#define NTAP_OPT_DISABLED  4
++#define NTAP_OPT_EXPECTED_ID 5
++
++static int jim_newtap_ir_param(Jim_Nvp *n, Jim_GetOptInfo *goi,
++		struct jtag_tap *pTap)
++{
++	jim_wide w;
++	int e = Jim_GetOpt_Wide(goi, &amp;w);
++	if (e != JIM_OK)
++	{
++		Jim_SetResult_sprintf(goi-&gt;interp,
++				&quot;option: %s bad parameter&quot;, n-&gt;name);
++		free((void *)pTap-&gt;dotted_name);
++		return e;
++	}
++	switch (n-&gt;value) {
++	case NTAP_OPT_IRLEN:
++		if (w &gt; (jim_wide) (8 * sizeof(pTap-&gt;ir_capture_value)))
++		{
++			LOG_WARNING(&quot;%s: huge IR length %d&quot;,
++					pTap-&gt;dotted_name, (int) w);
++		}
++		pTap-&gt;ir_length = w;
++		break;
++	case NTAP_OPT_IRMASK:
++		if (is_bad_irval(pTap-&gt;ir_length, w))
++		{
++			LOG_ERROR(&quot;%s: IR mask %x too big&quot;,
++					pTap-&gt;dotted_name,
++					(int) w);
++			return JIM_ERR;
++		}
++		if ((w &amp; 3) != 3)
++			LOG_WARNING(&quot;%s: nonstandard IR mask&quot;, pTap-&gt;dotted_name);
++		pTap-&gt;ir_capture_mask = w;
++		break;
++	case NTAP_OPT_IRCAPTURE:
++		if (is_bad_irval(pTap-&gt;ir_length, w))
++		{
++			LOG_ERROR(&quot;%s: IR capture %x too big&quot;,
++					pTap-&gt;dotted_name, (int) w);
++			return JIM_ERR;
++		}
++		if ((w &amp; 3) != 1)
++			LOG_WARNING(&quot;%s: nonstandard IR value&quot;,
++					pTap-&gt;dotted_name);
++		pTap-&gt;ir_capture_value = w;
++		break;
++	default:
++		return JIM_ERR;
++	}
++	return JIM_OK;
++}
++
+ static int jim_newtap_cmd(Jim_GetOptInfo *goi)
+ {
+ 	struct jtag_tap *pTap;
+-	jim_wide w;
+ 	int x;
+ 	int e;
+ 	Jim_Nvp *n;
+ 	char *cp;
+ 	const Jim_Nvp opts[] = {
+-#define NTAP_OPT_IRLEN     0
+ 		{ .name = &quot;-irlen&quot;			,	.value = NTAP_OPT_IRLEN },
+-#define NTAP_OPT_IRMASK    1
+ 		{ .name = &quot;-irmask&quot;			,	.value = NTAP_OPT_IRMASK },
+-#define NTAP_OPT_IRCAPTURE 2
+ 		{ .name = &quot;-ircapture&quot;		,	.value = NTAP_OPT_IRCAPTURE },
+-#define NTAP_OPT_ENABLED   3
+ 		{ .name = &quot;-enable&quot;			,	.value = NTAP_OPT_ENABLED },
+-#define NTAP_OPT_DISABLED  4
+ 		{ .name = &quot;-disable&quot;		,	.value = NTAP_OPT_DISABLED },
+-#define NTAP_OPT_EXPECTED_ID 5
+ 		{ .name = &quot;-expected-id&quot;	,	.value = NTAP_OPT_EXPECTED_ID },
+ 		{ .name = NULL				,	.value = -1 },
+ 	};
+@@ -483,81 +563,25 @@ static int jim_newtap_cmd(Jim_GetOptInfo *goi)
+ 			pTap-&gt;disabled_after_reset = true;
+ 			break;
+ 		case NTAP_OPT_EXPECTED_ID:
+-		{
+-			uint32_t *new_expected_ids;
+-
+-			e = Jim_GetOpt_Wide(goi, &amp;w);
+-			if (e != JIM_OK) {
+-				Jim_SetResult_sprintf(goi-&gt;interp, &quot;option: %s bad parameter&quot;, n-&gt;name);
++			e = jim_newtap_expected_id(n, goi, pTap);
++			if (JIM_OK != e)
++			{
+ 				free((void *)pTap-&gt;dotted_name);
+ 				free(pTap);
+ 				return e;
+ 			}
+-
+-			new_expected_ids = malloc(sizeof(uint32_t) * (pTap-&gt;expected_ids_cnt + 1));
+-			if (new_expected_ids == NULL) {
+-				Jim_SetResult_sprintf(goi-&gt;interp, &quot;no memory&quot;);
+-				free((void *)pTap-&gt;dotted_name);
+-				free(pTap);
+-				return JIM_ERR;
+-			}
+-
+-			memcpy(new_expected_ids, pTap-&gt;expected_ids, sizeof(uint32_t) * pTap-&gt;expected_ids_cnt);
+-
+-			new_expected_ids[pTap-&gt;expected_ids_cnt] = w;
+-
+-			free(pTap-&gt;expected_ids);
+-			pTap-&gt;expected_ids = new_expected_ids;
+-			pTap-&gt;expected_ids_cnt++;
+ 			break;
+-		}
+ 		case NTAP_OPT_IRLEN:
+ 		case NTAP_OPT_IRMASK:
+ 		case NTAP_OPT_IRCAPTURE:
+-			e = Jim_GetOpt_Wide(goi, &amp;w);
+-			if (e != JIM_OK) {
+-				Jim_SetResult_sprintf(goi-&gt;interp, &quot;option: %s bad parameter&quot;, n-&gt;name);
++			e = jim_newtap_ir_param(n, goi, pTap);
++			if (JIM_OK != e)
++			{
+ 				free((void *)pTap-&gt;dotted_name);
+ 				free(pTap);
+ 				return e;
+ 			}
+-			switch (n-&gt;value) {
+-			case NTAP_OPT_IRLEN:
+-				if (w &gt; (jim_wide) (8 * sizeof(pTap-&gt;ir_capture_value)))
+-					LOG_WARNING(&quot;%s: huge IR length %d&quot;,
+-							pTap-&gt;dotted_name,
+-							(int) w);
+-				pTap-&gt;ir_length = w;
+-				break;
+-			case NTAP_OPT_IRMASK:
+-				if (is_bad_irval(pTap-&gt;ir_length, w)) {
+-					LOG_ERROR(&quot;%s: IR mask %x too big&quot;,
+-							pTap-&gt;dotted_name,
+-							(int) w);
+-					free((void *)pTap-&gt;dotted_name);
+-					free(pTap);
+-					return ERROR_FAIL;
+-				}
+-				if ((w &amp; 3) != 3)
+-					LOG_WARNING(&quot;%s: nonstandard IR mask&quot;,
+-							pTap-&gt;dotted_name);
+-				pTap-&gt;ir_capture_mask = w;
+-				break;
+-			case NTAP_OPT_IRCAPTURE:
+-				if (is_bad_irval(pTap-&gt;ir_length, w)) {
+-					LOG_ERROR(&quot;%s: IR capture %x too big&quot;,
+-							pTap-&gt;dotted_name,
+-							(int) w);
+-					free((void *)pTap-&gt;dotted_name);
+-					free(pTap);
+-					return ERROR_FAIL;
+-				}
+-				if ((w &amp; 3) != 1)
+-					LOG_WARNING(&quot;%s: nonstandard IR value&quot;,
+-							pTap-&gt;dotted_name);
+-				pTap-&gt;ir_capture_value = w;
+-				break;
+-			}
++			break;
+ 		} /* switch (n-&gt;value) */
+ 	} /* while (goi-&gt;argc) */
+ 
+
+commit 7124be824792eee3f973eb2cf7e1c851cbd2a923
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 26 13:52:04 2009 -0800
+
+    improve jtag_tap_configure
+    
+    Splits bulk of the jtag_tap_configure into jtag_tap_configure_event,
+    removing three or four levels of indentation in the process.
+    The resulting code was stylistically improved in other ways, but it
+    should be functionally identical.
+
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index 8371967..bb86a32 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -293,94 +293,105 @@ static Jim_Nvp nvp_config_opts[] = {
+ 	{ .name = NULL,          .value = -1 }
+ };
+ 
+-static int jtag_tap_configure_cmd(Jim_GetOptInfo *goi, struct jtag_tap * tap)
++static int jtag_tap_configure_event(Jim_GetOptInfo *goi, struct jtag_tap * tap)
+ {
++	if (goi-&gt;argc == 0)
++	{
++		Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event &lt;event-name&gt; ...&quot;);
++		return JIM_ERR;
++	}
++
+ 	Jim_Nvp *n;
+-	Jim_Obj *o;
+-	int e;
++	int e = Jim_GetOpt_Nvp(goi, nvp_jtag_tap_event, &amp;n);
++	if (e != JIM_OK)
++	{
++		Jim_GetOpt_NvpUnknown(goi, nvp_jtag_tap_event, 1);
++		return e;
++	}
++
++	if (goi-&gt;isconfigure) {
++		if (goi-&gt;argc != 1) {
++			Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event &lt;event-name&gt; &lt;event-body&gt;&quot;);
++			return JIM_ERR;
++		}
++	} else {
++		if (goi-&gt;argc != 0) {
++			Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event &lt;event-name&gt;&quot;);
++			return JIM_ERR;
++		}
++	}
++
++	struct jtag_tap_event_action *jteap  = tap-&gt;event_action;
++	/* replace existing event body */
++	bool found = false;
++	while (jteap)
++	{
++		if (jteap-&gt;event == (enum jtag_event)n-&gt;value)
++		{
++			found = true;
++			break;
++		}
++		jteap = jteap-&gt;next;
++	}
++
++	Jim_SetEmptyResult(goi-&gt;interp);
++
++	if (goi-&gt;isconfigure)
++	{
++		if (!found)
++			jteap = calloc(1, sizeof(*jteap));
++		else if (NULL != jteap-&gt;body)
++			Jim_DecrRefCount(interp, jteap-&gt;body);
++
++		jteap-&gt;event = n-&gt;value;
++
++		Jim_Obj *o;
++		Jim_GetOpt_Obj(goi, &amp;o);
++		jteap-&gt;body = Jim_DuplicateObj(goi-&gt;interp, o);
++		Jim_IncrRefCount(jteap-&gt;body);
++
++		if (!found)
++		{
++			/* add to head of event list */
++			jteap-&gt;next = tap-&gt;event_action;
++			tap-&gt;event_action = jteap;
++		}
++	}
++	else if (found)
++	{
++		Jim_SetResult(goi-&gt;interp,
++			Jim_DuplicateObj(goi-&gt;interp, jteap-&gt;body));
++	}
++	return JIM_OK;
++}
+ 
++static int jtag_tap_configure_cmd(Jim_GetOptInfo *goi, struct jtag_tap * tap)
++{
+ 	/* parse config or cget options */
+-	while (goi-&gt;argc &gt; 0) {
++	while (goi-&gt;argc &gt; 0)
++	{
+ 		Jim_SetEmptyResult (goi-&gt;interp);
+ 
+-		e = Jim_GetOpt_Nvp(goi, nvp_config_opts, &amp;n);
+-		if (e != JIM_OK) {
++		Jim_Nvp *n;
++		int e = Jim_GetOpt_Nvp(goi, nvp_config_opts, &amp;n);
++		if (e != JIM_OK)
++		{
+ 			Jim_GetOpt_NvpUnknown(goi, nvp_config_opts, 0);
+ 			return e;
+ 		}
+ 
+-		switch (n-&gt;value) {
+-			case JCFG_EVENT:
+-				if (goi-&gt;argc == 0) {
+-					Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event ?event-name? ...&quot;);
+-					return JIM_ERR;
+-				}
+-
+-				e = Jim_GetOpt_Nvp(goi, nvp_jtag_tap_event, &amp;n);
+-				if (e != JIM_OK) {
+-					Jim_GetOpt_NvpUnknown(goi, nvp_jtag_tap_event, 1);
+-					return e;
+-				}
+-
+-				if (goi-&gt;isconfigure) {
+-					if (goi-&gt;argc != 1) {
+-						Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event ?event-name? ?EVENT-BODY?&quot;);
+-						return JIM_ERR;
+-					}
+-				} else {
+-					if (goi-&gt;argc != 0) {
+-						Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event ?event-name?&quot;);
+-						return JIM_ERR;
+-					}
+-				}
+-
+-				{
+-					struct jtag_tap_event_action *jteap;
+-
+-					jteap = tap-&gt;event_action;
+-					/* replace existing? */
+-					while (jteap) {
+-						if (jteap-&gt;event == (enum jtag_event)n-&gt;value) {
+-							break;
+-						}
+-						jteap = jteap-&gt;next;
+-					}
+-
+-					if (goi-&gt;isconfigure) {
+-						bool replace = true;
+-						if (jteap == NULL) {
+-							/* create new */
+-							jteap = calloc(1, sizeof (*jteap));
+-							replace = false;
+-						}
+-						jteap-&gt;event = n-&gt;value;
+-						Jim_GetOpt_Obj(goi, &amp;o);
+-						if (jteap-&gt;body) {
+-							Jim_DecrRefCount(interp, jteap-&gt;body);
+-						}
+-						jteap-&gt;body = Jim_DuplicateObj(goi-&gt;interp, o);
+-						Jim_IncrRefCount(jteap-&gt;body);
+-
+-						if (!replace)
+-						{
+-							/* add to head of event list */
+-							jteap-&gt;next = tap-&gt;event_action;
+-							tap-&gt;event_action = jteap;
+-						}
+-						Jim_SetEmptyResult(goi-&gt;interp);
+-					} else {
+-						/* get */
+-						if (jteap == NULL) {
+-							Jim_SetEmptyResult(goi-&gt;interp);
+-						} else {
+-							Jim_SetResult(goi-&gt;interp, Jim_DuplicateObj(goi-&gt;interp, jteap-&gt;body));
+-						}
+-					}
+-				}
+-				/* loop for more */
+-				break;
++		switch (n-&gt;value)
++		{
++		case JCFG_EVENT:
++			e = jtag_tap_configure_event(goi, tap);
++			if (e != JIM_OK)
++				return e;
++			break;
++		default:
++			Jim_SetResult_sprintf(goi-&gt;interp, &quot;unknown event: %s&quot;, n-&gt;name);
++			return JIM_ERR;
+ 		}
+-	} /* while (goi-&gt;argc) */
++	}
+ 
+ 	return JIM_OK;
+ }
+
+commit 4ff5eda576d75ee57ba448d2136867c791d215a8
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 26 11:00:03 2009 -0800
+
+    improve jtag_tap_handle_event indentation
+    
+    Use 'continue' to reduce identation levels and superfluous logic.
+
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index 929c784..8371967 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -571,29 +571,36 @@ static void jtag_tap_handle_event(struct jtag_tap *tap, enum jtag_event e)
+ {
+ 	struct jtag_tap_event_action * jteap;
+ 
+-	for (jteap = tap-&gt;event_action; jteap != NULL; jteap = jteap-&gt;next) {
+-		if (jteap-&gt;event == e) {
+-			LOG_DEBUG(&quot;JTAG tap: %s event: %d (%s)\n\taction: %s&quot;,
+-					tap-&gt;dotted_name,
+-					e,
+-					Jim_Nvp_value2name_simple(nvp_jtag_tap_event, e)-&gt;name,
+-					Jim_GetString(jteap-&gt;body, NULL));
+-			if (Jim_EvalObj(interp, jteap-&gt;body) != JIM_OK) {
+-				Jim_PrintErrorMessage(interp);
+-			} else switch (e) {
+-			case JTAG_TAP_EVENT_ENABLE:
+-			case JTAG_TAP_EVENT_DISABLE:
+-				/* NOTE:  we currently assume the handlers
+-				 * can't fail.  Right here is where we should
+-				 * really be verifying the scan chains ...
+-				 */
+-				tap-&gt;enabled = (e == JTAG_TAP_EVENT_ENABLE);
+-				LOG_INFO(&quot;JTAG tap: %s %s&quot;, tap-&gt;dotted_name,
+-					tap-&gt;enabled ? &quot;enabled&quot; : &quot;disabled&quot;);
+-				break;
+-			default:
+-				break;
+-			}
++	for (jteap = tap-&gt;event_action; jteap != NULL; jteap = jteap-&gt;next)
++	{
++		if (jteap-&gt;event != e)
++			continue;
++
++		Jim_Nvp *nvp = Jim_Nvp_value2name_simple(nvp_jtag_tap_event, e);
++		LOG_DEBUG(&quot;JTAG tap: %s event: %d (%s)\n\taction: %s&quot;,
++				tap-&gt;dotted_name, e, nvp-&gt;name,
++				Jim_GetString(jteap-&gt;body, NULL));
++
++		if (Jim_EvalObj(interp, jteap-&gt;body) != JIM_OK)
++		{
++			Jim_PrintErrorMessage(interp);
++			continue;
++		}
++
++		switch (e)
++		{
++		case JTAG_TAP_EVENT_ENABLE:
++		case JTAG_TAP_EVENT_DISABLE:
++			/* NOTE:  we currently assume the handlers
++			 * can't fail.  Right here is where we should
++			 * really be verifying the scan chains ...
++			 */
++			tap-&gt;enabled = (e == JTAG_TAP_EVENT_ENABLE);
++			LOG_INFO(&quot;JTAG tap: %s %s&quot;, tap-&gt;dotted_name,
++				tap-&gt;enabled ? &quot;enabled&quot; : &quot;disabled&quot;);
++			break;
++		default:
++			break;
+ 		}
+ 	}
+ }
+
+commit 0377e5b54d6db196cfeeaaa70824c581317e2290
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Nov 26 08:19:40 2009 -0800
+
+    begin moving JTAG jim handlers/helpers
+    
+    Moves the tertiary jim handlers and required static helpers to the top
+    of tcl.c, defining them in a new registration array that is chained in
+    both the top-level context and under the jtag command.  The top-level
+    commands can be removed at some point in the future to reduce clutter.
+
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index e7a0f67..929c784 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -51,6 +51,238 @@ static const Jim_Nvp nvp_jtag_tap_event[] = {
+ 
+ extern struct jtag_interface *jtag_interface;
+ 
++static bool scan_is_safe(tap_state_t state)
++{
++	switch (state)
++	{
++	case TAP_RESET:
++	case TAP_IDLE:
++	case TAP_DRPAUSE:
++	case TAP_IRPAUSE:
++		return true;
++	default:
++		return false;
++	}
++}
++
++static int Jim_Command_drscan(Jim_Interp *interp, int argc, Jim_Obj *const *args)
++{
++	int retval;
++	struct scan_field *fields;
++	int num_fields;
++	int field_count = 0;
++	int i, e;
++	struct jtag_tap *tap;
++	tap_state_t endstate;
++
++	/* args[1] = device
++	 * args[2] = num_bits
++	 * args[3] = hex string
++	 * ... repeat num bits and hex string ...
++	 *
++	 * .. optionally:
++	*     args[N-2] = &quot;-endstate&quot;
++	 *     args[N-1] = statename
++	 */
++	if ((argc &lt; 4) || ((argc % 2) != 0))
++	{
++		Jim_WrongNumArgs(interp, 1, args, &quot;wrong arguments&quot;);
++		return JIM_ERR;
++	}
++
++	endstate = TAP_IDLE;
++
++	script_debug(interp, &quot;drscan&quot;, argc, args);
++
++	/* validate arguments as numbers */
++	e = JIM_OK;
++	for (i = 2; i &lt; argc; i += 2)
++	{
++		long bits;
++		const char *cp;
++
++		e = Jim_GetLong(interp, args[i], &amp;bits);
++		/* If valid - try next arg */
++		if (e == JIM_OK) {
++			continue;
++		}
++
++		/* Not valid.. are we at the end? */
++		if (((i + 2) != argc)) {
++			/* nope, then error */
++			return e;
++		}
++
++		/* it could be: &quot;-endstate FOO&quot;
++		 * e.g. DRPAUSE so we can issue more instructions
++		 * before entering RUN/IDLE and executing them.
++		 */
++
++		/* get arg as a string. */
++		cp = Jim_GetString(args[i], NULL);
++		/* is it the magic? */
++		if (0 == strcmp(&quot;-endstate&quot;, cp)) {
++			/* is the statename valid? */
++			cp = Jim_GetString(args[i + 1], NULL);
++
++			/* see if it is a valid state name */
++			endstate = tap_state_by_name(cp);
++			if (endstate &lt; 0) {
++				/* update the error message */
++				Jim_SetResult_sprintf(interp,&quot;endstate: %s invalid&quot;, cp);
++			} else {
++				if (!scan_is_safe(endstate))
++					LOG_WARNING(&quot;drscan with unsafe &quot;
++							&quot;endstate \&quot;%s\&quot;&quot;, cp);
++
++				/* valid - so clear the error */
++				e = JIM_OK;
++				/* and remove the last 2 args */
++				argc -= 2;
++			}
++		}
++
++		/* Still an error? */
++		if (e != JIM_OK) {
++			return e; /* too bad */
++		}
++	} /* validate args */
++
++	tap = jtag_tap_by_jim_obj(interp, args[1]);
++	if (tap == NULL) {
++		return JIM_ERR;
++	}
++
++	num_fields = (argc-2)/2;
++	fields = malloc(sizeof(struct scan_field) * num_fields);
++	for (i = 2; i &lt; argc; i += 2)
++	{
++		long bits;
++		int len;
++		const char *str;
++
++		Jim_GetLong(interp, args[i], &amp;bits);
++		str = Jim_GetString(args[i + 1], &amp;len);
++
++		fields[field_count].tap = tap;
++		fields[field_count].num_bits = bits;
++		fields[field_count].out_value = malloc(DIV_ROUND_UP(bits, 8));
++		str_to_buf(str, len, fields[field_count].out_value, bits, 0);
++		fields[field_count].in_value = fields[field_count].out_value;
++		field_count++;
++	}
++
++	jtag_add_dr_scan(num_fields, fields, endstate);
++
++	retval = jtag_execute_queue();
++	if (retval != ERROR_OK)
++	{
++		Jim_SetResultString(interp, &quot;drscan: jtag execute failed&quot;,-1);
++		return JIM_ERR;
++	}
++
++	field_count = 0;
++	Jim_Obj *list = Jim_NewListObj(interp, NULL, 0);
++	for (i = 2; i &lt; argc; i += 2)
++	{
++		long bits;
++		char *str;
++
++		Jim_GetLong(interp, args[i], &amp;bits);
++		str = buf_to_str(fields[field_count].in_value, bits, 16);
++		free(fields[field_count].out_value);
++
++		Jim_ListAppendElement(interp, list, Jim_NewStringObj(interp, str, strlen(str)));
++		free(str);
++		field_count++;
++	}
++
++	Jim_SetResult(interp, list);
++
++	free(fields);
++
++	return JIM_OK;
++}
++
++
++static int Jim_Command_pathmove(Jim_Interp *interp, int argc, Jim_Obj *const *args)
++{
++	tap_state_t states[8];
++
++	if ((argc &lt; 2) || ((size_t)argc &gt; (ARRAY_SIZE(states) + 1)))
++	{
++		Jim_WrongNumArgs(interp, 1, args, &quot;wrong arguments&quot;);
++		return JIM_ERR;
++	}
++
++	script_debug(interp, &quot;pathmove&quot;, argc, args);
++
++	int i;
++	for (i = 0; i &lt; argc-1; i++)
++	{
++		const char *cp;
++		cp = Jim_GetString(args[i + 1], NULL);
++		states[i] = tap_state_by_name(cp);
++		if (states[i] &lt; 0)
++		{
++			/* update the error message */
++			Jim_SetResult_sprintf(interp,&quot;endstate: %s invalid&quot;, cp);
++			return JIM_ERR;
++		}
++	}
++
++	if ((jtag_add_statemove(states[0]) != ERROR_OK) || (jtag_execute_queue()!= ERROR_OK))
++	{
++		Jim_SetResultString(interp, &quot;pathmove: jtag execute failed&quot;,-1);
++		return JIM_ERR;
++	}
++
++	jtag_add_pathmove(argc-2, states + 1);
++
++	if (jtag_execute_queue()!= ERROR_OK)
++	{
++		Jim_SetResultString(interp, &quot;pathmove: failed&quot;,-1);
++		return JIM_ERR;
++	}
++
++	return JIM_OK;
++}
++
++
++static int Jim_Command_flush_count(Jim_Interp *interp, int argc, Jim_Obj *const *args)
++{
++	script_debug(interp, &quot;flush_count&quot;, argc, args);
++
++	Jim_SetResult(interp, Jim_NewIntObj(interp, jtag_get_flush_queue_count()));
++
++	return JIM_OK;
++}
++
++static const struct command_registration jtag_command_handlers_to_move[] = {
++	{
++		.name = &quot;drscan&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;Jim_Command_drscan,
++		.help = &quot;execute DR scan &lt;device&gt; &quot;
++			&quot;&lt;num_bits&gt; &lt;value&gt; &lt;num_bits1&gt; &lt;value2&gt; ...&quot;,
++	},
++	{
++		.name = &quot;flush_count&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;Jim_Command_flush_count,
++		.help = &quot;returns number of times the JTAG queue has been flushed&quot;,
++	},
++	{
++		.name = &quot;pathmove&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;Jim_Command_pathmove,
++		.usage = &quot;&lt;state1&gt;,&lt;state2&gt;,&lt;state3&gt;... &quot;,
++		.help = &quot;move JTAG to state1 then to state2, state3, etc.&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++
+ enum jtag_tap_cfg_param {
+ 	JCFG_EVENT
+ };
+@@ -598,6 +830,9 @@ static const struct command_registration jtag_subcommand_handlers[] = {
+ 		.jim_handler = &amp;jim_jtag_names,
+ 		.help = &quot;Returns list of all JTAG tap names&quot;,
+ 	},
++	{
++		.chain = jtag_command_handlers_to_move,
++	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
+@@ -1095,20 +1330,6 @@ COMMAND_HANDLER(handle_runtest_command)
+  * Not surprisingly, this is the same constraint as SVF; the &quot;irscan&quot;
+  * and &quot;drscan&quot; commands are a write-only subset of what SVF provides.
+  */
+-static bool scan_is_safe(tap_state_t state)
+-{
+-	switch (state)
+-	{
+-	case TAP_RESET:
+-	case TAP_IDLE:
+-	case TAP_DRPAUSE:
+-	case TAP_IRPAUSE:
+-		return true;
+-	default:
+-		return false;
+-	}
+-}
+-
+ 
+ COMMAND_HANDLER(handle_irscan_command)
+ {
+@@ -1191,199 +1412,6 @@ error_return:
+ 	return retval;
+ }
+ 
+-static int Jim_Command_drscan(Jim_Interp *interp, int argc, Jim_Obj *const *args)
+-{
+-	int retval;
+-	struct scan_field *fields;
+-	int num_fields;
+-	int field_count = 0;
+-	int i, e;
+-	struct jtag_tap *tap;
+-	tap_state_t endstate;
+-
+-	/* args[1] = device
+-	 * args[2] = num_bits
+-	 * args[3] = hex string
+-	 * ... repeat num bits and hex string ...
+-	 *
+-	 * .. optionally:
+-	*     args[N-2] = &quot;-endstate&quot;
+-	 *     args[N-1] = statename
+-	 */
+-	if ((argc &lt; 4) || ((argc % 2) != 0))
+-	{
+-		Jim_WrongNumArgs(interp, 1, args, &quot;wrong arguments&quot;);
+-		return JIM_ERR;
+-	}
+-
+-	endstate = TAP_IDLE;
+-
+-	script_debug(interp, &quot;drscan&quot;, argc, args);
+-
+-	/* validate arguments as numbers */
+-	e = JIM_OK;
+-	for (i = 2; i &lt; argc; i += 2)
+-	{
+-		long bits;
+-		const char *cp;
+-
+-		e = Jim_GetLong(interp, args[i], &amp;bits);
+-		/* If valid - try next arg */
+-		if (e == JIM_OK) {
+-			continue;
+-		}
+-
+-		/* Not valid.. are we at the end? */
+-		if (((i + 2) != argc)) {
+-			/* nope, then error */
+-			return e;
+-		}
+-
+-		/* it could be: &quot;-endstate FOO&quot;
+-		 * e.g. DRPAUSE so we can issue more instructions
+-		 * before entering RUN/IDLE and executing them.
+-		 */
+-
+-		/* get arg as a string. */
+-		cp = Jim_GetString(args[i], NULL);
+-		/* is it the magic? */
+-		if (0 == strcmp(&quot;-endstate&quot;, cp)) {
+-			/* is the statename valid? */
+-			cp = Jim_GetString(args[i + 1], NULL);
+-
+-			/* see if it is a valid state name */
+-			endstate = tap_state_by_name(cp);
+-			if (endstate &lt; 0) {
+-				/* update the error message */
+-				Jim_SetResult_sprintf(interp,&quot;endstate: %s invalid&quot;, cp);
+-			} else {
+-				if (!scan_is_safe(endstate))
+-					LOG_WARNING(&quot;drscan with unsafe &quot;
+-							&quot;endstate \&quot;%s\&quot;&quot;, cp);
+-
+-				/* valid - so clear the error */
+-				e = JIM_OK;
+-				/* and remove the last 2 args */
+-				argc -= 2;
+-			}
+-		}
+-
+-		/* Still an error? */
+-		if (e != JIM_OK) {
+-			return e; /* too bad */
+-		}
+-	} /* validate args */
+-
+-	tap = jtag_tap_by_jim_obj(interp, args[1]);
+-	if (tap == NULL) {
+-		return JIM_ERR;
+-	}
+-
+-	num_fields = (argc-2)/2;
+-	fields = malloc(sizeof(struct scan_field) * num_fields);
+-	for (i = 2; i &lt; argc; i += 2)
+-	{
+-		long bits;
+-		int len;
+-		const char *str;
+-
+-		Jim_GetLong(interp, args[i], &amp;bits);
+-		str = Jim_GetString(args[i + 1], &amp;len);
+-
+-		fields[field_count].tap = tap;
+-		fields[field_count].num_bits = bits;
+-		fields[field_count].out_value = malloc(DIV_ROUND_UP(bits, 8));
+-		str_to_buf(str, len, fields[field_count].out_value, bits, 0);
+-		fields[field_count].in_value = fields[field_count].out_value;
+-		field_count++;
+-	}
+-
+-	jtag_add_dr_scan(num_fields, fields, endstate);
+-
+-	retval = jtag_execute_queue();
+-	if (retval != ERROR_OK)
+-	{
+-		Jim_SetResultString(interp, &quot;drscan: jtag execute failed&quot;,-1);
+-		return JIM_ERR;
+-	}
+-
+-	field_count = 0;
+-	Jim_Obj *list = Jim_NewListObj(interp, NULL, 0);
+-	for (i = 2; i &lt; argc; i += 2)
+-	{
+-		long bits;
+-		char *str;
+-
+-		Jim_GetLong(interp, args[i], &amp;bits);
+-		str = buf_to_str(fields[field_count].in_value, bits, 16);
+-		free(fields[field_count].out_value);
+-
+-		Jim_ListAppendElement(interp, list, Jim_NewStringObj(interp, str, strlen(str)));
+-		free(str);
+-		field_count++;
+-	}
+-
+-	Jim_SetResult(interp, list);
+-
+-	free(fields);
+-
+-	return JIM_OK;
+-}
+-
+-
+-static int Jim_Command_pathmove(Jim_Interp *interp, int argc, Jim_Obj *const *args)
+-{
+-	tap_state_t states[8];
+-
+-	if ((argc &lt; 2) || ((size_t)argc &gt; (ARRAY_SIZE(states) + 1)))
+-	{
+-		Jim_WrongNumArgs(interp, 1, args, &quot;wrong arguments&quot;);
+-		return JIM_ERR;
+-	}
+-
+-	script_debug(interp, &quot;pathmove&quot;, argc, args);
+-
+-	int i;
+-	for (i = 0; i &lt; argc-1; i++)
+-	{
+-		const char *cp;
+-		cp = Jim_GetString(args[i + 1], NULL);
+-		states[i] = tap_state_by_name(cp);
+-		if (states[i] &lt; 0)
+-		{
+-			/* update the error message */
+-			Jim_SetResult_sprintf(interp,&quot;endstate: %s invalid&quot;, cp);
+-			return JIM_ERR;
+-		}
+-	}
+-
+-	if ((jtag_add_statemove(states[0]) != ERROR_OK) || (jtag_execute_queue()!= ERROR_OK))
+-	{
+-		Jim_SetResultString(interp, &quot;pathmove: jtag execute failed&quot;,-1);
+-		return JIM_ERR;
+-	}
+-
+-	jtag_add_pathmove(argc-2, states + 1);
+-
+-	if (jtag_execute_queue()!= ERROR_OK)
+-	{
+-		Jim_SetResultString(interp, &quot;pathmove: failed&quot;,-1);
+-		return JIM_ERR;
+-	}
+-
+-	return JIM_OK;
+-}
+-
+-
+-static int Jim_Command_flush_count(Jim_Interp *interp, int argc, Jim_Obj *const *args)
+-{
+-	script_debug(interp, &quot;flush_count&quot;, argc, args);
+-
+-	Jim_SetResult(interp, Jim_NewIntObj(interp, jtag_get_flush_queue_count()));
+-
+-	return JIM_OK;
+-}
+-
+ 
+ COMMAND_HANDLER(handle_verify_ircapture_command)
+ {
+@@ -1560,7 +1588,6 @@ static const struct command_registration jtag_command_handlers[] = {
+ 		.help = &quot;choose short(default) or long tms_sequence&quot;,
+ 		.usage = &quot;&lt;short | long&gt;&quot;,
+ 	},
+-	// jim commands
+ 	{
+ 		.name = &quot;jtag&quot;,
+ 		.mode = COMMAND_ANY,
+@@ -1569,28 +1596,10 @@ static const struct command_registration jtag_command_handlers[] = {
+ 		.chain = jtag_subcommand_handlers,
+ 	},
+ 	{
+-		.name = &quot;drscan&quot;,
+-		.mode = COMMAND_EXEC,
+-		.jim_handler = &amp;Jim_Command_drscan,
+-		.help = &quot;execute DR scan &lt;device&gt; &quot;
+-			&quot;&lt;num_bits&gt; &lt;value&gt; &lt;num_bits1&gt; &lt;value2&gt; ...&quot;,
+-	},
+-	{
+-		.name = &quot;flush_count&quot;,
+-		.mode = COMMAND_EXEC,
+-		.jim_handler = &amp;Jim_Command_flush_count,
+-		.help = &quot;returns number of times the JTAG queue has been flushed&quot;,
+-	},
+-	{
+-		.name = &quot;pathmove&quot;,
+-		.mode = COMMAND_EXEC,
+-		.jim_handler = &amp;Jim_Command_pathmove,
+-		.usage = &quot;&lt;state1&gt;,&lt;state2&gt;,&lt;state3&gt;... &quot;,
+-		.help = &quot;move JTAG to state1 then to state2, state3, etc.&quot;,
++		.chain = jtag_command_handlers_to_move,
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+-
+ int jtag_register_commands(struct command_context *cmd_ctx)
+ {
+ 	return register_commands(cmd_ctx, NULL, jtag_command_handlers);
+
+commit c4992c6d863d0ead91d84d19bbfe1643d720b205
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Wed Nov 25 21:35:24 2009 -0800
+
+    split jim_jtag_command into multiple handlers
+    
+    Explodes the 'jtag' into separate command handlers, which are easier
+    to understand and extend.  Makes the code much easier to understand,
+    though further simplifications are possible.  This patch tries to
+    minimize the noise when viewed with 'git diff -w'.
+    
+    Gives these commands improved built-in help and usage information.
+
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index e755dd7..e7a0f67 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -366,209 +366,240 @@ static void jtag_tap_handle_event(struct jtag_tap *tap, enum jtag_event e)
+ 	}
+ }
+ 
+-
+-static int jim_jtag_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++static int jim_jtag_interface(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+ 	Jim_GetOptInfo goi;
+-	int e;
+-	Jim_Nvp *n;
+-	Jim_Obj *o;
+-	struct command_context *context;
+-
+-	enum {
+-		JTAG_CMD_INTERFACE,
+-		JTAG_CMD_INIT,
+-		JTAG_CMD_INIT_RESET,
+-		JTAG_CMD_NEWTAP,
+-		JTAG_CMD_TAPENABLE,
+-		JTAG_CMD_TAPDISABLE,
+-		JTAG_CMD_TAPISENABLED,
+-		JTAG_CMD_CONFIGURE,
+-		JTAG_CMD_CGET,
+-		JTAG_CMD_NAMES,
+-	};
+-
+-	const Jim_Nvp jtag_cmds[] = {
+-		{ .name = &quot;interface&quot;     , .value = JTAG_CMD_INTERFACE },
+-		{ .name = &quot;arp_init&quot;      , .value = JTAG_CMD_INIT },
+-		{ .name = &quot;arp_init-reset&quot;, .value = JTAG_CMD_INIT_RESET },
+-		{ .name = &quot;newtap&quot;        , .value = JTAG_CMD_NEWTAP },
+-		{ .name = &quot;tapisenabled&quot;     , .value = JTAG_CMD_TAPISENABLED },
+-		{ .name = &quot;tapenable&quot;     , .value = JTAG_CMD_TAPENABLE },
+-		{ .name = &quot;tapdisable&quot;    , .value = JTAG_CMD_TAPDISABLE },
+-		{ .name = &quot;configure&quot;     , .value = JTAG_CMD_CONFIGURE },
+-		{ .name = &quot;cget&quot;          , .value = JTAG_CMD_CGET },
+-		{ .name = &quot;names&quot;         , .value = JTAG_CMD_NAMES },
+-
+-		{ .name = NULL, .value = -1 },
+-	};
+-
+-	context = Jim_GetAssocData(interp, &quot;context&quot;);
+-	/* go past the command */
+ 	Jim_GetOpt_Setup(&amp;goi, interp, argc-1, argv + 1);
+ 
+-	e = Jim_GetOpt_Nvp(&amp;goi, jtag_cmds, &amp;n);
+-	if (e != JIM_OK) {
+-		Jim_GetOpt_NvpUnknown(&amp;goi, jtag_cmds, 0);
+-		return e;
++	/* return the name of the interface */
++	/* TCL code might need to know the exact type... */
++	/* FUTURE: we allow this as a means to &quot;set&quot; the interface. */
++	if (goi.argc != 0) {
++		Jim_WrongNumArgs(goi.interp, 1, goi.argv-1, &quot;(no params)&quot;);
++		return JIM_ERR;
+ 	}
+-		Jim_SetEmptyResult(goi.interp);
+-	switch (n-&gt;value) {
+-	case JTAG_CMD_INTERFACE:
+-		/* return the name of the interface */
+-		/* TCL code might need to know the exact type... */
+-		/* FUTURE: we allow this as a means to &quot;set&quot; the interface. */
+-		if (goi.argc != 0) {
+-			Jim_WrongNumArgs(goi.interp, 1, goi.argv-1, &quot;(no params)&quot;);
+-			return JIM_ERR;
+-		}
+-		const char *name = jtag_interface ? jtag_interface-&gt;name : NULL;
+-		Jim_SetResultString(goi.interp, name ? : &quot;undefined&quot;, -1);
+-		return JIM_OK;
+-	case JTAG_CMD_INIT:
+-		if (goi.argc != 0) {
+-			Jim_WrongNumArgs(goi.interp, 1, goi.argv-1, &quot;(no params)&quot;);
+-			return JIM_ERR;
+-		}
+-		e = jtag_init_inner(context);
+-		if (e != ERROR_OK) {
+-			Jim_SetResult_sprintf(goi.interp, &quot;error: %d&quot;, e);
+-			return JIM_ERR;
+-		}
+-		return JIM_OK;
+-	case JTAG_CMD_INIT_RESET:
+-		if (goi.argc != 0) {
+-			Jim_WrongNumArgs(goi.interp, 1, goi.argv-1, &quot;(no params)&quot;);
+-			return JIM_ERR;
+-		}
+-		e = jtag_init_reset(context);
+-		if (e != ERROR_OK) {
+-			Jim_SetResult_sprintf(goi.interp, &quot;error: %d&quot;, e);
+-			return JIM_ERR;
+-		}
+-		return JIM_OK;
+-	case JTAG_CMD_NEWTAP:
+-		return jim_newtap_cmd(&amp;goi);
+-		break;
+-	case JTAG_CMD_TAPISENABLED:
+-	case JTAG_CMD_TAPENABLE:
+-	case JTAG_CMD_TAPDISABLE:
+-		if (goi.argc != 1) {
+-			Jim_SetResultString(goi.interp, &quot;Too many parameters&quot;,-1);
+-			return JIM_ERR;
+-		}
+-
+-		{
+-			struct jtag_tap *t;
++	const char *name = jtag_interface ? jtag_interface-&gt;name : NULL;
++	Jim_SetResultString(goi.interp, name ? : &quot;undefined&quot;, -1);
++	return JIM_OK;
++}
+ 
+-			t = jtag_tap_by_jim_obj(goi.interp, goi.argv[0]);
+-			if (t == NULL)
+-				return JIM_ERR;
++static int jim_jtag_arp_init(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc-1, argv + 1);
++	if (goi.argc != 0) {
++		Jim_WrongNumArgs(goi.interp, 1, goi.argv-1, &quot;(no params)&quot;);
++		return JIM_ERR;
++	}
++	struct command_context *context = Jim_GetAssocData(interp, &quot;context&quot;);
++	int e = jtag_init_inner(context);
++	if (e != ERROR_OK) {
++		Jim_SetResult_sprintf(goi.interp, &quot;error: %d&quot;, e);
++		return JIM_ERR;
++	}
++	return JIM_OK;
++}
+ 
+-			switch (n-&gt;value) {
+-			case JTAG_CMD_TAPISENABLED:
+-				break;
+-			case JTAG_CMD_TAPENABLE:
+-				if (t-&gt;enabled)
+-					break;
+-				jtag_tap_handle_event(t, JTAG_TAP_EVENT_ENABLE);
+-				if (!t-&gt;enabled)
+-					break;
+-
+-				/* FIXME add JTAG sanity checks, w/o TLR
+-				 *  - scan chain length grew by one (this)
+-				 *  - IDs and IR lengths are as expected
+-				 */
++static int jim_jtag_arp_init_reset(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc-1, argv + 1);
++	if (goi.argc != 0) {
++		Jim_WrongNumArgs(goi.interp, 1, goi.argv-1, &quot;(no params)&quot;);
++		return JIM_ERR;
++	}
++	struct command_context *context = Jim_GetAssocData(interp, &quot;context&quot;);
++	int e = jtag_init_reset(context);
++	if (e != ERROR_OK) {
++		Jim_SetResult_sprintf(goi.interp, &quot;error: %d&quot;, e);
++		return JIM_ERR;
++	}
++	return JIM_OK;
++}
+ 
+-				jtag_call_event_callbacks(JTAG_TAP_EVENT_ENABLE);
+-				break;
+-			case JTAG_CMD_TAPDISABLE:
+-				if (!t-&gt;enabled)
+-					break;
+-				jtag_tap_handle_event(t, JTAG_TAP_EVENT_DISABLE);
+-				if (t-&gt;enabled)
+-					break;
+-
+-				/* FIXME add JTAG sanity checks, w/o TLR
+-				 *  - scan chain length shrank by one (this)
+-				 *  - IDs and IR lengths are as expected
+-				 */
++static int jim_jtag_newtap(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc-1, argv + 1);
++	return jim_newtap_cmd(&amp;goi);
++}
+ 
+-				jtag_call_event_callbacks(JTAG_TAP_EVENT_DISABLE);
+-				break;
+-			}
+-			e = t-&gt;enabled;
+-			Jim_SetResult(goi.interp, Jim_NewIntObj(goi.interp, e));
+-			return JIM_OK;
+-		}
+-		break;
++static bool jtag_tap_enable(struct jtag_tap *t)
++{
++	if (t-&gt;enabled)
++		return false;
++	jtag_tap_handle_event(t, JTAG_TAP_EVENT_ENABLE);
++	if (!t-&gt;enabled)
++		return false;
+ 
+-	case JTAG_CMD_CGET:
+-		if (goi.argc &lt; 2) {
+-			Jim_WrongNumArgs(goi.interp, 0, NULL,
+-					&quot;cget tap_name queryparm&quot;);
+-			return JIM_ERR;
+-		}
++	/* FIXME add JTAG sanity checks, w/o TLR
++	 *  - scan chain length grew by one (this)
++	 *  - IDs and IR lengths are as expected
++	 */
++	jtag_call_event_callbacks(JTAG_TAP_EVENT_ENABLE);
++	return true;
++}
++static bool jtag_tap_disable(struct jtag_tap *t)
++{
++	if (!t-&gt;enabled)
++		return false;
++	jtag_tap_handle_event(t, JTAG_TAP_EVENT_DISABLE);
++	if (t-&gt;enabled)
++		return false;
+ 
+-		{
+-			struct jtag_tap *t;
++	/* FIXME add JTAG sanity checks, w/o TLR
++	 *  - scan chain length shrank by one (this)
++	 *  - IDs and IR lengths are as expected
++	 */
++	jtag_call_event_callbacks(JTAG_TAP_EVENT_DISABLE);
++	return true;
++}
+ 
+-			Jim_GetOpt_Obj(&amp;goi, &amp;o);
+-			t = jtag_tap_by_jim_obj(goi.interp, o);
+-			if (t == NULL) {
+-				return JIM_ERR;
+-			}
++static int jim_jtag_tap_enabler(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	const char *cmd_name = Jim_GetString(argv[0], NULL);
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc-1, argv + 1);
++	if (goi.argc != 1) {
++		Jim_SetResult_sprintf(goi.interp, &quot;usage: %s &lt;name&gt;&quot;, cmd_name);
++		return JIM_ERR;
++	}
+ 
+-			goi.isconfigure = 0;
+-			return jtag_tap_configure_cmd(&amp;goi, t);
+-		}
+-		break;
++	struct jtag_tap *t;
+ 
+-	case JTAG_CMD_CONFIGURE:
+-		if (goi.argc &lt; 3) {
+-			Jim_WrongNumArgs(goi.interp, 0, NULL,
+-					&quot;configure tap_name attribute value ...&quot;);
+-			return JIM_ERR;
+-		}
++	t = jtag_tap_by_jim_obj(goi.interp, goi.argv[0]);
++	if (t == NULL)
++		return JIM_ERR;
+ 
+-		{
+-			struct jtag_tap *t;
++	if (strcasecmp(cmd_name, &quot;tapisenabled&quot;) == 0) {
++		// do nothing, just return the value
++	} else if (strcasecmp(cmd_name, &quot;tapenable&quot;) == 0) {
++		if (!jtag_tap_enable(t))
++			LOG_WARNING(&quot;failed to disable tap&quot;);
++	} else if (strcasecmp(cmd_name, &quot;tapdisable&quot;) == 0) {
++		if (!jtag_tap_disable(t))
++			LOG_WARNING(&quot;failed to disable tap&quot;);
++	} else {
++		LOG_ERROR(&quot;command '%s' unknown&quot;, cmd_name);
++		return JIM_ERR;
++	}
++	bool e = t-&gt;enabled;
++	Jim_SetResult(goi.interp, Jim_NewIntObj(goi.interp, e));
++	return JIM_OK;
++}
+ 
+-			Jim_GetOpt_Obj(&amp;goi, &amp;o);
+-			t = jtag_tap_by_jim_obj(goi.interp, o);
+-			if (t == NULL) {
+-				return JIM_ERR;
+-			}
++static int jim_jtag_configure(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	const char *cmd_name = Jim_GetString(argv[0], NULL);
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc-1, argv + 1);
++	goi.isconfigure = !strcmp(cmd_name, &quot;configure&quot;);
++	if (goi.argc &lt; 2 + goi.isconfigure) {
++		Jim_WrongNumArgs(goi.interp, 0, NULL,
++				&quot;&lt;tap_name&gt; &lt;attribute&gt; ...&quot;);
++		return JIM_ERR;
++	}
+ 
+-			goi.isconfigure = 1;
+-			return jtag_tap_configure_cmd(&amp;goi, t);
+-		}
+-		break;
++	struct jtag_tap *t;
+ 
+-	case JTAG_CMD_NAMES:
+-		if (goi.argc != 0) {
+-			Jim_WrongNumArgs(goi.interp, 1, goi.argv, &quot;Too many parameters&quot;);
+-			return JIM_ERR;
+-		}
+-		Jim_SetResult(goi.interp, Jim_NewListObj(goi.interp, NULL, 0));
+-		{
+-			struct jtag_tap *tap;
++	Jim_Obj *o;
++	Jim_GetOpt_Obj(&amp;goi, &amp;o);
++	t = jtag_tap_by_jim_obj(goi.interp, o);
++	if (t == NULL) {
++		return JIM_ERR;
++	}
+ 
+-			for (tap = jtag_all_taps(); tap; tap = tap-&gt;next_tap) {
+-				Jim_ListAppendElement(goi.interp,
+-					Jim_GetResult(goi.interp),
+-					Jim_NewStringObj(goi.interp,
+-						tap-&gt;dotted_name, -1));
+-			}
+-			return JIM_OK;
+-		}
+-		break;
++	return jtag_tap_configure_cmd(&amp;goi, t);
++}
+ 
++static int jim_jtag_names(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	Jim_GetOptInfo goi;
++	Jim_GetOpt_Setup(&amp;goi, interp, argc-1, argv + 1);
++	if (goi.argc != 0) {
++		Jim_WrongNumArgs(goi.interp, 1, goi.argv, &quot;Too many parameters&quot;);
++		return JIM_ERR;
+ 	}
++	Jim_SetResult(goi.interp, Jim_NewListObj(goi.interp, NULL, 0));
++	struct jtag_tap *tap;
+ 
+-	return JIM_ERR;
++	for (tap = jtag_all_taps(); tap; tap = tap-&gt;next_tap) {
++		Jim_ListAppendElement(goi.interp,
++			Jim_GetResult(goi.interp),
++			Jim_NewStringObj(goi.interp,
++				tap-&gt;dotted_name, -1));
++	}
++	return JIM_OK;
+ }
+ 
++static const struct command_registration jtag_subcommand_handlers[] = {
++	{
++		.name = &quot;interface&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_jtag_interface,
++		.help = &quot;Returns the selected interface&quot;,
++	},
++	{
++		.name = &quot;arp_init&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_jtag_arp_init,
++	},
++	{
++		.name = &quot;arp_init-reset&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_jtag_arp_init_reset,
++	},
++	{
++		.name = &quot;newtap&quot;,
++		.mode = COMMAND_CONFIG,
++		.jim_handler = &amp;jim_jtag_newtap,
++		.help = &quot;Create a new TAP instance&quot;,
++		.usage = &quot;&lt;name&gt; &lt;type&gt; -irlen &lt;count&gt; [-ircapture &lt;count&gt;] &quot;
++			&quot;[-irmask &lt;count&gt;] [-enable|-disable]&quot;,
++	},
++	{
++		.name = &quot;tapisenabled&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_jtag_tap_enabler,
++		.help = &quot;Returns a integer indicating TAP state (0/1)&quot;,
++		.usage = &quot;&lt;name&gt;&quot;,
++	},
++	{
++		.name = &quot;tapenable&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_jtag_tap_enabler,
++		.help = &quot;Enable the specified TAP&quot;,
++		.usage = &quot;&lt;name&gt;&quot;,
++	},
++	{
++		.name = &quot;tapdisable&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_jtag_tap_enabler,
++		.help = &quot;Enable the specified TAP&quot;,
++		.usage = &quot;&lt;name&gt;&quot;,
++	},
++	{
++		.name = &quot;configure&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_jtag_configure,
++		.help = &quot;Enable the specified TAP&quot;,
++		.usage = &quot;&lt;name&gt; [&lt;key&gt; &lt;value&gt; ...]&quot;,
++	},
++	{
++		.name = &quot;cget&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = &amp;jim_jtag_configure,
++		.help = &quot;Enable the specified TAP&quot;,
++		.usage = &quot;&lt;name&gt; [&lt;key&gt; &lt;value&gt; ...]&quot;,
++	},
++	{
++		.name = &quot;names&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_jtag_names,
++		.help = &quot;Returns list of all JTAG tap names&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
+ 
+ void jtag_notify_event(enum jtag_event event)
+ {
+@@ -1533,8 +1564,9 @@ static const struct command_registration jtag_command_handlers[] = {
+ 	{
+ 		.name = &quot;jtag&quot;,
+ 		.mode = COMMAND_ANY,
+-		.jim_handler = &amp;jim_jtag_command,
+ 		.help = &quot;perform jtag tap actions&quot;,
++
++		.chain = jtag_subcommand_handlers,
+ 	},
+ 	{
+ 		.name = &quot;drscan&quot;,
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/tcl.c      | 1239 +++++++++++++++++++++++++++------------------------
+ src/target/target.c | 1154 +++++++++++++++++++++++++++--------------------
+ 2 files changed, 1319 insertions(+), 1074 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001880.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-694-g2da2864
+</A></li>
+	<LI>Next message: <A HREF="001882.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-703-g01f9313
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1881">[ date ]</a>
+              <a href="thread.html#1881">[ thread ]</a>
+              <a href="subject.html#1881">[ subject ]</a>
+              <a href="author.html#1881">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

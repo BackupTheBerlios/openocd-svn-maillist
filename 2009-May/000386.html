@@ -1,0 +1,511 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1602 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1602%20-%20trunk/src/target&In-Reply-To=%3C200905041844.n44IiHND013629%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000385.html">
+   <LINK REL="Next"  HREF="000387.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1602 - trunk/src/target</H1>
+    <B>oharboe at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1602%20-%20trunk/src/target&In-Reply-To=%3C200905041844.n44IiHND013629%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1602 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Mon May  4 20:44:17 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000385.html">[Openocd-svn] r1601 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="000387.html">[Openocd-svn] r1603 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#386">[ date ]</a>
+              <a href="thread.html#386">[ thread ]</a>
+              <a href="subject.html#386">[ subject ]</a>
+              <a href="author.html#386">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-05-04 20:44:12 +0200 (Mon, 04 May 2009)
+New Revision: 1602
+
+Added:
+   trunk/src/target/cortex_a8.c
+   trunk/src/target/cortex_a8.h
+Modified:
+   trunk/src/target/Makefile.am
+   trunk/src/target/target.c
+Log:
+Dirk Behme &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dirk.behme at googlemail.com</A>&gt; Add minimalist Cortex A8 file
+
+Modified: trunk/src/target/Makefile.am
+===================================================================
+--- trunk/src/target/Makefile.am	2009-05-04 11:06:21 UTC (rev 1601)
++++ trunk/src/target/Makefile.am	2009-05-04 18:44:12 UTC (rev 1602)
+@@ -14,12 +14,12 @@
+ noinst_LIBRARIES = libtarget.a
+ libtarget_a_SOURCES = target.c register.c breakpoints.c armv4_5.c embeddedice.c etm.c arm7tdmi.c arm9tdmi.c \
+ 	arm_jtag.c arm7_9_common.c algorithm.c arm920t.c arm720t.c armv4_5_mmu.c armv4_5_cache.c arm_disassembler.c \
+-	arm966e.c arm926ejs.c feroceon.c etb.c xscale.c arm_simulator.c image.c armv7m.c cortex_m3.c arm_adi_v5.c \
++	arm966e.c arm926ejs.c feroceon.c etb.c xscale.c arm_simulator.c image.c armv7m.c cortex_m3.c cortex_a8.c arm_adi_v5.c \
+ 	etm_dummy.c $(OOCD_TRACE_FILES) target_request.c trace.c arm11.c arm11_dbgtap.c mips32.c mips_m4k.c \
+ 	mips32_pracc.c mips32_dmaacc.c mips_ejtag.c avrt.c
+ noinst_HEADERS = target.h trace.h register.h armv4_5.h embeddedice.h etm.h arm7tdmi.h arm9tdmi.h \
+ 	arm_jtag.h arm7_9_common.h arm920t.h arm720t.h armv4_5_mmu.h armv4_5_cache.h breakpoints.h algorithm.h \
+-	arm_disassembler.h arm966e.h arm926ejs.h etb.h xscale.h arm_simulator.h image.h armv7m.h cortex_m3.h arm_adi_v5.h \
++	arm_disassembler.h arm966e.h arm926ejs.h etb.h xscale.h arm_simulator.h image.h armv7m.h cortex_m3.h cortex_a8.h arm_adi_v5.h \
+ 	etm_dummy.h oocd_trace.h target_request.h trace.h arm11.h mips32.h mips_m4k.h mips_ejtag.h mips32_pracc.h mips32_dmaacc.h avrt.h
+ 
+ nobase_dist_pkglib_DATA =
+
+Added: trunk/src/target/cortex_a8.c
+===================================================================
+--- trunk/src/target/cortex_a8.c	2009-05-04 11:06:21 UTC (rev 1601)
++++ trunk/src/target/cortex_a8.c	2009-05-04 18:44:12 UTC (rev 1602)
+@@ -0,0 +1,273 @@
++/***************************************************************************
++ *   Copyright (C) 2005 by Dominic Rath                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
++ *                                                                         *
++ *   Copyright (C) 2006 by Magnus Lundin                                   *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lundin at mlu.mine.nu</A>                                                    *
++ *                                                                         *
++ *   Copyright (C) 2008 by Spencer Oliver                                  *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">spen at spen-soft.co.uk</A>                                                  *
++ *                                                                         *
++ *   Copyright (C) 2009 by Dirk Behme                                      *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dirk.behme at gmail.com</A> - copy from cortex_m3                            *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ *                                                                         *
++ *   Cortex-A8(tm) TRM, ARM DDI 0344H                                      *
++ *                                                                         *
++ ***************************************************************************/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;replacements.h&quot;
++
++#include &quot;cortex_a8.h&quot;
++#include &quot;armv7m.h&quot;
++
++#include &quot;register.h&quot;
++#include &quot;target.h&quot;
++#include &quot;target_request.h&quot;
++#include &quot;log.h&quot;
++#include &quot;jtag.h&quot;
++#include &quot;arm_jtag.h&quot;
++
++#include &lt;stdlib.h&gt;
++#include &lt;string.h&gt;
++
++/* cli handling */
++int cortex_a8_register_commands(struct command_context_s *cmd_ctx);
++
++/* forward declarations */
++int cortex_a8_target_create(struct target_s *target, Jim_Interp *interp);
++
++target_type_t cortexa8_target =
++{
++	.name = &quot;cortex_a8&quot;,
++
++	.poll = NULL,
++	.arch_state = armv7m_arch_state,
++
++	.target_request_data = NULL,
++
++	.halt = NULL,
++	.resume = NULL,
++	.step = NULL,
++
++	.assert_reset = NULL,
++	.deassert_reset = NULL,
++	.soft_reset_halt = NULL,
++
++	.get_gdb_reg_list = armv7m_get_gdb_reg_list,
++
++	.read_memory = cortex_a8_read_memory,
++	.write_memory = cortex_a8_write_memory,
++	.bulk_write_memory = NULL,
++	.checksum_memory = NULL,
++	.blank_check_memory = NULL,
++
++	.run_algorithm = armv7m_run_algorithm,
++
++	.add_breakpoint = NULL,
++	.remove_breakpoint = NULL,
++	.add_watchpoint = NULL,
++	.remove_watchpoint = NULL,
++
++	.register_commands = cortex_a8_register_commands,
++	.target_create = cortex_a8_target_create,
++	.init_target = NULL,
++	.examine = NULL,
++	.quit = NULL
++};
++
++int cortex_a8_dcc_read(swjdp_common_t *swjdp, u8 *value, u8 *ctrl)
++{
++	u16 dcrdr;
++
++	mem_ap_read_buf_u16( swjdp, (u8*)&amp;dcrdr, 1, DCB_DCRDR);
++	*ctrl = (u8)dcrdr;
++	*value = (u8)(dcrdr &gt;&gt; 8);
++
++	LOG_DEBUG(&quot;data 0x%x ctrl 0x%x&quot;, *value, *ctrl);
++
++	/* write ack back to software dcc register
++	 * signify we have read data */
++	if (dcrdr &amp; (1 &lt;&lt; 0))
++	{
++		dcrdr = 0;
++		mem_ap_write_buf_u16( swjdp, (u8*)&amp;dcrdr, 1, DCB_DCRDR);
++	}
++
++	return ERROR_OK;
++}
++
++int cortex_a8_read_memory(struct target_s *target, u32 address, u32 size, u32 count, u8 *buffer)
++{
++	/* get pointers to arch-specific information */
++	armv7m_common_t *armv7m = target-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
++	int retval;
++
++	/* sanitize arguments */
++	if (((size != 4) &amp;&amp; (size != 2) &amp;&amp; (size != 1)) || (count == 0) || !(buffer))
++		return ERROR_INVALID_ARGUMENTS;
++
++	/* cortex_a8 handles unaligned memory access */
++
++	switch (size)
++	{
++		case 4:
++			retval = mem_ap_read_buf_u32(swjdp, buffer, 4 * count, address);
++			break;
++		case 2:
++			retval = mem_ap_read_buf_u16(swjdp, buffer, 2 * count, address);
++			break;
++		case 1:
++			retval = mem_ap_read_buf_u8(swjdp, buffer, count, address);
++			break;
++		default:
++			LOG_ERROR(&quot;BUG: we shouldn't get here&quot;);
++			exit(-1);
++	}
++
++	return retval;
++}
++
++int cortex_a8_write_memory(struct target_s *target, u32 address, u32 size, u32 count, u8 *buffer)
++{
++	/* get pointers to arch-specific information */
++	armv7m_common_t *armv7m = target-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
++	int retval;
++
++	/* sanitize arguments */
++	if (((size != 4) &amp;&amp; (size != 2) &amp;&amp; (size != 1)) || (count == 0) || !(buffer))
++		return ERROR_INVALID_ARGUMENTS;
++
++	switch (size)
++	{
++		case 4:
++			retval = mem_ap_write_buf_u32(swjdp, buffer, 4 * count, address);
++			break;
++		case 2:
++			retval = mem_ap_write_buf_u16(swjdp, buffer, 2 * count, address);
++			break;
++		case 1:
++			retval = mem_ap_write_buf_u8(swjdp, buffer, count, address);
++			break;
++		default:
++			LOG_ERROR(&quot;BUG: we shouldn't get here&quot;);
++			exit(-1);
++	}
++
++	return retval;
++}
++
++int cortex_a8_handle_target_request(void *priv)
++{
++	target_t *target = priv;
++	if (!target-&gt;type-&gt;examined)
++		return ERROR_OK;
++	armv7m_common_t *armv7m = target-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
++
++	if (!target-&gt;dbg_msg_enabled)
++		return ERROR_OK;
++
++	if (target-&gt;state == TARGET_RUNNING)
++	{
++		u8 data;
++		u8 ctrl;
++
++		cortex_a8_dcc_read(swjdp, &amp;data, &amp;ctrl);
++
++		/* check if we have data */
++		if (ctrl &amp; (1 &lt;&lt; 0))
++		{
++			u32 request;
++
++			/* we assume target is quick enough */
++			request = data;
++			cortex_a8_dcc_read(swjdp, &amp;data, &amp;ctrl);
++			request |= (data &lt;&lt; 8);
++			cortex_a8_dcc_read(swjdp, &amp;data, &amp;ctrl);
++			request |= (data &lt;&lt; 16);
++			cortex_a8_dcc_read(swjdp, &amp;data, &amp;ctrl);
++			request |= (data &lt;&lt; 24);
++			target_request(target, request);
++		}
++	}
++
++	return ERROR_OK;
++}
++
++int cortex_a8_init_arch_info(target_t *target, cortex_a8_common_t *cortex_a8, jtag_tap_t *tap)
++{
++	armv7m_common_t *armv7m;
++	armv7m = &amp;cortex_a8-&gt;armv7m;
++
++	/* prepare JTAG information for the new target */
++	cortex_a8-&gt;jtag_info.tap = tap;
++	cortex_a8-&gt;jtag_info.scann_size = 4;
++
++	armv7m-&gt;swjdp_info.dp_select_value = -1;
++	armv7m-&gt;swjdp_info.ap_csw_value = -1;
++	armv7m-&gt;swjdp_info.ap_tar_value = -1;
++	armv7m-&gt;swjdp_info.jtag_info = &amp;cortex_a8-&gt;jtag_info;
++
++	/* initialize arch-specific breakpoint handling */
++
++	cortex_a8-&gt;common_magic = CORTEX_A8_COMMON_MAGIC;
++	cortex_a8-&gt;arch_info = NULL;
++
++	/* register arch-specific functions */
++	armv7m-&gt;examine_debug_reason = NULL;
++
++	armv7m-&gt;pre_debug_entry = NULL;
++	armv7m-&gt;post_debug_entry = NULL;
++
++	armv7m-&gt;pre_restore_context = NULL;
++	armv7m-&gt;post_restore_context = NULL;
++
++	armv7m_init_arch_info(target, armv7m);
++	armv7m-&gt;arch_info = cortex_a8;
++	armv7m-&gt;load_core_reg_u32 = NULL;
++	armv7m-&gt;store_core_reg_u32 = NULL;
++
++	target_register_timer_callback(cortex_a8_handle_target_request, 1, 1, target);
++
++	return ERROR_OK;
++}
++
++int cortex_a8_target_create(struct target_s *target, Jim_Interp *interp)
++{
++	cortex_a8_common_t *cortex_a8 = calloc(1,sizeof(cortex_a8_common_t));
++
++	cortex_a8_init_arch_info(target, cortex_a8, target-&gt;tap);
++
++	return ERROR_OK;
++}
++
++int cortex_a8_register_commands(struct command_context_s *cmd_ctx)
++{
++	int retval;
++
++	retval = armv7m_register_commands(cmd_ctx);
++
++	register_command(cmd_ctx, NULL, &quot;cortex_a8&quot;, NULL, COMMAND_ANY, &quot;cortex_a8 specific commands&quot;);
++
++	return retval;
++}
+
+
+Property changes on: trunk/src/target/cortex_a8.c
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/src/target/cortex_a8.h
+===================================================================
+--- trunk/src/target/cortex_a8.h	2009-05-04 11:06:21 UTC (rev 1601)
++++ trunk/src/target/cortex_a8.h	2009-05-04 18:44:12 UTC (rev 1602)
+@@ -0,0 +1,99 @@
++/***************************************************************************
++ *   Copyright (C) 2005 by Dominic Rath                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
++ *                                                                         *
++ *   Copyright (C) 2006 by Magnus Lundin                                   *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lundin at mlu.mine.nu</A>                                                    *
++ *                                                                         *
++ *   Copyright (C) 2008 by Spencer Oliver                                  *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">spen at spen-soft.co.uk</A>                                                  *
++ *                                                                         *
++ *   Copyright (C) 2009 by Dirk Behme                                      *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dirk.behme at gmail.com</A> - copy from cortex_m3                            *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifndef CORTEX_A8_H
++#define CORTEX_A8_H
++
++#include &quot;register.h&quot;
++#include &quot;target.h&quot;
++#include &quot;armv7m.h&quot;
++
++extern char* cortex_a8_state_strings[];
++
++#define CORTEX_A8_COMMON_MAGIC 0x411fc082
++
++#define CPUID		0x54011D00
++/* Debug Control Block */
++#define DCB_DHCSR	0x54011DF0
++#define DCB_DCRSR	0x54011DF4
++#define DCB_DCRDR	0x54011DF8
++#define DCB_DEMCR	0x54011DFC
++
++typedef struct  cortex_a8_fp_comparator_s
++{
++	int used;
++	int type;
++	u32 fpcr_value;
++	u32 fpcr_address;
++} cortex_a8_fp_comparator_t;
++
++typedef struct  cortex_a8_dwt_comparator_s
++{
++	int used;
++	u32 comp;
++	u32 mask;
++	u32 function;
++	u32 dwt_comparator_address;
++} cortex_a8_dwt_comparator_t;
++
++typedef struct cortex_a8_common_s
++{
++	int common_magic;
++	arm_jtag_t jtag_info;
++
++	/* Context information */
++	u32 dcb_dhcsr;
++	u32 nvic_dfsr;  /* Debug Fault Status Register - shows reason for debug halt */
++	u32 nvic_icsr;  /* Interrupt Control State Register - shows active and pending IRQ */
++
++	/* Flash Patch and Breakpoint (FPB) */
++	int fp_num_lit;
++	int fp_num_code;
++	int fp_code_available;
++	int fpb_enabled;
++	int auto_bp_type;
++	cortex_a8_fp_comparator_t *fp_comparator_list;
++
++	/* Data Watchpoint and Trace (DWT) */
++	int dwt_num_comp;
++	int dwt_comp_available;
++	cortex_a8_dwt_comparator_t *dwt_comparator_list;
++
++	/* Interrupts */
++	int intlinesnum;
++	u32 *intsetenable;
++
++	armv7m_common_t armv7m;
++	void *arch_info;
++} cortex_a8_common_t;
++
++extern int cortex_a8_init_arch_info(target_t *target, cortex_a8_common_t *cortex_a8, jtag_tap_t *tap);
++int cortex_a8_read_memory(struct target_s *target, u32 address, u32 size, u32 count, u8 *buffer);
++int cortex_a8_write_memory(struct target_s *target, u32 address, u32 size, u32 count, u8 *buffer);
++
++#endif /* CORTEX_A8_H */
+
+
+Property changes on: trunk/src/target/cortex_a8.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-05-04 11:06:21 UTC (rev 1601)
++++ trunk/src/target/target.c	2009-05-04 18:44:12 UTC (rev 1602)
+@@ -101,6 +101,7 @@
+ extern target_type_t feroceon_target;
+ extern target_type_t xscale_target;
+ extern target_type_t cortexm3_target;
++extern target_type_t cortexa8_target;
+ extern target_type_t arm11_target;
+ extern target_type_t mips_m4k_target;
+ extern target_type_t avr_target;
+@@ -116,6 +117,7 @@
+ 	&amp;feroceon_target,
+ 	&amp;xscale_target,
+ 	&amp;cortexm3_target,
++	&amp;cortexa8_target,
+ 	&amp;arm11_target,
+ 	&amp;mips_m4k_target,
+ 	&amp;avr_target,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000385.html">[Openocd-svn] r1601 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="000387.html">[Openocd-svn] r1603 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#386">[ date ]</a>
+              <a href="thread.html#386">[ thread ]</a>
+              <a href="subject.html#386">[ subject ]</a>
+              <a href="author.html#386">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

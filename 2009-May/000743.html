@@ -1,0 +1,518 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1959 - in trunk/src: flash target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1959%20-%20in%20trunk/src%3A%20flash%20target&In-Reply-To=%3C200905310937.n4V9bo09014164%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000742.html">
+   <LINK REL="Next"  HREF="000744.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1959 - in trunk/src: flash target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1959%20-%20in%20trunk/src%3A%20flash%20target&In-Reply-To=%3C200905310937.n4V9bo09014164%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1959 - in trunk/src: flash target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Sun May 31 11:37:50 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000742.html">[Openocd-svn] r1958 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="000744.html">[Openocd-svn] r1960 - in trunk/src: flash target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#743">[ date ]</a>
+              <a href="thread.html#743">[ thread ]</a>
+              <a href="subject.html#743">[ subject ]</a>
+              <a href="author.html#743">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-31 11:37:35 +0200 (Sun, 31 May 2009)
+New Revision: 1959
+
+Modified:
+   trunk/src/flash/at91sam7.c
+   trunk/src/flash/cfi.c
+   trunk/src/flash/flash.c
+   trunk/src/flash/lpc3180_nand_controller.c
+   trunk/src/flash/mflash.c
+   trunk/src/target/arm7_9_common.c
+   trunk/src/target/cortex_m3.c
+   trunk/src/target/mips_m4k.c
+   trunk/src/target/target.c
+   trunk/src/target/target.h
+   trunk/src/target/xscale.c
+Log:
+Add target_read_memory wrapper:
+- replaces all calls to target-&gt;type-&gt;read_memory.
+- add documentation in target_s to warn not to invoke callback directly.
+
+
+Modified: trunk/src/flash/at91sam7.c
+===================================================================
+--- trunk/src/flash/at91sam7.c	2009-05-31 06:00:28 UTC (rev 1958)
++++ trunk/src/flash/at91sam7.c	2009-05-31 09:37:35 UTC (rev 1959)
+@@ -665,7 +665,7 @@
+ 	for (nSector=0; nSector&lt;bank-&gt;num_sectors; nSector++)
+ 	{
+ 		bank-&gt;sectors[nSector].is_erased = 1;
+-		retval = target-&gt;type-&gt;read_memory(target, bank-&gt;base+bank-&gt;sectors[nSector].offset, 4,
++		retval = target_read_memory(target, bank-&gt;base+bank-&gt;sectors[nSector].offset, 4,
+ 			bank-&gt;sectors[nSector].size/4, buffer);
+ 		if (retval != ERROR_OK)
+ 			return retval;
+
+Modified: trunk/src/flash/cfi.c
+===================================================================
+--- trunk/src/flash/cfi.c	2009-05-31 06:00:28 UTC (rev 1958)
++++ trunk/src/flash/cfi.c	2009-05-31 09:37:35 UTC (rev 1959)
+@@ -166,7 +166,7 @@
+ 	target_t *target = bank-&gt;target;
+ 	u8 data[CFI_MAX_BUS_WIDTH];
+ 
+-	target-&gt;type-&gt;read_memory(target, flash_address(bank, sector, offset), bank-&gt;bus_width, 1, data);
++	target_read_memory(target, flash_address(bank, sector, offset), bank-&gt;bus_width, 1, data);
+ 
+ 	if (bank-&gt;target-&gt;endianness == TARGET_LITTLE_ENDIAN)
+ 		return data[0];
+@@ -184,7 +184,7 @@
+ 	u8 data[CFI_MAX_BUS_WIDTH];
+ 	int i;
+ 
+-	target-&gt;type-&gt;read_memory(target, flash_address(bank, sector, offset), bank-&gt;bus_width, 1, data);
++	target_read_memory(target, flash_address(bank, sector, offset), bank-&gt;bus_width, 1, data);
+ 
+ 	if (bank-&gt;target-&gt;endianness == TARGET_LITTLE_ENDIAN)
+ 	{
+@@ -213,11 +213,11 @@
+ 	{
+ 		u8 i;
+ 		for(i=0;i&lt;2;i++)
+-			target-&gt;type-&gt;read_memory(target, flash_address(bank, sector, offset+i), bank-&gt;bus_width, 1,
++			target_read_memory(target, flash_address(bank, sector, offset+i), bank-&gt;bus_width, 1,
+ 				&amp;data[i*bank-&gt;bus_width] );
+ 	}
+ 	else
+-		target-&gt;type-&gt;read_memory(target, flash_address(bank, sector, offset), bank-&gt;bus_width, 2, data);
++		target_read_memory(target, flash_address(bank, sector, offset), bank-&gt;bus_width, 2, data);
+ 
+ 	if (bank-&gt;target-&gt;endianness == TARGET_LITTLE_ENDIAN)
+ 		return data[0] | data[bank-&gt;bus_width] &lt;&lt; 8;
+@@ -235,11 +235,11 @@
+ 	{
+ 		u8 i;
+ 		for(i=0;i&lt;4;i++)
+-			target-&gt;type-&gt;read_memory(target, flash_address(bank, sector, offset+i), bank-&gt;bus_width, 1,
++			target_read_memory(target, flash_address(bank, sector, offset+i), bank-&gt;bus_width, 1,
+ 				&amp;data[i*bank-&gt;bus_width] );
+ 	}
+ 	else
+-		target-&gt;type-&gt;read_memory(target, flash_address(bank, sector, offset), bank-&gt;bus_width, 4, data);
++		target_read_memory(target, flash_address(bank, sector, offset), bank-&gt;bus_width, 4, data);
+ 
+ 	if (bank-&gt;target-&gt;endianness == TARGET_LITTLE_ENDIAN)
+ 		return data[0] | data[bank-&gt;bus_width] &lt;&lt; 8 | data[bank-&gt;bus_width * 2] &lt;&lt; 16 | data[bank-&gt;bus_width * 3] &lt;&lt; 24;
+@@ -1889,7 +1889,7 @@
+ 		for (i = 0; i &lt; align; ++i, ++copy_p)
+ 		{
+ 			u8 byte;
+-			if((retval = target-&gt;type-&gt;read_memory(target, copy_p, 1, 1, &amp;byte)) != ERROR_OK)
++			if((retval = target_read_memory(target, copy_p, 1, 1, &amp;byte)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+@@ -1908,7 +1908,7 @@
+ 		for (; (count == 0) &amp;&amp; (i &lt; bank-&gt;bus_width); ++i, ++copy_p)
+ 		{
+ 			u8 byte;
+-			if((retval = target-&gt;type-&gt;read_memory(target, copy_p, 1, 1, &amp;byte)) != ERROR_OK)
++			if((retval = target_read_memory(target, copy_p, 1, 1, &amp;byte)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+@@ -2039,7 +2039,7 @@
+ 		for (; i &lt; bank-&gt;bus_width; ++i, ++copy_p)
+ 		{
+ 			u8 byte;
+-			if((retval = target-&gt;type-&gt;read_memory(target, copy_p, 1, 1, &amp;byte)) != ERROR_OK)
++			if((retval = target_read_memory(target, copy_p, 1, 1, &amp;byte)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+
+Modified: trunk/src/flash/flash.c
+===================================================================
+--- trunk/src/flash/flash.c	2009-05-31 06:00:28 UTC (rev 1958)
++++ trunk/src/flash/flash.c	2009-05-31 09:37:35 UTC (rev 1959)
+@@ -1157,7 +1157,7 @@
+ 				chunk = (j - bank-&gt;sectors[i].size);
+ 			}
+ 
+-			retval = target-&gt;type-&gt;read_memory(target, bank-&gt;base + bank-&gt;sectors[i].offset + j, 4, chunk/4, buffer);
++			retval = target_read_memory(target, bank-&gt;base + bank-&gt;sectors[i].offset + j, 4, chunk/4, buffer);
+ 			if (retval != ERROR_OK)
+ 				return retval;
+ 
+
+Modified: trunk/src/flash/lpc3180_nand_controller.c
+===================================================================
+--- trunk/src/flash/lpc3180_nand_controller.c	2009-05-31 06:00:28 UTC (rev 1958)
++++ trunk/src/flash/lpc3180_nand_controller.c	2009-05-31 09:37:35 UTC (rev 1959)
+@@ -759,12 +759,12 @@
+ 
+ 			if (data)
+ 			{
+-				target-&gt;type-&gt;read_memory(target, 0x200a8000, 4, 128, page_buffer + page_bytes_done);
++				target_read_memory(target, 0x200a8000, 4, 128, page_buffer + page_bytes_done);
+ 			}
+ 
+ 			if (oob)
+ 			{
+-				target-&gt;type-&gt;read_memory(target, 0x200a8000, 4, 4, oob_buffer + oob_bytes_done);
++				target_read_memory(target, 0x200a8000, 4, 4, oob_buffer + oob_bytes_done);
+ 			}
+ 
+ 			page_bytes_done += 512;
+
+Modified: trunk/src/flash/mflash.c
+===================================================================
+--- trunk/src/flash/mflash.c	2009-05-31 06:00:28 UTC (rev 1958)
++++ trunk/src/flash/mflash.c	2009-05-31 09:37:35 UTC (rev 1959)
+@@ -345,7 +345,7 @@
+ 	if (! mflash_bank-&gt;drv_info)
+ 		mflash_bank-&gt;drv_info = malloc(sizeof(mg_drv_info_t));
+ 
+-	target-&gt;type-&gt;read_memory(target, mg_buff, 2, sizeof(mg_io_type_drv_info) &gt;&gt; 1,
++	target_read_memory(target, mg_buff, 2, sizeof(mg_io_type_drv_info) &gt;&gt; 1,
+ 			(u8 *)&amp;mflash_bank-&gt;drv_info-&gt;drv_id);
+ 
+ 	mflash_bank-&gt;drv_info-&gt;tot_sects = (u32)(mflash_bank-&gt;drv_info-&gt;drv_id.total_user_addressable_sectors_hi &lt;&lt; 16)
+@@ -428,7 +428,7 @@
+ 	for (i = 0; i &lt; sect_cnt; i++) {
+ 		mg_dsk_wait(mg_io_wait_drq, MG_OEM_DISK_WAIT_TIME_NORMAL);
+ 
+-		target-&gt;type-&gt;read_memory(target, address, 2, MG_MFLASH_SECTOR_SIZE / 2, buff_ptr);
++		target_read_memory(target, address, 2, MG_MFLASH_SECTOR_SIZE / 2, buff_ptr);
+ 		buff_ptr += MG_MFLASH_SECTOR_SIZE;
+ 
+ 		target_write_u8(target, mflash_bank-&gt;base + MG_REG_OFFSET + MG_REG_COMMAND, mg_io_cmd_confirm_read);
+@@ -932,7 +932,7 @@
+ 
+ 		memset(buff, 0xff, MG_MFLASH_SECTOR_SIZE);
+ 
+-		target-&gt;type-&gt;read_memory(target, address, 2,
++		target_read_memory(target, address, 2,
+ 				MG_MFLASH_SECTOR_SIZE / 2, (u8 *)buff);
+ 
+ 		for (i = 0; i &lt; MG_MFLASH_SECTOR_SIZE &gt;&gt; 1; i++) {
+
+Modified: trunk/src/target/arm7_9_common.c
+===================================================================
+--- trunk/src/target/arm7_9_common.c	2009-05-31 06:00:28 UTC (rev 1958)
++++ trunk/src/target/arm7_9_common.c	2009-05-31 09:37:35 UTC (rev 1959)
+@@ -274,7 +274,7 @@
+ 		{
+ 			u32 verify = 0xffffffff;
+ 			/* keep the original instruction in target endianness */
+-			if ((retval = target-&gt;type-&gt;read_memory(target, breakpoint-&gt;address, 4, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++			if ((retval = target_read_memory(target, breakpoint-&gt;address, 4, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+@@ -298,7 +298,7 @@
+ 		{
+ 			u16 verify = 0xffff;
+ 			/* keep the original instruction in target endianness */
+-			if ((retval = target-&gt;type-&gt;read_memory(target, breakpoint-&gt;address, 2, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++			if ((retval = target_read_memory(target, breakpoint-&gt;address, 2, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+@@ -373,7 +373,7 @@
+ 		{
+ 			u32 current_instr;
+ 			/* check that user program as not modified breakpoint instruction */
+-			if ((retval = target-&gt;type-&gt;read_memory(target, breakpoint-&gt;address, 4, 1, (u8*)&amp;current_instr)) != ERROR_OK)
++			if ((retval = target_read_memory(target, breakpoint-&gt;address, 4, 1, (u8*)&amp;current_instr)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+@@ -387,7 +387,7 @@
+ 		{
+ 			u16 current_instr;
+ 			/* check that user program as not modified breakpoint instruction */
+-			if ((retval = target-&gt;type-&gt;read_memory(target, breakpoint-&gt;address, 2, 1, (u8*)&amp;current_instr)) != ERROR_OK)
++			if ((retval = target_read_memory(target, breakpoint-&gt;address, 2, 1, (u8*)&amp;current_instr)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+
+Modified: trunk/src/target/cortex_m3.c
+===================================================================
+--- trunk/src/target/cortex_m3.c	2009-05-31 06:00:28 UTC (rev 1958)
++++ trunk/src/target/cortex_m3.c	2009-05-31 09:37:35 UTC (rev 1959)
+@@ -930,7 +930,7 @@
+ 	{
+ 		u8 code[4];
+ 		buf_set_u32(code, 0, 32, ARMV7M_T_BKPT(0x11));
+-		if((retval = target-&gt;type-&gt;read_memory(target, breakpoint-&gt;address &amp; 0xFFFFFFFE, breakpoint-&gt;length, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++		if((retval = target_read_memory(target, breakpoint-&gt;address &amp; 0xFFFFFFFE, breakpoint-&gt;length, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+
+Modified: trunk/src/target/mips_m4k.c
+===================================================================
+--- trunk/src/target/mips_m4k.c	2009-05-31 06:00:28 UTC (rev 1958)
++++ trunk/src/target/mips_m4k.c	2009-05-31 09:37:35 UTC (rev 1959)
+@@ -529,7 +529,7 @@
+ 		{
+ 			u32 verify = 0xffffffff;
+ 			
+-			if((retval = target-&gt;type-&gt;read_memory(target, breakpoint-&gt;address, breakpoint-&gt;length, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++			if((retval = target_read_memory(target, breakpoint-&gt;address, breakpoint-&gt;length, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+@@ -552,7 +552,7 @@
+ 		{
+ 			u16 verify = 0xffff;
+ 			
+-			if((retval = target-&gt;type-&gt;read_memory(target, breakpoint-&gt;address, breakpoint-&gt;length, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++			if((retval = target_read_memory(target, breakpoint-&gt;address, breakpoint-&gt;length, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+@@ -611,7 +611,7 @@
+ 			u32 current_instr;
+ 			
+ 			/* check that user program has not modified breakpoint instruction */
+-			if ((retval = target-&gt;type-&gt;read_memory(target, breakpoint-&gt;address, 4, 1, (u8*)&amp;current_instr)) != ERROR_OK)
++			if ((retval = target_read_memory(target, breakpoint-&gt;address, 4, 1, (u8*)&amp;current_instr)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+@@ -628,7 +628,7 @@
+ 			u16 current_instr;
+ 			
+ 			/* check that user program has not modified breakpoint instruction */
+-			if ((retval = target-&gt;type-&gt;read_memory(target, breakpoint-&gt;address, 2, 1, (u8*)&amp;current_instr)) != ERROR_OK)
++			if ((retval = target_read_memory(target, breakpoint-&gt;address, 2, 1, (u8*)&amp;current_instr)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-05-31 06:00:28 UTC (rev 1958)
++++ trunk/src/target/target.c	2009-05-31 09:37:35 UTC (rev 1959)
+@@ -525,6 +525,12 @@
+ 	return target-&gt;type-&gt;run_algorithm_imp(target, num_mem_params, mem_params, num_reg_params, reg_param, entry_point, exit_point, timeout_ms, arch_info);
+ }
+ 
++int target_read_memory(struct target_s *target,
++		u32 address, u32 size, u32 count, u8 *buffer)
++{
++	return target-&gt;type-&gt;read_memory(target, address, size, count, buffer);
++}
++
+ int target_init(struct command_context_s *cmd_ctx)
+ {
+ 	target_t *target = all_targets;
+@@ -858,7 +864,7 @@
+ 		{
+ 			int retval;
+ 			new_wa-&gt;backup = malloc(new_wa-&gt;size);
+-			if((retval = target-&gt;type-&gt;read_memory(target, new_wa-&gt;address, 4, new_wa-&gt;size / 4, new_wa-&gt;backup)) != ERROR_OK)
++			if((retval = target_read_memory(target, new_wa-&gt;address, 4, new_wa-&gt;size / 4, new_wa-&gt;backup)) != ERROR_OK)
+ 			{
+ 				free(new_wa-&gt;backup);
+ 				free(new_wa);
+@@ -1077,7 +1083,7 @@
+ 
+ 	if (((address % 2) == 0) &amp;&amp; (size == 2))
+ 	{
+-		return target-&gt;type-&gt;read_memory(target, address, 2, 1, buffer);
++		return target_read_memory(target, address, 2, 1, buffer);
+ 	}
+ 
+ 	/* handle unaligned head bytes */
+@@ -1088,7 +1094,7 @@
+ 		if (unaligned &gt; size)
+ 			unaligned = size;
+ 
+-		if ((retval = target-&gt;type-&gt;read_memory(target, address, 1, unaligned, buffer)) != ERROR_OK)
++		if ((retval = target_read_memory(target, address, 1, unaligned, buffer)) != ERROR_OK)
+ 			return retval;
+ 
+ 		buffer += unaligned;
+@@ -1101,7 +1107,7 @@
+ 	{
+ 		int aligned = size - (size % 4);
+ 
+-		if ((retval = target-&gt;type-&gt;read_memory(target, address, 4, aligned / 4, buffer)) != ERROR_OK)
++		if ((retval = target_read_memory(target, address, 4, aligned / 4, buffer)) != ERROR_OK)
+ 			return retval;
+ 
+ 		buffer += aligned;
+@@ -1112,7 +1118,7 @@
+ 	/* handle tail writes of less than 4 bytes */
+ 	if (size &gt; 0)
+ 	{
+-		if ((retval = target-&gt;type-&gt;read_memory(target, address, 1, size, buffer)) != ERROR_OK)
++		if ((retval = target_read_memory(target, address, 1, size, buffer)) != ERROR_OK)
+ 			return retval;
+ 	}
+ 
+@@ -1190,7 +1196,7 @@
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	int retval = target-&gt;type-&gt;read_memory(target, address, 4, 1, value_buf);
++	int retval = target_read_memory(target, address, 4, 1, value_buf);
+ 
+ 	if (retval == ERROR_OK)
+ 	{
+@@ -1215,7 +1221,7 @@
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	int retval = target-&gt;type-&gt;read_memory(target, address, 2, 1, value_buf);
++	int retval = target_read_memory(target, address, 2, 1, value_buf);
+ 
+ 	if (retval == ERROR_OK)
+ 	{
+@@ -1233,7 +1239,7 @@
+ 
+ int target_read_u8(struct target_s *target, u32 address, u8 *value)
+ {
+-	int retval = target-&gt;type-&gt;read_memory(target, address, 1, 1, value);
++	int retval = target_read_memory(target, address, 1, 1, value);
+ 	if (!target-&gt;type-&gt;examined)
+ 	{
+ 		LOG_ERROR(&quot;Target not examined yet&quot;);
+@@ -1914,7 +1920,7 @@
+ 	u8 *buffer = calloc(count, size);
+ 
+ 	target_t *target = get_current_target(cmd_ctx);
+-	int retval = target-&gt;type-&gt;read_memory(target,
++	int retval = target_read_memory(target,
+ 				address, size, count, buffer);
+ 	if (ERROR_OK == retval)
+ 		handle_md_output(cmd_ctx, target, address, size, count, buffer);
+@@ -2256,7 +2262,7 @@
+ 					size *= 4;
+ 					count /= 4;
+ 				}
+-				retval = target-&gt;type-&gt;read_memory(target, image.sections[i].base_address, size, count, data);
++				retval = target_read_memory(target, image.sections[i].base_address, size, count, data);
+ 				if (retval == ERROR_OK)
+ 				{
+ 					u32 t;
+@@ -2829,7 +2835,7 @@
+ 			count = (sizeof(buffer)/width);
+ 		}
+ 
+-		retval = target-&gt;type-&gt;read_memory( target, addr, width, count, buffer );
++		retval = target_read_memory( target, addr, width, count, buffer );
+ 		if (retval != ERROR_OK) {
+ 			/* BOO !*/
+ 			LOG_ERROR(&quot;mem2array: Read @ 0x%08x, w=%d, cnt=%d, failed&quot;, addr, width, count);
+@@ -3575,7 +3581,7 @@
+ 			if( y &gt; 16 ){
+ 				y = 16;
+ 			}
+-			e = target-&gt;type-&gt;read_memory( target, a, b, y / b, target_buf );
++			e = target_read_memory( target, a, b, y / b, target_buf );
+ 			if( e != ERROR_OK ){
+ 				Jim_SetResult_sprintf( interp, &quot;error reading target @ 0x%08lx&quot;, (int)(a) );
+ 				return JIM_ERR;
+
+Modified: trunk/src/target/target.h
+===================================================================
+--- trunk/src/target/target.h	2009-05-31 06:00:28 UTC (rev 1958)
++++ trunk/src/target/target.h	2009-05-31 09:37:35 UTC (rev 1959)
+@@ -161,6 +161,10 @@
+ 	* count: number of items of &lt;size&gt;
+ 	*/
+ 	int (*read_memory_imp)(struct target_s *target, u32 address, u32 size, u32 count, u8 *buffer);
++	/**
++	 * Target memory read callback.  Do @b not call this function
++	 * directly, use target_read_memory() instead.
++	 */
+ 	int (*read_memory)(struct target_s *target, u32 address, u32 size, u32 count, u8 *buffer);
+ 	int (*write_memory_imp)(struct target_s *target, u32 address, u32 size, u32 count, u8 *buffer);
+ 	int (*write_memory)(struct target_s *target, u32 address, u32 size, u32 count, u8 *buffer);
+@@ -371,6 +375,15 @@
+ extern int get_num_by_target(target_t *query_target);
+ extern target_t *get_target(const char *id);
+ 
++/**
++ * Read @count items of @a size bytes from the memory of @a target at
++ * the @a address given.
++ *
++ * This routine is a wrapper for target-&gt;type-&gt;read_memory.
++ */
++extern int target_read_memory(struct target_s *target,
++		u32 address, u32 size, u32 count, u8 *buffer);
++
+ extern int target_write_buffer(struct target_s *target, u32 address, u32 size, u8 *buffer);
+ extern int target_read_buffer(struct target_s *target, u32 address, u32 size, u8 *buffer);
+ extern int target_checksum_memory(struct target_s *target, u32 address, u32 size, u32* crc);
+
+Modified: trunk/src/target/xscale.c
+===================================================================
+--- trunk/src/target/xscale.c	2009-05-31 06:00:28 UTC (rev 1958)
++++ trunk/src/target/xscale.c	2009-05-31 09:37:35 UTC (rev 1959)
+@@ -2187,7 +2187,7 @@
+ 		if (breakpoint-&gt;length == 4)
+ 		{
+ 			/* keep the original instruction in target endianness */
+-			if((retval = target-&gt;type-&gt;read_memory(target, breakpoint-&gt;address, 4, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++			if((retval = target_read_memory(target, breakpoint-&gt;address, 4, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+@@ -2200,7 +2200,7 @@
+ 		else
+ 		{
+ 			/* keep the original instruction in target endianness */
+-			if((retval = target-&gt;type-&gt;read_memory(target, breakpoint-&gt;address, 2, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++			if((retval = target_read_memory(target, breakpoint-&gt;address, 2, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000742.html">[Openocd-svn] r1958 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="000744.html">[Openocd-svn] r1960 - in trunk/src: flash target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#743">[ date ]</a>
+              <a href="thread.html#743">[ thread ]</a>
+              <a href="subject.html#743">[ subject ]</a>
+              <a href="author.html#743">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

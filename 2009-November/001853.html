@@ -1,0 +1,1199 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-549-g3efc99b
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-549-g3efc99b&In-Reply-To=%3CE1NCrgw-0007zn-5y%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001852.html">
+   <LINK REL="Next"  HREF="001854.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-549-g3efc99b</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-549-g3efc99b&In-Reply-To=%3CE1NCrgw-0007zn-5y%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-549-g3efc99b">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Tue Nov 24 10:28:09 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001852.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-545-g6ff33a4
+</A></li>
+        <LI>Next message: <A HREF="001854.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-557-g96f0ab8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1853">[ date ]</a>
+              <a href="thread.html#1853">[ thread ]</a>
+              <a href="subject.html#1853">[ subject ]</a>
+              <a href="author.html#1853">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  3efc99b34a934cb4d657ec27a164769c46c10f28 (commit)
+       via  ec64acf536942168b4e038c6720c83687d3a0d08 (commit)
+       via  bf3abc48f008e0a0c0e42b943481872599463af6 (commit)
+       via  5eb893ec41c8c6cf6499558b6fed826b65e18a16 (commit)
+      from  6ff33a4ee8db483e29bc78b8c35e50342ca60850 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 3efc99b34a934cb4d657ec27a164769c46c10f28
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Nov 24 01:27:29 2009 -0800
+
+    ARM11: remove old R0..R15/CPSR code
+    
+    This finishes the basic switchover to the new register code,
+    for everything except the debug registers.  (And maybe we
+    shouldn't have a cache for *those* which works this way...)
+    
+    The context save/restore code now uses the new code, but
+    it's in a slightly different sequence.  That should be fine
+    since the R0/PC/CPSR stuff is all that really matters (and
+    if we can update those, we can update the rest).
+    
+    Now there's no longer a way any code can be confused about
+    which copy of &quot;r1&quot; (etc) to use.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 3bdb444..a5175af 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -48,26 +48,6 @@ static bool arm11_config_hardware_step = false;
+ 
+ enum arm11_regtype
+ {
+-	ARM11_REGISTER_CORE,
+-	ARM11_REGISTER_CPSR,
+-
+-	ARM11_REGISTER_FX,
+-	ARM11_REGISTER_FPS,
+-
+-	ARM11_REGISTER_FIQ,
+-	ARM11_REGISTER_SVC,
+-	ARM11_REGISTER_ABT,
+-	ARM11_REGISTER_IRQ,
+-	ARM11_REGISTER_UND,
+-	ARM11_REGISTER_MON,
+-
+-	ARM11_REGISTER_SPSR_FIQ,
+-	ARM11_REGISTER_SPSR_SVC,
+-	ARM11_REGISTER_SPSR_ABT,
+-	ARM11_REGISTER_SPSR_IRQ,
+-	ARM11_REGISTER_SPSR_UND,
+-	ARM11_REGISTER_SPSR_MON,
+-
+ 	/* debug regs */
+ 	ARM11_REGISTER_DSCR,
+ 	ARM11_REGISTER_WDTR,
+@@ -86,25 +66,6 @@ struct arm11_reg_defs
+ /* update arm11_regcache_ids when changing this */
+ static const struct arm11_reg_defs arm11_reg_defs[] =
+ {
+-	{&quot;r0&quot;,	0,	0,	ARM11_REGISTER_CORE},
+-	{&quot;r1&quot;,	1,	1,	ARM11_REGISTER_CORE},
+-	{&quot;r2&quot;,	2,	2,	ARM11_REGISTER_CORE},
+-	{&quot;r3&quot;,	3,	3,	ARM11_REGISTER_CORE},
+-	{&quot;r4&quot;,	4,	4,	ARM11_REGISTER_CORE},
+-	{&quot;r5&quot;,	5,	5,	ARM11_REGISTER_CORE},
+-	{&quot;r6&quot;,	6,	6,	ARM11_REGISTER_CORE},
+-	{&quot;r7&quot;,	7,	7,	ARM11_REGISTER_CORE},
+-	{&quot;r8&quot;,	8,	8,	ARM11_REGISTER_CORE},
+-	{&quot;r9&quot;,	9,	9,	ARM11_REGISTER_CORE},
+-	{&quot;r10&quot;,	10,	10,	ARM11_REGISTER_CORE},
+-	{&quot;r11&quot;,	11,	11,	ARM11_REGISTER_CORE},
+-	{&quot;r12&quot;,	12,	12,	ARM11_REGISTER_CORE},
+-	{&quot;sp&quot;,	13,	13,	ARM11_REGISTER_CORE},
+-	{&quot;lr&quot;,	14,	14,	ARM11_REGISTER_CORE},
+-	{&quot;pc&quot;,	15,	15,	ARM11_REGISTER_CORE},
+-
+-	{&quot;cpsr&quot;,	0,	25,	ARM11_REGISTER_CPSR},
+-
+ 	/* Debug Registers */
+ 	{&quot;dscr&quot;,	0,	-1,	ARM11_REGISTER_DSCR},
+ 	{&quot;wdtr&quot;,	0,	-1,	ARM11_REGISTER_WDTR},
+@@ -113,30 +74,6 @@ static const struct arm11_reg_defs arm11_reg_defs[] =
+ 
+ enum arm11_regcache_ids
+ {
+-	ARM11_RC_R0,
+-	ARM11_RC_RX			= ARM11_RC_R0,
+-
+-	ARM11_RC_R1,
+-	ARM11_RC_R2,
+-	ARM11_RC_R3,
+-	ARM11_RC_R4,
+-	ARM11_RC_R5,
+-	ARM11_RC_R6,
+-	ARM11_RC_R7,
+-	ARM11_RC_R8,
+-	ARM11_RC_R9,
+-	ARM11_RC_R10,
+-	ARM11_RC_R11,
+-	ARM11_RC_R12,
+-	ARM11_RC_R13,
+-	ARM11_RC_SP			= ARM11_RC_R13,
+-	ARM11_RC_R14,
+-	ARM11_RC_LR			= ARM11_RC_R14,
+-	ARM11_RC_R15,
+-	ARM11_RC_PC			= ARM11_RC_R15,
+-
+-	ARM11_RC_CPSR,
+-
+ 	ARM11_RC_DSCR,
+ 	ARM11_RC_WDTR,
+ 	ARM11_RC_RDTR,
+@@ -229,6 +166,8 @@ static int arm11_on_enter_debug_state(struct arm11_common *arm11)
+ 		arm11-&gt;reg_list[i].dirty	= 0;
+ 	}
+ 
++	/* See e.g. ARM1136 TRM, &quot;14.8.4 Entering Debug state&quot; */
++
+ 	/* Save DSCR */
+ 	CHECK_RETVAL(arm11_read_DSCR(arm11, &amp;R(DSCR)));
+ 
+@@ -254,10 +193,12 @@ static int arm11_on_enter_debug_state(struct arm11_common *arm11)
+ 	}
+ 
+ 
+-	/* DSCR: set ARM11_DSCR_EXECUTE_ARM_INSTRUCTION_ENABLE */
+-	/* ARM1176 spec says this is needed only for wDTR/rDTR's &quot;ITR mode&quot;, but not to issue ITRs
+-	   ARM1136 seems to require this to issue ITR's as well */
+-
++	/* DSCR: set ARM11_DSCR_EXECUTE_ARM_INSTRUCTION_ENABLE
++	 *
++	 * ARM1176 spec says this is needed only for wDTR/rDTR's &quot;ITR mode&quot;,
++	 * but not to issue ITRs. ARM1136 seems to require this to issue
++	 * ITR's as well...
++	 */
+ 	uint32_t new_dscr = R(DSCR) | ARM11_DSCR_EXECUTE_ARM_INSTRUCTION_ENABLE;
+ 
+ 	/* this executes JTAG queue: */
+@@ -297,6 +238,11 @@ static int arm11_on_enter_debug_state(struct arm11_common *arm11)
+ 	}
+ #endif
+ 
++	/* Save registers.
++	 *
++	 * NOTE:  ARM1136 TRM suggests saving just R0 here now, then
++	 * CPSR and PC after the rDTR stuff.  We do it all at once.
++	 */
+ 	retval = arm_dpm_read_current_registers(&amp;arm11-&gt;dpm);
+ 	if (retval != ERROR_OK)
+ 		LOG_ERROR(&quot;DPM REG READ -- fail %d&quot;, retval);
+@@ -305,19 +251,7 @@ static int arm11_on_enter_debug_state(struct arm11_common *arm11)
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+-	/* save r0 - r14 */
+-
+-	/** \todo TODO: handle other mode registers */
+-
+-	for (size_t i = 0; i &lt; 15; i++)
+-	{
+-		/* MCR p14,0,R?,c0,c5,0 */
+-		retval = arm11_run_instr_data_from_core(arm11, 0xEE000E15 | (i &lt;&lt; 12), &amp;R(RX + i), 1);
+-		if (retval != ERROR_OK)
+-			return retval;
+-	}
+-
+-	/* save rDTR */
++	/* maybe save rDTR */
+ 
+ 	/* check rDTRfull in DSCR */
+ 
+@@ -333,34 +267,9 @@ static int arm11_on_enter_debug_state(struct arm11_common *arm11)
+ 		arm11-&gt;reg_list[ARM11_RC_RDTR].valid	= 0;
+ 	}
+ 
+-	/* save CPSR */
+-
+-	/* MRS r0,CPSR (move CPSR -&gt; r0 (-&gt; wDTR -&gt; local var)) */
+-	retval = arm11_run_instr_data_from_core_via_r0(arm11, 0xE10F0000, &amp;R(CPSR));
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-	/* save PC */
+-
+-	/* MOV R0,PC (move PC -&gt; r0 (-&gt; wDTR -&gt; local var)) */
+-	retval = arm11_run_instr_data_from_core_via_r0(arm11, 0xE1A0000F, &amp;R(PC));
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-	/* adjust PC depending on ARM state */
+-
+-	if (R(CPSR) &amp; ARM11_CPSR_J)	/* Java state */
+-	{
+-		arm11-&gt;reg_values[ARM11_RC_PC] -= 0;
+-	}
+-	else if (R(CPSR) &amp; ARM11_CPSR_T)	/* Thumb state */
+-	{
+-		arm11-&gt;reg_values[ARM11_RC_PC] -= 4;
+-	}
+-	else					/* ARM state */
+-	{
+-		arm11-&gt;reg_values[ARM11_RC_PC] -= 8;
+-	}
++	/* REVISIT Now that we've saved core state, there's may also
++	 * be MMU and cache state to care about ...
++	 */
+ 
+ 	if (arm11-&gt;simulate_reset_on_next_halt)
+ 	{
+@@ -393,29 +302,16 @@ static int arm11_leave_debug_state(struct arm11_common *arm11)
+ {
+ 	int retval;
+ 
+-	retval = arm11_run_instr_data_prepare(arm11);
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-	/** \todo TODO: handle other mode registers */
+-
+-	/* restore R1 - R14 */
+-
+-	for (unsigned i = 1; i &lt; 15; i++)
+-	{
+-		if (!arm11-&gt;reg_list[ARM11_RC_RX + i].dirty)
+-			continue;
+-
+-		/* MRC p14,0,r?,c0,c5,0 */
+-		arm11_run_instr_data_to_core1(arm11,
+-				0xee100e15 | (i &lt;&lt; 12), R(RX + i));
++	/* See e.g. ARM1136 TRM, &quot;14.8.5 Leaving Debug state&quot; */
+ 
+-		//	LOG_DEBUG(&quot;RESTORE R%u %08x&quot;, i, R(RX + i));
+-	}
++	/* NOTE:  the ARM1136 TRM suggests restoring all registers
++	 * except R0/PC/CPSR right now.  Instead, we do them all
++	 * at once, just a bit later on.
++	 */
+ 
+-	retval = arm11_run_instr_data_finish(arm11);
+-	if (retval != ERROR_OK)
+-		return retval;
++	/* REVISIT once we start caring about MMU and cache state,
++	 * address it here ...
++	 */
+ 
+ 	/* spec says clear wDTR and rDTR; we assume they are clear as
+ 	   otherwise our programming would be sloppy */
+@@ -438,50 +334,27 @@ static int arm11_leave_debug_state(struct arm11_common *arm11)
+ 		}
+ 	}
+ 
+-/* DEBUG for now, trust &quot;new&quot; code only for shadowed registers */
+-retval = arm_dpm_write_dirty_registers(&amp;arm11-&gt;dpm);
+-
+-	retval = arm11_run_instr_data_prepare(arm11);
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-	/* restore original wDTR */
+-
++	/* maybe restore original wDTR */
+ 	if ((R(DSCR) &amp; ARM11_DSCR_WDTR_FULL) || arm11-&gt;reg_list[ARM11_RC_WDTR].dirty)
+ 	{
++		retval = arm11_run_instr_data_prepare(arm11);
++		if (retval != ERROR_OK)
++			return retval;
++
+ 		/* MCR p14,0,R0,c0,c5,0 */
+ 		retval = arm11_run_instr_data_to_core_via_r0(arm11, 0xee000e15, R(WDTR));
+ 		if (retval != ERROR_OK)
+ 			return retval;
+-	}
+-
+-	/* restore CPSR */
+-
+-	/* MSR CPSR,R0*/
+-	retval = arm11_run_instr_data_to_core_via_r0(arm11, 0xe129f000, R(CPSR));
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-
+-	/* restore PC */
+-
+-	/* MOV PC,R0 */
+-	retval = arm11_run_instr_data_to_core_via_r0(arm11, 0xe1a0f000, R(PC));
+-	if (retval != ERROR_OK)
+-		return retval;
+ 
++		retval = arm11_run_instr_data_finish(arm11);
++		if (retval != ERROR_OK)
++			return retval;
++	}
+ 
+-	/* restore R0 */
+-
+-	/* MRC p14,0,r0,c0,c5,0 */
+-	arm11_run_instr_data_to_core1(arm11, 0xee100e15, R(R0));
+-
+-	retval = arm11_run_instr_data_finish(arm11);
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-/* DEBUG use this when &quot;new&quot; code is really managing core registers */
+-// retval = arm_dpm_write_dirty_registers(&amp;arm11-&gt;dpm);
++	/* restore CPSR, PC, and R0 ... after flushing any modified
++	 * registers.
++	 */
++	retval = arm_dpm_write_dirty_registers(&amp;arm11-&gt;dpm);
+ 
+ 	register_cache_invalidate(arm11-&gt;arm.core_cache);
+ 
+@@ -489,7 +362,7 @@ retval = arm_dpm_write_dirty_registers(&amp;arm11-&gt;dpm);
+ 
+ 	arm11_write_DSCR(arm11, R(DSCR));
+ 
+-	/* restore rDTR */
++	/* maybe restore rDTR */
+ 
+ 	if (R(DSCR) &amp; ARM11_DSCR_RDTR_FULL || arm11-&gt;reg_list[ARM11_RC_RDTR].dirty)
+ 	{
+@@ -509,6 +382,8 @@ retval = arm_dpm_write_dirty_registers(&amp;arm11-&gt;dpm);
+ 		arm11_add_dr_scan_vc(ARRAY_SIZE(chain5_fields), chain5_fields, TAP_DRPAUSE);
+ 	}
+ 
++	/* now processor is ready to RESTART */
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -639,6 +514,19 @@ static int arm11_halt(struct target *target)
+ 	return ERROR_OK;
+ }
+ 
++static uint32_t
++arm11_nextpc(struct arm11_common *arm11, int current, uint32_t address)
++{
++	void *value = arm11-&gt;arm.core_cache-&gt;reg_list[15].value;
++
++	if (!current)
++		buf_set_u32(value, 0, 32, address);
++	else
++		address = buf_get_u32(value, 0, 32);
++
++	return address;
++}
++
+ static int arm11_resume(struct target *target, int current,
+ 		uint32_t address, int handle_breakpoints, int debug_execution)
+ {
+@@ -657,10 +545,9 @@ static int arm11_resume(struct target *target, int current,
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
+-	if (!current)
+-		R(PC) = address;
++	address = arm11_nextpc(arm11, current, address);
+ 
+-	LOG_DEBUG(&quot;RESUME PC %08&quot; PRIx32 &quot;%s&quot;, R(PC), !current ? &quot;!&quot; : &quot;&quot;);
++	LOG_DEBUG(&quot;RESUME PC %08&quot; PRIx32 &quot;%s&quot;, address, !current ? &quot;!&quot; : &quot;&quot;);
+ 
+ 	/* clear breakpoints/watchpoints and VCR*/
+ 	arm11_sc7_clear_vbw(arm11);
+@@ -677,7 +564,7 @@ static int arm11_resume(struct target *target, int current,
+ 
+ 		for (bp = target-&gt;breakpoints; bp; bp = bp-&gt;next)
+ 		{
+-			if (bp-&gt;address == R(PC))
++			if (bp-&gt;address == address)
+ 			{
+ 				LOG_DEBUG(&quot;must step over %08&quot; PRIx32 &quot;&quot;, bp-&gt;address);
+ 				arm11_step(target, 1, 0, 0);
+@@ -778,33 +665,28 @@ static int arm11_step(struct target *target, int current,
+ 
+ 	struct arm11_common *arm11 = target_to_arm11(target);
+ 
+-	if (!current)
+-		R(PC) = address;
++	address = arm11_nextpc(arm11, current, address);
+ 
+-	LOG_DEBUG(&quot;STEP PC %08&quot; PRIx32 &quot;%s&quot;, R(PC), !current ? &quot;!&quot; : &quot;&quot;);
++	LOG_DEBUG(&quot;STEP PC %08&quot; PRIx32 &quot;%s&quot;, address, !current ? &quot;!&quot; : &quot;&quot;);
+ 
+ 
+ 	/** \todo TODO: Thumb not supported here */
+ 
+ 	uint32_t	next_instruction;
+ 
+-	CHECK_RETVAL(arm11_read_memory_word(arm11, R(PC), &amp;next_instruction));
++	CHECK_RETVAL(arm11_read_memory_word(arm11, address, &amp;next_instruction));
+ 
+ 	/* skip over BKPT */
+ 	if ((next_instruction &amp; 0xFFF00070) == 0xe1200070)
+ 	{
+-		R(PC) += 4;
+-		arm11-&gt;reg_list[ARM11_RC_PC].valid = 1;
+-		arm11-&gt;reg_list[ARM11_RC_PC].dirty = 0;
++		address = arm11_nextpc(arm11, 0, address + 4);
+ 		LOG_DEBUG(&quot;Skipping BKPT&quot;);
+ 	}
+ 	/* skip over Wait for interrupt / Standby */
+ 	/* mcr	15, 0, r?, cr7, cr0, {4} */
+ 	else if ((next_instruction &amp; 0xFFFF0FFF) == 0xee070f90)
+ 	{
+-		R(PC) += 4;
+-		arm11-&gt;reg_list[ARM11_RC_PC].valid = 1;
+-		arm11-&gt;reg_list[ARM11_RC_PC].dirty = 0;
++		address = arm11_nextpc(arm11, 0, address + 4);
+ 		LOG_DEBUG(&quot;Skipping WFI&quot;);
+ 	}
+ 	/* ignore B to self */
+@@ -844,7 +726,7 @@ static int arm11_step(struct target *target, int current,
+ 			 * FIXME Thumb stepping likely needs to use 0x03
+ 			 * or 0xc0 byte masks, not 0x0f.
+ 			 */
+-			 brp[0].value	= R(PC);
++			 brp[0].value	= address;
+ 			 brp[1].value	= 0x1 | (3 &lt;&lt; 1) | (0x0F &lt;&lt; 5)
+ 					| (0 &lt;&lt; 14) | (0 &lt;&lt; 16) | (0 &lt;&lt; 20)
+ 					| (2 &lt;&lt; 21);
+@@ -1045,8 +927,7 @@ static int arm11_read_memory_inner(struct target *target,
+ 	switch (size)
+ 	{
+ 	case 1:
+-		/** \todo TODO: check if dirty is the right choice to force a rewrite on arm11_resume() */
+-		arm11-&gt;reg_list[ARM11_RC_R1].dirty = 1;
++		arm11-&gt;arm.core_cache-&gt;reg_list[1].dirty = true;
+ 
+ 		for (size_t i = 0; i &lt; count; i++)
+ 		{
+@@ -1066,7 +947,7 @@ static int arm11_read_memory_inner(struct target *target,
+ 
+ 	case 2:
+ 		{
+-			arm11-&gt;reg_list[ARM11_RC_R1].dirty = 1;
++			arm11-&gt;arm.core_cache-&gt;reg_list[1].dirty = true;
+ 
+ 			for (size_t i = 0; i &lt; count; i++)
+ 			{
+@@ -1150,7 +1031,7 @@ static int arm11_write_memory_inner(struct target *target,
+ 	{
+ 	case 1:
+ 		{
+-			arm11-&gt;reg_list[ARM11_RC_R1].dirty = 1;
++			arm11-&gt;arm.core_cache-&gt;reg_list[1].dirty = true;
+ 
+ 			for (size_t i = 0; i &lt; count; i++)
+ 			{
+@@ -1172,7 +1053,7 @@ static int arm11_write_memory_inner(struct target *target,
+ 
+ 	case 2:
+ 		{
+-			arm11-&gt;reg_list[ARM11_RC_R1].dirty = 1;
++			arm11-&gt;arm.core_cache-&gt;reg_list[1].dirty = true;
+ 
+ 			for (size_t i = 0; i &lt; count; i++)
+ 			{
+@@ -1363,9 +1244,9 @@ static int arm11_init_target(struct command_context *cmd_ctx,
+ {
+ 	/* Initialize anything we can set up without talking to the target */
+ 
+-	/* FIXME Switch to use the standard build_reg_cache() not custom
+-	 * code.  Do it from examine(), after we check whether we're
+-	 * an arm1176 and thus support the Secure Monitor mode.
++	/* REVISIT do we really want such a debug-registers-only cache?
++	 * If we do, it should probably be handled purely by the DPM code,
++	 * so it works identically on the v7a/v7r cores.
+ 	 */
+ 	return arm11_build_reg_cache(target);
+ }
+@@ -1535,9 +1416,8 @@ static int arm11_build_reg_cache(struct target *target)
+ 
+ 	arm11-&gt;reg_list	= reg_list;
+ 
+-	/* Build the process context cache */
+-	cache-&gt;name		= &quot;arm11 registers&quot;;
+-	cache-&gt;next		= NULL;
++	/* build cache for some of the debug registers */
++	cache-&gt;name = &quot;arm11 debug registers&quot;;
+ 	cache-&gt;reg_list	= reg_list;
+ 	cache-&gt;num_regs	= ARM11_REGCACHE_COUNT;
+ 
+@@ -1545,7 +1425,6 @@ static int arm11_build_reg_cache(struct target *target)
+ 	(*cache_p) = cache;
+ 
+ 	arm11-&gt;core_cache = cache;
+-//	  armv7m-&gt;process_context = cache;
+ 
+ 	size_t i;
+ 
+diff --git a/src/target/arm11.h b/src/target/arm11.h
+index 033ba89..c3f4e86 100644
+--- a/src/target/arm11.h
++++ b/src/target/arm11.h
+@@ -26,8 +26,7 @@
+ #include &quot;armv4_5.h&quot;
+ #include &quot;arm_dpm.h&quot;
+ 
+-/* TEMPORARY -- till we switch to the shared infrastructure */
+-#define ARM11_REGCACHE_COUNT		20
++#define ARM11_REGCACHE_COUNT		3
+ 
+ #define ARM11_TAP_DEFAULT			TAP_INVALID
+ 
+@@ -70,7 +69,7 @@ struct arm11_common
+ 
+ 	bool	simulate_reset_on_next_halt;	/**&lt; Perform cleanups of the ARM state on next halt */
+ 
+-	/** \name Shadow registers to save processor state */
++	/** \name Shadow registers to save debug state */
+ 	/*@{*/
+ 
+ 	struct reg *	reg_list;							/**&lt; target register list */
+
+commit ec64acf536942168b4e038c6720c83687d3a0d08
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Nov 24 01:27:24 2009 -0800
+
+    ARM11: use standard run_algorithm()
+    
+    As with single stepping, the previous stuff was needed because
+    the ARM11 code wasn't using the standard ARM base type and
+    register access ... but now those mechanisms work, so we can
+    switch out that special-purpose glue, in favor of the more
+    thoroughly tested/capable &quot;standard&quot; code.
+    
+    Fixes a bug in the resume() implementation:  it wasn't handling
+    two of its arguments correctly, preventing the &quot;flash erase_check&quot;
+    algorithm from working.  (This code needs a *subsequent* update
+    for correct register handling, though... removing the confusion
+    about which &quot;r2&quot;, for example, to use.)
+    
+    This should resolve some &quot;FIXME&quot; comments too, for Thumb and
+    processor mode support.  It also gets rid of a nasty exit()
+    call; servers should only have *clean* shutdown paths.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index d021cbd..3bdb444 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -665,8 +665,11 @@ static int arm11_resume(struct target *target, int current,
+ 	/* clear breakpoints/watchpoints and VCR*/
+ 	arm11_sc7_clear_vbw(arm11);
+ 
+-	/* Set up breakpoints */
+ 	if (!debug_execution)
++		target_free_all_working_areas(target);
++
++	/* Set up breakpoints */
++	if (handle_breakpoints)
+ 	{
+ 		/* check if one matches PC and step over it if necessary */
+ 
+@@ -1325,176 +1328,6 @@ static int arm11_remove_watchpoint(struct target *target,
+ 	return ERROR_FAIL;
+ }
+ 
+-// HACKHACKHACK - FIXME mode/state
+-/* target algorithm support */
+-static int arm11_run_algorithm(struct target *target,
+-		int num_mem_params, struct mem_param *mem_params,
+-		int num_reg_params, struct reg_param *reg_params,
+-		uint32_t entry_point, uint32_t exit_point,
+-		int timeout_ms, void *arch_info)
+-{
+-	struct arm11_common *arm11 = target_to_arm11(target);
+-//	enum armv4_5_state core_state = arm11-&gt;core_state;
+-//	enum armv4_5_mode core_mode = arm11-&gt;core_mode;
+-	uint32_t context[16];
+-	uint32_t cpsr;
+-	int exit_breakpoint_size = 0;
+-	int retval = ERROR_OK;
+-		LOG_DEBUG(&quot;Running algorithm&quot;);
+-
+-
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		LOG_WARNING(&quot;target not halted&quot;);
+-		return ERROR_TARGET_NOT_HALTED;
+-	}
+-
+-	// FIXME
+-//	if (!is_arm_mode(arm11-&gt;core_mode))
+-//		return ERROR_FAIL;
+-
+-	// Save regs
+-	for (unsigned i = 0; i &lt; 16; i++)
+-	{
+-		context[i] = buf_get_u32((uint8_t*)(&amp;arm11-&gt;reg_values[i]),0,32);
+-		LOG_DEBUG(&quot;Save %u: 0x%&quot; PRIx32 &quot;&quot;, i, context[i]);
+-	}
+-
+-	cpsr = buf_get_u32((uint8_t*)(arm11-&gt;reg_values + ARM11_RC_CPSR),0,32);
+-	LOG_DEBUG(&quot;Save CPSR: 0x%&quot; PRIx32 &quot;&quot;, cpsr);
+-
+-	for (int i = 0; i &lt; num_mem_params; i++)
+-	{
+-		target_write_buffer(target, mem_params[i].address, mem_params[i].size, mem_params[i].value);
+-	}
+-
+-	// Set register parameters
+-	for (int i = 0; i &lt; num_reg_params; i++)
+-	{
+-		struct reg *reg = register_get_by_name(arm11-&gt;core_cache, reg_params[i].reg_name, 0);
+-		if (!reg)
+-		{
+-			LOG_ERROR(&quot;BUG: register '%s' not found&quot;, reg_params[i].reg_name);
+-			return ERROR_INVALID_ARGUMENTS;
+-		}
+-
+-		if (reg-&gt;size != reg_params[i].size)
+-		{
+-			LOG_ERROR(&quot;BUG: register '%s' size doesn't match reg_params[i].size&quot;, reg_params[i].reg_name);
+-			return ERROR_INVALID_ARGUMENTS;
+-		}
+-		arm11_set_reg(reg,reg_params[i].value);
+-//		printf(&quot;%i: Set %s =%08x\n&quot;, i, reg_params[i].reg_name,val);
+-	}
+-
+-	exit_breakpoint_size = 4;
+-
+-/*	arm11-&gt;core_state = arm11_algorithm_info-&gt;core_state;
+-	if (arm11-&gt;core_state == ARMV4_5_STATE_ARM)
+-				exit_breakpoint_size = 4;
+-	else if (arm11-&gt;core_state == ARMV4_5_STATE_THUMB)
+-		exit_breakpoint_size = 2;
+-	else
+-	{
+-		LOG_ERROR(&quot;BUG: can't execute algorithms when not in ARM or Thumb state&quot;);
+-		exit(-1);
+-	}
+-*/
+-
+-
+-/* arm11 at this point only supports ARM not THUMB mode
+-   however if this test needs to be reactivated the current state can be read back
+-   from CPSR */
+-#if 0
+-	if (arm11_algorithm_info-&gt;core_mode != ARMV4_5_MODE_ANY)
+-	{
+-		LOG_DEBUG(&quot;setting core_mode: 0x%2.2x&quot;, arm11_algorithm_info-&gt;core_mode);
+-		buf_set_u32(arm11-&gt;reg_list[ARM11_RC_CPSR].value, 0, 5, arm11_algorithm_info-&gt;core_mode);
+-		arm11-&gt;reg_list[ARM11_RC_CPSR].dirty = 1;
+-		arm11-&gt;reg_list[ARM11_RC_CPSR].valid = 1;
+-	}
+-#endif
+-
+-	if ((retval = breakpoint_add(target, exit_point, exit_breakpoint_size, BKPT_HARD)) != ERROR_OK)
+-	{
+-		LOG_ERROR(&quot;can't add breakpoint to finish algorithm execution&quot;);
+-		retval = ERROR_TARGET_FAILURE;
+-		goto restore;
+-	}
+-
+-	// no debug, otherwise breakpoint is not set
+-	CHECK_RETVAL(target_resume(target, 0, entry_point, 1, 0));
+-
+-	CHECK_RETVAL(target_wait_state(target, TARGET_HALTED, timeout_ms));
+-
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		CHECK_RETVAL(target_halt(target));
+-
+-		CHECK_RETVAL(target_wait_state(target, TARGET_HALTED, 500));
+-
+-		retval = ERROR_TARGET_TIMEOUT;
+-
+-		goto del_breakpoint;
+-	}
+-
+-	if (buf_get_u32(arm11-&gt;reg_list[15].value, 0, 32) != exit_point)
+-	{
+-		LOG_WARNING(&quot;target reentered debug state, but not at the desired exit point: 0x%4.4&quot; PRIx32 &quot;&quot;,
+-			buf_get_u32(arm11-&gt;reg_list[15].value, 0, 32));
+-		retval = ERROR_TARGET_TIMEOUT;
+-		goto del_breakpoint;
+-	}
+-
+-	for (int i = 0; i &lt; num_mem_params; i++)
+-	{
+-		if (mem_params[i].direction != PARAM_OUT)
+-			target_read_buffer(target, mem_params[i].address, mem_params[i].size, mem_params[i].value);
+-	}
+-
+-	for (int i = 0; i &lt; num_reg_params; i++)
+-	{
+-		if (reg_params[i].direction != PARAM_OUT)
+-		{
+-			struct reg *reg = register_get_by_name(arm11-&gt;core_cache, reg_params[i].reg_name, 0);
+-			if (!reg)
+-			{
+-				LOG_ERROR(&quot;BUG: register '%s' not found&quot;, reg_params[i].reg_name);
+-				retval = ERROR_INVALID_ARGUMENTS;
+-				goto del_breakpoint;
+-			}
+-
+-			if (reg-&gt;size != reg_params[i].size)
+-			{
+-				LOG_ERROR(&quot;BUG: register '%s' size doesn't match reg_params[i].size&quot;, reg_params[i].reg_name);
+-				retval = ERROR_INVALID_ARGUMENTS;
+-				goto del_breakpoint;
+-			}
+-
+-			buf_set_u32(reg_params[i].value, 0, 32, buf_get_u32(reg-&gt;value, 0, 32));
+-		}
+-	}
+-
+-del_breakpoint:
+-	breakpoint_remove(target, exit_point);
+-
+-restore:
+-	// Restore context
+-	for (size_t i = 0; i &lt; 16; i++)
+-	{
+-		LOG_DEBUG(&quot;restoring register %s with value 0x%8.8&quot; PRIx32 &quot;&quot;,
+-			 arm11-&gt;reg_list[i].name, context[i]);
+-		arm11_set_reg(&amp;arm11-&gt;reg_list[i], (uint8_t*)&amp;context[i]);
+-	}
+-	LOG_DEBUG(&quot;restoring CPSR with value 0x%8.8&quot; PRIx32 &quot;&quot;, cpsr);
+-	arm11_set_reg(&amp;arm11-&gt;reg_list[ARM11_RC_CPSR], (uint8_t*)&amp;cpsr);
+-
+-//	arm11-&gt;core_state = core_state;
+-//	arm11-&gt;core_mode = core_mode;
+-
+-	return retval;
+-}
+-
+ static int arm11_target_create(struct target *target, Jim_Interp *interp)
+ {
+ 	struct arm11_common *arm11;
+@@ -1925,7 +1758,7 @@ struct target_type arm11_target = {
+ 	.add_watchpoint =	arm11_add_watchpoint,
+ 	.remove_watchpoint =	arm11_remove_watchpoint,
+ 
+-	.run_algorithm =	arm11_run_algorithm,
++	.run_algorithm =	armv4_5_run_algorithm,
+ 
+ 	.register_commands =	arm11_register_commands,
+ 	.target_create =	arm11_target_create,
+
+commit bf3abc48f008e0a0c0e42b943481872599463af6
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Nov 24 01:27:21 2009 -0800
+
+    ARM11: use standard single step simulation
+    
+    The previous stuff was needed because the ARM11 code wasn't using
+    the standard ARM base type and register access ... but now those
+    mechanisms work, so we can switch out that special-purpose glue.
+    
+    This should resolve all the &quot;FIXME -- handle Thumb single stepping&quot;
+    comments too, and properly handle the processor's mode.  (Modulo
+    the issue that this code doesn't yet handle two-byte breakpoints.)
+    
+    Clarify the comments about the the hardware single stepping.  When
+    we eventually share breakpoint code with Cortex-A8, we can just make
+    that be the default on cores which support it.  We may still want an
+    override command, not just to facilitate testing but to cope with
+    &quot;instruction address mismatch&quot; not quite being true single-step.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/TODO b/TODO
+index bdbb0ec..da5cf52 100644
+--- a/TODO
++++ b/TODO
+@@ -167,8 +167,7 @@ <A HREF="https://lists.berlios.de/pipermail/openocd-development/2009-October/011506.html">https://lists.berlios.de/pipermail/openocd-development/2009-October/011506.html</A>
+   mdw 0xb80005f0 0x8, mdh 0xb80005f0 0x10, mdb 0xb80005f0 0x20. mdb returns
+   garabage.
+   - implement missing functionality (grep FNC_INFO_NOTIMPLEMENTED ...)
+-  - thumb support is missing: ISTR ARMv6 requires Thumb.
+-  ARM1156 has Thumb2; ARM1136 doesn't.
++- Thumb2 single stepping: ARM1156T2 needs simulator support
+ - Cortex A8 support (ML)
+   - add target implementation (ML)
+ - Generic ARM run_algorithm() interface
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 4e6326d..d021cbd 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -761,96 +761,6 @@ static int arm11_resume(struct target *target, int current,
+ 	return ERROR_OK;
+ }
+ 
+-
+-static int armv4_5_to_arm11(int reg)
+-{
+-	if (reg &lt; 16)
+-		return reg;
+-	switch (reg)
+-	{
+-	case ARMV4_5_CPSR:
+-		return ARM11_RC_CPSR;
+-	case 16:
+-		/* FIX!!! handle thumb better! */
+-		return ARM11_RC_CPSR;
+-	default:
+-		LOG_ERROR(&quot;BUG: register translation from armv4_5 to arm11 not supported %d&quot;, reg);
+-		exit(-1);
+-	}
+-}
+-
+-
+-static uint32_t arm11_sim_get_reg(struct arm_sim_interface *sim, int reg)
+-{
+-	struct arm11_common * arm11 = (struct arm11_common *)sim-&gt;user_data;
+-
+-	reg=armv4_5_to_arm11(reg);
+-
+-	return buf_get_u32(arm11-&gt;reg_list[reg].value, 0, 32);
+-}
+-
+-static void arm11_sim_set_reg(struct arm_sim_interface *sim,
+-		int reg, uint32_t value)
+-{
+-	struct arm11_common * arm11 = (struct arm11_common *)sim-&gt;user_data;
+-
+-	reg=armv4_5_to_arm11(reg);
+-
+-	buf_set_u32(arm11-&gt;reg_list[reg].value, 0, 32, value);
+-}
+-
+-static uint32_t arm11_sim_get_cpsr(struct arm_sim_interface *sim,
+-		int pos, int bits)
+-{
+-	struct arm11_common * arm11 = (struct arm11_common *)sim-&gt;user_data;
+-
+-	return buf_get_u32(arm11-&gt;reg_list[ARM11_RC_CPSR].value, pos, bits);
+-}
+-
+-static enum armv4_5_state arm11_sim_get_state(struct arm_sim_interface *sim)
+-{
+-//	struct arm11_common * arm11 = (struct arm11_common *)sim-&gt;user_data;
+-
+-	/* FIX!!!! we should implement thumb for arm11 */
+-	return ARMV4_5_STATE_ARM;
+-}
+-
+-static void arm11_sim_set_state(struct arm_sim_interface *sim,
+-		enum armv4_5_state mode)
+-{
+-//	struct arm11_common * arm11 = (struct arm11_common *)sim-&gt;user_data;
+-
+-	/* FIX!!!! we should implement thumb for arm11 */
+-	LOG_ERROR(&quot;Not implemented: %s&quot;, __func__);
+-}
+-
+-
+-static enum armv4_5_mode arm11_sim_get_mode(struct arm_sim_interface *sim)
+-{
+-	//struct arm11_common * arm11 = (struct arm11_common *)sim-&gt;user_data;
+-
+-	/* FIX!!!! we should implement something that returns the current mode here!!! */
+-	return ARMV4_5_MODE_USR;
+-}
+-
+-static int arm11_simulate_step(struct target *target, uint32_t *dry_run_pc)
+-{
+-	struct arm_sim_interface sim;
+-
+-	sim.user_data=target-&gt;arch_info;
+-	sim.get_reg=&amp;arm11_sim_get_reg;
+-	sim.set_reg=&amp;arm11_sim_set_reg;
+-	sim.get_reg_mode=&amp;arm11_sim_get_reg;
+-	sim.set_reg_mode=&amp;arm11_sim_set_reg;
+-	sim.get_cpsr=&amp;arm11_sim_get_cpsr;
+-	sim.get_mode=&amp;arm11_sim_get_mode;
+-	sim.get_state=&amp;arm11_sim_get_state;
+-	sim.set_state=&amp;arm11_sim_set_state;
+-
+-	return arm_simulate_step_core(target, dry_run_pc, &amp;sim);
+-
+-}
+-
+ static int arm11_step(struct target *target, int current,
+ 		uint32_t address, int handle_breakpoints)
+ {
+@@ -919,24 +829,41 @@ static int arm11_step(struct target *target, int current,
+ 
+ 		if (arm11_config_hardware_step)
+ 		{
+-			/* hardware single stepping be used if possible or is it better to
+-			 * always use the same code path? Hardware single stepping is not supported
+-			 * on all hardware
++			/* Hardware single stepping (&quot;instruction address
++			 * mismatch&quot;) is used if enabled.  It's not quite
++			 * exactly &quot;run one instruction&quot;; &quot;branch to here&quot;
++			 * loops won't break, neither will some other cases,
++			 * but it's probably the best default.
++			 *
++			 * Hardware single stepping isn't supported on v6
++			 * debug modules.  ARM1176 and v7 can support it...
++			 *
++			 * FIXME Thumb stepping likely needs to use 0x03
++			 * or 0xc0 byte masks, not 0x0f.
+ 			 */
+ 			 brp[0].value	= R(PC);
+-			 brp[1].value	= 0x1 | (3 &lt;&lt; 1) | (0x0F &lt;&lt; 5) | (0 &lt;&lt; 14) | (0 &lt;&lt; 16) | (0 &lt;&lt; 20) | (2 &lt;&lt; 21);
++			 brp[1].value	= 0x1 | (3 &lt;&lt; 1) | (0x0F &lt;&lt; 5)
++					| (0 &lt;&lt; 14) | (0 &lt;&lt; 16) | (0 &lt;&lt; 20)
++					| (2 &lt;&lt; 21);
+ 		} else
+ 		{
+-			/* sets a breakpoint on the next PC(calculated by simulation),
++			/* Sets a breakpoint on the next PC, as calculated
++			 * by instruction set simulation.
++			 *
++			 * REVISIT stepping Thumb on ARM1156 requires Thumb2
++			 * support from the simulator.
+ 			 */
+ 			uint32_t next_pc;
+ 			int retval;
+-			retval = arm11_simulate_step(target, &amp;next_pc);
++
++			retval = arm_simulate_step(target, &amp;next_pc);
+ 			if (retval != ERROR_OK)
+ 				return retval;
+ 
+ 			brp[0].value	= next_pc;
+-			brp[1].value	= 0x1 | (3 &lt;&lt; 1) | (0x0F &lt;&lt; 5) | (0 &lt;&lt; 14) | (0 &lt;&lt; 16) | (0 &lt;&lt; 20) | (0 &lt;&lt; 21);
++			brp[1].value	= 0x1 | (3 &lt;&lt; 1) | (0x0F &lt;&lt; 5)
++					| (0 &lt;&lt; 14) | (0 &lt;&lt; 16) | (0 &lt;&lt; 20)
++					| (0 &lt;&lt; 21);
+ 		}
+ 
+ 		CHECK_RETVAL(arm11_sc7_run(arm11, brp, ARRAY_SIZE(brp)));
+@@ -1826,6 +1753,13 @@ static int arm11_build_reg_cache(struct target *target)
+ 	return ERROR_OK;
+ }
+ 
++/* FIXME all these BOOL_WRAPPER things should be modifying
++ * per-instance state, not shared state; ditto the vector
++ * catch register support.  Scan chains with multiple cores
++ * should be able to say &quot;work with this core like this,
++ * that core like that&quot;.  Example, ARM11 MPCore ...
++ */
++
+ #define ARM11_BOOL_WRAPPER(name, print_name)	\
+ 		COMMAND_HANDLER(arm11_handle_bool_##name) \
+ 		{ \
+
+commit 5eb893ec41c8c6cf6499558b6fed826b65e18a16
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Nov 24 01:27:16 2009 -0800
+
+    ARM11: partial support for standard ARM register interfaces.
+    
+    This provides &quot;standard&quot; ARM register support -- with twenty or
+    more shadow registers on top of what this code now handles, but
+    properly associated with the various core modes -- parallel to
+    the current register code.  That is, the current code is stilil
+    managing the &quot;current&quot; registers; the new code shadows them.
+    
+    You can see all the registers with &quot;arm reg&quot;, modify the shadows
+    like &quot;r8_fiq&quot; or &quot;sp_abt&quot; with &quot;reg&quot;, and see them get properly
+    written back when you step.  (Just don't do that with any of the
+    registers managed by the &quot;old&quot; code ...)
+    
+    It also switches to using more standard code, relying on those
+    standard registers, in two places:  (a) the poll status display,
+    which now shows core state (ARM/Thumb/...) and mode (Supervisor,
+    IRQ, etc); and (b) GDB register access.
+    
+    So it's not a full migration, there are warts -- every place that
+    touches the old register cache is a potential bug -- but it's a
+    small more-or-less-comprehensible step that's even somewhat useful.
+    Later patches complete the migration.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 3c841bb..4e6326d 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -144,9 +144,6 @@ enum arm11_regcache_ids
+ 	ARM11_RC_MAX,
+ };
+ 
+-/* GDB expects ARMs to give R0..R15, CPSR, and 7 FPA dummies */
+-#define ARM11_GDB_REGISTER_COUNT	26
+-
+ static int arm11_on_enter_debug_state(struct arm11_common *arm11);
+ static int arm11_step(struct target *target, int current,
+ 		uint32_t address, int handle_breakpoints);
+@@ -223,6 +220,9 @@ static int arm11_on_enter_debug_state(struct arm11_common *arm11)
+ {
+ 	int retval;
+ 
++	/* REVISIT entire cache should already be invalid !!! */
++	register_cache_invalidate(arm11-&gt;arm.core_cache);
++
+ 	for (size_t i = 0; i &lt; ARRAY_SIZE(arm11-&gt;reg_values); i++)
+ 	{
+ 		arm11-&gt;reg_list[i].valid	= 1;
+@@ -297,6 +297,10 @@ static int arm11_on_enter_debug_state(struct arm11_common *arm11)
+ 	}
+ #endif
+ 
++	retval = arm_dpm_read_current_registers(&amp;arm11-&gt;dpm);
++	if (retval != ERROR_OK)
++		LOG_ERROR(&quot;DPM REG READ -- fail %d&quot;, retval);
++
+ 	retval = arm11_run_instr_data_prepare(arm11);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -434,6 +438,9 @@ static int arm11_leave_debug_state(struct arm11_common *arm11)
+ 		}
+ 	}
+ 
++/* DEBUG for now, trust &quot;new&quot; code only for shadowed registers */
++retval = arm_dpm_write_dirty_registers(&amp;arm11-&gt;dpm);
++
+ 	retval = arm11_run_instr_data_prepare(arm11);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -473,6 +480,11 @@ static int arm11_leave_debug_state(struct arm11_common *arm11)
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
++/* DEBUG use this when &quot;new&quot; code is really managing core registers */
++// retval = arm_dpm_write_dirty_registers(&amp;arm11-&gt;dpm);
++
++	register_cache_invalidate(arm11-&gt;arm.core_cache);
++
+ 	/* restore DSCR */
+ 
+ 	arm11_write_DSCR(arm11, R(DSCR));
+@@ -545,14 +557,13 @@ static int arm11_poll(struct target *target)
+ /* architecture specific status reply */
+ static int arm11_arch_state(struct target *target)
+ {
+-	struct arm11_common *arm11 = target_to_arm11(target);
++	int retval;
+ 
+-	LOG_USER(&quot;target halted due to %s\ncpsr: 0x%8.8&quot; PRIx32 &quot; pc: 0x%8.8&quot; PRIx32 &quot;&quot;,
+-			 Jim_Nvp_value2name_simple(nvp_target_debug_reason, target-&gt;debug_reason)-&gt;name,
+-			 R(CPSR),
+-			 R(PC));
++	retval = armv4_5_arch_state(target);
+ 
+-	return ERROR_OK;
++	/* REVISIT also display ARM11-specific MMU and cache status ... */
++
++	return retval;
+ }
+ 
+ /* target request support */
+@@ -1067,31 +1078,6 @@ static int arm11_soft_reset_halt(struct target *target)
+ 	return ERROR_FAIL;
+ }
+ 
+-/* target register access for gdb */
+-static int arm11_get_gdb_reg_list(struct target *target,
+-		struct reg **reg_list[], int *reg_list_size)
+-{
+-	struct arm11_common *arm11 = target_to_arm11(target);
+-
+-	*reg_list_size	= ARM11_GDB_REGISTER_COUNT;
+-	*reg_list		= malloc(sizeof(struct reg*) * ARM11_GDB_REGISTER_COUNT);
+-
+-	/* nine unused legacy FPA registers are expected by GDB */
+-	for (size_t i = 16; i &lt; 24; i++)
+-		(*reg_list)[i] = &amp;arm_gdb_dummy_fp_reg;
+-	(*reg_list)[24] = &amp;arm_gdb_dummy_fps_reg;
+-
+-	for (size_t i = 0; i &lt; ARM11_REGCACHE_COUNT; i++)
+-	{
+-		if (arm11_reg_defs[i].gdb_num == -1)
+-			continue;
+-
+-		(*reg_list)[arm11_reg_defs[i].gdb_num] = arm11-&gt;reg_list + i;
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+ /* target memory access
+  * size: 1 = byte (8bit), 2 = half-word (16bit), 4 = word (32bit)
+  * count: number of items of &lt;size&gt;
+@@ -1633,6 +1619,8 @@ static int arm11_examine(struct target *target)
+ 	uint32_t didr, device_id;
+ 	uint8_t implementor;
+ 
++	/* FIXME split into do-first-time and do-every-time logic ... */
++
+ 	/* check IDCODE */
+ 
+ 	arm11_add_IR(arm11, ARM11_IDCODE, ARM11_TAP_DEFAULT);
+@@ -1705,6 +1693,14 @@ static int arm11_examine(struct target *target)
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
++	/* Build register cache &quot;late&quot;, after target_init(), since we
++	 * want to know if this core supports Secure Monitor mode.
++	 */
++	if (!target_was_examined(target)) {
++		arm11_dpm_init(arm11, didr);
++		retval = arm_dpm_setup(&amp;arm11-&gt;dpm);
++	}
++
+ 	/* ETM on ARM11 still uses original scanchain 6 access mode */
+ 	if (arm11-&gt;arm.etm &amp;&amp; !target_was_examined(target)) {
+ 		*register_get_last_cache_p(&amp;target-&gt;reg_cache) =
+@@ -1980,7 +1976,7 @@ struct target_type arm11_target = {
+ 	.deassert_reset =	arm11_deassert_reset,
+ 	.soft_reset_halt =	arm11_soft_reset_halt,
+ 
+-	.get_gdb_reg_list =	arm11_get_gdb_reg_list,
++	.get_gdb_reg_list =	armv4_5_get_gdb_reg_list,
+ 
+ 	.read_memory =		arm11_read_memory,
+ 	.write_memory =		arm11_write_memory,
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ TODO               |    3 +-
+ src/target/arm11.c |  622 +++++++++++-----------------------------------------
+ src/target/arm11.h |    5 +-
+ 3 files changed, 135 insertions(+), 495 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001852.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-545-g6ff33a4
+</A></li>
+	<LI>Next message: <A HREF="001854.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-557-g96f0ab8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1853">[ date ]</a>
+              <a href="thread.html#1853">[ thread ]</a>
+              <a href="subject.html#1853">[ subject ]</a>
+              <a href="author.html#1853">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

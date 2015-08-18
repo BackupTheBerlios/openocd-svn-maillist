@@ -1,0 +1,215 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2772 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2772%20-%20trunk/src/target&In-Reply-To=%3C200909291806.n8TI6Rt0001866%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001554.html">
+   <LINK REL="Next"  HREF="001556.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2772 - trunk/src/target</H1>
+    <B>dbrownell at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2772%20-%20trunk/src/target&In-Reply-To=%3C200909291806.n8TI6Rt0001866%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2772 - trunk/src/target">dbrownell at mail.berlios.de
+       </A><BR>
+    <I>Tue Sep 29 20:06:27 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001554.html">[Openocd-svn] r2771 - trunk/src/server
+</A></li>
+        <LI>Next message: <A HREF="001556.html">[Openocd-svn] r2773 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1555">[ date ]</a>
+              <a href="thread.html#1555">[ thread ]</a>
+              <a href="subject.html#1555">[ subject ]</a>
+              <a href="author.html#1555">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: dbrownell
+Date: 2009-09-29 20:06:26 +0200 (Tue, 29 Sep 2009)
+New Revision: 2772
+
+Modified:
+   trunk/src/target/etb.c
+   trunk/src/target/etb.h
+Log:
+ETB: cleanup needless symbol exports and forward decls.
+
+
+Modified: trunk/src/target/etb.c
+===================================================================
+--- trunk/src/target/etb.c	2009-09-29 14:24:02 UTC (rev 2771)
++++ trunk/src/target/etb.c	2009-09-29 18:06:26 UTC (rev 2772)
+@@ -96,6 +96,33 @@
+ 	return ERROR_OK;
+ }
+ 
++static int etb_read_reg_w_check(reg_t *, uint8_t *, uint8_t *);
++static int etb_set_reg_w_exec(reg_t *, uint8_t *);
++
++static int etb_read_reg(reg_t *reg)
++{
++	return etb_read_reg_w_check(reg, NULL, NULL);
++}
++
++static int etb_get_reg(reg_t *reg)
++{
++	int retval;
++
++	if ((retval = etb_read_reg(reg)) != ERROR_OK)
++	{
++		LOG_ERROR(&quot;BUG: error scheduling etm register read&quot;);
++		return retval;
++	}
++
++	if ((retval = jtag_execute_queue()) != ERROR_OK)
++	{
++		LOG_ERROR(&quot;register read failed&quot;);
++		return retval;
++	}
++
++	return ERROR_OK;
++}
++
+ reg_cache_t* etb_build_reg_cache(etb_t *etb)
+ {
+ 	reg_cache_t *reg_cache = malloc(sizeof(reg_cache_t));
+@@ -138,29 +165,10 @@
+ 	return reg_cache;
+ }
+ 
+-static int etb_get_reg(reg_t *reg)
++static void etb_getbuf(jtag_callback_data_t arg)
+ {
+-	int retval;
++	uint8_t *in = (uint8_t *)arg;
+ 
+-	if ((retval = etb_read_reg(reg)) != ERROR_OK)
+-	{
+-		LOG_ERROR(&quot;BUG: error scheduling etm register read&quot;);
+-		return retval;
+-	}
+-
+-	if ((retval = jtag_execute_queue()) != ERROR_OK)
+-	{
+-		LOG_ERROR(&quot;register read failed&quot;);
+-		return retval;
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+-
+-static void etb_getbuf(jtag_callback_data_t arg)
+-{
+-  uint8_t *in = (uint8_t *)arg;
+ 	*((uint32_t *)in) = buf_get_u32(in, 0, 32);
+ }
+ 
+@@ -218,7 +226,8 @@
+ 	return ERROR_OK;
+ }
+ 
+-int etb_read_reg_w_check(reg_t *reg, uint8_t* check_value, uint8_t* check_mask)
++static int etb_read_reg_w_check(reg_t *reg,
++		uint8_t* check_value, uint8_t* check_mask)
+ {
+ 	etb_reg_t *etb_reg = reg-&gt;arch_info;
+ 	uint8_t reg_addr = etb_reg-&gt;addr &amp; 0x7f;
+@@ -271,12 +280,9 @@
+ 	return ERROR_OK;
+ }
+ 
+-int etb_read_reg(reg_t *reg)
+-{
+-	return etb_read_reg_w_check(reg, NULL, NULL);
+-}
++static int etb_write_reg(reg_t *, uint32_t);
+ 
+-int etb_set_reg(reg_t *reg, uint32_t value)
++static int etb_set_reg(reg_t *reg, uint32_t value)
+ {
+ 	int retval;
+ 
+@@ -293,7 +299,7 @@
+ 	return ERROR_OK;
+ }
+ 
+-int etb_set_reg_w_exec(reg_t *reg, uint8_t *buf)
++static int etb_set_reg_w_exec(reg_t *reg, uint8_t *buf)
+ {
+ 	int retval;
+ 
+@@ -307,7 +313,7 @@
+ 	return ERROR_OK;
+ }
+ 
+-int etb_write_reg(reg_t *reg, uint32_t value)
++static int etb_write_reg(reg_t *reg, uint32_t value)
+ {
+ 	etb_reg_t *etb_reg = reg-&gt;arch_info;
+ 	uint8_t reg_addr = etb_reg-&gt;addr &amp; 0x7f;
+@@ -345,11 +351,6 @@
+ 	return ERROR_OK;
+ }
+ 
+-int etb_store_reg(reg_t *reg)
+-{
+-	return etb_write_reg(reg, buf_get_u32(reg-&gt;value, 0, reg-&gt;size));
+-}
+-
+ static int etb_register_commands(struct command_context_s *cmd_ctx)
+ {
+ 	command_t *etb_cmd;
+
+Modified: trunk/src/target/etb.h
+===================================================================
+--- trunk/src/target/etb.h	2009-09-29 14:24:02 UTC (rev 2771)
++++ trunk/src/target/etb.h	2009-09-29 18:06:26 UTC (rev 2772)
+@@ -57,11 +57,5 @@
+ extern etm_capture_driver_t etb_capture_driver;
+ 
+ extern reg_cache_t* etb_build_reg_cache(etb_t *etb);
+-extern int etb_read_reg(reg_t *reg);
+-extern int etb_write_reg(reg_t *reg, uint32_t value);
+-extern int etb_read_reg_w_check(reg_t *reg, uint8_t* check_value, uint8_t* check_mask);
+-extern int etb_store_reg(reg_t *reg);
+-extern int etb_set_reg(reg_t *reg, uint32_t value);
+-extern int etb_set_reg_w_exec(reg_t *reg, uint8_t *buf);
+ 
+ #endif /* ETB_H */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001554.html">[Openocd-svn] r2771 - trunk/src/server
+</A></li>
+	<LI>Next message: <A HREF="001556.html">[Openocd-svn] r2773 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1555">[ date ]</a>
+              <a href="thread.html#1555">[ thread ]</a>
+              <a href="subject.html#1555">[ subject ]</a>
+              <a href="author.html#1555">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

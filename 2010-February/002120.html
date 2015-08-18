@@ -1,0 +1,342 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-20-g4a64820
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-20-g4a64820&In-Reply-To=%3CE1NkYrO-0002n5-6e%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002119.html">
+   <LINK REL="Next"  HREF="002121.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-20-g4a64820</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-20-g4a64820&In-Reply-To=%3CE1NkYrO-0002n5-6e%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-20-g4a64820">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Thu Feb 25 09:14:12 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002119.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-17-g75067c4
+</A></li>
+        <LI>Next message: <A HREF="002121.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-24-ge70d42a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2120">[ date ]</a>
+              <a href="thread.html#2120">[ thread ]</a>
+              <a href="subject.html#2120">[ subject ]</a>
+              <a href="author.html#2120">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  4a64820f230a267b1f2e36d4be567074e5b8cb76 (commit)
+       via  79010bf3dfad01ff11b37a9a6c79452a604c596d (commit)
+       via  7abe9f38b2321b00b240fb7901dc408106fb07f8 (commit)
+      from  75067c40424f0e3349f445ed4ec43476a89973da (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 4a64820f230a267b1f2e36d4be567074e5b8cb76
+Author: Mariano Alvira &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mar at devl.org</A>&gt;
+Date:   Thu Feb 25 00:01:55 2010 -0800
+
+    ft2232: add a mechanism to specify channel in layout structs
+    
+    FT2232-family chips have two or more MPSSE modules.   FTDI documentation
+    calls these channels.  JTAG adapter drivers thus need to be able to choose
+    which channel to use.  (For example, one channel may connect to a board's
+    microcontroller, while another connects to a CPLD.)
+    
+    Since each channel has its own USB interface, libftdi (somewhat confusingly)
+    identifies channels using INTERFACE_* symbols.  Most boards use INTERFACE_A
+    for JTAG, which is the default in OpenOCD.  But some wire up a different one.
+    
+    Note that there are two facets of what makes a wiring &quot;layout&quot;:
+    
+     - The mapping between debug signals map and channel signals ... embedded
+       in C functions.
+    
+     - Label used in Tcl configuration scripts ... part of the &quot;layout&quot; structure.
+    
+    By letting the channel be part of the layout struct, we permit sharing the C
+    functions between Tcl-visible layouts, when those signal mappings are reused.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+index 5042a22..4b84fa8 100644
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -145,6 +145,7 @@ struct ft2232_layout {
+ 	int (*init)(void);
+ 	void (*reset)(int trst, int srst);
+ 	void (*blink)(void);
++	int channel;
+ };
+ 
+ /* init procedures for supported layouts */
+@@ -2062,7 +2063,7 @@ static int ft2232_purge_ftd2xx(void)
+ #endif /* BUILD_FT2232_FTD2XX == 1 */
+ 
+ #if BUILD_FT2232_LIBFTDI == 1
+-static int ft2232_init_libftdi(uint16_t vid, uint16_t pid, int more, int* try_more)
++static int ft2232_init_libftdi(uint16_t vid, uint16_t pid, int more, int* try_more, int channel)
+ {
+ 	uint8_t latency_timer;
+ 
+@@ -2072,7 +2073,10 @@ static int ft2232_init_libftdi(uint16_t vid, uint16_t pid, int more, int* try_mo
+ 	if (ftdi_init(&amp;ftdic) &lt; 0)
+ 		return ERROR_JTAG_INIT_FAILED;
+ 
+-	if (ftdi_set_interface(&amp;ftdic, INTERFACE_A) &lt; 0)
++	/* default to INTERFACE_A */
++	if(channel == INTERFACE_ANY) { channel = INTERFACE_A; }
++
++	if (ftdi_set_interface(&amp;ftdic, channel) &lt; 0)
+ 	{
+ 		LOG_ERROR(&quot;unable to select FT2232 channel A: %s&quot;, ftdic.error_str);
+ 		return ERROR_JTAG_INIT_FAILED;
+@@ -2197,7 +2201,7 @@ static int ft2232_init(void)
+ 				more, &amp;try_more);
+ #elif BUILD_FT2232_LIBFTDI == 1
+ 		retval = ft2232_init_libftdi(ft2232_vid[i], ft2232_pid[i],
+-				more, &amp;try_more);
++					     more, &amp;try_more, cur_layout-&gt;channel);
+ #endif
+ 		if (retval &gt;= 0)
+ 			break;
+
+commit 79010bf3dfad01ff11b37a9a6c79452a604c596d
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Wed Feb 24 23:46:46 2010 -0800
+
+    ARM ADIv5 doxygen and cleanup
+    
+    Add doxygen for mem_ap_read_buf_u{8,16,32}() calls,
+    and shrink a few overlong lines.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index 435d659..41f00ec 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -866,14 +866,16 @@ int mem_ap_write_buf_u8(struct swjdp_common *swjdp, uint8_t *buffer, int count,
+ 	return retval;
+ }
+ 
+-/*********************************************************************************
+-*                                                                                *
+-* mem_ap_read_buf_u32(struct swjdp_common *swjdp, uint8_t *buffer, int count, uint32_t address)  *
+-*                                                                                *
+-* Read block fast in target order (little endian) into a buffer                  *
+-*                                                                                *
+-**********************************************************************************/
+-int mem_ap_read_buf_u32(struct swjdp_common *swjdp, uint8_t *buffer, int count, uint32_t address)
++/**
++ * Synchronously read a block of 32-bit words into a buffer
++ * @param swjdp The DAP connected to the MEM-AP.
++ * @param buffer where the words will be stored (in host byte order).
++ * @param count How many words to read.
++ * @param address Memory address from which to read words; all the
++ *	words must be readable by the currently selected MEM-AP.
++ */
++int mem_ap_read_buf_u32(struct swjdp_common *swjdp, uint8_t *buffer,
++		int count, uint32_t address)
+ {
+ 	int wcount, blocksize, readcount, errorcount = 0, retval = ERROR_OK;
+ 	uint32_t adr = address;
+@@ -884,8 +886,12 @@ int mem_ap_read_buf_u32(struct swjdp_common *swjdp, uint8_t *buffer, int count,
+ 
+ 	while (wcount &gt; 0)
+ 	{
+-		/* Adjust to read blocks within boundaries aligned to the TAR autoincremnent size*/
+-		blocksize = max_tar_block_size(swjdp-&gt;tar_autoincr_block, address);
++		/* Adjust to read blocks within boundaries aligned to the
++		 * TAR autoincrement size (at least 2^10).  Autoincrement
++		 * mode avoids an extra per-word roundtrip to update TAR.
++		 */
++		blocksize = max_tar_block_size(swjdp-&gt;tar_autoincr_block,
++				address);
+ 		if (wcount &lt; blocksize)
+ 			blocksize = wcount;
+ 
+@@ -893,7 +899,8 @@ int mem_ap_read_buf_u32(struct swjdp_common *swjdp, uint8_t *buffer, int count,
+ 		if (blocksize == 0)
+ 			blocksize = 1;
+ 
+-		dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_SINGLE, address);
++		dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_SINGLE,
++				address);
+ 
+ 		/* Scan out first read */
+ 		adi_jtag_dp_scan(swjdp, JTAG_DP_APACC, AP_REG_DRW,
+@@ -928,7 +935,8 @@ int mem_ap_read_buf_u32(struct swjdp_common *swjdp, uint8_t *buffer, int count,
+ 
+ 		if (errorcount &gt; 1)
+ 		{
+-			LOG_WARNING(&quot;Block read error address 0x%&quot; PRIx32 &quot;, count 0x%x&quot;, address, count);
++			LOG_WARNING(&quot;Block read error address 0x%&quot; PRIx32
++				&quot;, count 0x%x&quot;, address, count);
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+ 	}
+@@ -944,7 +952,8 @@ int mem_ap_read_buf_u32(struct swjdp_common *swjdp, uint8_t *buffer, int count,
+ 
+ 			for (i = 0; i &lt; 4; i++)
+ 			{
+-				*((uint8_t*)pBuffer) = (data &gt;&gt; 8 * (adr &amp; 0x3));
++				*((uint8_t*)pBuffer) =
++						(data &gt;&gt; 8 * (adr &amp; 0x3));
+ 				pBuffer++;
+ 				adr++;
+ 			}
+@@ -1005,7 +1014,16 @@ static int mem_ap_read_buf_packed_u16(struct swjdp_common *swjdp,
+ 	return retval;
+ }
+ 
+-int mem_ap_read_buf_u16(struct swjdp_common *swjdp, uint8_t *buffer, int count, uint32_t address)
++/**
++ * Synchronously read a block of 16-bit halfwords into a buffer
++ * @param swjdp The DAP connected to the MEM-AP.
++ * @param buffer where the halfwords will be stored (in host byte order).
++ * @param count How many halfwords to read.
++ * @param address Memory address from which to read words; all the
++ *	words must be readable by the currently selected MEM-AP.
++ */
++int mem_ap_read_buf_u16(struct swjdp_common *swjdp, uint8_t *buffer,
++		int count, uint32_t address)
+ {
+ 	uint32_t invalue, i;
+ 	int retval = ERROR_OK;
+@@ -1094,7 +1112,16 @@ static int mem_ap_read_buf_packed_u8(struct swjdp_common *swjdp,
+ 	return retval;
+ }
+ 
+-int mem_ap_read_buf_u8(struct swjdp_common *swjdp, uint8_t *buffer, int count, uint32_t address)
++/**
++ * Synchronously read a block of bytes into a buffer
++ * @param swjdp The DAP connected to the MEM-AP.
++ * @param buffer where the bytes will be stored.
++ * @param count How many bytes to read.
++ * @param address Memory address from which to read data; all the
++ *	data must be readable by the currently selected MEM-AP.
++ */
++int mem_ap_read_buf_u8(struct swjdp_common *swjdp, uint8_t *buffer,
++		int count, uint32_t address)
+ {
+ 	uint32_t invalue;
+ 	int retval = ERROR_OK;
+
+commit 7abe9f38b2321b00b240fb7901dc408106fb07f8
+Author: Hans Peter Mortensn &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">hp000 at space.aau.dk</A>&gt;
+Date:   Wed Feb 24 23:35:12 2010 -0800
+
+    AVR flash: handle AT90CAN128 chips
+    
+    I have successfully programmed the AT90CAN128, based on the mega128 &#194;&#160;
+    with some small modifications.
+    
+    [ <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>: patch cleanup ]
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/flash/nor/avrf.c b/src/flash/nor/avrf.c
+index c072419..5b40ad7 100644
+--- a/src/flash/nor/avrf.c
++++ b/src/flash/nor/avrf.c
+@@ -52,8 +52,11 @@
+ 
+ struct avrf_type avft_chips_info[] =
+ {
+-//	 name,			chip_id,	flash_page_size,	flash_page_num,	eeprom_page_size,	eeprom_page_num
+-	{&quot;atmega128&quot;,	0x9702,		256,				512,			8,					512},
++/*	name, chip_id,	flash_page_size, flash_page_num,
++ *			eeprom_page_size, eeprom_page_num
++ */
++	{&quot;atmega128&quot;,	0x9702, 256, 512, 8, 512},
++	{&quot;at90can128&quot;,	0x9781, 256, 512, 8, 512},
+ };
+ 
+ int avr_jtag_sendinstr(struct jtag_tap *tap, uint8_t *ir_in, uint8_t ir_out);
+@@ -200,8 +203,27 @@ FLASH_BANK_COMMAND_HANDLER(avrf_flash_bank_command)
+ 
+ static int avrf_erase(struct flash_bank *bank, int first, int last)
+ {
+-	LOG_INFO(&quot;%s&quot;, __FUNCTION__);
+-	return ERROR_OK;
++	struct target *target = bank-&gt;target;
++	struct avr_common *avr = target-&gt;arch_info;
++	int status;
++
++	LOG_DEBUG(&quot;%s&quot;, __FUNCTION__);
++
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	status = avr_jtagprg_enterprogmode(avr);
++	if (status != ERROR_OK)
++		return status;
++
++	status = avr_jtagprg_chiperase(avr);
++	if (status != ERROR_OK)
++		return status;
++
++	return avr_jtagprg_leaveprogmode(avr);
+ }
+ 
+ static int avrf_protect(struct flash_bank *bank, int set, int first, int last)
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/avrf.c      |   30 ++++++++++++++++++++---
+ src/jtag/drivers/ft2232.c |   10 +++++--
+ src/target/arm_adi_v5.c   |   57 +++++++++++++++++++++++++++++++++------------
+ 3 files changed, 75 insertions(+), 22 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002119.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-17-g75067c4
+</A></li>
+	<LI>Next message: <A HREF="002121.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-24-ge70d42a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2120">[ date ]</a>
+              <a href="thread.html#2120">[ thread ]</a>
+              <a href="subject.html#2120">[ subject ]</a>
+              <a href="author.html#2120">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

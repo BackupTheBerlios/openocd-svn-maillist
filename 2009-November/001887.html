@@ -1,0 +1,649 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-712-g5219b35
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-712-g5219b35&In-Reply-To=%3CE1NErBl-000165-Ub%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001886.html">
+   <LINK REL="Next"  HREF="001888.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-712-g5219b35</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-712-g5219b35&In-Reply-To=%3CE1NErBl-000165-Ub%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-712-g5219b35">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Sun Nov 29 22:20:12 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001886.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-707-g73ec6d9
+</A></li>
+        <LI>Next message: <A HREF="001888.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-713-g2264270
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1887">[ date ]</a>
+              <a href="thread.html#1887">[ thread ]</a>
+              <a href="subject.html#1887">[ subject ]</a>
+              <a href="author.html#1887">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  5219b35be63e56d576f6c877162e4e2f50db5294 (commit)
+       via  8c8e53baf6a5842046a1d31057ec3c9a0906a0d5 (commit)
+       via  e456da073abeb2b45fdeb7ef48bf5f905221524a (commit)
+       via  8c2846ed450a6280aa3fa8b58e796f20405c842d (commit)
+       via  17b7600a59c4fb9245107baac1873c23e792ce43 (commit)
+      from  73ec6d9b891cbecf50058dcfdfefa5d0c4217090 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 5219b35be63e56d576f6c877162e4e2f50db5294
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sun Nov 29 13:06:12 2009 -0800
+
+    XScale: clean up full_context() (#2)
+    
+    Streamline the loop by continuing as soon as we know there's no
+    work to be done; this lets us un-indent almost everything.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 6d2d81d..bf5d0af 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -1712,50 +1712,41 @@ static int xscale_full_context(struct target *target)
+ 					mode, j).valid)
+ 				valid = false;
+ 		}
++		if (valid)
++			continue;
+ 
+-		if (!valid)
+-		{
+-			uint32_t tmp_cpsr;
+-
+-			/* request banked registers */
+-			xscale_send_u32(target, 0x0);
++		/* request banked registers */
++		xscale_send_u32(target, 0x0);
+ 
+-			tmp_cpsr = 0x0;
+-			tmp_cpsr |= mode;
+-			tmp_cpsr |= 0xc0; /* I/F bits */
+-
+-			/* send CPSR for desired mode */
+-			xscale_send_u32(target, tmp_cpsr);
++		/* send CPSR for desired bank mode */
++		xscale_send_u32(target, mode | 0xc0 /* I/F bits */);
+ 
+-			/* get banked registers:  r8 to r14; and SPSR
+-			 * if not in USR/SYS mode
+-			 */
+-			if (mode != ARMV4_5_MODE_SYS) {
+-				/* SPSR */
+-				r = &amp;ARMV4_5_CORE_REG_MODE(
+-						armv4_5-&gt;core_cache,
+-						mode, 16);
+-
+-				xscale_receive(target, buffer, 8);
+-
+-				buf_set_u32(r-&gt;value, 0, 32, buffer[7]);
+-				r-&gt;dirty = false;
+-				r-&gt;valid = true;
+-			} else {
+-				xscale_receive(target, buffer, 7);
+-			}
++		/* get banked registers:  r8 to r14; and SPSR
++		 * except in USR/SYS mode
++		 */
++		if (mode != ARMV4_5_MODE_SYS) {
++			/* SPSR */
++			r = &amp;ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
++					mode, 16);
++
++			xscale_receive(target, buffer, 8);
++
++			buf_set_u32(r-&gt;value, 0, 32, buffer[7]);
++			r-&gt;dirty = false;
++			r-&gt;valid = true;
++		} else {
++			xscale_receive(target, buffer, 7);
++		}
+ 
+-			/* move data from buffer to register cache */
+-			for (j = 8; j &lt;= 14; j++)
+-			{
+-				r = &amp;ARMV4_5_CORE_REG_MODE(
+-						armv4_5-&gt;core_cache,
+-						mode, j);
++		/* move data from buffer to register cache */
++		for (j = 8; j &lt;= 14; j++)
++		{
++			r = &amp;ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
++					mode, j);
+ 
+-				buf_set_u32(r-&gt;value, 0, 32, buffer[j - 8]);
+-				r-&gt;dirty = false;
+-				r-&gt;valid = true;
+-			}
++			buf_set_u32(r-&gt;value, 0, 32, buffer[j - 8]);
++			r-&gt;dirty = false;
++			r-&gt;valid = true;
+ 		}
+ 	}
+ 
+
+commit 8c8e53baf6a5842046a1d31057ec3c9a0906a0d5
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sun Nov 29 13:04:56 2009 -0800
+
+    XScale: clean up full_context() (#1)
+    
+    When fetching all the registers, XScale was doing various stupid
+    things like calling number_to_mode() a few dozen times instead of
+    just once, and mapping access to each register three times (again,
+    instead of just once).  Stop that.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 0e58f57..6d2d81d 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -1697,14 +1697,20 @@ static int xscale_full_context(struct target *target)
+ 	 */
+ 	for (i = 1; i &lt; 7; i++)
+ 	{
+-		int valid = 1;
++		enum armv4_5_mode mode = armv4_5_number_to_mode(i);
++		bool valid = true;
++		struct reg *r;
++
++		if (mode == ARMV4_5_MODE_USR)
++			continue;
+ 
+ 		/* check if there are invalid registers in the current mode
+ 		 */
+-		for (j = 0; j &lt;= 16; j++)
++		for (j = 0; valid &amp;&amp; j &lt;= 16; j++)
+ 		{
+-			if (ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5_number_to_mode(i), j).valid == 0)
+-				valid = 0;
++			if (!ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
++					mode, j).valid)
++				valid = false;
+ 		}
+ 
+ 		if (!valid)
+@@ -1715,31 +1721,40 @@ static int xscale_full_context(struct target *target)
+ 			xscale_send_u32(target, 0x0);
+ 
+ 			tmp_cpsr = 0x0;
+-			tmp_cpsr |= armv4_5_number_to_mode(i);
++			tmp_cpsr |= mode;
+ 			tmp_cpsr |= 0xc0; /* I/F bits */
+ 
+ 			/* send CPSR for desired mode */
+ 			xscale_send_u32(target, tmp_cpsr);
+ 
+-			/* get banked registers, r8 to r14, and spsr if not in USR/SYS mode */
+-			if ((armv4_5_number_to_mode(i) != ARMV4_5_MODE_USR) &amp;&amp; (armv4_5_number_to_mode(i) != ARMV4_5_MODE_SYS))
+-			{
++			/* get banked registers:  r8 to r14; and SPSR
++			 * if not in USR/SYS mode
++			 */
++			if (mode != ARMV4_5_MODE_SYS) {
++				/* SPSR */
++				r = &amp;ARMV4_5_CORE_REG_MODE(
++						armv4_5-&gt;core_cache,
++						mode, 16);
++
+ 				xscale_receive(target, buffer, 8);
+-				buf_set_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 16).value, 0, 32, buffer[7]);
+-				ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5_number_to_mode(i), 16).dirty = 0;
+-				ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5_number_to_mode(i), 16).valid = 1;
+-			}
+-			else
+-			{
++
++				buf_set_u32(r-&gt;value, 0, 32, buffer[7]);
++				r-&gt;dirty = false;
++				r-&gt;valid = true;
++			} else {
+ 				xscale_receive(target, buffer, 7);
+ 			}
+ 
+ 			/* move data from buffer to register cache */
+ 			for (j = 8; j &lt;= 14; j++)
+ 			{
+-				buf_set_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5_number_to_mode(i), j).value, 0, 32, buffer[j - 8]);
+-				ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5_number_to_mode(i), j).dirty = 0;
+-				ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5_number_to_mode(i), j).valid = 1;
++				r = &amp;ARMV4_5_CORE_REG_MODE(
++						armv4_5-&gt;core_cache,
++						mode, j);
++
++				buf_set_u32(r-&gt;value, 0, 32, buffer[j - 8]);
++				r-&gt;dirty = false;
++				r-&gt;valid = true;
+ 			}
+ 		}
+ 	}
+
+commit e456da073abeb2b45fdeb7ef48bf5f905221524a
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sun Nov 29 12:58:30 2009 -0800
+
+    XScale: debug entry uses new register mapping
+    
+    Use the new mapping interfaces in the debug entry path.
+    SPSR and the banked registers now have smaller and faster
+    accessors ... use them.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index b4cb4ff..0e58f57 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -973,12 +973,11 @@ static int xscale_debug_entry(struct target *target)
+ 			 arm_mode_name(armv4_5-&gt;core_mode));
+ 
+ 	/* get banked registers, r8 to r14, and spsr if not in USR/SYS mode */
+-	if ((armv4_5-&gt;core_mode != ARMV4_5_MODE_USR) &amp;&amp; (armv4_5-&gt;core_mode != ARMV4_5_MODE_SYS))
+-	{
++	if (armv4_5-&gt;spsr) {
+ 		xscale_receive(target, buffer, 8);
+-		buf_set_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 16).value, 0, 32, buffer[7]);
+-		ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 16).dirty = 0;
+-		ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 16).valid = 1;
++		buf_set_u32(armv4_5-&gt;spsr-&gt;value, 0, 32, buffer[7]);
++		armv4_5-&gt;spsr-&gt;dirty = false;
++		armv4_5-&gt;spsr-&gt;valid = true;
+ 	}
+ 	else
+ 	{
+@@ -986,12 +985,14 @@ static int xscale_debug_entry(struct target *target)
+ 		xscale_receive(target, buffer, 7);
+ 	}
+ 
+-	/* move data from buffer to register cache */
++	/* move data from buffer to right banked register in cache */
+ 	for (i = 8; i &lt;= 14; i++)
+ 	{
+-		buf_set_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, i).value, 0, 32, buffer[i - 8]);
+-		ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, i).dirty = 0;
+-		ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, i).valid = 1;
++		struct reg *r = arm_reg_current(armv4_5, i);
++
++		buf_set_u32(r-&gt;value, 0, 32, buffer[i - 8]);
++		r-&gt;dirty = false;
++		r-&gt;valid = true;
+ 	}
+ 
+ 	/* examine debug reason */
+
+commit 8c2846ed450a6280aa3fa8b58e796f20405c842d
+Author: Marek Vasut &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">marek.vasut at gmail.com</A>&gt;
+Date:   Sun Nov 29 12:54:41 2009 +0100
+
+    create target/pxa3xx.cfg
+    
+    [<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>; remove pxa255 comment]
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/tcl/target/pxa3xx.cfg b/tcl/target/pxa3xx.cfg
+new file mode 100644
+index 0000000..5d64986
+--- /dev/null
++++ b/tcl/target/pxa3xx.cfg
+@@ -0,0 +1,86 @@
++# Marvell PXA3xx
++
++if { [info exists CHIPNAME] } {
++   set  _CHIPNAME $CHIPNAME
++} else {
++   set  _CHIPNAME pxa3xx
++}
++
++if { [info exists ENDIAN] } {
++   set  _ENDIAN $ENDIAN
++} else {
++   set  _ENDIAN little
++}
++
++# IDs for all currently known PXA3xx chips
++if { [info exists CPUTAPID_PXA30X_A0 ] } {
++   set _CPUTAPID_PXA30X_A0 $CPUTAPID_PXA30X_A0
++} else {
++   set _CPUTAPID_PXA30X_A0 0x0E648013
++}
++if { [info exists CPUTAPID_PXA30X_A1 ] } {
++   set _CPUTAPID_PXA30X_A1 $CPUTAPID_PXA30X_A1
++} else {
++   set _CPUTAPID_PXA30X_A1 0x1E648013
++}
++if { [info exists CPUTAPID_PXA31X_A0 ] } {
++   set _CPUTAPID_PXA31X_A0 $CPUTAPID_PXA31X_A0
++} else {
++   set _CPUTAPID_PXA31X_A0 0x0E649013
++}
++if { [info exists CPUTAPID_PXA31X_A1 ] } {
++   set _CPUTAPID_PXA31X_A1 $CPUTAPID_PXA31X_A1
++} else {
++   set _CPUTAPID_PXA31X_A1 0x1E649013
++}
++if { [info exists CPUTAPID_PXA31X_A2 ] } {
++   set _CPUTAPID_PXA31X_A2 $CPUTAPID_PXA31X_A2
++} else {
++   set _CPUTAPID_PXA31X_A2 0x2E649013
++}
++if { [info exists CPUTAPID_PXA31X_B0 ] } {
++   set _CPUTAPID_PXA31X_B0 $CPUTAPID_PXA31X_B0
++} else {
++   set _CPUTAPID_PXA31X_B0 0x3E649013
++}
++if { [info exists CPUTAPID_PXA32X_B1 ] } {
++   set _CPUTAPID_PXA32X_B1 $CPUTAPID_PXA32X_B1
++} else {
++   set _CPUTAPID_PXA32X_B1 0x5E642013
++}
++if { [info exists CPUTAPID_PXA32X_B2 ] } {
++   set _CPUTAPID_PXA32X_B2 $CPUTAPID_PXA32X_B2
++} else {
++   set _CPUTAPID_PXA32X_B2 0x6E642013
++}
++if { [info exists CPUTAPID_PXA32X_C0 ] } {
++   set _CPUTAPID_PXA32X_C0 $CPUTAPID_PXA32X_C0
++} else {
++   set _CPUTAPID_PXA32X_C0 0x7E642013
++}
++
++# set jtag_nsrst_delay to the delay introduced by your reset circuit
++# the rest of the needed delays are built into the openocd program
++jtag_nsrst_delay 260
++
++# set the jtag_ntrst_delay to the delay introduced by a reset circuit
++# the rest of the needed delays are built into the openocd program
++jtag_ntrst_delay 250
++
++set _TARGETNAME $_CHIPNAME.cpu
++jtag newtap $_CHIPNAME cpu -irlen 11 -ircapture 0x1 -irmask 0x7f \
++	-expected-id $_CPUTAPID_PXA30X_A0 \
++	-expected-id $_CPUTAPID_PXA30X_A1 \
++	-expected-id $_CPUTAPID_PXA31X_A0 \
++	-expected-id $_CPUTAPID_PXA31X_A1 \
++	-expected-id $_CPUTAPID_PXA31X_A2 \
++	-expected-id $_CPUTAPID_PXA31X_B0 \
++	-expected-id $_CPUTAPID_PXA32X_B1 \
++	-expected-id $_CPUTAPID_PXA32X_B2 \
++	-expected-id $_CPUTAPID_PXA32X_C0
++
++target create $_TARGETNAME xscale -endian $_ENDIAN \
++	-chain-position $_TARGETNAME -variant pxa3xx
++
++# work area in internal RAM.
++$_TARGETNAME configure -work-area-phys 0x5c030000 -work-area-size 0x10000
+
+commit 17b7600a59c4fb9245107baac1873c23e792ce43
+Author: Marek Vasut &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">marek.vasut at gmail.com</A>&gt;
+Date:   Sun Nov 29 12:53:06 2009 +0100
+
+    XScale: initial PXA3xx support
+    
+    [<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>: user's guide; variant param is optional]
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index b32ed21..ea30092 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -3117,6 +3117,7 @@ There are several variants defined:
+ @code{pxa27x} ... instruction register length is 7 bits
+ @item @code{pxa250}, @code{pxa255},
+ @code{pxa26x} ... instruction register length is 5 bits
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @code{pxa3xx} ... instruction register length is 11 bits
+ @end itemize
+ @end itemize
+ @end deffn
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 49653a9..b4cb4ff 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -191,7 +191,8 @@ static int xscale_read_dcsr(struct target *target)
+ 	uint8_t field2_check_mask = 0x1;
+ 
+ 	jtag_set_end_state(TAP_DRPAUSE);
+-	xscale_jtag_set_instr(target-&gt;tap, XSCALE_SELDCSR);
++	xscale_jtag_set_instr(target-&gt;tap,
++		XSCALE_SELDCSR &lt;&lt; xscale-&gt;xscale_variant);
+ 
+ 	buf_set_u32(&amp;field0, 1, 1, xscale-&gt;hold_rst);
+ 	buf_set_u32(&amp;field0, 2, 1, xscale-&gt;external_debug_break);
+@@ -256,6 +257,7 @@ static int xscale_receive(struct target *target, uint32_t *buffer, int num_words
+ 	if (num_words == 0)
+ 		return ERROR_INVALID_ARGUMENTS;
+ 
++	struct xscale_common *xscale = target_to_xscale(target);
+ 	int retval = ERROR_OK;
+ 	tap_state_t path[3];
+ 	struct scan_field fields[3];
+@@ -289,7 +291,8 @@ static int xscale_receive(struct target *target, uint32_t *buffer, int num_words
+ 	fields[2].check_mask = &amp;field2_check_mask;
+ 
+ 	jtag_set_end_state(TAP_IDLE);
+-	xscale_jtag_set_instr(target-&gt;tap, XSCALE_DBGTX);
++	xscale_jtag_set_instr(target-&gt;tap,
++		XSCALE_DBGTX &lt;&lt; xscale-&gt;xscale_variant);
+ 	jtag_add_runtest(1, jtag_get_end_state()); /* ensures that we're in the TAP_IDLE state as the above could be a no-op */
+ 
+ 	/* repeat until all words have been collected */
+@@ -371,7 +374,8 @@ static int xscale_read_tx(struct target *target, int consume)
+ 
+ 	jtag_set_end_state(TAP_IDLE);
+ 
+-	xscale_jtag_set_instr(target-&gt;tap, XSCALE_DBGTX);
++	xscale_jtag_set_instr(target-&gt;tap,
++		XSCALE_DBGTX &lt;&lt; xscale-&gt;xscale_variant);
+ 
+ 	path[0] = TAP_DRSELECT;
+ 	path[1] = TAP_DRCAPTURE;
+@@ -469,7 +473,8 @@ static int xscale_write_rx(struct target *target)
+ 
+ 	jtag_set_end_state(TAP_IDLE);
+ 
+-	xscale_jtag_set_instr(target-&gt;tap, XSCALE_DBGRX);
++	xscale_jtag_set_instr(target-&gt;tap,
++		XSCALE_DBGRX &lt;&lt; xscale-&gt;xscale_variant);
+ 
+ 	memset(&amp;fields, 0, sizeof fields);
+ 
+@@ -541,6 +546,7 @@ static int xscale_write_rx(struct target *target)
+ /* send count elements of size byte to the debug handler */
+ static int xscale_send(struct target *target, uint8_t *buffer, int count, int size)
+ {
++	struct xscale_common *xscale = target_to_xscale(target);
+ 	uint32_t t[3];
+ 	int bits[3];
+ 	int retval;
+@@ -548,7 +554,8 @@ static int xscale_send(struct target *target, uint8_t *buffer, int count, int si
+ 
+ 	jtag_set_end_state(TAP_IDLE);
+ 
+-	xscale_jtag_set_instr(target-&gt;tap, XSCALE_DBGRX);
++	xscale_jtag_set_instr(target-&gt;tap,
++		XSCALE_DBGRX &lt;&lt; xscale-&gt;xscale_variant);
+ 
+ 	bits[0]=3;
+ 	t[0]=0;
+@@ -629,7 +636,8 @@ static int xscale_write_dcsr(struct target *target, int hold_rst, int ext_dbg_br
+ 		xscale-&gt;external_debug_break = ext_dbg_brk;
+ 
+ 	jtag_set_end_state(TAP_IDLE);
+-	xscale_jtag_set_instr(target-&gt;tap, XSCALE_SELDCSR);
++	xscale_jtag_set_instr(target-&gt;tap,
++		XSCALE_SELDCSR &lt;&lt; xscale-&gt;xscale_variant);
+ 
+ 	buf_set_u32(&amp;field0, 1, 1, xscale-&gt;hold_rst);
+ 	buf_set_u32(&amp;field0, 2, 1, xscale-&gt;external_debug_break);
+@@ -683,6 +691,7 @@ static unsigned int parity (unsigned int v)
+ 
+ static int xscale_load_ic(struct target *target, uint32_t va, uint32_t buffer[8])
+ {
++	struct xscale_common *xscale = target_to_xscale(target);
+ 	uint8_t packet[4];
+ 	uint8_t cmd;
+ 	int word;
+@@ -692,7 +701,8 @@ static int xscale_load_ic(struct target *target, uint32_t va, uint32_t buffer[8]
+ 
+ 	/* LDIC into IR */
+ 	jtag_set_end_state(TAP_IDLE);
+-	xscale_jtag_set_instr(target-&gt;tap, XSCALE_LDIC);
++	xscale_jtag_set_instr(target-&gt;tap,
++		XSCALE_LDIC &lt;&lt; xscale-&gt;xscale_variant);
+ 
+ 	/* CMD is b011 to load a cacheline into the Mini ICache.
+ 	 * Loading into the main ICache is deprecated, and unused.
+@@ -738,12 +748,14 @@ static int xscale_load_ic(struct target *target, uint32_t va, uint32_t buffer[8]
+ 
+ static int xscale_invalidate_ic_line(struct target *target, uint32_t va)
+ {
++	struct xscale_common *xscale = target_to_xscale(target);
+ 	uint8_t packet[4];
+ 	uint8_t cmd;
+ 	struct scan_field fields[2];
+ 
+ 	jtag_set_end_state(TAP_IDLE);
+-	xscale_jtag_set_instr(target-&gt;tap, XSCALE_LDIC);
++	xscale_jtag_set_instr(target-&gt;tap,
++		XSCALE_LDIC &lt;&lt; xscale-&gt;xscale_variant);
+ 
+ 	/* CMD for invalidate IC line b000, bits [6:4] b000 */
+ 	buf_set_u32(&amp;cmd, 0, 6, 0x0);
+@@ -1479,7 +1491,8 @@ static int xscale_assert_reset(struct target *target)
+ 	 * end up in T-L-R, which would reset JTAG
+ 	 */
+ 	jtag_set_end_state(TAP_IDLE);
+-	xscale_jtag_set_instr(target-&gt;tap, XSCALE_SELDCSR);
++	xscale_jtag_set_instr(target-&gt;tap,
++		XSCALE_SELDCSR &lt;&lt; xscale-&gt;xscale_variant);
+ 
+ 	/* set Hold reset, Halt mode and Trap Reset */
+ 	buf_set_u32(xscale-&gt;reg_cache-&gt;reg_list[XSCALE_DCSR].value, 30, 1, 0x1);
+@@ -2876,10 +2889,10 @@ static int xscale_init_arch_info(struct target *target,
+ 
+ 	armv4_5 = &amp;xscale-&gt;armv4_5_common;
+ 
+-	/* store architecture specfic data (none so far) */
++	/* store architecture specfic data */
+ 	xscale-&gt;common_magic = XSCALE_COMMON_MAGIC;
+ 
+-	/* we don't really *need* variant info ... */
++	/* we don't really *need* a variant param ... */
+ 	if (variant) {
+ 		int ir_length = 0;
+ 
+@@ -2892,6 +2905,8 @@ static int xscale_init_arch_info(struct target *target,
+ 				|| strcmp(variant, &quot;ixp45x&quot;) == 0
+ 				|| strcmp(variant, &quot;ixp46x&quot;) == 0)
+ 			ir_length = 7;
++		else if (strcmp(variant, &quot;pxa3xx&quot;) == 0)
++			ir_length = 11;
+ 		else
+ 			LOG_WARNING(&quot;%s: unrecognized variant %s&quot;,
+ 				tap-&gt;dotted_name, variant);
+@@ -2903,6 +2918,12 @@ static int xscale_init_arch_info(struct target *target,
+ 		}
+ 	}
+ 
++	/* PXA3xx shifts the JTAG instructions */
++	if (tap-&gt;ir_length == 11)
++		xscale-&gt;xscale_variant = XSCALE_PXA3XX;
++	else
++		xscale-&gt;xscale_variant = XSCALE_IXP4XX_PXA2XX;
++
+ 	/* the debug handler isn't installed (and thus not running) at this time */
+ 	xscale-&gt;handler_address = 0xfe000800;
+ 
+diff --git a/src/target/xscale.h b/src/target/xscale.h
+index 4f1b54d..0a70ecb 100644
+--- a/src/target/xscale.h
++++ b/src/target/xscale.h
+@@ -37,6 +37,10 @@
+ #define XSCALE_LDIC	0x07
+ #define XSCALE_SELDCSR	0x09
+ 
++/* Possible CPU types */
++#define	XSCALE_IXP4XX_PXA2XX	0x0
++#define	XSCALE_PXA3XX		0x4
++
+ enum xscale_debug_reason
+ {
+ 	XSCALE_DBG_REASON_GENERIC,
+@@ -129,6 +133,9 @@ struct xscale_common
+ 	uint32_t cp15_control_reg;
+ 
+ 	int fast_memory_access;
++
++	/* CPU variant */
++	int xscale_variant;
+ };
+ 
+ static inline struct xscale_common *
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ doc/openocd.texi      |    1 +
+ src/target/xscale.c   |  136 +++++++++++++++++++++++++++++-------------------
+ src/target/xscale.h   |    7 +++
+ tcl/target/pxa3xx.cfg |   86 +++++++++++++++++++++++++++++++
+ 4 files changed, 176 insertions(+), 54 deletions(-)
+ create mode 100644 tcl/target/pxa3xx.cfg
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001886.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-707-g73ec6d9
+</A></li>
+	<LI>Next message: <A HREF="001888.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-713-g2264270
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1887">[ date ]</a>
+              <a href="thread.html#1887">[ thread ]</a>
+              <a href="subject.html#1887">[ subject ]</a>
+              <a href="author.html#1887">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

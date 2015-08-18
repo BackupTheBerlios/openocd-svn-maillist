@@ -1,0 +1,291 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-165-ge11ce3e
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-165-ge11ce3e&In-Reply-To=%3CE1NbVeZ-0007Y6-A4%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002074.html">
+   <LINK REL="Next"  HREF="002076.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-165-ge11ce3e</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-165-ge11ce3e&In-Reply-To=%3CE1NbVeZ-0007Y6-A4%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-165-ge11ce3e">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Sun Jan 31 09:59:32 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002074.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-162-g3d3128a
+</A></li>
+        <LI>Next message: <A HREF="002076.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-166-gf68dff6
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2075">[ date ]</a>
+              <a href="thread.html#2075">[ thread ]</a>
+              <a href="subject.html#2075">[ subject ]</a>
+              <a href="author.html#2075">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  e11ce3e6b00f02eba9a15673a54f5345eba8398b (commit)
+       via  695666d294e7d572bc5799e0cef4fc384b28c733 (commit)
+       via  46b6d5bfe644b5f6a1fe50930c850f09a78b5bad (commit)
+      from  3d3128a8f5bb15f1d05ac5eb7ecc5e692ae290ce (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit e11ce3e6b00f02eba9a15673a54f5345eba8398b
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sun Jan 31 00:26:21 2010 -0800
+
+    Subject: ADIv5: fix more diagnostics
+    
+    If the MEM-AP cache is invalid, don't display it; just report that
+    invalidity as an error.  (This bug has been observed with &quot;mdw 0 32&quot;
+    after just a &quot;reset halt&quot;.  Some code is being wrongly bypassed...)
+    
+    If it's valid, display that cache at DEBUG level, not ERROR.  Also,
+    don't assume it's an AHB-AP; it could be another flavor of MEM-AP.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index 0e3b349..bfa5cb4 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -321,27 +321,34 @@ int jtagdp_transaction_endcheck(struct swjdp_common *swjdp)
+ 		}
+ 	}
+ 
++	/* REVISIT also STICKYCMP, for pushed comparisons (nyet used) */
++
+ 	/* Check for STICKYERR and STICKYORUN */
+ 	if (ctrlstat &amp; (SSTICKYORUN | SSTICKYERR))
+ 	{
+ 		LOG_DEBUG(&quot;jtag-dp: CTRL/STAT error, 0x%&quot; PRIx32, ctrlstat);
+ 		/* Check power to debug regions */
+ 		if ((ctrlstat &amp; 0xf0000000) != 0xf0000000)
+-		{
+ 			 ahbap_debugport_init(swjdp);
+-		}
+ 		else
+ 		{
+ 			uint32_t mem_ap_csw, mem_ap_tar;
+ 
+-			/* Print information about last AHBAP access */
+-			LOG_ERROR(&quot;AHBAP Cached values: dp_select 0x%&quot; PRIx32
+-				&quot;, ap_csw 0x%&quot; PRIx32 &quot;, ap_tar 0x%&quot; PRIx32,
+-				swjdp-&gt;dp_select_value, swjdp-&gt;ap_csw_value,
+-				swjdp-&gt;ap_tar_value);
++			/* Maybe print information about last MEM-AP access */
++			if (swjdp-&gt;ap_tar_value != (uint32_t) -1)
++				LOG_DEBUG(&quot;MEM-AP Cached values: &quot;
++					&quot;ap_bank 0x%&quot; PRIx32
++					&quot;, ap_csw 0x%&quot; PRIx32
++					&quot;, ap_tar 0x%&quot; PRIx32,
++					swjdp-&gt;dp_select_value,
++					swjdp-&gt;ap_csw_value,
++					swjdp-&gt;ap_tar_value);
++			else
++				LOG_ERROR(&quot;Invalid MEM-AP TAR cache!&quot;);
++
+ 			if (ctrlstat &amp; SSTICKYORUN)
+-				LOG_ERROR(&quot;JTAG-DP OVERRUN - &quot;
+-					&quot;check clock or reduce jtag speed&quot;);
++				LOG_ERROR(&quot;JTAG-DP OVERRUN - check clock, &quot;
++					&quot;memaccess, or reduce jtag speed&quot;);
+ 
+ 			if (ctrlstat &amp; SSTICKYERR)
+ 				LOG_ERROR(&quot;JTAG-DP STICKY ERROR&quot;);
+
+commit 695666d294e7d572bc5799e0cef4fc384b28c733
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sat Jan 30 22:40:50 2010 -0800
+
+    ADIv5 error checking for Tcl commands
+    
+    Reject invalid AP numbers (256+) as Tcl operation parameters.
+    Shrink one of the overlong lines.
+    
+    Add my copyright to the ADIv5 code (multiple contributions).
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index 0a6a7ef..0e3b349 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -8,6 +8,8 @@
+  *   Copyright (C) 2009 by Oyvind Harboe                                   *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
+  *                                                                         *
++ *   Copyright (C) 2009-2010 by David Brownell                             *
++ *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -1164,7 +1166,8 @@ is_dap_cid_ok(uint32_t cid3, uint32_t cid2, uint32_t cid1, uint32_t cid0)
+ 			&amp;&amp; ((cid1 &amp; 0x0f) == 0) &amp;&amp; cid0 == 0x0d;
+ }
+ 
+-int dap_info_command(struct command_context *cmd_ctx, struct swjdp_common *swjdp, int apsel)
++int dap_info_command(struct command_context *cmd_ctx,
++		struct swjdp_common *swjdp, int apsel)
+ {
+ 
+ 	uint32_t dbgbase, apid;
+@@ -1172,6 +1175,10 @@ int dap_info_command(struct command_context *cmd_ctx, struct swjdp_common *swjdp
+ 	uint8_t mem_ap;
+ 	uint32_t apselold;
+ 
++	/* AP address is in bits 31:24 of DP_SELECT */
++	if (apsel &gt;= 256)
++		return ERROR_INVALID_ARGUMENTS;
++
+ 	apselold = swjdp-&gt;apsel;
+ 	dap_ap_select(swjdp, apsel);
+ 	dap_ap_read_reg_u32(swjdp, AP_REG_BASE, &amp;dbgbase);
+@@ -1524,6 +1531,9 @@ DAP_COMMAND_HANDLER(dap_baseaddr_command)
+ 		break;
+ 	case 1:
+ 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], apsel);
++		/* AP address is in bits 31:24 of DP_SELECT */
++		if (apsel &gt;= 256)
++			return ERROR_INVALID_ARGUMENTS;
+ 		break;
+ 	default:
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+@@ -1580,6 +1590,9 @@ DAP_COMMAND_HANDLER(dap_apsel_command)
+ 		break;
+ 	case 1:
+ 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], apsel);
++		/* AP address is in bits 31:24 of DP_SELECT */
++		if (apsel &gt;= 256)
++			return ERROR_INVALID_ARGUMENTS;
+ 		break;
+ 	default:
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+@@ -1606,6 +1619,9 @@ DAP_COMMAND_HANDLER(dap_apid_command)
+ 		break;
+ 	case 1:
+ 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], apsel);
++		/* AP address is in bits 31:24 of DP_SELECT */
++		if (apsel &gt;= 256)
++			return ERROR_INVALID_ARGUMENTS;
+ 		break;
+ 	default:
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+
+commit 46b6d5bfe644b5f6a1fe50930c850f09a78b5bad
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sat Jan 30 18:08:19 2010 -0800
+
+    ARM ADIv5: fix diagnostics for block writes
+    
+    They were reporting &quot;read&quot; errors, not &quot;write&quot; errors.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index b8744d5..0a6a7ef 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -641,9 +641,12 @@ static int mem_ap_write_buf_packed_u16(struct swjdp_common *swjdp,
+ 
+ 			if (nbytes &lt; 4)
+ 			{
+-				if (mem_ap_write_buf_u16(swjdp, buffer, nbytes, address) != ERROR_OK)
++				if (mem_ap_write_buf_u16(swjdp, buffer,
++						nbytes, address) != ERROR_OK)
+ 				{
+-					LOG_WARNING(&quot;Block read error address 0x%&quot; PRIx32 &quot;, count 0x%x&quot;, address, count);
++					LOG_WARNING(&quot;Block write error address &quot;
++						&quot;0x%&quot; PRIx32 &quot;, count 0x%x&quot;,
++						address, count);
+ 					return ERROR_JTAG_DEVICE_ERROR;
+ 				}
+ 
+@@ -665,7 +668,9 @@ static int mem_ap_write_buf_packed_u16(struct swjdp_common *swjdp,
+ 				dap_ap_write_reg_u32(swjdp, AP_REG_DRW, outvalue);
+ 				if (jtagdp_transaction_endcheck(swjdp) != ERROR_OK)
+ 				{
+-					LOG_WARNING(&quot;Block read error address 0x%&quot; PRIx32 &quot;, count 0x%x&quot;, address, count);
++					LOG_WARNING(&quot;Block write error address &quot;
++						&quot;0x%&quot; PRIx32 &quot;, count 0x%x&quot;,
++						address, count);
+ 					return ERROR_JTAG_DEVICE_ERROR;
+ 				}
+ 			}
+@@ -736,7 +741,9 @@ static int mem_ap_write_buf_packed_u8(struct swjdp_common *swjdp,
+ 			{
+ 				if (mem_ap_write_buf_u8(swjdp, buffer, nbytes, address) != ERROR_OK)
+ 				{
+-					LOG_WARNING(&quot;Block read error address 0x%&quot; PRIx32 &quot;, count 0x%x&quot;, address, count);
++					LOG_WARNING(&quot;Block write error address &quot;
++						&quot;0x%&quot; PRIx32 &quot;, count 0x%x&quot;,
++						address, count);
+ 					return ERROR_JTAG_DEVICE_ERROR;
+ 				}
+ 
+@@ -758,7 +765,9 @@ static int mem_ap_write_buf_packed_u8(struct swjdp_common *swjdp,
+ 				dap_ap_write_reg_u32(swjdp, AP_REG_DRW, outvalue);
+ 				if (jtagdp_transaction_endcheck(swjdp) != ERROR_OK)
+ 				{
+-					LOG_WARNING(&quot;Block read error address 0x%&quot; PRIx32 &quot;, count 0x%x&quot;, address, count);
++					LOG_WARNING(&quot;Block write error address &quot;
++						&quot;0x%&quot; PRIx32 &quot;, count 0x%x&quot;,
++						address, count);
+ 					return ERROR_JTAG_DEVICE_ERROR;
+ 				}
+ 			}
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm_adi_v5.c |   62 +++++++++++++++++++++++++++++++++++-----------
+ 1 files changed, 47 insertions(+), 15 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002074.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-162-g3d3128a
+</A></li>
+	<LI>Next message: <A HREF="002076.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-166-gf68dff6
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2075">[ date ]</a>
+              <a href="thread.html#2075">[ thread ]</a>
+              <a href="subject.html#2075">[ subject ]</a>
+              <a href="author.html#2075">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

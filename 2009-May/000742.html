@@ -1,0 +1,220 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1958 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1958%20-%20trunk/src/target&In-Reply-To=%3C200905310600.n4V60WVU031719%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000741.html">
+   <LINK REL="Next"  HREF="000743.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1958 - trunk/src/target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1958%20-%20trunk/src/target&In-Reply-To=%3C200905310600.n4V60WVU031719%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1958 - trunk/src/target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Sun May 31 08:00:32 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000741.html">[Openocd-svn] r1957 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="000743.html">[Openocd-svn] r1959 - in trunk/src: flash target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#742">[ date ]</a>
+              <a href="thread.html#742">[ thread ]</a>
+              <a href="subject.html#742">[ subject ]</a>
+              <a href="author.html#742">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-31 08:00:28 +0200 (Sun, 31 May 2009)
+New Revision: 1958
+
+Modified:
+   trunk/src/target/target.c
+Log:
+Simplify the handle_md_command routine in target.c:
+ - fix buffer overrun in mdw; final '\0' would overflow the output buffer.
+ - return ERROR_COMMAND_SYNTAX_ERROR instead of ERROR_OK if:
+   - less than one argument is provided
+   - the command is called with a name other than mdb, mdh, or mdw.
+ - factor all command output into new handle_md_output function
+
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-05-31 04:58:51 UTC (rev 1957)
++++ trunk/src/target/target.c	2009-05-31 06:00:28 UTC (rev 1958)
+@@ -1844,77 +1844,80 @@
+ 	return ERROR_OK;
+ }
+ 
+-static int handle_md_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++static void handle_md_output(struct command_context_s *cmd_ctx,
++		struct target_s *target, u32 address, unsigned size,
++		unsigned count, const u8 *buffer)
+ {
+-	const int line_bytecnt = 32;
+-	int count = 1;
+-	int size = 4;
+-	u32 address = 0;
+-	int line_modulo;
+-	int i;
++	const unsigned line_bytecnt = 32;
++	unsigned line_modulo = line_bytecnt / size;
+ 
+-	char output[128];
+-	int output_len;
++	char output[line_bytecnt * 4 + 1];
++	unsigned output_len = 0;
+ 
+-	int retval;
++	const char *value_fmt;
++	switch (size) {
++	case 4: value_fmt = &quot;%8.8x&quot;; break;
++	case 2: value_fmt = &quot;%4.2x&quot;; break;
++	case 1: value_fmt = &quot;%2.2x&quot;; break;
++	default:
++		LOG_ERROR(&quot;invalid memory read size: %u&quot;, size);
++		exit(-1);
++	}
+ 
+-	u8 *buffer;
+-	target_t *target = get_current_target(cmd_ctx);
++	for (unsigned i = 0; i &lt; count; i++)
++	{
++		if (i % line_modulo == 0)
++		{
++			output_len += snprintf(output + output_len,
++					sizeof(output) - output_len,
++					&quot;0x%8.8x: &quot;, address + (i*size));
++		}
+ 
+-	if (argc &lt; 1)
+-		return ERROR_OK;
++		u32 value;
++		const u8 *value_ptr = buffer + i * size;
++		switch (size) {
++		case 4: value = target_buffer_get_u32(target, value_ptr); break;
++		case 2: value = target_buffer_get_u16(target, value_ptr); break;
++		case 1: value = *value_ptr;
++		}
++		output_len += snprintf(output + output_len,
++				sizeof(output) - output_len,
++				value_fmt, value);
+ 
+-	if (argc == 2)
+-		count = strtoul(args[1], NULL, 0);
++		if ((i % line_modulo == line_modulo - 1) || (i == count - 1))
++		{
++			command_print(cmd_ctx, &quot;%s&quot;, output);
++			output_len = 0;
++		}
++	}
++}
+ 
+-	address = strtoul(args[0], NULL, 0);
++static int handle_md_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	if (argc &lt; 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
+ 
+-	switch (cmd[2])
+-	{
+-		case 'w':
+-			size = 4; line_modulo = line_bytecnt / 4;
+-			break;
+-		case 'h':
+-			size = 2; line_modulo = line_bytecnt / 2;
+-			break;
+-		case 'b':
+-			size = 1; line_modulo = line_bytecnt / 1;
+-			break;
+-		default:
+-			return ERROR_OK;
++	unsigned size = 0;
++	switch (cmd[2]) {
++	case 'w': size = 4; break;
++	case 'h': size = 2; break;
++	case 'b': size = 1; break;
++	default: return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	buffer = calloc(count, size);
+-	retval  = target-&gt;type-&gt;read_memory(target, address, size, count, buffer);
+-	if (retval == ERROR_OK)
+-	{
+-		output_len = 0;
++	u32 address = strtoul(args[0], NULL, 0);
+ 
+-		for (i = 0; i &lt; count; i++)
+-		{
+-			if (i%line_modulo == 0)
+-				output_len += snprintf(output + output_len, 128 - output_len, &quot;0x%8.8x: &quot;, address + (i*size));
++	unsigned count = 1;
++	if (argc == 2)
++		count = strtoul(args[1], NULL, 0);
+ 
+-			switch (size)
+-			{
+-				case 4:
+-					output_len += snprintf(output + output_len, 128 - output_len, &quot;%8.8x &quot;, target_buffer_get_u32(target, &amp;buffer[i*4]));
+-					break;
+-				case 2:
+-					output_len += snprintf(output + output_len, 128 - output_len, &quot;%4.4x &quot;, target_buffer_get_u16(target, &amp;buffer[i*2]));
+-					break;
+-				case 1:
+-					output_len += snprintf(output + output_len, 128 - output_len, &quot;%2.2x &quot;, buffer[i*1]);
+-					break;
+-			}
++	u8 *buffer = calloc(count, size);
+ 
+-			if ((i%line_modulo == line_modulo-1) || (i == count - 1))
+-			{
+-				command_print(cmd_ctx, &quot;%s&quot;, output);
+-				output_len = 0;
+-			}
+-		}
+-	}
++	target_t *target = get_current_target(cmd_ctx);
++	int retval = target-&gt;type-&gt;read_memory(target,
++				address, size, count, buffer);
++	if (ERROR_OK == retval)
++		handle_md_output(cmd_ctx, target, address, size, count, buffer);
+ 
+ 	free(buffer);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000741.html">[Openocd-svn] r1957 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="000743.html">[Openocd-svn] r1959 - in trunk/src: flash target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#742">[ date ]</a>
+              <a href="thread.html#742">[ thread ]</a>
+              <a href="subject.html#742">[ subject ]</a>
+              <a href="author.html#742">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

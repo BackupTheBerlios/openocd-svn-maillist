@@ -1,0 +1,169 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-169-g9933fa3
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-169-g9933fa3&In-Reply-To=%3Cmailman.246.1331736158.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002760.html">
+   <LINK REL="Next"  HREF="002762.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-169-g9933fa3</H1>
+    <B>OpenOCD-Gerrit</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-169-g9933fa3&In-Reply-To=%3Cmailman.246.1331736158.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-169-g9933fa3">openocd-gerrit at users.sourceforge.net
+       </A><BR>
+    <I>Mon Oct 31 21:41:46 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002760.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-168-g0881594
+</A></li>
+        <LI>Next message: <A HREF="002762.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-170-g9b9092b
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2761">[ date ]</a>
+              <a href="thread.html#2761">[ thread ]</a>
+              <a href="subject.html#2761">[ subject ]</a>
+              <a href="author.html#2761">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  9933fa334de551096674d4044ed7ac2152213e8b (commit)
+      from  08815946f64ace39b2734dc1a8597d22505f0436 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 9933fa334de551096674d4044ed7ac2152213e8b
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Fri Oct 28 17:22:32 2011 +0200
+
+    cfi: unsupported code paths now report and return error
+    
+    found by clang, would have done something undefined and mysterious
+    later on.
+    
+    Change-Id: If7d7aca8514575d229ed0b17378bf8b1bbf347c4
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+    Reviewed-on: <A HREF="http://openocd.zylin.com/133">http://openocd.zylin.com/133</A>
+    Tested-by: jenkins
+    Reviewed-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">spen at spen-soft.co.uk</A>&gt;
+
+diff --git a/src/flash/nor/cfi.c b/src/flash/nor/cfi.c
+index f75efac..62d2ae4 100644
+--- a/src/flash/nor/cfi.c
++++ b/src/flash/nor/cfi.c
+@@ -1897,13 +1897,15 @@ static int cfi_spansion_write_block(struct flash_bank *bank, uint8_t *buffer,
+ 		armv4_5_info.common_magic = ARMV7M_COMMON_MAGIC;
+ 		armv4_5_info.core_mode = ARMV7M_MODE_HANDLER;
+ 		armv4_5_info.core_state = ARM_STATE_ARM;
+-	}
+-	else
++	} else if (armv4_5_info.common_magic == ARM_COMMON_MAGIC)
+ 	{
+ 		/* All other ARM CPUs have 32 bit instructions */
+ 		armv4_5_info.common_magic = ARM_COMMON_MAGIC;
+ 		armv4_5_info.core_mode = ARM_MODE_SVC;
+ 		armv4_5_info.core_state = ARM_STATE_ARM;
++	} else {
++		LOG_ERROR(&quot;Unknown ARM architecture&quot;);
++		return ERROR_FAIL;
+ 	}
+ 
+ 	int target_code_size = 0;
+@@ -1912,11 +1914,12 @@ static int cfi_spansion_write_block(struct flash_bank *bank, uint8_t *buffer,
+ 	switch (bank-&gt;bus_width)
+ 	{
+ 	case 1 :
+-		if(armv4_5_info.common_magic == ARM_COMMON_MAGIC) /* armv4_5 target */
+-		{
+-			target_code_src = armv4_5_word_8_code;
+-			target_code_size = sizeof(armv4_5_word_8_code);
++		if (armv4_5_info.common_magic != ARM_COMMON_MAGIC) {
++			LOG_ERROR(&quot;Unknown ARM architecture&quot;);
++			return ERROR_FAIL;
+ 		}
++		target_code_src = armv4_5_word_8_code;
++		target_code_size = sizeof(armv4_5_word_8_code);
+ 		break;
+ 	case 2 :
+ 		/* Check for DQ5 support */
+@@ -1936,19 +1939,21 @@ static int cfi_spansion_write_block(struct flash_bank *bank, uint8_t *buffer,
+ 		else
+ 		{
+ 			/* No DQ5 support. Use DQ7 DATA# polling only. */
+-			if(armv4_5_info.common_magic == ARM_COMMON_MAGIC) // armv4_5 target
+-			{
+-				target_code_src = armv4_5_word_16_code_dq7only;
+-				target_code_size = sizeof(armv4_5_word_16_code_dq7only);
++			if (armv4_5_info.common_magic != ARM_COMMON_MAGIC) {
++				LOG_ERROR(&quot;Unknown ARM architecture&quot;);
++				return ERROR_FAIL;
+ 			}
++			target_code_src = armv4_5_word_16_code_dq7only;
++			target_code_size = sizeof(armv4_5_word_16_code_dq7only);
+ 		}
+ 		break;
+ 	case 4 :
+-		if(armv4_5_info.common_magic == ARM_COMMON_MAGIC) // armv4_5 target
+-		{
+-			target_code_src = armv4_5_word_32_code;
+-			target_code_size = sizeof(armv4_5_word_32_code);
++		if (armv4_5_info.common_magic != ARM_COMMON_MAGIC) {
++			LOG_ERROR(&quot;Unknown ARM architecture&quot;);
++			return ERROR_FAIL;
+ 		}
++		target_code_src = armv4_5_word_32_code;
++		target_code_size = sizeof(armv4_5_word_32_code);
+ 		break;
+ 	default:
+ 		LOG_ERROR(&quot;Unsupported bank buswidth %d, can't do block memory writes&quot;, bank-&gt;bus_width);
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/cfi.c |   33 +++++++++++++++++++--------------
+ 1 files changed, 19 insertions(+), 14 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002760.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-168-g0881594
+</A></li>
+	<LI>Next message: <A HREF="002762.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-170-g9b9092b
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2761">[ date ]</a>
+              <a href="thread.html#2761">[ thread ]</a>
+              <a href="subject.html#2761">[ subject ]</a>
+              <a href="author.html#2761">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

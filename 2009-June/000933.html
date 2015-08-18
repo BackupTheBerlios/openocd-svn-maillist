@@ -1,0 +1,5343 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2149 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2149%20-%20trunk/src/jtag&In-Reply-To=%3C200906090415.n594FKLV026168%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000932.html">
+   <LINK REL="Next"  HREF="000934.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2149 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2149%20-%20trunk/src/jtag&In-Reply-To=%3C200906090415.n594FKLV026168%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2149 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun  9 06:15:20 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000932.html">[Openocd-svn] r2148 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000934.html">[Openocd-svn] r2150 - trunk/doc/manual
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#933">[ date ]</a>
+              <a href="thread.html#933">[ thread ]</a>
+              <a href="subject.html#933">[ subject ]</a>
+              <a href="author.html#933">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-09 06:15:13 +0200 (Tue, 09 Jun 2009)
+New Revision: 2149
+
+Added:
+   trunk/src/jtag/core.c
+   trunk/src/jtag/tcl.c
+Removed:
+   trunk/src/jtag/jtag.c
+Modified:
+   trunk/src/jtag/Makefile.am
+Log:
+Split main jtag.c file into two layers:
+- src/jtag/core.c: contains the low-level JTAG TAP and scanning routines.
+- src/jtag/tcl.c: contains high-level JTAG TCL commands that use the core.
+- Remove static keywords from routines in core.c, extern from tcl.c:
+  - jtag, jtag_interface global variables
+  - jtag_{examine,validate}_chain and jtag_tap_{init,free} functions
+- Added myself to the copyright header in both of these files.
+- Used 'svn cp' to add files, so versioning was preserved for both.
+
+
+Modified: trunk/src/jtag/Makefile.am
+===================================================================
+--- trunk/src/jtag/Makefile.am	2009-06-09 02:48:28 UTC (rev 2148)
++++ trunk/src/jtag/Makefile.am	2009-06-09 04:15:13 UTC (rev 2149)
+@@ -124,7 +124,8 @@
+ endif
+ 
+ libjtag_la_SOURCES = \
+-	jtag.c \
++	core.c \
++	tcl.c \
+ 	interface.c \
+ 	$(DRIVERFILES) \
+ 	$(BITBANGFILES) \
+
+Copied: trunk/src/jtag/core.c (from rev 2148, trunk/src/jtag/jtag.c)
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-09 02:48:28 UTC (rev 2148)
++++ trunk/src/jtag/core.c	2009-06-09 04:15:13 UTC (rev 2149)
+@@ -0,0 +1,1268 @@
++/***************************************************************************
++ *   Copyright (C) 2005 by Dominic Rath                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
++ *                                                                         *
++ *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
++ *                                                                         *
++ *   Copyright (C) 2009 SoftPLC Corporation                                *
++ *       <A HREF="http://softplc.com">http://softplc.com</A>                                                *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dick at softplc.com</A>                                                      *
++ *                                                                         *
++ *   Copyright (C) 2009 Zachary T Welch                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>                                                  *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;jtag.h&quot;
++#include &quot;minidriver.h&quot;
++#include &quot;interface.h&quot;
++
++#ifdef HAVE_STRINGS_H
++#include &lt;strings.h&gt;
++#endif
++
++
++/// The number of JTAG queue flushes (for profiling and debugging purposes).
++static int jtag_flush_queue_count;
++
++static void jtag_add_scan_check(void (*jtag_add_scan)(int in_num_fields, const scan_field_t *in_fields, tap_state_t state),
++		int in_num_fields, scan_field_t *in_fields, tap_state_t state);
++
++/* note that this is not marked as static as it must be available from outside jtag.c for those
++   that implement the jtag_xxx() minidriver layer
++*/
++int jtag_error=ERROR_OK;
++
++char* jtag_event_strings[] =
++{
++	&quot;JTAG controller reset (RESET or TRST)&quot;
++};
++
++const Jim_Nvp nvp_jtag_tap_event[] = {
++	{ .value = JTAG_TAP_EVENT_ENABLE,       .name = &quot;tap-enable&quot; },
++	{ .value = JTAG_TAP_EVENT_DISABLE,      .name = &quot;tap-disable&quot; },
++
++	{ .name = NULL, .value = -1 }
++};
++
++int jtag_trst = 0;
++int jtag_srst = 0;
++
++/**
++ * List all TAPs that have been created.
++ */
++static jtag_tap_t *__jtag_all_taps = NULL;
++/**
++ * The number of TAPs in the __jtag_all_taps list, used to track the
++ * assigned chain position to new TAPs
++ */
++static unsigned jtag_num_taps = 0;
++
++enum reset_types jtag_reset_config = RESET_NONE;
++tap_state_t cmd_queue_end_state = TAP_RESET;
++tap_state_t cmd_queue_cur_state = TAP_RESET;
++
++int jtag_verify_capture_ir = 1;
++int jtag_verify = 1;
++
++/* how long the OpenOCD should wait before attempting JTAG communication after reset lines deasserted (in ms) */
++static int jtag_nsrst_delay = 0; /* default to no nSRST delay */
++static int jtag_ntrst_delay = 0; /* default to no nTRST delay */
++
++/* callbacks to inform high-level handlers about JTAG state changes */
++jtag_event_callback_t *jtag_event_callbacks;
++
++/* speed in kHz*/
++static int speed_khz = 0;
++/* flag if the kHz speed was defined */
++static bool hasKHz = false;
++
++struct jtag_interface_s *jtag = NULL;
++
++/* configuration */
++jtag_interface_t *jtag_interface = NULL;
++int jtag_speed = 0;
++
++jtag_tap_t *jtag_all_taps(void)
++{
++	return __jtag_all_taps;
++};
++
++unsigned jtag_tap_count(void)
++{
++	return jtag_num_taps;
++}
++
++unsigned jtag_tap_count_enabled(void)
++{
++	jtag_tap_t *t = jtag_all_taps();
++	unsigned n = 0;
++	while(t)
++	{
++		if (t-&gt;enabled)
++			n++;
++		t = t-&gt;next_tap;
++	}
++	return n;
++}
++
++/// Append a new TAP to the chain of all taps.
++void jtag_tap_add(struct jtag_tap_s *t)
++{
++	t-&gt;abs_chain_position = jtag_num_taps++;
++
++	jtag_tap_t **tap = &amp;__jtag_all_taps;
++	while(*tap != NULL)
++		tap = &amp;(*tap)-&gt;next_tap;
++	*tap = t;
++}
++
++jtag_tap_t *jtag_tap_by_string(const char *s)
++{
++	/* try by name first */
++	jtag_tap_t *t = jtag_all_taps();
++	while (t)
++	{
++		if (0 == strcmp(t-&gt;dotted_name, s))
++			return t;
++		t = t-&gt;next_tap;
++	}
++
++	/* no tap found by name, so try to parse the name as a number */
++	char *cp;
++	unsigned n = strtoul(s, &amp;cp, 0);
++	if ((s == cp) || (*cp != 0))
++		return NULL;
++
++	return jtag_tap_by_position(n);
++}
++
++jtag_tap_t *jtag_tap_by_jim_obj(Jim_Interp *interp, Jim_Obj *o)
++{
++	const char *cp = Jim_GetString(o, NULL);
++	jtag_tap_t *t = cp ? jtag_tap_by_string(cp) : NULL;
++	if (NULL == cp)
++		cp = &quot;(unknown)&quot;;
++	if (NULL == t)
++		Jim_SetResult_sprintf(interp, &quot;Tap '%s' could not be found&quot;, cp);
++	return t;
++}
++
++/* returns a pointer to the n-th device in the scan chain */
++jtag_tap_t *jtag_tap_by_position(unsigned n)
++{
++	jtag_tap_t *t = jtag_all_taps();
++
++	while (t &amp;&amp; n-- &gt; 0)
++		t = t-&gt;next_tap;
++
++	return t;
++}
++
++const char *jtag_tap_name(const jtag_tap_t *tap)
++{
++	return (tap == NULL) ? &quot;(unknown)&quot; : tap-&gt;dotted_name;
++}
++
++
++int jtag_register_event_callback(int (*callback)(enum jtag_event event, void *priv), void *priv)
++{
++	jtag_event_callback_t **callbacks_p = &amp;jtag_event_callbacks;
++
++	if (callback == NULL)
++	{
++		return ERROR_INVALID_ARGUMENTS;
++	}
++
++	if (*callbacks_p)
++	{
++		while ((*callbacks_p)-&gt;next)
++			callbacks_p = &amp;((*callbacks_p)-&gt;next);
++		callbacks_p = &amp;((*callbacks_p)-&gt;next);
++	}
++
++	(*callbacks_p) = malloc(sizeof(jtag_event_callback_t));
++	(*callbacks_p)-&gt;callback = callback;
++	(*callbacks_p)-&gt;priv = priv;
++	(*callbacks_p)-&gt;next = NULL;
++
++	return ERROR_OK;
++}
++
++int jtag_unregister_event_callback(int (*callback)(enum jtag_event event, void *priv))
++{
++	jtag_event_callback_t **callbacks_p = &amp;jtag_event_callbacks;
++
++	if (callback == NULL)
++	{
++		return ERROR_INVALID_ARGUMENTS;
++	}
++
++	while (*callbacks_p)
++	{
++		jtag_event_callback_t **next = &amp;((*callbacks_p)-&gt;next);
++		if ((*callbacks_p)-&gt;callback == callback)
++		{
++			free(*callbacks_p);
++			*callbacks_p = *next;
++		}
++		callbacks_p = next;
++	}
++
++	return ERROR_OK;
++}
++
++int jtag_call_event_callbacks(enum jtag_event event)
++{
++	jtag_event_callback_t *callback = jtag_event_callbacks;
++
++	LOG_DEBUG(&quot;jtag event: %s&quot;, jtag_event_strings[event]);
++
++	while (callback)
++	{
++		callback-&gt;callback(event, callback-&gt;priv);
++		callback = callback-&gt;next;
++	}
++
++	return ERROR_OK;
++}
++
++static void jtag_checks(void)
++{
++	assert(jtag_trst == 0);
++}
++
++static void jtag_prelude(tap_state_t state)
++{
++	jtag_checks();
++
++	assert(state!=TAP_INVALID);
++
++	cmd_queue_cur_state = state;
++}
++
++void jtag_alloc_in_value32(scan_field_t *field)
++{
++	interface_jtag_alloc_in_value32(field);
++}
++
++void jtag_add_ir_scan_noverify(int in_count, const scan_field_t *in_fields,
++		tap_state_t state)
++{
++	jtag_prelude(state);
++
++	int retval = interface_jtag_add_ir_scan(in_count, in_fields, state);
++	jtag_set_error(retval);
++}
++
++
++void jtag_add_ir_scan(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
++{
++	if (jtag_verify&amp;&amp;jtag_verify_capture_ir)
++	{
++		/* 8 x 32 bit id's is enough for all invocations */
++
++		for (int j = 0; j &lt; in_num_fields; j++)
++		{
++			/* if we are to run a verification of the ir scan, we need to get the input back.
++			 * We may have to allocate space if the caller didn't ask for the input back.
++			 */
++			in_fields[j].check_value=in_fields[j].tap-&gt;expected;
++			in_fields[j].check_mask=in_fields[j].tap-&gt;expected_mask;
++		}
++		jtag_add_scan_check(jtag_add_ir_scan_noverify, in_num_fields, in_fields, state);
++	} else
++	{
++		jtag_add_ir_scan_noverify(in_num_fields, in_fields, state);
++	}
++}
++
++void jtag_add_plain_ir_scan(int in_num_fields, const scan_field_t *in_fields,
++		tap_state_t state)
++{
++	jtag_prelude(state);
++
++	int retval = interface_jtag_add_plain_ir_scan(
++			in_num_fields, in_fields, state);
++	jtag_set_error(retval);
++}
++
++void jtag_add_callback(jtag_callback1_t f, u8 *in)
++{
++	interface_jtag_add_callback(f, in);
++}
++
++void jtag_add_callback4(jtag_callback_t f, u8 *in,
++		jtag_callback_data_t data1, jtag_callback_data_t data2,
++		jtag_callback_data_t data3)
++{
++	interface_jtag_add_callback4(f, in, data1, data2, data3);
++}
++
++int jtag_check_value_inner(u8 *captured, u8 *in_check_value, u8 *in_check_mask, int num_bits);
++
++static int jtag_check_value_mask_callback(u8 *in, jtag_callback_data_t data1, jtag_callback_data_t data2, jtag_callback_data_t data3)
++{
++	return jtag_check_value_inner(in, (u8 *)data1, (u8 *)data2, (int)data3);
++}
++
++static void jtag_add_scan_check(void (*jtag_add_scan)(int in_num_fields, const scan_field_t *in_fields, tap_state_t state),
++		int in_num_fields, scan_field_t *in_fields, tap_state_t state)
++{
++	for (int i = 0; i &lt; in_num_fields; i++)
++	{
++		struct scan_field_s *field = &amp;in_fields[i];
++		field-&gt;allocated = 0;
++		field-&gt;modified = 0;
++		if (field-&gt;check_value || field-&gt;in_value)
++			continue;
++		interface_jtag_add_scan_check_alloc(field);
++		field-&gt;modified = 1;
++	}
++
++	jtag_add_scan(in_num_fields, in_fields, state);
++
++	for (int i = 0; i &lt; in_num_fields; i++)
++	{
++		if ((in_fields[i].check_value != NULL) &amp;&amp; (in_fields[i].in_value != NULL))
++		{
++			/* this is synchronous for a minidriver */
++			jtag_add_callback4(jtag_check_value_mask_callback, in_fields[i].in_value,
++				(jtag_callback_data_t)in_fields[i].check_value,
++				(jtag_callback_data_t)in_fields[i].check_mask,
++				(jtag_callback_data_t)in_fields[i].num_bits);
++		}
++		if (in_fields[i].allocated)
++		{
++			free(in_fields[i].in_value);
++		}
++		if (in_fields[i].modified)
++		{
++			in_fields[i].in_value = NULL;
++		}
++	}
++}
++
++void jtag_add_dr_scan_check(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
++{
++	if (jtag_verify)
++	{
++		jtag_add_scan_check(jtag_add_dr_scan, in_num_fields, in_fields, state);
++	} else
++	{
++		jtag_add_dr_scan(in_num_fields, in_fields, state);
++	}
++}
++
++
++void jtag_add_dr_scan(int in_num_fields, const scan_field_t *in_fields,
++		tap_state_t state)
++{
++	jtag_prelude(state);
++
++	int retval;
++	retval = interface_jtag_add_dr_scan(in_num_fields, in_fields, state);
++	jtag_set_error(retval);
++}
++
++void jtag_add_plain_dr_scan(int in_num_fields, const scan_field_t *in_fields,
++		tap_state_t state)
++{
++	jtag_prelude(state);
++
++	int retval;
++	retval = interface_jtag_add_plain_dr_scan(in_num_fields, in_fields, state);
++	jtag_set_error(retval);
++}
++
++void jtag_add_dr_out(jtag_tap_t* tap,
++		int num_fields, const int* num_bits, const u32* value,
++		tap_state_t end_state)
++{
++	assert(end_state != TAP_INVALID);
++
++	cmd_queue_cur_state = end_state;
++
++	interface_jtag_add_dr_out(tap,
++			num_fields, num_bits, value,
++			end_state);
++}
++
++void jtag_add_tlr(void)
++{
++	jtag_prelude(TAP_RESET);
++	jtag_set_error(interface_jtag_add_tlr());
++	jtag_call_event_callbacks(JTAG_TRST_ASSERTED);
++}
++
++void jtag_add_pathmove(int num_states, const tap_state_t *path)
++{
++	tap_state_t cur_state = cmd_queue_cur_state;
++
++	/* the last state has to be a stable state */
++	if (!tap_is_state_stable(path[num_states - 1]))
++	{
++		LOG_ERROR(&quot;BUG: TAP path doesn't finish in a stable state&quot;);
++		jtag_set_error(ERROR_JTAG_NOT_STABLE_STATE);
++		return;
++	}
++
++	for (int i = 0; i &lt; num_states; i++)
++	{
++		if (path[i] == TAP_RESET)
++		{
++			LOG_ERROR(&quot;BUG: TAP_RESET is not a valid state for pathmove sequences&quot;);
++			jtag_set_error(ERROR_JTAG_STATE_INVALID);
++			return;
++		}
++
++		if ( tap_state_transition(cur_state, true)  != path[i]
++		  &amp;&amp; tap_state_transition(cur_state, false) != path[i])
++		{
++			LOG_ERROR(&quot;BUG: %s -&gt; %s isn't a valid TAP transition&quot;,
++					tap_state_name(cur_state), tap_state_name(path[i]));
++			jtag_set_error(ERROR_JTAG_TRANSITION_INVALID);
++			return;
++		}
++		cur_state = path[i];
++	}
++
++	jtag_checks();
++
++	jtag_set_error(interface_jtag_add_pathmove(num_states, path));
++	cmd_queue_cur_state = path[num_states - 1];
++}
++
++void jtag_add_runtest(int num_cycles, tap_state_t state)
++{
++	jtag_prelude(state);
++	jtag_set_error(interface_jtag_add_runtest(num_cycles, state));
++}
++
++
++void jtag_add_clocks(int num_cycles)
++{
++	if (!tap_is_state_stable(cmd_queue_cur_state))
++	{
++		 LOG_ERROR(&quot;jtag_add_clocks() called with TAP in unstable state \&quot;%s\&quot;&quot;,
++				 tap_state_name(cmd_queue_cur_state));
++		 jtag_set_error(ERROR_JTAG_NOT_STABLE_STATE);
++		 return;
++	}
++
++	if (num_cycles &gt; 0)
++	{
++		jtag_checks();
++		jtag_set_error(interface_jtag_add_clocks(num_cycles));
++	}
++}
++
++void jtag_add_reset(int req_tlr_or_trst, int req_srst)
++{
++	int trst_with_tlr = 0;
++
++	/* FIX!!! there are *many* different cases here. A better
++	 * approach is needed for legal combinations of transitions...
++	 */
++	if ((jtag_reset_config &amp; RESET_HAS_SRST)&amp;&amp;
++			(jtag_reset_config &amp; RESET_HAS_TRST)&amp;&amp;
++			((jtag_reset_config &amp; RESET_SRST_PULLS_TRST)==0))
++	{
++		if (((req_tlr_or_trst&amp;&amp;!jtag_trst)||
++				(!req_tlr_or_trst&amp;&amp;jtag_trst))&amp;&amp;
++				((req_srst&amp;&amp;!jtag_srst)||
++						(!req_srst&amp;&amp;jtag_srst)))
++		{
++			/* FIX!!! srst_pulls_trst allows 1,1 =&gt; 0,0 transition.... */
++			//LOG_ERROR(&quot;BUG: transition of req_tlr_or_trst and req_srst in the same jtag_add_reset() call is undefined&quot;);
++		}
++	}
++
++	/* Make sure that jtag_reset_config allows the requested reset */
++	/* if SRST pulls TRST, we can't fulfill srst == 1 with trst == 0 */
++	if (((jtag_reset_config &amp; RESET_SRST_PULLS_TRST) &amp;&amp; (req_srst == 1)) &amp;&amp; (!req_tlr_or_trst))
++	{
++		LOG_ERROR(&quot;BUG: requested reset would assert trst&quot;);
++		jtag_set_error(ERROR_FAIL);
++		return;
++	}
++
++	/* if TRST pulls SRST, we reset with TAP T-L-R */
++	if (((jtag_reset_config &amp; RESET_TRST_PULLS_SRST) &amp;&amp; (req_tlr_or_trst)) &amp;&amp; (req_srst == 0))
++	{
++		trst_with_tlr = 1;
++	}
++
++	if (req_srst &amp;&amp; !(jtag_reset_config &amp; RESET_HAS_SRST))
++	{
++		LOG_ERROR(&quot;BUG: requested SRST assertion, but the current configuration doesn't support this&quot;);
++		jtag_set_error(ERROR_FAIL);
++		return;
++	}
++
++	if (req_tlr_or_trst)
++	{
++		if (!trst_with_tlr &amp;&amp; (jtag_reset_config &amp; RESET_HAS_TRST))
++		{
++			jtag_trst = 1;
++		} else
++		{
++			trst_with_tlr = 1;
++		}
++	} else
++	{
++		jtag_trst = 0;
++	}
++
++	jtag_srst = req_srst;
++
++	int retval = interface_jtag_add_reset(jtag_trst, jtag_srst);
++	if (retval != ERROR_OK)
++	{
++		jtag_set_error(retval);
++		return;
++	}
++	jtag_execute_queue();
++
++	if (jtag_srst)
++	{
++		LOG_DEBUG(&quot;SRST line asserted&quot;);
++	}
++	else
++	{
++		LOG_DEBUG(&quot;SRST line released&quot;);
++		if (jtag_nsrst_delay)
++			jtag_add_sleep(jtag_nsrst_delay * 1000);
++	}
++
++	if (trst_with_tlr)
++	{
++		LOG_DEBUG(&quot;JTAG reset with RESET instead of TRST&quot;);
++		jtag_set_end_state(TAP_RESET);
++		jtag_add_tlr();
++		return;
++	}
++
++	if (jtag_trst)
++	{
++		/* we just asserted nTRST, so we're now in Test-Logic-Reset,
++		 * and inform possible listeners about this
++		 */
++		LOG_DEBUG(&quot;TRST line asserted&quot;);
++		tap_set_state(TAP_RESET);
++		jtag_call_event_callbacks(JTAG_TRST_ASSERTED);
++	}
++	else
++	{
++		if (jtag_ntrst_delay)
++			jtag_add_sleep(jtag_ntrst_delay * 1000);
++	}
++}
++
++tap_state_t jtag_set_end_state(tap_state_t state)
++{
++	if ((state == TAP_DRSHIFT)||(state == TAP_IRSHIFT))
++	{
++		LOG_ERROR(&quot;BUG: TAP_DRSHIFT/IRSHIFT can't be end state. Calling code should use a larger scan field&quot;);
++	}
++
++	if (state!=TAP_INVALID)
++		cmd_queue_end_state = state;
++	return cmd_queue_end_state;
++}
++
++tap_state_t jtag_get_end_state(void)
++{
++	return cmd_queue_end_state;
++}
++
++void jtag_add_sleep(u32 us)
++{
++	/// @todo Here, keep_alive() appears to be a layering violation!!!
++	keep_alive();
++	jtag_set_error(interface_jtag_add_sleep(us));
++}
++
++int jtag_check_value_inner(u8 *captured, u8 *in_check_value, u8 *in_check_mask, int num_bits)
++{
++	int retval = ERROR_OK;
++
++	int compare_failed = 0;
++
++	if (in_check_mask)
++		compare_failed = buf_cmp_mask(captured, in_check_value, in_check_mask, num_bits);
++	else
++		compare_failed = buf_cmp(captured, in_check_value, num_bits);
++
++	if (compare_failed){
++		/* An error handler could have caught the failing check
++		 * only report a problem when there wasn't a handler, or if the handler
++		 * acknowledged the error
++		 */
++		/*
++		LOG_WARNING(&quot;TAP %s:&quot;,
++					jtag_tap_name(field-&gt;tap));
++					*/
++		if (compare_failed)
++		{
++			char *captured_char = buf_to_str(captured, (num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : num_bits, 16);
++			char *in_check_value_char = buf_to_str(in_check_value, (num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : num_bits, 16);
++
++			if (in_check_mask)
++			{
++				char *in_check_mask_char;
++				in_check_mask_char = buf_to_str(in_check_mask, (num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : num_bits, 16);
++				LOG_WARNING(&quot;value captured during scan didn't pass the requested check:&quot;);
++				LOG_WARNING(&quot;captured: 0x%s check_value: 0x%s check_mask: 0x%s&quot;,
++							captured_char, in_check_value_char, in_check_mask_char);
++				free(in_check_mask_char);
++			}
++			else
++			{
++				LOG_WARNING(&quot;value captured during scan didn't pass the requested check: captured: 0x%s check_value: 0x%s&quot;, captured_char, in_check_value_char);
++			}
++
++			free(captured_char);
++			free(in_check_value_char);
++
++			retval = ERROR_JTAG_QUEUE_FAILED;
++		}
++
++	}
++	return retval;
++}
++
++void jtag_check_value_mask(scan_field_t *field, u8 *value, u8 *mask)
++{
++	assert(field-&gt;in_value != NULL);
++
++	if (value==NULL)
++	{
++		/* no checking to do */
++		return;
++	}
++
++	jtag_execute_queue_noclear();
++
++	int retval=jtag_check_value_inner(field-&gt;in_value, value, mask, field-&gt;num_bits);
++	jtag_set_error(retval);
++}
++
++
++
++int default_interface_jtag_execute_queue(void)
++{
++	if (NULL == jtag)
++	{
++		LOG_ERROR(&quot;No JTAG interface configured yet.  &quot;
++			&quot;Issue 'init' command in startup scripts &quot;
++			&quot;before communicating with targets.&quot;);
++		return ERROR_FAIL;
++	}
++
++	return jtag-&gt;execute_queue();
++}
++
++void jtag_execute_queue_noclear(void)
++{
++	jtag_flush_queue_count++;
++	jtag_set_error(interface_jtag_execute_queue());
++}
++
++int jtag_get_flush_queue_count(void)
++{
++	return jtag_flush_queue_count;
++}
++
++int jtag_execute_queue(void)
++{
++	jtag_execute_queue_noclear();
++	return jtag_error_clear();
++}
++
++static int jtag_reset_callback(enum jtag_event event, void *priv)
++{
++	jtag_tap_t *tap = priv;
++
++	LOG_DEBUG(&quot;-&quot;);
++
++	if (event == JTAG_TRST_ASSERTED)
++	{
++		buf_set_ones(tap-&gt;cur_instr, tap-&gt;ir_length);
++		tap-&gt;bypass = 1;
++	}
++
++	return ERROR_OK;
++}
++
++void jtag_sleep(u32 us)
++{
++	alive_sleep(us/1000);
++}
++
++/// maximum number of JTAG devices expected in the chain
++#define JTAG_MAX_CHAIN_SIZE 20
++
++#define EXTRACT_MFG(X)  (((X) &amp; 0xffe) &gt;&gt; 1)
++#define EXTRACT_PART(X) (((X) &amp; 0xffff000) &gt;&gt; 12)
++#define EXTRACT_VER(X)  (((X) &amp; 0xf0000000) &gt;&gt; 28)
++
++static int jtag_examine_chain_execute(u8 *idcode_buffer, unsigned num_idcode)
++{
++	scan_field_t field = {
++			.tap = NULL,
++			.num_bits = num_idcode * 32,
++			.out_value = idcode_buffer,
++			.in_value = idcode_buffer,
++		};
++
++	// initialize to the end of chain ID value
++	for (unsigned i = 0; i &lt; JTAG_MAX_CHAIN_SIZE; i++)
++		buf_set_u32(idcode_buffer, i * 32, 32, 0x000000FF);
++
++	jtag_add_plain_dr_scan(1, &amp;field, TAP_RESET);
++	return jtag_execute_queue();
++}
++
++static bool jtag_examine_chain_check(u8 *idcodes, unsigned count)
++{
++	u8 zero_check = 0x0;
++	u8 one_check = 0xff;
++
++	for (unsigned i = 0; i &lt; count * 4; i++)
++	{
++		zero_check |= idcodes[i];
++		one_check &amp;= idcodes[i];
++	}
++
++	/* if there wasn't a single non-zero bit or if all bits were one,
++	 * the scan is not valid */
++	if (zero_check == 0x00 || one_check == 0xff)
++	{
++		LOG_ERROR(&quot;JTAG communication failure: check connection, &quot;
++			&quot;JTAG interface, target power etc.&quot;);
++		return false;
++	}
++	return true;
++}
++
++static void jtag_examine_chain_display(enum log_levels level, const char *msg,
++		const char *name, u32 idcode)
++{
++	log_printf_lf(level, __FILE__, __LINE__, __FUNCTION__,
++			&quot;JTAG tap: %s %16.16s: 0x%08x &quot;
++			&quot;(mfg: 0x%3.3x, part: 0x%4.4x, ver: 0x%1.1x)&quot;,
++		name, msg, idcode,
++		EXTRACT_MFG(idcode), EXTRACT_PART(idcode), EXTRACT_VER(idcode) );
++}
++
++static bool jtag_idcode_is_final(u32 idcode)
++{
++		return idcode == 0x000000FF || idcode == 0xFFFFFFFF;
++}
++
++/**
++ * This helper checks that remaining bits in the examined chain data are
++ * all as expected, but a single JTAG device requires only 64 bits to be
++ * read back correctly.  This can help identify and diagnose problems
++ * with the JTAG chain earlier, gives more helpful/explicit error messages.
++ */
++static void jtag_examine_chain_end(u8 *idcodes, unsigned count, unsigned max)
++{
++	bool triggered = false;
++	for ( ; count &lt; max - 31; count += 32)
++	{
++		u32 idcode = buf_get_u32(idcodes, count, 32);
++		// do not trigger the warning if the data looks good
++		if (!triggered &amp;&amp; jtag_idcode_is_final(idcode))
++			continue;
++		LOG_WARNING(&quot;Unexpected idcode after end of chain: %d 0x%08x&quot;,
++				count, idcode);
++		triggered = true;
++	}
++}
++
++static bool jtag_examine_chain_match_tap(const struct jtag_tap_s *tap)
++{
++	if (0 == tap-&gt;expected_ids_cnt)
++	{
++		/// @todo Enable LOG_INFO to ask for reports about unknown TAP IDs.
++#if 0
++		LOG_INFO(&quot;Uknown JTAG TAP ID: 0x%08x&quot;, tap-&gt;idcode)
++		LOG_INFO(&quot;Please report the chip name and reported ID code to the openocd project&quot;);
++#endif
++		return true;
++	}
++
++	/* Loop over the expected identification codes and test for a match */
++	u8 ii;
++	for (ii = 0; ii &lt; tap-&gt;expected_ids_cnt; ii++)
++	{
++		if (tap-&gt;idcode == tap-&gt;expected_ids[ii])
++			break;
++	}
++
++	/* If none of the expected ids matched, log an error */
++	if (ii != tap-&gt;expected_ids_cnt)
++	{
++		LOG_INFO(&quot;JTAG Tap/device matched&quot;);
++		return true;
++	}
++	jtag_examine_chain_display(LOG_LVL_ERROR, &quot;got&quot;,
++			tap-&gt;dotted_name, tap-&gt;idcode);
++	for (ii = 0; ii &lt; tap-&gt;expected_ids_cnt; ii++)
++	{
++		char msg[32];
++		snprintf(msg, sizeof(msg), &quot;expected %hhu of %hhu&quot;,
++				ii + 1, tap-&gt;expected_ids_cnt);
++		jtag_examine_chain_display(LOG_LVL_ERROR, msg,
++				tap-&gt;dotted_name, tap-&gt;expected_ids[ii]);
++	}
++	return false;
++}
++
++/* Try to examine chain layout according to IEEE 1149.1 &#194;&#167;12
++ */
++int jtag_examine_chain(void)
++{
++	u8 idcode_buffer[JTAG_MAX_CHAIN_SIZE * 4];
++	unsigned device_count = 0;
++
++	jtag_examine_chain_execute(idcode_buffer, JTAG_MAX_CHAIN_SIZE);
++
++	if (!jtag_examine_chain_check(idcode_buffer, JTAG_MAX_CHAIN_SIZE))
++		return ERROR_JTAG_INIT_FAILED;
++
++	/* point at the 1st tap */
++	jtag_tap_t *tap = jtag_tap_next_enabled(NULL);
++	if (tap == NULL)
++	{
++		LOG_ERROR(&quot;JTAG: No taps enabled?&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	for (unsigned bit_count = 0; bit_count &lt; (JTAG_MAX_CHAIN_SIZE * 32) - 31;)
++	{
++		u32 idcode = buf_get_u32(idcode_buffer, bit_count, 32);
++		if ((idcode &amp; 1) == 0)
++		{
++			/* LSB must not be 0, this indicates a device in bypass */
++			LOG_WARNING(&quot;Tap/Device does not have IDCODE&quot;);
++			idcode = 0;
++
++			bit_count += 1;
++		}
++		else
++		{
++	 		/*
++			 * End of chain (invalid manufacturer ID) some devices, such
++			 * as AVR will output all 1's instead of TDI input value at
++			 * end of chain.
++			 */
++			if (jtag_idcode_is_final(idcode))
++			{
++				jtag_examine_chain_end(idcode_buffer,
++						bit_count + 32, JTAG_MAX_CHAIN_SIZE * 32);
++				break;
++			}
++
++			jtag_examine_chain_display(LOG_LVL_INFO, &quot;tap/device found&quot;,
++					tap ? tap-&gt;dotted_name : &quot;(not-named)&quot;,
++					idcode);
++
++			bit_count += 32;
++		}
++		device_count++;
++		if (!tap)
++			continue;
++
++		tap-&gt;idcode = idcode;
++
++		// ensure the TAP ID does matches what was expected
++ 		if (!jtag_examine_chain_match_tap(tap))
++			return ERROR_JTAG_INIT_FAILED;
++
++		tap = jtag_tap_next_enabled(tap);
++	}
++
++	/* see if number of discovered devices matches configuration */
++	if (device_count != jtag_tap_count_enabled())
++	{
++		LOG_ERROR(&quot;number of discovered devices in JTAG chain (%i) &quot;
++				&quot;does not match (enabled) configuration (%i), total taps: %d&quot;,
++				device_count, jtag_tap_count_enabled(), jtag_tap_count());
++		LOG_ERROR(&quot;check the config file and ensure proper JTAG communication&quot;
++				&quot; (connections, speed, ...)&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	return ERROR_OK;
++}
++
++int jtag_validate_chain(void)
++{
++	jtag_tap_t *tap;
++	int total_ir_length = 0;
++	u8 *ir_test = NULL;
++	scan_field_t field;
++	int chain_pos = 0;
++
++	tap = NULL;
++	total_ir_length = 0;
++	for(;;){
++		tap = jtag_tap_next_enabled(tap);
++		if( tap == NULL ){
++			break;
++		}
++		total_ir_length += tap-&gt;ir_length;
++	}
++
++	total_ir_length += 2;
++	ir_test = malloc(CEIL(total_ir_length, 8));
++	buf_set_ones(ir_test, total_ir_length);
++
++	field.tap = NULL;
++	field.num_bits = total_ir_length;
++	field.out_value = ir_test;
++	field.in_value = ir_test;
++
++
++	jtag_add_plain_ir_scan(1, &amp;field, TAP_RESET);
++	jtag_execute_queue();
++
++	tap = NULL;
++	chain_pos = 0;
++	int val;
++	for(;;){
++		tap = jtag_tap_next_enabled(tap);
++		if( tap == NULL ){
++			break;
++		}
++
++		val = buf_get_u32(ir_test, chain_pos, 2);
++		if (val != 0x1)
++		{
++			char *cbuf = buf_to_str(ir_test, total_ir_length, 16);
++			LOG_ERROR(&quot;Could not validate JTAG scan chain, IR mismatch, scan returned 0x%s. tap=%s pos=%d expected 0x1 got %0x&quot;, cbuf, jtag_tap_name(tap), chain_pos, val);
++			free(cbuf);
++			free(ir_test);
++			return ERROR_JTAG_INIT_FAILED;
++		}
++		chain_pos += tap-&gt;ir_length;
++	}
++
++	val = buf_get_u32(ir_test, chain_pos, 2);
++	if (val != 0x3)
++	{
++		char *cbuf = buf_to_str(ir_test, total_ir_length, 16);
++		LOG_ERROR(&quot;Could not validate end of JTAG scan chain, IR mismatch, scan returned 0x%s. pos=%d expected 0x3 got %0x&quot;, cbuf, chain_pos, val);
++		free(cbuf);
++		free(ir_test);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	free(ir_test);
++
++	return ERROR_OK;
++}
++
++
++void jtag_tap_init(jtag_tap_t *tap)
++{
++	assert(0 != tap-&gt;ir_length);
++
++	tap-&gt;expected = malloc(tap-&gt;ir_length);
++	tap-&gt;expected_mask = malloc(tap-&gt;ir_length);
++	tap-&gt;cur_instr = malloc(tap-&gt;ir_length);
++
++	buf_set_u32(tap-&gt;expected, 0, tap-&gt;ir_length, tap-&gt;ir_capture_value);
++	buf_set_u32(tap-&gt;expected_mask, 0, tap-&gt;ir_length, tap-&gt;ir_capture_mask);
++	buf_set_ones(tap-&gt;cur_instr, tap-&gt;ir_length);
++
++	// place TAP in bypass mode
++	tap-&gt;bypass = 1;
++	// register the reset callback for the TAP
++	jtag_register_event_callback(&amp;jtag_reset_callback, tap);
++
++	LOG_DEBUG(&quot;Created Tap: %s @ abs position %d, &quot;
++			&quot;irlen %d, capture: 0x%x mask: 0x%x&quot;, tap-&gt;dotted_name,
++				tap-&gt;abs_chain_position, tap-&gt;ir_length,
++				tap-&gt;ir_capture_value, tap-&gt;ir_capture_mask);
++	jtag_tap_add(tap);
++}
++
++void jtag_tap_free(jtag_tap_t *tap)
++{
++	/// @todo is anything missing? no memory leaks please 
++	free((void *)tap-&gt;expected_ids);
++	free((void *)tap-&gt;chip);
++	free((void *)tap-&gt;tapname);
++	free((void *)tap-&gt;dotted_name);
++	free(tap);
++}
++
++int jtag_interface_init(struct command_context_s *cmd_ctx)
++{
++	if (jtag)
++		return ERROR_OK;
++
++	if (!jtag_interface)
++	{
++		/* nothing was previously specified by &quot;interface&quot; command */
++		LOG_ERROR(&quot;JTAG interface has to be specified, see \&quot;interface\&quot; command&quot;);
++		return ERROR_JTAG_INVALID_INTERFACE;
++	}
++	if(hasKHz)
++	{
++		jtag_interface-&gt;khz(jtag_get_speed_khz(), &amp;jtag_speed);
++		hasKHz = false;
++	}
++
++	if (jtag_interface-&gt;init() != ERROR_OK)
++		return ERROR_JTAG_INIT_FAILED;
++
++	jtag = jtag_interface;
++	return ERROR_OK;
++}
++
++static int jtag_init_inner(struct command_context_s *cmd_ctx)
++{
++	jtag_tap_t *tap;
++	int retval;
++
++	LOG_DEBUG(&quot;Init JTAG chain&quot;);
++
++	tap = jtag_tap_next_enabled(NULL);
++	if( tap == NULL ){
++		LOG_ERROR(&quot;There are no enabled taps?&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	jtag_add_tlr();
++	if ((retval=jtag_execute_queue())!=ERROR_OK)
++		return retval;
++
++	/* examine chain first, as this could discover the real chain layout */
++	if (jtag_examine_chain() != ERROR_OK)
++	{
++		LOG_ERROR(&quot;trying to validate configured JTAG chain anyway...&quot;);
++	}
++
++	if (jtag_validate_chain() != ERROR_OK)
++	{
++		LOG_WARNING(&quot;Could not validate JTAG chain, continuing anyway...&quot;);
++	}
++
++	return ERROR_OK;
++}
++
++int jtag_interface_quit(void)
++{
++	if (!jtag || !jtag-&gt;quit)
++		return ERROR_OK;
++
++	// close the JTAG interface
++	int result = jtag-&gt;quit();
++	if (ERROR_OK != result)
++		LOG_ERROR(&quot;failed: %d&quot;, result);
++
++	return ERROR_OK;
++}
++
++
++int jtag_init_reset(struct command_context_s *cmd_ctx)
++{
++	int retval;
++
++	if ((retval=jtag_interface_init(cmd_ctx)) != ERROR_OK)
++		return retval;
++
++	LOG_DEBUG(&quot;Trying to bring the JTAG controller to life by asserting TRST / RESET&quot;);
++
++	/* Reset can happen after a power cycle.
++	 *
++	 * Ideally we would only assert TRST or run RESET before the target reset.
++	 *
++	 * However w/srst_pulls_trst, trst is asserted together with the target
++	 * reset whether we want it or not.
++	 *
++	 * NB! Some targets have JTAG circuitry disabled until a
++	 * trst &amp; srst has been asserted.
++	 *
++	 * NB! here we assume nsrst/ntrst delay are sufficient!
++	 *
++	 * NB! order matters!!!! srst *can* disconnect JTAG circuitry
++	 *
++	 */
++	jtag_add_reset(1, 0); /* RESET or TRST */
++	if (jtag_reset_config &amp; RESET_HAS_SRST)
++	{
++		jtag_add_reset(1, 1);
++		if ((jtag_reset_config &amp; RESET_SRST_PULLS_TRST)==0)
++			jtag_add_reset(0, 1);
++	}
++	jtag_add_reset(0, 0);
++	if ((retval = jtag_execute_queue()) != ERROR_OK)
++		return retval;
++
++	/* Check that we can communication on the JTAG chain + eventually we want to
++	 * be able to perform enumeration only after OpenOCD has started
++	 * telnet and GDB server
++	 *
++	 * That would allow users to more easily perform any magic they need to before
++	 * reset happens.
++	 */
++	return jtag_init_inner(cmd_ctx);
++}
++
++int jtag_init(struct command_context_s *cmd_ctx)
++{
++	int retval;
++	if ((retval=jtag_interface_init(cmd_ctx)) != ERROR_OK)
++		return retval;
++	if (jtag_init_inner(cmd_ctx)==ERROR_OK)
++	{
++		return ERROR_OK;
++	}
++	return jtag_init_reset(cmd_ctx);
++}
++
++void jtag_set_speed_khz(unsigned khz)
++{
++	speed_khz = khz;
++}
++unsigned jtag_get_speed_khz(void)
++{
++	return speed_khz;
++}
++
++void jtag_set_verify(bool enable)
++{
++	jtag_verify = enable;
++}
++
++bool jtag_will_verify()
++{
++	return jtag_verify;
++}
++
++
++int jtag_power_dropout(int *dropout)
++{
++	return jtag-&gt;power_dropout(dropout);
++}
++
++int jtag_srst_asserted(int *srst_asserted)
++{
++	return jtag-&gt;srst_asserted(srst_asserted);
++}
++
++void jtag_tap_handle_event( jtag_tap_t * tap, enum jtag_tap_event e)
++{
++	jtag_tap_event_action_t * jteap;
++	int done;
++
++	jteap = tap-&gt;event_action;
++
++	done = 0;
++	while (jteap) {
++		if (jteap-&gt;event == e) {
++			done = 1;
++			LOG_DEBUG( &quot;JTAG tap: %s event: %d (%s) action: %s\n&quot;,
++					tap-&gt;dotted_name,
++					e,
++					Jim_Nvp_value2name_simple(nvp_jtag_tap_event, e)-&gt;name,
++					Jim_GetString(jteap-&gt;body, NULL) );
++			if (Jim_EvalObj(interp, jteap-&gt;body) != JIM_OK) {
++				Jim_PrintErrorMessage(interp);
++			}
++		}
++
++		jteap = jteap-&gt;next;
++	}
++
++	if (!done) {
++		LOG_DEBUG( &quot;event %d %s - no action&quot;,
++				e,
++				Jim_Nvp_value2name_simple( nvp_jtag_tap_event, e)-&gt;name);
++	}
++}
++
++int jtag_add_statemove(tap_state_t goal_state)
++{
++	tap_state_t cur_state = cmd_queue_cur_state;
++
++	LOG_DEBUG( &quot;cur_state=%s goal_state=%s&quot;,
++		tap_state_name(cur_state),
++		tap_state_name(goal_state) );
++
++
++	if (goal_state==cur_state )
++		;	/* nothing to do */
++	else if( goal_state==TAP_RESET )
++	{
++		jtag_add_tlr();
++	}
++	else if( tap_is_state_stable(cur_state) &amp;&amp; tap_is_state_stable(goal_state) )
++	{
++		unsigned tms_bits  = tap_get_tms_path(cur_state, goal_state);
++		unsigned tms_count = tap_get_tms_path_len(cur_state, goal_state);
++		tap_state_t moves[8];
++		assert(tms_count &lt; DIM(moves));
++
++		for (unsigned i = 0; i &lt; tms_count; i++, tms_bits &gt;&gt;= 1)
++		{
++			bool bit = tms_bits &amp; 1;
++
++			cur_state = tap_state_transition(cur_state, bit);
++			moves[i] = cur_state;
++		}
++
++		jtag_add_pathmove(tms_count, moves);
++	}
++	else if( tap_state_transition(cur_state, true)  == goal_state
++		||   tap_state_transition(cur_state, false) == goal_state )
++	{
++		jtag_add_pathmove(1, &amp;goal_state);
++	}
++
++	else
++		return ERROR_FAIL;
++
++	return ERROR_OK;
++}
++
++void jtag_set_nsrst_delay(unsigned delay)
++{
++	jtag_nsrst_delay = delay;
++}
++unsigned jtag_get_nsrst_delay(void)
++{
++	return jtag_nsrst_delay;
++}
++void jtag_set_ntrst_delay(unsigned delay)
++{
++	jtag_ntrst_delay = delay;
++}
++unsigned jtag_get_ntrst_delay(void)
++{
++	return jtag_ntrst_delay;
++}
+
+Deleted: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-09 02:48:28 UTC (rev 2148)
++++ trunk/src/jtag/jtag.c	2009-06-09 04:15:13 UTC (rev 2149)
+@@ -1,2585 +0,0 @@
+-/***************************************************************************
+- *   Copyright (C) 2005 by Dominic Rath                                    *
+- *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
+- *                                                                         *
+- *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
+- *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
+- *                                                                         *
+- *   Copyright (C) 2009 SoftPLC Corporation                                *
+- *       <A HREF="http://softplc.com">http://softplc.com</A>                                                *
+- *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dick at softplc.com</A>                                                      *
+- *                                                                         *
+- *   This program is free software; you can redistribute it and/or modify  *
+- *   it under the terms of the GNU General Public License as published by  *
+- *   the Free Software Foundation; either version 2 of the License, or     *
+- *   (at your option) any later version.                                   *
+- *                                                                         *
+- *   This program is distributed in the hope that it will be useful,       *
+- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+- *   GNU General Public License for more details.                          *
+- *                                                                         *
+- *   You should have received a copy of the GNU General Public License     *
+- *   along with this program; if not, write to the                         *
+- *   Free Software Foundation, Inc.,                                       *
+- *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+- ***************************************************************************/
+-#ifdef HAVE_CONFIG_H
+-#include &quot;config.h&quot;
+-#endif
+-
+-#include &quot;jtag.h&quot;
+-#include &quot;minidriver.h&quot;
+-#include &quot;interface.h&quot;
+-
+-#ifdef HAVE_STRINGS_H
+-#include &lt;strings.h&gt;
+-#endif
+-
+-
+-/// The number of JTAG queue flushes (for profiling and debugging purposes).
+-static int jtag_flush_queue_count;
+-
+-static void jtag_add_scan_check(void (*jtag_add_scan)(int in_num_fields, const scan_field_t *in_fields, tap_state_t state),
+-		int in_num_fields, scan_field_t *in_fields, tap_state_t state);
+-
+-/* note that this is not marked as static as it must be available from outside jtag.c for those
+-   that implement the jtag_xxx() minidriver layer
+-*/
+-int jtag_error=ERROR_OK;
+-
+-char* jtag_event_strings[] =
+-{
+-	&quot;JTAG controller reset (RESET or TRST)&quot;
+-};
+-
+-const Jim_Nvp nvp_jtag_tap_event[] = {
+-	{ .value = JTAG_TAP_EVENT_ENABLE,       .name = &quot;tap-enable&quot; },
+-	{ .value = JTAG_TAP_EVENT_DISABLE,      .name = &quot;tap-disable&quot; },
+-
+-	{ .name = NULL, .value = -1 }
+-};
+-
+-int jtag_trst = 0;
+-int jtag_srst = 0;
+-
+-/**
+- * List all TAPs that have been created.
+- */
+-static jtag_tap_t *__jtag_all_taps = NULL;
+-/**
+- * The number of TAPs in the __jtag_all_taps list, used to track the
+- * assigned chain position to new TAPs
+- */
+-static unsigned jtag_num_taps = 0;
+-
+-enum reset_types jtag_reset_config = RESET_NONE;
+-tap_state_t cmd_queue_end_state = TAP_RESET;
+-tap_state_t cmd_queue_cur_state = TAP_RESET;
+-
+-int jtag_verify_capture_ir = 1;
+-int jtag_verify = 1;
+-
+-/* how long the OpenOCD should wait before attempting JTAG communication after reset lines deasserted (in ms) */
+-static int jtag_nsrst_delay = 0; /* default to no nSRST delay */
+-static int jtag_ntrst_delay = 0; /* default to no nTRST delay */
+-
+-/* callbacks to inform high-level handlers about JTAG state changes */
+-jtag_event_callback_t *jtag_event_callbacks;
+-
+-/* speed in kHz*/
+-static int speed_khz = 0;
+-/* flag if the kHz speed was defined */
+-static bool hasKHz = false;
+-
+-/* jtag interfaces (parport, FTDI-USB, TI-USB, ...)
+- */
+-
+-#if BUILD_ECOSBOARD == 1
+-	extern jtag_interface_t zy1000_interface;
+-#elif defined(BUILD_MINIDRIVER_DUMMY)
+-	extern jtag_interface_t minidummy_interface;
+-#else // standard drivers
+-#if BUILD_PARPORT == 1
+-	extern jtag_interface_t parport_interface;
+-#endif
+-
+-#if BUILD_DUMMY == 1
+-	extern jtag_interface_t dummy_interface;
+-#endif
+-
+-#if BUILD_FT2232_FTD2XX == 1
+-	extern jtag_interface_t ft2232_interface;
+-#endif
+-
+-#if BUILD_FT2232_LIBFTDI == 1
+-	extern jtag_interface_t ft2232_interface;
+-#endif
+-
+-#if BUILD_AMTJTAGACCEL == 1
+-	extern jtag_interface_t amt_jtagaccel_interface;
+-#endif
+-
+-#if BUILD_EP93XX == 1
+-	extern jtag_interface_t ep93xx_interface;
+-#endif
+-
+-#if BUILD_AT91RM9200 == 1
+-	extern jtag_interface_t at91rm9200_interface;
+-#endif
+-
+-#if BUILD_GW16012 == 1
+-	extern jtag_interface_t gw16012_interface;
+-#endif
+-
+-#if BUILD_PRESTO_LIBFTDI == 1 || BUILD_PRESTO_FTD2XX == 1
+-	extern jtag_interface_t presto_interface;
+-#endif
+-
+-#if BUILD_USBPROG == 1
+-	extern jtag_interface_t usbprog_interface;
+-#endif
+-
+-#if BUILD_JLINK == 1
+-	extern jtag_interface_t jlink_interface;
+-#endif
+-
+-#if BUILD_VSLLINK == 1
+-	extern jtag_interface_t vsllink_interface;
+-#endif
+-
+-#if BUILD_RLINK == 1
+-	extern jtag_interface_t rlink_interface;
+-#endif
+-
+-#if BUILD_ARMJTAGEW == 1
+-	extern jtag_interface_t armjtagew_interface;
+-#endif
+-#endif // standard drivers
+-
+-/**
+- * The list of built-in JTAG interfaces, containing entries for those
+- * drivers that were enabled by the @c configure script.
+- *
+- * The list should be defined to contain either one minidriver interface
+- * or some number of standard driver interfaces, never both.
+- */
+-jtag_interface_t *jtag_interfaces[] = {
+-#if BUILD_ECOSBOARD == 1
+-	&amp;zy1000_interface,
+-#elif defined(BUILD_MINIDRIVER_DUMMY)
+-	&amp;minidummy_interface,
+-#else // standard drivers
+-#if BUILD_PARPORT == 1
+-	&amp;parport_interface,
+-#endif
+-#if BUILD_DUMMY == 1
+-	&amp;dummy_interface,
+-#endif
+-#if BUILD_FT2232_FTD2XX == 1
+-	&amp;ft2232_interface,
+-#endif
+-#if BUILD_FT2232_LIBFTDI == 1
+-	&amp;ft2232_interface,
+-#endif
+-#if BUILD_AMTJTAGACCEL == 1
+-	&amp;amt_jtagaccel_interface,
+-#endif
+-#if BUILD_EP93XX == 1
+-	&amp;ep93xx_interface,
+-#endif
+-#if BUILD_AT91RM9200 == 1
+-	&amp;at91rm9200_interface,
+-#endif
+-#if BUILD_GW16012 == 1
+-	&amp;gw16012_interface,
+-#endif
+-#if BUILD_PRESTO_LIBFTDI == 1 || BUILD_PRESTO_FTD2XX == 1
+-	&amp;presto_interface,
+-#endif
+-#if BUILD_USBPROG == 1
+-	&amp;usbprog_interface,
+-#endif
+-#if BUILD_JLINK == 1
+-	&amp;jlink_interface,
+-#endif
+-#if BUILD_VSLLINK == 1
+-	&amp;vsllink_interface,
+-#endif
+-#if BUILD_RLINK == 1
+-	&amp;rlink_interface,
+-#endif
+-#if BUILD_ARMJTAGEW == 1
+-	&amp;armjtagew_interface,
+-#endif
+-#endif // standard drivers
+-	NULL,
+-};
+-
+-struct jtag_interface_s *jtag = NULL;
+-
+-/* configuration */
+-static jtag_interface_t *jtag_interface = NULL;
+-int jtag_speed = 0;
+-
+-/* jtag commands */
+-static int handle_interface_list_command(struct command_context_s *cmd_ctx,
+-		char *cmd, char **args, int argc);
+-static int handle_interface_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-static int handle_jtag_speed_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-static int handle_jtag_khz_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-static int handle_jtag_device_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-static int handle_reset_config_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-static int handle_jtag_nsrst_delay_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-static int handle_jtag_ntrst_delay_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-
+-static int handle_scan_chain_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-
+-static int handle_jtag_reset_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-static int handle_runtest_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-static int handle_irscan_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-static int Jim_Command_drscan(Jim_Interp *interp, int argc, Jim_Obj *const *argv);
+-static int Jim_Command_flush_count(Jim_Interp *interp, int argc, Jim_Obj *const *args);
+-
+-static int handle_verify_ircapture_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-static int handle_verify_jtag_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-static int handle_tms_sequence_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-
+-jtag_tap_t *jtag_all_taps(void)
+-{
+-	return __jtag_all_taps;
+-};
+-
+-unsigned jtag_tap_count(void)
+-{
+-	return jtag_num_taps;
+-}
+-
+-unsigned jtag_tap_count_enabled(void)
+-{
+-	jtag_tap_t *t = jtag_all_taps();
+-	unsigned n = 0;
+-	while(t)
+-	{
+-		if (t-&gt;enabled)
+-			n++;
+-		t = t-&gt;next_tap;
+-	}
+-	return n;
+-}
+-
+-/// Append a new TAP to the chain of all taps.
+-void jtag_tap_add(struct jtag_tap_s *t)
+-{
+-	t-&gt;abs_chain_position = jtag_num_taps++;
+-
+-	jtag_tap_t **tap = &amp;__jtag_all_taps;
+-	while(*tap != NULL)
+-		tap = &amp;(*tap)-&gt;next_tap;
+-	*tap = t;
+-}
+-
+-jtag_tap_t *jtag_tap_by_string(const char *s)
+-{
+-	/* try by name first */
+-	jtag_tap_t *t = jtag_all_taps();
+-	while (t)
+-	{
+-		if (0 == strcmp(t-&gt;dotted_name, s))
+-			return t;
+-		t = t-&gt;next_tap;
+-	}
+-
+-	/* no tap found by name, so try to parse the name as a number */
+-	char *cp;
+-	unsigned n = strtoul(s, &amp;cp, 0);
+-	if ((s == cp) || (*cp != 0))
+-		return NULL;
+-
+-	return jtag_tap_by_position(n);
+-}
+-
+-jtag_tap_t *jtag_tap_by_jim_obj(Jim_Interp *interp, Jim_Obj *o)
+-{
+-	const char *cp = Jim_GetString(o, NULL);
+-	jtag_tap_t *t = cp ? jtag_tap_by_string(cp) : NULL;
+-	if (NULL == cp)
+-		cp = &quot;(unknown)&quot;;
+-	if (NULL == t)
+-		Jim_SetResult_sprintf(interp, &quot;Tap '%s' could not be found&quot;, cp);
+-	return t;
+-}
+-
+-/* returns a pointer to the n-th device in the scan chain */
+-jtag_tap_t *jtag_tap_by_position(unsigned n)
+-{
+-	jtag_tap_t *t = jtag_all_taps();
+-
+-	while (t &amp;&amp; n-- &gt; 0)
+-		t = t-&gt;next_tap;
+-
+-	return t;
+-}
+-
+-const char *jtag_tap_name(const jtag_tap_t *tap)
+-{
+-	return (tap == NULL) ? &quot;(unknown)&quot; : tap-&gt;dotted_name;
+-}
+-
+-
+-int jtag_register_event_callback(int (*callback)(enum jtag_event event, void *priv), void *priv)
+-{
+-	jtag_event_callback_t **callbacks_p = &amp;jtag_event_callbacks;
+-
+-	if (callback == NULL)
+-	{
+-		return ERROR_INVALID_ARGUMENTS;
+-	}
+-
+-	if (*callbacks_p)
+-	{
+-		while ((*callbacks_p)-&gt;next)
+-			callbacks_p = &amp;((*callbacks_p)-&gt;next);
+-		callbacks_p = &amp;((*callbacks_p)-&gt;next);
+-	}
+-
+-	(*callbacks_p) = malloc(sizeof(jtag_event_callback_t));
+-	(*callbacks_p)-&gt;callback = callback;
+-	(*callbacks_p)-&gt;priv = priv;
+-	(*callbacks_p)-&gt;next = NULL;
+-
+-	return ERROR_OK;
+-}
+-
+-int jtag_unregister_event_callback(int (*callback)(enum jtag_event event, void *priv))
+-{
+-	jtag_event_callback_t **callbacks_p = &amp;jtag_event_callbacks;
+-
+-	if (callback == NULL)
+-	{
+-		return ERROR_INVALID_ARGUMENTS;
+-	}
+-
+-	while (*callbacks_p)
+-	{
+-		jtag_event_callback_t **next = &amp;((*callbacks_p)-&gt;next);
+-		if ((*callbacks_p)-&gt;callback == callback)
+-		{
+-			free(*callbacks_p);
+-			*callbacks_p = *next;
+-		}
+-		callbacks_p = next;
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+-int jtag_call_event_callbacks(enum jtag_event event)
+-{
+-	jtag_event_callback_t *callback = jtag_event_callbacks;
+-
+-	LOG_DEBUG(&quot;jtag event: %s&quot;, jtag_event_strings[event]);
+-
+-	while (callback)
+-	{
+-		callback-&gt;callback(event, callback-&gt;priv);
+-		callback = callback-&gt;next;
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+-static void jtag_checks(void)
+-{
+-	assert(jtag_trst == 0);
+-}
+-
+-static void jtag_prelude(tap_state_t state)
+-{
+-	jtag_checks();
+-
+-	assert(state!=TAP_INVALID);
+-
+-	cmd_queue_cur_state = state;
+-}
+-
+-void jtag_alloc_in_value32(scan_field_t *field)
+-{
+-	interface_jtag_alloc_in_value32(field);
+-}
+-
+-void jtag_add_ir_scan_noverify(int in_count, const scan_field_t *in_fields,
+-		tap_state_t state)
+-{
+-	jtag_prelude(state);
+-
+-	int retval = interface_jtag_add_ir_scan(in_count, in_fields, state);
+-	jtag_set_error(retval);
+-}
+-
+-
+-void jtag_add_ir_scan(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+-{
+-	if (jtag_verify&amp;&amp;jtag_verify_capture_ir)
+-	{
+-		/* 8 x 32 bit id's is enough for all invocations */
+-
+-		for (int j = 0; j &lt; in_num_fields; j++)
+-		{
+-			/* if we are to run a verification of the ir scan, we need to get the input back.
+-			 * We may have to allocate space if the caller didn't ask for the input back.
+-			 */
+-			in_fields[j].check_value=in_fields[j].tap-&gt;expected;
+-			in_fields[j].check_mask=in_fields[j].tap-&gt;expected_mask;
+-		}
+-		jtag_add_scan_check(jtag_add_ir_scan_noverify, in_num_fields, in_fields, state);
+-	} else
+-	{
+-		jtag_add_ir_scan_noverify(in_num_fields, in_fields, state);
+-	}
+-}
+-
+-void jtag_add_plain_ir_scan(int in_num_fields, const scan_field_t *in_fields,
+-		tap_state_t state)
+-{
+-	jtag_prelude(state);
+-
+-	int retval = interface_jtag_add_plain_ir_scan(
+-			in_num_fields, in_fields, state);
+-	jtag_set_error(retval);
+-}
+-
+-void jtag_add_callback(jtag_callback1_t f, u8 *in)
+-{
+-	interface_jtag_add_callback(f, in);
+-}
+-
+-void jtag_add_callback4(jtag_callback_t f, u8 *in,
+-		jtag_callback_data_t data1, jtag_callback_data_t data2,
+-		jtag_callback_data_t data3)
+-{
+-	interface_jtag_add_callback4(f, in, data1, data2, data3);
+-}
+-
+-int jtag_check_value_inner(u8 *captured, u8 *in_check_value, u8 *in_check_mask, int num_bits);
+-
+-static int jtag_check_value_mask_callback(u8 *in, jtag_callback_data_t data1, jtag_callback_data_t data2, jtag_callback_data_t data3)
+-{
+-	return jtag_check_value_inner(in, (u8 *)data1, (u8 *)data2, (int)data3);
+-}
+-
+-static void jtag_add_scan_check(void (*jtag_add_scan)(int in_num_fields, const scan_field_t *in_fields, tap_state_t state),
+-		int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+-{
+-	for (int i = 0; i &lt; in_num_fields; i++)
+-	{
+-		struct scan_field_s *field = &amp;in_fields[i];
+-		field-&gt;allocated = 0;
+-		field-&gt;modified = 0;
+-		if (field-&gt;check_value || field-&gt;in_value)
+-			continue;
+-		interface_jtag_add_scan_check_alloc(field);
+-		field-&gt;modified = 1;
+-	}
+-
+-	jtag_add_scan(in_num_fields, in_fields, state);
+-
+-	for (int i = 0; i &lt; in_num_fields; i++)
+-	{
+-		if ((in_fields[i].check_value != NULL) &amp;&amp; (in_fields[i].in_value != NULL))
+-		{
+-			/* this is synchronous for a minidriver */
+-			jtag_add_callback4(jtag_check_value_mask_callback, in_fields[i].in_value,
+-				(jtag_callback_data_t)in_fields[i].check_value,
+-				(jtag_callback_data_t)in_fields[i].check_mask,
+-				(jtag_callback_data_t)in_fields[i].num_bits);
+-		}
+-		if (in_fields[i].allocated)
+-		{
+-			free(in_fields[i].in_value);
+-		}
+-		if (in_fields[i].modified)
+-		{
+-			in_fields[i].in_value = NULL;
+-		}
+-	}
+-}
+-
+-void jtag_add_dr_scan_check(int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+-{
+-	if (jtag_verify)
+-	{
+-		jtag_add_scan_check(jtag_add_dr_scan, in_num_fields, in_fields, state);
+-	} else
+-	{
+-		jtag_add_dr_scan(in_num_fields, in_fields, state);
+-	}
+-}
+-
+-
+-void jtag_add_dr_scan(int in_num_fields, const scan_field_t *in_fields,
+-		tap_state_t state)
+-{
+-	jtag_prelude(state);
+-
+-	int retval;
+-	retval = interface_jtag_add_dr_scan(in_num_fields, in_fields, state);
+-	jtag_set_error(retval);
+-}
+-
+-void jtag_add_plain_dr_scan(int in_num_fields, const scan_field_t *in_fields,
+-		tap_state_t state)
+-{
+-	jtag_prelude(state);
+-
+-	int retval;
+-	retval = interface_jtag_add_plain_dr_scan(in_num_fields, in_fields, state);
+-	jtag_set_error(retval);
+-}
+-
+-void jtag_add_dr_out(jtag_tap_t* tap,
+-		int num_fields, const int* num_bits, const u32* value,
+-		tap_state_t end_state)
+-{
+-	assert(end_state != TAP_INVALID);
+-
+-	cmd_queue_cur_state = end_state;
+-
+-	interface_jtag_add_dr_out(tap,
+-			num_fields, num_bits, value,
+-			end_state);
+-}
+-
+-void jtag_add_tlr(void)
+-{
+-	jtag_prelude(TAP_RESET);
+-	jtag_set_error(interface_jtag_add_tlr());
+-	jtag_call_event_callbacks(JTAG_TRST_ASSERTED);
+-}
+-
+-void jtag_add_pathmove(int num_states, const tap_state_t *path)
+-{
+-	tap_state_t cur_state = cmd_queue_cur_state;
+-
+-	/* the last state has to be a stable state */
+-	if (!tap_is_state_stable(path[num_states - 1]))
+-	{
+-		LOG_ERROR(&quot;BUG: TAP path doesn't finish in a stable state&quot;);
+-		jtag_set_error(ERROR_JTAG_NOT_STABLE_STATE);
+-		return;
+-	}
+-
+-	for (int i = 0; i &lt; num_states; i++)
+-	{
+-		if (path[i] == TAP_RESET)
+-		{
+-			LOG_ERROR(&quot;BUG: TAP_RESET is not a valid state for pathmove sequences&quot;);
+-			jtag_set_error(ERROR_JTAG_STATE_INVALID);
+-			return;
+-		}
+-
+-		if ( tap_state_transition(cur_state, true)  != path[i]
+-		  &amp;&amp; tap_state_transition(cur_state, false) != path[i])
+-		{
+-			LOG_ERROR(&quot;BUG: %s -&gt; %s isn't a valid TAP transition&quot;,
+-					tap_state_name(cur_state), tap_state_name(path[i]));
+-			jtag_set_error(ERROR_JTAG_TRANSITION_INVALID);
+-			return;
+-		}
+-		cur_state = path[i];
+-	}
+-
+-	jtag_checks();
+-
+-	jtag_set_error(interface_jtag_add_pathmove(num_states, path));
+-	cmd_queue_cur_state = path[num_states - 1];
+-}
+-
+-void jtag_add_runtest(int num_cycles, tap_state_t state)
+-{
+-	jtag_prelude(state);
+-	jtag_set_error(interface_jtag_add_runtest(num_cycles, state));
+-}
+-
+-
+-void jtag_add_clocks(int num_cycles)
+-{
+-	if (!tap_is_state_stable(cmd_queue_cur_state))
+-	{
+-		 LOG_ERROR(&quot;jtag_add_clocks() called with TAP in unstable state \&quot;%s\&quot;&quot;,
+-				 tap_state_name(cmd_queue_cur_state));
+-		 jtag_set_error(ERROR_JTAG_NOT_STABLE_STATE);
+-		 return;
+-	}
+-
+-	if (num_cycles &gt; 0)
+-	{
+-		jtag_checks();
+-		jtag_set_error(interface_jtag_add_clocks(num_cycles));
+-	}
+-}
+-
+-void jtag_add_reset(int req_tlr_or_trst, int req_srst)
+-{
+-	int trst_with_tlr = 0;
+-
+-	/* FIX!!! there are *many* different cases here. A better
+-	 * approach is needed for legal combinations of transitions...
+-	 */
+-	if ((jtag_reset_config &amp; RESET_HAS_SRST)&amp;&amp;
+-			(jtag_reset_config &amp; RESET_HAS_TRST)&amp;&amp;
+-			((jtag_reset_config &amp; RESET_SRST_PULLS_TRST)==0))
+-	{
+-		if (((req_tlr_or_trst&amp;&amp;!jtag_trst)||
+-				(!req_tlr_or_trst&amp;&amp;jtag_trst))&amp;&amp;
+-				((req_srst&amp;&amp;!jtag_srst)||
+-						(!req_srst&amp;&amp;jtag_srst)))
+-		{
+-			/* FIX!!! srst_pulls_trst allows 1,1 =&gt; 0,0 transition.... */
+-			//LOG_ERROR(&quot;BUG: transition of req_tlr_or_trst and req_srst in the same jtag_add_reset() call is undefined&quot;);
+-		}
+-	}
+-
+-	/* Make sure that jtag_reset_config allows the requested reset */
+-	/* if SRST pulls TRST, we can't fulfill srst == 1 with trst == 0 */
+-	if (((jtag_reset_config &amp; RESET_SRST_PULLS_TRST) &amp;&amp; (req_srst == 1)) &amp;&amp; (!req_tlr_or_trst))
+-	{
+-		LOG_ERROR(&quot;BUG: requested reset would assert trst&quot;);
+-		jtag_set_error(ERROR_FAIL);
+-		return;
+-	}
+-
+-	/* if TRST pulls SRST, we reset with TAP T-L-R */
+-	if (((jtag_reset_config &amp; RESET_TRST_PULLS_SRST) &amp;&amp; (req_tlr_or_trst)) &amp;&amp; (req_srst == 0))
+-	{
+-		trst_with_tlr = 1;
+-	}
+-
+-	if (req_srst &amp;&amp; !(jtag_reset_config &amp; RESET_HAS_SRST))
+-	{
+-		LOG_ERROR(&quot;BUG: requested SRST assertion, but the current configuration doesn't support this&quot;);
+-		jtag_set_error(ERROR_FAIL);
+-		return;
+-	}
+-
+-	if (req_tlr_or_trst)
+-	{
+-		if (!trst_with_tlr &amp;&amp; (jtag_reset_config &amp; RESET_HAS_TRST))
+-		{
+-			jtag_trst = 1;
+-		} else
+-		{
+-			trst_with_tlr = 1;
+-		}
+-	} else
+-	{
+-		jtag_trst = 0;
+-	}
+-
+-	jtag_srst = req_srst;
+-
+-	int retval = interface_jtag_add_reset(jtag_trst, jtag_srst);
+-	if (retval != ERROR_OK)
+-	{
+-		jtag_set_error(retval);
+-		return;
+-	}
+-	jtag_execute_queue();
+-
+-	if (jtag_srst)
+-	{
+-		LOG_DEBUG(&quot;SRST line asserted&quot;);
+-	}
+-	else
+-	{
+-		LOG_DEBUG(&quot;SRST line released&quot;);
+-		if (jtag_nsrst_delay)
+-			jtag_add_sleep(jtag_nsrst_delay * 1000);
+-	}
+-
+-	if (trst_with_tlr)
+-	{
+-		LOG_DEBUG(&quot;JTAG reset with RESET instead of TRST&quot;);
+-		jtag_set_end_state(TAP_RESET);
+-		jtag_add_tlr();
+-		return;
+-	}
+-
+-	if (jtag_trst)
+-	{
+-		/* we just asserted nTRST, so we're now in Test-Logic-Reset,
+-		 * and inform possible listeners about this
+-		 */
+-		LOG_DEBUG(&quot;TRST line asserted&quot;);
+-		tap_set_state(TAP_RESET);
+-		jtag_call_event_callbacks(JTAG_TRST_ASSERTED);
+-	}
+-	else
+-	{
+-		if (jtag_ntrst_delay)
+-			jtag_add_sleep(jtag_ntrst_delay * 1000);
+-	}
+-}
+-
+-tap_state_t jtag_set_end_state(tap_state_t state)
+-{
+-	if ((state == TAP_DRSHIFT)||(state == TAP_IRSHIFT))
+-	{
+-		LOG_ERROR(&quot;BUG: TAP_DRSHIFT/IRSHIFT can't be end state. Calling code should use a larger scan field&quot;);
+-	}
+-
+-	if (state!=TAP_INVALID)
+-		cmd_queue_end_state = state;
+-	return cmd_queue_end_state;
+-}
+-
+-tap_state_t jtag_get_end_state(void)
+-{
+-	return cmd_queue_end_state;
+-}
+-
+-void jtag_add_sleep(u32 us)
+-{
+-	/// @todo Here, keep_alive() appears to be a layering violation!!!
+-	keep_alive();
+-	jtag_set_error(interface_jtag_add_sleep(us));
+-}
+-
+-int jtag_check_value_inner(u8 *captured, u8 *in_check_value, u8 *in_check_mask, int num_bits)
+-{
+-	int retval = ERROR_OK;
+-
+-	int compare_failed = 0;
+-
+-	if (in_check_mask)
+-		compare_failed = buf_cmp_mask(captured, in_check_value, in_check_mask, num_bits);
+-	else
+-		compare_failed = buf_cmp(captured, in_check_value, num_bits);
+-
+-	if (compare_failed){
+-		/* An error handler could have caught the failing check
+-		 * only report a problem when there wasn't a handler, or if the handler
+-		 * acknowledged the error
+-		 */
+-		/*
+-		LOG_WARNING(&quot;TAP %s:&quot;,
+-					jtag_tap_name(field-&gt;tap));
+-					*/
+-		if (compare_failed)
+-		{
+-			char *captured_char = buf_to_str(captured, (num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : num_bits, 16);
+-			char *in_check_value_char = buf_to_str(in_check_value, (num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : num_bits, 16);
+-
+-			if (in_check_mask)
+-			{
+-				char *in_check_mask_char;
+-				in_check_mask_char = buf_to_str(in_check_mask, (num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : num_bits, 16);
+-				LOG_WARNING(&quot;value captured during scan didn't pass the requested check:&quot;);
+-				LOG_WARNING(&quot;captured: 0x%s check_value: 0x%s check_mask: 0x%s&quot;,
+-							captured_char, in_check_value_char, in_check_mask_char);
+-				free(in_check_mask_char);
+-			}
+-			else
+-			{
+-				LOG_WARNING(&quot;value captured during scan didn't pass the requested check: captured: 0x%s check_value: 0x%s&quot;, captured_char, in_check_value_char);
+-			}
+-
+-			free(captured_char);
+-			free(in_check_value_char);
+-
+-			retval = ERROR_JTAG_QUEUE_FAILED;
+-		}
+-
+-	}
+-	return retval;
+-}
+-
+-void jtag_check_value_mask(scan_field_t *field, u8 *value, u8 *mask)
+-{
+-	assert(field-&gt;in_value != NULL);
+-
+-	if (value==NULL)
+-	{
+-		/* no checking to do */
+-		return;
+-	}
+-
+-	jtag_execute_queue_noclear();
+-
+-	int retval=jtag_check_value_inner(field-&gt;in_value, value, mask, field-&gt;num_bits);
+-	jtag_set_error(retval);
+-}
+-
+-
+-
+-int default_interface_jtag_execute_queue(void)
+-{
+-	if (NULL == jtag)
+-	{
+-		LOG_ERROR(&quot;No JTAG interface configured yet.  &quot;
+-			&quot;Issue 'init' command in startup scripts &quot;
+-			&quot;before communicating with targets.&quot;);
+-		return ERROR_FAIL;
+-	}
+-
+-	return jtag-&gt;execute_queue();
+-}
+-
+-void jtag_execute_queue_noclear(void)
+-{
+-	jtag_flush_queue_count++;
+-	jtag_set_error(interface_jtag_execute_queue());
+-}
+-
+-int jtag_get_flush_queue_count(void)
+-{
+-	return jtag_flush_queue_count;
+-}
+-
+-int jtag_execute_queue(void)
+-{
+-	jtag_execute_queue_noclear();
+-	return jtag_error_clear();
+-}
+-
+-static int jtag_reset_callback(enum jtag_event event, void *priv)
+-{
+-	jtag_tap_t *tap = priv;
+-
+-	LOG_DEBUG(&quot;-&quot;);
+-
+-	if (event == JTAG_TRST_ASSERTED)
+-	{
+-		buf_set_ones(tap-&gt;cur_instr, tap-&gt;ir_length);
+-		tap-&gt;bypass = 1;
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+-void jtag_sleep(u32 us)
+-{
+-	alive_sleep(us/1000);
+-}
+-
+-/// maximum number of JTAG devices expected in the chain
+-#define JTAG_MAX_CHAIN_SIZE 20
+-
+-#define EXTRACT_MFG(X)  (((X) &amp; 0xffe) &gt;&gt; 1)
+-#define EXTRACT_PART(X) (((X) &amp; 0xffff000) &gt;&gt; 12)
+-#define EXTRACT_VER(X)  (((X) &amp; 0xf0000000) &gt;&gt; 28)
+-
+-static int jtag_examine_chain_execute(u8 *idcode_buffer, unsigned num_idcode)
+-{
+-	scan_field_t field = {
+-			.tap = NULL,
+-			.num_bits = num_idcode * 32,
+-			.out_value = idcode_buffer,
+-			.in_value = idcode_buffer,
+-		};
+-
+-	// initialize to the end of chain ID value
+-	for (unsigned i = 0; i &lt; JTAG_MAX_CHAIN_SIZE; i++)
+-		buf_set_u32(idcode_buffer, i * 32, 32, 0x000000FF);
+-
+-	jtag_add_plain_dr_scan(1, &amp;field, TAP_RESET);
+-	return jtag_execute_queue();
+-}
+-
+-static bool jtag_examine_chain_check(u8 *idcodes, unsigned count)
+-{
+-	u8 zero_check = 0x0;
+-	u8 one_check = 0xff;
+-
+-	for (unsigned i = 0; i &lt; count * 4; i++)
+-	{
+-		zero_check |= idcodes[i];
+-		one_check &amp;= idcodes[i];
+-	}
+-
+-	/* if there wasn't a single non-zero bit or if all bits were one,
+-	 * the scan is not valid */
+-	if (zero_check == 0x00 || one_check == 0xff)
+-	{
+-		LOG_ERROR(&quot;JTAG communication failure: check connection, &quot;
+-			&quot;JTAG interface, target power etc.&quot;);
+-		return false;
+-	}
+-	return true;
+-}
+-
+-static void jtag_examine_chain_display(enum log_levels level, const char *msg,
+-		const char *name, u32 idcode)
+-{
+-	log_printf_lf(level, __FILE__, __LINE__, __FUNCTION__,
+-			&quot;JTAG tap: %s %16.16s: 0x%08x &quot;
+-			&quot;(mfg: 0x%3.3x, part: 0x%4.4x, ver: 0x%1.1x)&quot;,
+-		name, msg, idcode,
+-		EXTRACT_MFG(idcode), EXTRACT_PART(idcode), EXTRACT_VER(idcode) );
+-}
+-
+-static bool jtag_idcode_is_final(u32 idcode)
+-{
+-		return idcode == 0x000000FF || idcode == 0xFFFFFFFF;
+-}
+-
+-/**
+- * This helper checks that remaining bits in the examined chain data are
+- * all as expected, but a single JTAG device requires only 64 bits to be
+- * read back correctly.  This can help identify and diagnose problems
+- * with the JTAG chain earlier, gives more helpful/explicit error messages.
+- */
+-static void jtag_examine_chain_end(u8 *idcodes, unsigned count, unsigned max)
+-{
+-	bool triggered = false;
+-	for ( ; count &lt; max - 31; count += 32)
+-	{
+-		u32 idcode = buf_get_u32(idcodes, count, 32);
+-		// do not trigger the warning if the data looks good
+-		if (!triggered &amp;&amp; jtag_idcode_is_final(idcode))
+-			continue;
+-		LOG_WARNING(&quot;Unexpected idcode after end of chain: %d 0x%08x&quot;,
+-				count, idcode);
+-		triggered = true;
+-	}
+-}
+-
+-static bool jtag_examine_chain_match_tap(const struct jtag_tap_s *tap)
+-{
+-	if (0 == tap-&gt;expected_ids_cnt)
+-	{
+-		/// @todo Enable LOG_INFO to ask for reports about unknown TAP IDs.
+-#if 0
+-		LOG_INFO(&quot;Uknown JTAG TAP ID: 0x%08x&quot;, tap-&gt;idcode)
+-		LOG_INFO(&quot;Please report the chip name and reported ID code to the openocd project&quot;);
+-#endif
+-		return true;
+-	}
+-
+-	/* Loop over the expected identification codes and test for a match */
+-	u8 ii;
+-	for (ii = 0; ii &lt; tap-&gt;expected_ids_cnt; ii++)
+-	{
+-		if (tap-&gt;idcode == tap-&gt;expected_ids[ii])
+-			break;
+-	}
+-
+-	/* If none of the expected ids matched, log an error */
+-	if (ii != tap-&gt;expected_ids_cnt)
+-	{
+-		LOG_INFO(&quot;JTAG Tap/device matched&quot;);
+-		return true;
+-	}
+-	jtag_examine_chain_display(LOG_LVL_ERROR, &quot;got&quot;,
+-			tap-&gt;dotted_name, tap-&gt;idcode);
+-	for (ii = 0; ii &lt; tap-&gt;expected_ids_cnt; ii++)
+-	{
+-		char msg[32];
+-		snprintf(msg, sizeof(msg), &quot;expected %hhu of %hhu&quot;,
+-				ii + 1, tap-&gt;expected_ids_cnt);
+-		jtag_examine_chain_display(LOG_LVL_ERROR, msg,
+-				tap-&gt;dotted_name, tap-&gt;expected_ids[ii]);
+-	}
+-	return false;
+-}
+-
+-/* Try to examine chain layout according to IEEE 1149.1 &#194;&#167;12
+- */
+-static int jtag_examine_chain(void)
+-{
+-	u8 idcode_buffer[JTAG_MAX_CHAIN_SIZE * 4];
+-	unsigned device_count = 0;
+-
+-	jtag_examine_chain_execute(idcode_buffer, JTAG_MAX_CHAIN_SIZE);
+-
+-	if (!jtag_examine_chain_check(idcode_buffer, JTAG_MAX_CHAIN_SIZE))
+-		return ERROR_JTAG_INIT_FAILED;
+-
+-	/* point at the 1st tap */
+-	jtag_tap_t *tap = jtag_tap_next_enabled(NULL);
+-	if (tap == NULL)
+-	{
+-		LOG_ERROR(&quot;JTAG: No taps enabled?&quot;);
+-		return ERROR_JTAG_INIT_FAILED;
+-	}
+-
+-	for (unsigned bit_count = 0; bit_count &lt; (JTAG_MAX_CHAIN_SIZE * 32) - 31;)
+-	{
+-		u32 idcode = buf_get_u32(idcode_buffer, bit_count, 32);
+-		if ((idcode &amp; 1) == 0)
+-		{
+-			/* LSB must not be 0, this indicates a device in bypass */
+-			LOG_WARNING(&quot;Tap/Device does not have IDCODE&quot;);
+-			idcode = 0;
+-
+-			bit_count += 1;
+-		}
+-		else
+-		{
+-	 		/*
+-			 * End of chain (invalid manufacturer ID) some devices, such
+-			 * as AVR will output all 1's instead of TDI input value at
+-			 * end of chain.
+-			 */
+-			if (jtag_idcode_is_final(idcode))
+-			{
+-				jtag_examine_chain_end(idcode_buffer,
+-						bit_count + 32, JTAG_MAX_CHAIN_SIZE * 32);
+-				break;
+-			}
+-
+-			jtag_examine_chain_display(LOG_LVL_INFO, &quot;tap/device found&quot;,
+-					tap ? tap-&gt;dotted_name : &quot;(not-named)&quot;,
+-					idcode);
+-
+-			bit_count += 32;
+-		}
+-		device_count++;
+-		if (!tap)
+-			continue;
+-
+-		tap-&gt;idcode = idcode;
+-
+-		// ensure the TAP ID does matches what was expected
+- 		if (!jtag_examine_chain_match_tap(tap))
+-			return ERROR_JTAG_INIT_FAILED;
+-
+-		tap = jtag_tap_next_enabled(tap);
+-	}
+-
+-	/* see if number of discovered devices matches configuration */
+-	if (device_count != jtag_tap_count_enabled())
+-	{
+-		LOG_ERROR(&quot;number of discovered devices in JTAG chain (%i) &quot;
+-				&quot;does not match (enabled) configuration (%i), total taps: %d&quot;,
+-				device_count, jtag_tap_count_enabled(), jtag_tap_count());
+-		LOG_ERROR(&quot;check the config file and ensure proper JTAG communication&quot;
+-				&quot; (connections, speed, ...)&quot;);
+-		return ERROR_JTAG_INIT_FAILED;
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+-static int jtag_validate_chain(void)
+-{
+-	jtag_tap_t *tap;
+-	int total_ir_length = 0;
+-	u8 *ir_test = NULL;
+-	scan_field_t field;
+-	int chain_pos = 0;
+-
+-	tap = NULL;
+-	total_ir_length = 0;
+-	for(;;){
+-		tap = jtag_tap_next_enabled(tap);
+-		if( tap == NULL ){
+-			break;
+-		}
+-		total_ir_length += tap-&gt;ir_length;
+-	}
+-
+-	total_ir_length += 2;
+-	ir_test = malloc(CEIL(total_ir_length, 8));
+-	buf_set_ones(ir_test, total_ir_length);
+-
+-	field.tap = NULL;
+-	field.num_bits = total_ir_length;
+-	field.out_value = ir_test;
+-	field.in_value = ir_test;
+-
+-
+-	jtag_add_plain_ir_scan(1, &amp;field, TAP_RESET);
+-	jtag_execute_queue();
+-
+-	tap = NULL;
+-	chain_pos = 0;
+-	int val;
+-	for(;;){
+-		tap = jtag_tap_next_enabled(tap);
+-		if( tap == NULL ){
+-			break;
+-		}
+-
+-		val = buf_get_u32(ir_test, chain_pos, 2);
+-		if (val != 0x1)
+-		{
+-			char *cbuf = buf_to_str(ir_test, total_ir_length, 16);
+-			LOG_ERROR(&quot;Could not validate JTAG scan chain, IR mismatch, scan returned 0x%s. tap=%s pos=%d expected 0x1 got %0x&quot;, cbuf, jtag_tap_name(tap), chain_pos, val);
+-			free(cbuf);
+-			free(ir_test);
+-			return ERROR_JTAG_INIT_FAILED;
+-		}
+-		chain_pos += tap-&gt;ir_length;
+-	}
+-
+-	val = buf_get_u32(ir_test, chain_pos, 2);
+-	if (val != 0x3)
+-	{
+-		char *cbuf = buf_to_str(ir_test, total_ir_length, 16);
+-		LOG_ERROR(&quot;Could not validate end of JTAG scan chain, IR mismatch, scan returned 0x%s. pos=%d expected 0x3 got %0x&quot;, cbuf, chain_pos, val);
+-		free(cbuf);
+-		free(ir_test);
+-		return ERROR_JTAG_INIT_FAILED;
+-	}
+-
+-	free(ir_test);
+-
+-	return ERROR_OK;
+-}
+-
+-enum jtag_tap_cfg_param {
+-	JCFG_EVENT
+-};
+-
+-static Jim_Nvp nvp_config_opts[] = {
+-	{ .name = &quot;-event&quot;,      .value = JCFG_EVENT },
+-
+-	{ .name = NULL,          .value = -1 }
+-};
+-
+-static int jtag_tap_configure_cmd( Jim_GetOptInfo *goi, jtag_tap_t * tap)
+-{
+-	Jim_Nvp *n;
+-	Jim_Obj *o;
+-	int e;
+-
+-	/* parse config or cget options */
+-	while (goi-&gt;argc &gt; 0) {
+-		Jim_SetEmptyResult (goi-&gt;interp);
+-
+-		e = Jim_GetOpt_Nvp(goi, nvp_config_opts, &amp;n);
+-		if (e != JIM_OK) {
+-			Jim_GetOpt_NvpUnknown(goi, nvp_config_opts, 0);
+-			return e;
+-		}
+-
+-		switch (n-&gt;value) {
+-			case JCFG_EVENT:
+-				if (goi-&gt;argc == 0) {
+-					Jim_WrongNumArgs( goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event ?event-name? ...&quot; );
+-					return JIM_ERR;
+-				}
+-
+-				e = Jim_GetOpt_Nvp( goi, nvp_jtag_tap_event, &amp;n );
+-				if (e != JIM_OK) {
+-					Jim_GetOpt_NvpUnknown(goi, nvp_jtag_tap_event, 1);
+-					return e;
+-				}
+-
+-				if (goi-&gt;isconfigure) {
+-					if (goi-&gt;argc != 1) {
+-						Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event ?event-name? ?EVENT-BODY?&quot;);
+-						return JIM_ERR;
+-					}
+-				} else {
+-					if (goi-&gt;argc != 0) {
+-						Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event ?event-name?&quot;);
+-						return JIM_ERR;
+-					}
+-				}
+-
+-				{
+-					jtag_tap_event_action_t *jteap;
+-
+-					jteap = tap-&gt;event_action;
+-					/* replace existing? */
+-					while (jteap) {
+-						if (jteap-&gt;event == (enum jtag_tap_event)n-&gt;value) {
+-							break;
+-						}
+-						jteap = jteap-&gt;next;
+-					}
+-
+-					if (goi-&gt;isconfigure) {
+-						if (jteap == NULL) {
+-							/* create new */
+-							jteap = calloc(1, sizeof (*jteap));
+-						}
+-						jteap-&gt;event = n-&gt;value;
+-						Jim_GetOpt_Obj( goi, &amp;o);
+-						if (jteap-&gt;body) {
+-							Jim_DecrRefCount(interp, jteap-&gt;body);
+-						}
+-						jteap-&gt;body = Jim_DuplicateObj(goi-&gt;interp, o);
+-						Jim_IncrRefCount(jteap-&gt;body);
+-
+-						/* add to head of event list */
+-						jteap-&gt;next = tap-&gt;event_action;
+-						tap-&gt;event_action = jteap;
+-						Jim_SetEmptyResult(goi-&gt;interp);
+-					} else {
+-						/* get */
+-						if (jteap == NULL) {
+-							Jim_SetEmptyResult(goi-&gt;interp);
+-						} else {
+-							Jim_SetResult(goi-&gt;interp, Jim_DuplicateObj(goi-&gt;interp, jteap-&gt;body));
+-						}
+-					}
+-				}
+-				/* loop for more */
+-				break;
+-		}
+-	} /* while (goi-&gt;argc) */
+-
+-	return JIM_OK;
+-}
+-
+-
+-static void jtag_tap_init(jtag_tap_t *tap)
+-{
+-	assert(0 != tap-&gt;ir_length);
+-
+-	tap-&gt;expected = malloc(tap-&gt;ir_length);
+-	tap-&gt;expected_mask = malloc(tap-&gt;ir_length);
+-	tap-&gt;cur_instr = malloc(tap-&gt;ir_length);
+-
+-	buf_set_u32(tap-&gt;expected, 0, tap-&gt;ir_length, tap-&gt;ir_capture_value);
+-	buf_set_u32(tap-&gt;expected_mask, 0, tap-&gt;ir_length, tap-&gt;ir_capture_mask);
+-	buf_set_ones(tap-&gt;cur_instr, tap-&gt;ir_length);
+-
+-	// place TAP in bypass mode
+-	tap-&gt;bypass = 1;
+-	// register the reset callback for the TAP
+-	jtag_register_event_callback(&amp;jtag_reset_callback, tap);
+-
+-	LOG_DEBUG(&quot;Created Tap: %s @ abs position %d, &quot;
+-			&quot;irlen %d, capture: 0x%x mask: 0x%x&quot;, tap-&gt;dotted_name,
+-				tap-&gt;abs_chain_position, tap-&gt;ir_length,
+-				tap-&gt;ir_capture_value, tap-&gt;ir_capture_mask);
+-	jtag_tap_add(tap);
+-}
+-
+-static void jtag_tap_free(jtag_tap_t *tap)
+-{
+-	/// @todo is anything missing? no memory leaks please 
+-	free((void *)tap-&gt;expected_ids);
+-	free((void *)tap-&gt;chip);
+-	free((void *)tap-&gt;tapname);
+-	free((void *)tap-&gt;dotted_name);
+-	free(tap);
+-}
+-
+-static int jim_newtap_cmd( Jim_GetOptInfo *goi )
+-{
+-	jtag_tap_t *pTap;
+-	jim_wide w;
+-	int x;
+-	int e;
+-	int reqbits;
+-	Jim_Nvp *n;
+-	char *cp;
+-	const Jim_Nvp opts[] = {
+-#define NTAP_OPT_IRLEN     0
+-		{ .name = &quot;-irlen&quot;			,	.value = NTAP_OPT_IRLEN },
+-#define NTAP_OPT_IRMASK    1
+-		{ .name = &quot;-irmask&quot;			,	.value = NTAP_OPT_IRMASK },
+-#define NTAP_OPT_IRCAPTURE 2
+-		{ .name = &quot;-ircapture&quot;		,	.value = NTAP_OPT_IRCAPTURE },
+-#define NTAP_OPT_ENABLED   3
+-		{ .name = &quot;-enable&quot;			,	.value = NTAP_OPT_ENABLED },
+-#define NTAP_OPT_DISABLED  4
+-		{ .name = &quot;-disable&quot;		,	.value = NTAP_OPT_DISABLED },
+-#define NTAP_OPT_EXPECTED_ID 5
+-		{ .name = &quot;-expected-id&quot;	,	.value = NTAP_OPT_EXPECTED_ID },
+-		{ .name = NULL				,	.value = -1 },
+-	};
+-
+-	pTap = malloc( sizeof(jtag_tap_t) );
+-	memset( pTap, 0, sizeof(*pTap) );
+-	if( !pTap ){
+-		Jim_SetResult_sprintf( goi-&gt;interp, &quot;no memory&quot;);
+-		return JIM_ERR;
+-	}
+-	/*
+-	 * we expect CHIP + TAP + OPTIONS
+-	 * */
+-	if( goi-&gt;argc &lt; 3 ){
+-		Jim_SetResult_sprintf(goi-&gt;interp, &quot;Missing CHIP TAP OPTIONS ....&quot;);
+-		return JIM_ERR;
+-	}
+-	Jim_GetOpt_String( goi, &amp;cp, NULL );
+-	pTap-&gt;chip = strdup(cp);
+-
+-	Jim_GetOpt_String( goi, &amp;cp, NULL );
+-	pTap-&gt;tapname = strdup(cp);
+-
+-	/* name + dot + name + null */
+-	x = strlen(pTap-&gt;chip) + 1 + strlen(pTap-&gt;tapname) + 1;
+-	cp = malloc( x );
+-	sprintf( cp, &quot;%s.%s&quot;, pTap-&gt;chip, pTap-&gt;tapname );
+-	pTap-&gt;dotted_name = cp;
+-
+-	LOG_DEBUG(&quot;Creating New Tap, Chip: %s, Tap: %s, Dotted: %s, %d params&quot;,
+-			  pTap-&gt;chip, pTap-&gt;tapname, pTap-&gt;dotted_name, goi-&gt;argc);
+-
+-	/* default is enabled */
+-	pTap-&gt;enabled = 1;
+-
+-	/* deal with options */
+-#define NTREQ_IRLEN      1
+-#define NTREQ_IRCAPTURE  2
+-#define NTREQ_IRMASK     4
+-
+-	/* clear them as we find them */
+-	reqbits = (NTREQ_IRLEN | NTREQ_IRCAPTURE | NTREQ_IRMASK);
+-
+-	while( goi-&gt;argc ){
+-		e = Jim_GetOpt_Nvp( goi, opts, &amp;n );
+-		if( e != JIM_OK ){
+-			Jim_GetOpt_NvpUnknown( goi, opts, 0 );
+-			return e;
+-		}
+-		LOG_DEBUG(&quot;Processing option: %s&quot;, n-&gt;name );
+-		switch( n-&gt;value ){
+-		case NTAP_OPT_ENABLED:
+-			pTap-&gt;enabled = 1;
+-			break;
+-		case NTAP_OPT_DISABLED:
+-			pTap-&gt;enabled = 0;
+-			break;
+-		case NTAP_OPT_EXPECTED_ID:
+-		{
+-			u32 *new_expected_ids;
+-
+-			e = Jim_GetOpt_Wide( goi, &amp;w );
+-			if( e != JIM_OK) {
+-				Jim_SetResult_sprintf(goi-&gt;interp, &quot;option: %s bad parameter&quot;, n-&gt;name);
+-				return e;
+-			}
+-
+-			new_expected_ids = malloc(sizeof(u32) * (pTap-&gt;expected_ids_cnt + 1));
+-			if (new_expected_ids == NULL) {
+-				Jim_SetResult_sprintf( goi-&gt;interp, &quot;no memory&quot;);
+-				return JIM_ERR;
+-			}
+-
+-			memcpy(new_expected_ids, pTap-&gt;expected_ids, sizeof(u32) * pTap-&gt;expected_ids_cnt);
+-
+-			new_expected_ids[pTap-&gt;expected_ids_cnt] = w;
+-
+-			free(pTap-&gt;expected_ids);
+-			pTap-&gt;expected_ids = new_expected_ids;
+-			pTap-&gt;expected_ids_cnt++;
+-			break;
+-		}
+-		case NTAP_OPT_IRLEN:
+-		case NTAP_OPT_IRMASK:
+-		case NTAP_OPT_IRCAPTURE:
+-			e = Jim_GetOpt_Wide( goi, &amp;w );
+-			if( e != JIM_OK ){
+-				Jim_SetResult_sprintf( goi-&gt;interp, &quot;option: %s bad parameter&quot;, n-&gt;name );
+-				return e;
+-			}
+-			if( (w &lt; 0) || (w &gt; 0xffff) ){
+-				/* wacky value */
+-				Jim_SetResult_sprintf( goi-&gt;interp, &quot;option: %s - wacky value: %d (0x%x)&quot;,
+-									   n-&gt;name, (int)(w), (int)(w));
+-				return JIM_ERR;
+-			}
+-			switch(n-&gt;value){
+-			case NTAP_OPT_IRLEN:
+-				pTap-&gt;ir_length = w;
+-				reqbits &amp;= (~(NTREQ_IRLEN));
+-				break;
+-			case NTAP_OPT_IRMASK:
+-				pTap-&gt;ir_capture_mask = w;
+-				reqbits &amp;= (~(NTREQ_IRMASK));
+-				break;
+-			case NTAP_OPT_IRCAPTURE:
+-				pTap-&gt;ir_capture_value = w;
+-				reqbits &amp;= (~(NTREQ_IRCAPTURE));
+-				break;
+-			}
+-		} /* switch(n-&gt;value) */
+-	} /* while( goi-&gt;argc ) */
+-
+-	/* Did all the required option bits get cleared? */
+-	if (0 == reqbits)
+-	{
+-		jtag_tap_init(pTap);
+-		return ERROR_OK;
+-	}
+-
+-	Jim_SetResult_sprintf(goi-&gt;interp,
+-			&quot;newtap: %s missing required parameters&quot;,
+-			pTap-&gt;dotted_name);
+-	jtag_tap_free(pTap);
+-	return JIM_ERR;
+-}
+-
+-static int jim_jtag_command( Jim_Interp *interp, int argc, Jim_Obj *const *argv )
+-{
+-	Jim_GetOptInfo goi;
+-	int e;
+-	Jim_Nvp *n;
+-	Jim_Obj *o;
+-	struct command_context_s *context;
+-
+-	enum {
+-		JTAG_CMD_INTERFACE,
+-		JTAG_CMD_INIT_RESET,
+-		JTAG_CMD_NEWTAP,
+-		JTAG_CMD_TAPENABLE,
+-		JTAG_CMD_TAPDISABLE,
+-		JTAG_CMD_TAPISENABLED,
+-		JTAG_CMD_CONFIGURE,
+-		JTAG_CMD_CGET
+-	};
+-
+-	const Jim_Nvp jtag_cmds[] = {
+-		{ .name = &quot;interface&quot;     , .value = JTAG_CMD_INTERFACE },
+-		{ .name = &quot;arp_init-reset&quot;, .value = JTAG_CMD_INIT_RESET },
+-		{ .name = &quot;newtap&quot;        , .value = JTAG_CMD_NEWTAP },
+-		{ .name = &quot;tapisenabled&quot;     , .value = JTAG_CMD_TAPISENABLED },
+-		{ .name = &quot;tapenable&quot;     , .value = JTAG_CMD_TAPENABLE },
+-		{ .name = &quot;tapdisable&quot;    , .value = JTAG_CMD_TAPDISABLE },
+-		{ .name = &quot;configure&quot;     , .value = JTAG_CMD_CONFIGURE },
+-		{ .name = &quot;cget&quot;          , .value = JTAG_CMD_CGET },
+-
+-		{ .name = NULL, .value = -1 },
+-	};
+-
+-	context = Jim_GetAssocData(interp, &quot;context&quot;);
+-	/* go past the command */
+-	Jim_GetOpt_Setup( &amp;goi, interp, argc-1, argv+1 );
+-
+-	e = Jim_GetOpt_Nvp( &amp;goi, jtag_cmds, &amp;n );
+-	if( e != JIM_OK ){
+-		Jim_GetOpt_NvpUnknown( &amp;goi, jtag_cmds, 0 );
+-		return e;
+-	}
+-		Jim_SetEmptyResult( goi.interp );
+-	switch( n-&gt;value ){
+-	case JTAG_CMD_INTERFACE:
+-		/* return the name of the interface */
+-		/* TCL code might need to know the exact type... */
+-		/* FUTURE: we allow this as a means to &quot;set&quot; the interface. */
+-		if( goi.argc != 0 ){
+-			Jim_WrongNumArgs( goi.interp, 1, goi.argv-1, &quot;(no params)&quot;);
+-			return JIM_ERR;
+-		}
+-		Jim_SetResultString( goi.interp, jtag_interface-&gt;name, -1 );
+-		return JIM_OK;
+-	case JTAG_CMD_INIT_RESET:
+-		if( goi.argc != 0 ){
+-			Jim_WrongNumArgs( goi.interp, 1, goi.argv-1, &quot;(no params)&quot;);
+-			return JIM_ERR;
+-		}
+-		e = jtag_init_reset(context);
+-		if( e != ERROR_OK ){
+-			Jim_SetResult_sprintf( goi.interp, &quot;error: %d&quot;, e);
+-			return JIM_ERR;
+-		}
+-		return JIM_OK;
+-	case JTAG_CMD_NEWTAP:
+-		return jim_newtap_cmd( &amp;goi );
+-		break;
+-	case JTAG_CMD_TAPISENABLED:
+-	case JTAG_CMD_TAPENABLE:
+-	case JTAG_CMD_TAPDISABLE:
+-		if( goi.argc != 1 ){
+-			Jim_SetResultString( goi.interp, &quot;Too many parameters&quot;,-1 );
+-			return JIM_ERR;
+-		}
+-
+-		{
+-			jtag_tap_t *t;
+-			t = jtag_tap_by_jim_obj( goi.interp, goi.argv[0] );
+-			if( t == NULL ){
+-				return JIM_ERR;
+-			}
+-			switch( n-&gt;value ){
+-			case JTAG_CMD_TAPISENABLED:
+-				e = t-&gt;enabled;
+-				break;
+-			case JTAG_CMD_TAPENABLE:
+-				jtag_tap_handle_event( t, JTAG_TAP_EVENT_ENABLE);
+-				e = 1;
+-				t-&gt;enabled = e;
+-				break;
+-			case JTAG_CMD_TAPDISABLE:
+-				jtag_tap_handle_event( t, JTAG_TAP_EVENT_DISABLE);
+-				e = 0;
+-				t-&gt;enabled = e;
+-				break;
+-			}
+-			Jim_SetResult( goi.interp, Jim_NewIntObj( goi.interp, e ) );
+-			return JIM_OK;
+-		}
+-		break;
+-
+-	case JTAG_CMD_CGET:
+-		if( goi.argc &lt; 2 ){
+-			Jim_WrongNumArgs( goi.interp, 0, NULL, &quot;?tap-name? -option ...&quot;);
+-			return JIM_ERR;
+-		}
+-
+-		{
+-			jtag_tap_t *t;
+-
+-			Jim_GetOpt_Obj(&amp;goi, &amp;o);
+-			t = jtag_tap_by_jim_obj( goi.interp, o );
+-			if( t == NULL ){
+-				return JIM_ERR;
+-			}
+-
+-			goi.isconfigure = 0;
+-			return jtag_tap_configure_cmd( &amp;goi, t);
+-		}
+-		break;
+-
+-	case JTAG_CMD_CONFIGURE:
+-		if( goi.argc &lt; 3 ){
+-			Jim_WrongNumArgs( goi.interp, 0, NULL, &quot;?tap-name? -option ?VALUE? ...&quot;);
+-			return JIM_ERR;
+-		}
+-
+-		{
+-			jtag_tap_t *t;
+-
+-			Jim_GetOpt_Obj(&amp;goi, &amp;o);
+-			t = jtag_tap_by_jim_obj( goi.interp, o );
+-			if( t == NULL ){
+-				return JIM_ERR;
+-			}
+-
+-			goi.isconfigure = 1;
+-			return jtag_tap_configure_cmd( &amp;goi, t);
+-		}
+-	}
+-
+-	return JIM_ERR;
+-}
+-
+-int jtag_register_commands(struct command_context_s *cmd_ctx)
+-{
+-	register_jim( cmd_ctx, &quot;jtag&quot;, jim_jtag_command, &quot;perform jtag tap actions&quot;);
+-
+-	register_command(cmd_ctx, NULL, &quot;interface&quot;, handle_interface_command,
+-		COMMAND_CONFIG, &quot;try to configure interface&quot;);
+-	register_command(cmd_ctx, NULL,
+-		&quot;interface_list&quot;, &amp;handle_interface_list_command,
+-		COMMAND_ANY, &quot;list all built-in interfaces&quot;);
+-	register_command(cmd_ctx, NULL, &quot;jtag_speed&quot;, handle_jtag_speed_command,
+-		COMMAND_ANY, &quot;(DEPRECATED) set jtag speed (if supported)&quot;);
+-	register_command(cmd_ctx, NULL, &quot;jtag_khz&quot;, handle_jtag_khz_command,
+-		COMMAND_ANY, &quot;set maximum jtag speed (if supported); &quot;
+-		&quot;parameter is maximum khz, or 0 for adaptive clocking (RTCK).&quot;);
+-	register_command(cmd_ctx, NULL, &quot;jtag_device&quot;, handle_jtag_device_command,
+-		COMMAND_CONFIG, &quot;(DEPRECATED) jtag_device &lt;ir_length&gt; &lt;ir_expected&gt; &lt;ir_mask&gt;&quot;);
+-	register_command(cmd_ctx, NULL, &quot;reset_config&quot;, handle_reset_config_command,
+-		COMMAND_ANY,
+-		&quot;[none/trst_only/srst_only/trst_and_srst] [srst_pulls_trst/trst_pulls_srst] [combined/separate] [trst_push_pull/trst_open_drain] [srst_push_pull/srst_open_drain]&quot;);
+-	register_command(cmd_ctx, NULL, &quot;jtag_nsrst_delay&quot;, handle_jtag_nsrst_delay_command,
+-		COMMAND_ANY, &quot;jtag_nsrst_delay &lt;ms&gt; - delay after deasserting srst in ms&quot;);
+-	register_command(cmd_ctx, NULL, &quot;jtag_ntrst_delay&quot;, handle_jtag_ntrst_delay_command,
+-		COMMAND_ANY, &quot;jtag_ntrst_delay &lt;ms&gt; - delay after deasserting trst in ms&quot;);
+-
+-	register_command(cmd_ctx, NULL, &quot;scan_chain&quot;, handle_scan_chain_command,
+-		COMMAND_EXEC, &quot;print current scan chain configuration&quot;);
+-
+-	register_command(cmd_ctx, NULL, &quot;jtag_reset&quot;, handle_jtag_reset_command,
+-		COMMAND_EXEC, &quot;toggle reset lines &lt;trst&gt; &lt;srst&gt;&quot;);
+-	register_command(cmd_ctx, NULL, &quot;runtest&quot;, handle_runtest_command,
+-		COMMAND_EXEC, &quot;move to Run-Test/Idle, and execute &lt;num_cycles&gt;&quot;);
+-	register_command(cmd_ctx, NULL, &quot;irscan&quot;, handle_irscan_command,
+-		COMMAND_EXEC, &quot;execute IR scan &lt;device&gt; &lt;instr&gt; [dev2] [instr2] ...&quot;);
+-	register_jim(cmd_ctx, &quot;drscan&quot;, Jim_Command_drscan, &quot;execute DR scan &lt;device&gt; &lt;num_bits&gt; &lt;value&gt; &lt;num_bits1&gt; &lt;value2&gt; ...&quot;);
+-	register_jim(cmd_ctx, &quot;flush_count&quot;, Jim_Command_flush_count, &quot;returns number of times the JTAG queue has been flushed&quot;);
+-
+-	register_command(cmd_ctx, NULL, &quot;verify_ircapture&quot;, handle_verify_ircapture_command,
+-		COMMAND_ANY, &quot;verify value captured during Capture-IR &lt;enable|disable&gt;&quot;);
+-	register_command(cmd_ctx, NULL, &quot;verify_jtag&quot;, handle_verify_jtag_command,
+-		COMMAND_ANY, &quot;verify value capture &lt;enable|disable&gt;&quot;);
+-	register_command(cmd_ctx, NULL, &quot;tms_sequence&quot;, handle_tms_sequence_command,
+-		COMMAND_ANY, &quot;choose short(default) or long tms_sequence &lt;short|long&gt;&quot;);
+-	return ERROR_OK;
+-}
+-
+-int jtag_interface_init(struct command_context_s *cmd_ctx)
+-{
+-	if (jtag)
+-		return ERROR_OK;
+-
+-	if (!jtag_interface)
+-	{
+-		/* nothing was previously specified by &quot;interface&quot; command */
+-		LOG_ERROR(&quot;JTAG interface has to be specified, see \&quot;interface\&quot; command&quot;);
+-		return ERROR_JTAG_INVALID_INTERFACE;
+-	}
+-	if(hasKHz)
+-	{
+-		jtag_interface-&gt;khz(jtag_get_speed_khz(), &amp;jtag_speed);
+-		hasKHz = false;
+-	}
+-
+-	if (jtag_interface-&gt;init() != ERROR_OK)
+-		return ERROR_JTAG_INIT_FAILED;
+-
+-	jtag = jtag_interface;
+-	return ERROR_OK;
+-}
+-
+-static int jtag_init_inner(struct command_context_s *cmd_ctx)
+-{
+-	jtag_tap_t *tap;
+-	int retval;
+-
+-	LOG_DEBUG(&quot;Init JTAG chain&quot;);
+-
+-	tap = jtag_tap_next_enabled(NULL);
+-	if( tap == NULL ){
+-		LOG_ERROR(&quot;There are no enabled taps?&quot;);
+-		return ERROR_JTAG_INIT_FAILED;
+-	}
+-
+-	jtag_add_tlr();
+-	if ((retval=jtag_execute_queue())!=ERROR_OK)
+-		return retval;
+-
+-	/* examine chain first, as this could discover the real chain layout */
+-	if (jtag_examine_chain() != ERROR_OK)
+-	{
+-		LOG_ERROR(&quot;trying to validate configured JTAG chain anyway...&quot;);
+-	}
+-
+-	if (jtag_validate_chain() != ERROR_OK)
+-	{
+-		LOG_WARNING(&quot;Could not validate JTAG chain, continuing anyway...&quot;);
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+-int jtag_interface_quit(void)
+-{
+-	if (!jtag || !jtag-&gt;quit)
+-		return ERROR_OK;
+-
+-	// close the JTAG interface
+-	int result = jtag-&gt;quit();
+-	if (ERROR_OK != result)
+-		LOG_ERROR(&quot;failed: %d&quot;, result);
+-
+-	return ERROR_OK;
+-}
+-
+-
+-int jtag_init_reset(struct command_context_s *cmd_ctx)
+-{
+-	int retval;
+-
+-	if ((retval=jtag_interface_init(cmd_ctx)) != ERROR_OK)
+-		return retval;
+-
+-	LOG_DEBUG(&quot;Trying to bring the JTAG controller to life by asserting TRST / RESET&quot;);
+-
+-	/* Reset can happen after a power cycle.
+-	 *
+-	 * Ideally we would only assert TRST or run RESET before the target reset.
+-	 *
+-	 * However w/srst_pulls_trst, trst is asserted together with the target
+-	 * reset whether we want it or not.
+-	 *
+-	 * NB! Some targets have JTAG circuitry disabled until a
+-	 * trst &amp; srst has been asserted.
+-	 *
+-	 * NB! here we assume nsrst/ntrst delay are sufficient!
+-	 *
+-	 * NB! order matters!!!! srst *can* disconnect JTAG circuitry
+-	 *
+-	 */
+-	jtag_add_reset(1, 0); /* RESET or TRST */
+-	if (jtag_reset_config &amp; RESET_HAS_SRST)
+-	{
+-		jtag_add_reset(1, 1);
+-		if ((jtag_reset_config &amp; RESET_SRST_PULLS_TRST)==0)
+-			jtag_add_reset(0, 1);
+-	}
+-	jtag_add_reset(0, 0);
+-	if ((retval = jtag_execute_queue()) != ERROR_OK)
+-		return retval;
+-
+-	/* Check that we can communication on the JTAG chain + eventually we want to
+-	 * be able to perform enumeration only after OpenOCD has started
+-	 * telnet and GDB server
+-	 *
+-	 * That would allow users to more easily perform any magic they need to before
+-	 * reset happens.
+-	 */
+-	return jtag_init_inner(cmd_ctx);
+-}
+-
+-int jtag_init(struct command_context_s *cmd_ctx)
+-{
+-	int retval;
+-	if ((retval=jtag_interface_init(cmd_ctx)) != ERROR_OK)
+-		return retval;
+-	if (jtag_init_inner(cmd_ctx)==ERROR_OK)
+-	{
+-		return ERROR_OK;
+-	}
+-	return jtag_init_reset(cmd_ctx);
+-}
+-
+-void jtag_set_speed_khz(unsigned khz)
+-{
+-	speed_khz = khz;
+-}
+-unsigned jtag_get_speed_khz(void)
+-{
+-	return speed_khz;
+-}
+-
+-static int default_khz(int khz, int *jtag_speed)
+-{
+-	LOG_ERROR(&quot;Translation from khz to jtag_speed not implemented&quot;);
+-	return ERROR_FAIL;
+-}
+-
+-static int default_speed_div(int speed, int *khz)
+-{
+-	LOG_ERROR(&quot;Translation from jtag_speed to khz not implemented&quot;);
+-	return ERROR_FAIL;
+-}
+-
+-static int default_power_dropout(int *dropout)
+-{
+-	*dropout=0; /* by default we can't detect power dropout */
+-	return ERROR_OK;
+-}
+-
+-static int default_srst_asserted(int *srst_asserted)
+-{
+-	*srst_asserted=0; /* by default we can't detect srst asserted */
+-	return ERROR_OK;
+-}
+-
+-static int handle_interface_command(struct command_context_s *cmd_ctx,
+-		char *cmd, char **args, int argc)
+-{
+-	/* check whether the interface is already configured */
+-	if (jtag_interface)
+-	{
+-		LOG_WARNING(&quot;Interface already configured, ignoring&quot;);
+-		return ERROR_OK;
+-	}
+-
+-	/* interface name is a mandatory argument */
+-	if (argc != 1 || args[0][0] == '\0')
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-
+-	for (unsigned i = 0; NULL != jtag_interfaces[i]; i++)
+-	{
+-		if (strcmp(args[0], jtag_interfaces[i]-&gt;name) != 0)
+-			continue;
+-
+-		int retval = jtag_interfaces[i]-&gt;register_commands(cmd_ctx);
+-		if (ERROR_OK != retval)
+-				return retval;
+-
+-		jtag_interface = jtag_interfaces[i];
+-
+-		if (jtag_interface-&gt;khz == NULL)
+-			jtag_interface-&gt;khz = default_khz;
+-		if (jtag_interface-&gt;speed_div == NULL)
+-			jtag_interface-&gt;speed_div = default_speed_div;
+-		if (jtag_interface-&gt;power_dropout == NULL)
+-			jtag_interface-&gt;power_dropout = default_power_dropout;
+-		if (jtag_interface-&gt;srst_asserted == NULL)
+-			jtag_interface-&gt;srst_asserted = default_srst_asserted;
+-
+-		return ERROR_OK;
+-	}
+-
+-	/* no valid interface was found (i.e. the configuration option,
+-	 * didn't match one of the compiled-in interfaces
+-	 */
+-	LOG_ERROR(&quot;The specified JTAG interface was not found (%s)&quot;, args[0]);
+-	handle_interface_list_command(cmd_ctx, cmd, args, argc);
+-	return ERROR_JTAG_INVALID_INTERFACE;
+-}
+-
+-static int handle_interface_list_command(struct command_context_s *cmd_ctx,
+-		char *cmd, char **args, int argc)
+-{
+-	if (strcmp(cmd, &quot;interface_list&quot;) == 0 &amp;&amp; argc &gt; 0)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-
+-	command_print(cmd_ctx, &quot;The following JTAG interfaces are available:&quot;);
+-	for (unsigned i = 0; NULL != jtag_interfaces[i]; i++)
+-	{
+-		const char *name = jtag_interfaces[i]-&gt;name;
+-		command_print(cmd_ctx, &quot;%u: %s&quot;, i + 1, name);
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+-static int handle_jtag_device_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+-{
+-	int e;
+-	char buf[1024];
+-	Jim_Obj *newargs[ 10 ];
+-	/*
+-	 * CONVERT SYNTAX
+-	 * argv[-1] = command
+-	 * argv[ 0] = ir length
+-	 * argv[ 1] = ir capture
+-	 * argv[ 2] = ir mask
+-	 * argv[ 3] = not actually used by anything but in the docs
+-	 */
+-
+-	if( argc &lt; 4 ){
+-		command_print( cmd_ctx, &quot;OLD DEPRECATED SYNTAX: Please use the NEW syntax&quot;);
+-		return ERROR_OK;
+-	}
+-	command_print( cmd_ctx, &quot;OLD SYNTAX: DEPRECATED - translating to new syntax&quot;);
+-	command_print( cmd_ctx, &quot;jtag newtap CHIP TAP -irlen %s -ircapture %s -irvalue %s&quot;,
+-				   args[0],
+-				   args[1],
+-				   args[2] );
+-	command_print( cmd_ctx, &quot;Example: STM32 has 2 taps, the cortexM3(len4) + boundaryscan(len5)&quot;);
+-	command_print( cmd_ctx, &quot;jtag newtap stm32 cortexm3 ....., thus creating the tap: \&quot;stm32.cortexm3\&quot;&quot;);
+-	command_print( cmd_ctx, &quot;jtag newtap stm32 boundary ....., and the tap: \&quot;stm32.boundary\&quot;&quot;);
+-	command_print( cmd_ctx, &quot;And then refer to the taps by the dotted name.&quot;);
+-
+-	newargs[0] = Jim_NewStringObj( interp, &quot;jtag&quot;, -1   );
+-	newargs[1] = Jim_NewStringObj( interp, &quot;newtap&quot;, -1 );
+-	sprintf( buf, &quot;chip%d&quot;, jtag_tap_count() );
+-	newargs[2] = Jim_NewStringObj( interp, buf, -1 );
+-	sprintf( buf, &quot;tap%d&quot;, jtag_tap_count() );
+-	newargs[3] = Jim_NewStringObj( interp, buf, -1  );
+-	newargs[4] = Jim_NewStringObj( interp, &quot;-irlen&quot;, -1  );
+-	newargs[5] = Jim_NewStringObj( interp, args[0], -1  );
+-	newargs[6] = Jim_NewStringObj( interp, &quot;-ircapture&quot;, -1  );
+-	newargs[7] = Jim_NewStringObj( interp, args[1], -1  );
+-	newargs[8] = Jim_NewStringObj( interp, &quot;-irmask&quot;, -1  );
+-	newargs[9] = Jim_NewStringObj( interp, args[2], -1  );
+-
+-	command_print( cmd_ctx, &quot;NEW COMMAND:&quot;);
+-	sprintf( buf, &quot;%s %s %s %s %s %s %s %s %s %s&quot;,
+-			 Jim_GetString( newargs[0], NULL ),
+-			 Jim_GetString( newargs[1], NULL ),
+-			 Jim_GetString( newargs[2], NULL ),
+-			 Jim_GetString( newargs[3], NULL ),
+-			 Jim_GetString( newargs[4], NULL ),
+-			 Jim_GetString( newargs[5], NULL ),
+-			 Jim_GetString( newargs[6], NULL ),
+-			 Jim_GetString( newargs[7], NULL ),
+-			 Jim_GetString( newargs[8], NULL ),
+-			 Jim_GetString( newargs[9], NULL ) );
+-
+-	e = jim_jtag_command( interp, 10, newargs );
+-	if( e != JIM_OK ){
+-		command_print( cmd_ctx, &quot;%s&quot;, Jim_GetString( Jim_GetResult(interp), NULL ) );
+-	}
+-	return e;
+-}
+-
+-static int handle_scan_chain_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+-{
+-	jtag_tap_t *tap;
+-
+-	tap = jtag_all_taps();
+-	command_print(cmd_ctx, &quot;     TapName            | Enabled |   IdCode      Expected    IrLen IrCap  IrMask Instr     &quot;);
+-	command_print(cmd_ctx, &quot;---|--------------------|---------|------------|------------|------|------|------|---------&quot;);
+-
+-	while( tap ){
+-		u32 expected, expected_mask, cur_instr, ii;
+-		expected = buf_get_u32(tap-&gt;expected, 0, tap-&gt;ir_length);
+-		expected_mask = buf_get_u32(tap-&gt;expected_mask, 0, tap-&gt;ir_length);
+-		cur_instr = buf_get_u32(tap-&gt;cur_instr, 0, tap-&gt;ir_length);
+-
+-		command_print(cmd_ctx,
+-					  &quot;%2d | %-18s |    %c    | 0x%08x | 0x%08x | 0x%02x | 0x%02x | 0x%02x | 0x%02x&quot;,
+-					  tap-&gt;abs_chain_position,
+-					  tap-&gt;dotted_name,
+-					  tap-&gt;enabled ? 'Y' : 'n',
+-					  tap-&gt;idcode,
+-					  (tap-&gt;expected_ids_cnt &gt; 0 ? tap-&gt;expected_ids[0] : 0),
+-					  tap-&gt;ir_length,
+-					  expected,
+-					  expected_mask,
+-					  cur_instr);
+-
+-		for (ii = 1; ii &lt; tap-&gt;expected_ids_cnt; ii++) {
+-			command_print(cmd_ctx, &quot;   |                    |         |            | 0x%08x |      |      |      |         &quot;,
+-						  tap-&gt;expected_ids[ii]);
+-		}
+-
+-		tap = tap-&gt;next_tap;
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+-static int handle_reset_config_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+-{
+-	int new_cfg = 0;
+-	int mask = 0;
+-
+-	if (argc &lt; 1)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-
+-	/* Original versions cared about the order of these tokens:
+-	 *   reset_config signals [combination [trst_type [srst_type]]]
+-	 * They also clobbered the previous configuration even on error.
+-	 *
+-	 * Here we don't care about the order, and only change values
+-	 * which have been explicitly specified.
+-	 */
+-	for (; argc; argc--, args++) {
+-		int tmp = 0;
+-		int m;
+-
+-		/* signals */
+-		m = RESET_HAS_TRST | RESET_HAS_SRST;
+-		if (strcmp(*args, &quot;none&quot;) == 0)
+-			tmp = RESET_NONE;
+-		else if (strcmp(*args, &quot;trst_only&quot;) == 0)
+-			tmp = RESET_HAS_TRST;
+-		else if (strcmp(*args, &quot;srst_only&quot;) == 0)
+-			tmp = RESET_HAS_SRST;
+-		else if (strcmp(*args, &quot;trst_and_srst&quot;) == 0)
+-			tmp = RESET_HAS_TRST | RESET_HAS_SRST;
+-		else
+-			m = 0;
+-		if (mask &amp; m) {
+-			LOG_ERROR(&quot;extra reset_config %s spec (%s)&quot;,
+-					&quot;signal&quot;, *args);
+-			return ERROR_INVALID_ARGUMENTS;
+-		}
+-		if (m)
+-			goto next;
+-
+-		/* combination (options for broken wiring) */
+-		m = RESET_SRST_PULLS_TRST | RESET_TRST_PULLS_SRST;
+-		if (strcmp(*args, &quot;separate&quot;) == 0)
+-			/* separate reset lines - default */;
+-		else if (strcmp(*args, &quot;srst_pulls_trst&quot;) == 0)
+-			tmp |= RESET_SRST_PULLS_TRST;
+-		else if (strcmp(*args, &quot;trst_pulls_srst&quot;) == 0)
+-			tmp |= RESET_TRST_PULLS_SRST;
+-		else if (strcmp(*args, &quot;combined&quot;) == 0)
+-			tmp |= RESET_SRST_PULLS_TRST | RESET_TRST_PULLS_SRST;
+-		else
+-			m = 0;
+-		if (mask &amp; m) {
+-			LOG_ERROR(&quot;extra reset_config %s spec (%s)&quot;,
+-					&quot;combination&quot;, *args);
+-			return ERROR_INVALID_ARGUMENTS;
+-		}
+-		if (m)
+-			goto next;
+-
+-		/* trst_type (NOP without HAS_TRST) */
+-		m = RESET_TRST_OPEN_DRAIN;
+-		if (strcmp(*args, &quot;trst_open_drain&quot;) == 0)
+-			tmp |= RESET_TRST_OPEN_DRAIN;
+-		else if (strcmp(*args, &quot;trst_push_pull&quot;) == 0)
+-			/* push/pull from adapter - default */;
+-		else
+-			m = 0;
+-		if (mask &amp; m) {
+-			LOG_ERROR(&quot;extra reset_config %s spec (%s)&quot;,
+-					&quot;trst_type&quot;, *args);
+-			return ERROR_INVALID_ARGUMENTS;
+-		}
+-		if (m)
+-			goto next;
+-
+-		/* srst_type (NOP without HAS_SRST) */
+-		m |= RESET_SRST_PUSH_PULL;
+-		if (strcmp(*args, &quot;srst_push_pull&quot;) == 0)
+-			tmp |= RESET_SRST_PUSH_PULL;
+-		else if (strcmp(*args, &quot;srst_open_drain&quot;) == 0)
+-			/* open drain from adapter - default */;
+-		else
+-			m = 0;
+-		if (mask &amp; m) {
+-			LOG_ERROR(&quot;extra reset_config %s spec (%s)&quot;,
+-					&quot;srst_type&quot;, *args);
+-			return ERROR_INVALID_ARGUMENTS;
+-		}
+-		if (m)
+-			goto next;
+-
+-		/* caller provided nonsense; fail */
+-		LOG_ERROR(&quot;unknown reset_config flag (%s)&quot;, *args);
+-		return ERROR_INVALID_ARGUMENTS;
+-
+-next:
+-		/* Remember the bits which were specified (mask)
+-		 * and their new values (new_cfg).
+-		 */
+-		mask |= m;
+-		new_cfg |= tmp;
+-	}
+-
+-	/* clear previous values of those bits, save new values */
+-	jtag_reset_config &amp;= ~mask;
+-	jtag_reset_config |= new_cfg;
+-
+-	return ERROR_OK;
+-}
+-
+-static int handle_jtag_nsrst_delay_command(struct command_context_s *cmd_ctx,
+-		char *cmd, char **args, int argc)
+-{
+-	if (argc &gt; 1)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-	if (argc == 1)
+-		jtag_set_nsrst_delay(strtoul(args[0], NULL, 0));
+-	command_print(cmd_ctx, &quot;jtag_nsrst_delay: %u&quot;, jtag_get_nsrst_delay());
+-	return ERROR_OK;
+-}
+-
+-static int handle_jtag_ntrst_delay_command(struct command_context_s *cmd_ctx,
+-		char *cmd, char **args, int argc)
+-{
+-	if (argc &gt; 1)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-	if (argc == 1)
+-		jtag_set_ntrst_delay(strtoul(args[0], NULL, 0));
+-	command_print(cmd_ctx, &quot;jtag_ntrst_delay: %u&quot;, jtag_get_ntrst_delay());
+-	return ERROR_OK;
+-}
+-
+-static int handle_jtag_speed_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+-{
+-	int retval = ERROR_OK;
+-
+-	if (argc &gt; 1)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-	if (argc == 1)
+-	{
+-		LOG_DEBUG(&quot;handle jtag speed&quot;);
+-
+-		int cur_speed = 0;
+-		cur_speed = jtag_speed = strtoul(args[0], NULL, 0);
+-
+-		/* this command can be called during CONFIG,
+-		 * in which case jtag isn't initialized */
+-		if (jtag)
+-			retval = jtag-&gt;speed(cur_speed);
+-	}
+-	command_print(cmd_ctx, &quot;jtag_speed: %d&quot;, jtag_speed);
+-
+-	return retval;
+-}
+-
+-static int handle_jtag_khz_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+-{
+-	if (argc &gt; 1)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-
+-	int retval = ERROR_OK;
+-	int cur_speed = 0;
+-	if (argc == 1)
+-	{
+-		LOG_DEBUG(&quot;handle jtag khz&quot;);
+-
+-		jtag_set_speed_khz(strtoul(args[0], NULL, 0));
+-		if (jtag != NULL)
+-		{
+-			LOG_DEBUG(&quot;have interface set up&quot;);
+-			int speed_div1;
+-			retval = jtag-&gt;khz(jtag_get_speed_khz(), &amp;speed_div1);
+-			if (ERROR_OK != retval)
+-			{
+-				jtag_set_speed_khz(0);
+-				return retval;
+-			}
+-			cur_speed = jtag_speed = speed_div1;
+-
+-			retval = jtag-&gt;speed(cur_speed);
+-		}
+-		else
+-			hasKHz = true;
+-	}
+-
+-	cur_speed = jtag_get_speed_khz();
+-	if (jtag != NULL)
+-	{
+-		retval = jtag-&gt;speed_div(jtag_speed, &amp;cur_speed);
+-		if (ERROR_OK != retval)
+-			return retval;
+-	}
+-
+-	if (cur_speed)
+-		command_print(cmd_ctx, &quot;%d kHz&quot;, cur_speed);
+-	else
+-		command_print(cmd_ctx, &quot;RCLK - adaptive&quot;);
+-	return retval;
+-
+-}
+-
+-static int handle_jtag_reset_command(struct command_context_s *cmd_ctx,
+-		char *cmd, char **args, int argc)
+-{
+-	if (argc != 2)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-
+-	int trst = -1;
+-	if (args[0][0] == '1')
+-		trst = 1;
+-	else if (args[0][0] == '0')
+-		trst = 0;
+-	else
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-
+-	int srst = -1;
+-	if (args[1][0] == '1')
+-		srst = 1;
+-	else if (args[1][0] == '0')
+-		srst = 0;
+-	else
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-
+-	if (jtag_interface_init(cmd_ctx) != ERROR_OK)
+-		return ERROR_JTAG_INIT_FAILED;
+-
+-	jtag_add_reset(trst, srst);
+-	jtag_execute_queue();
+-
+-	return ERROR_OK;
+-}
+-
+-static int handle_runtest_command(struct command_context_s *cmd_ctx,
+-		char *cmd, char **args, int argc)
+-{
+-	if (argc != 1)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-
+-	jtag_add_runtest(strtol(args[0], NULL, 0), jtag_get_end_state());
+-	jtag_execute_queue();
+-
+-	return ERROR_OK;
+-}
+-
+-/*
+- * For &quot;irscan&quot; or &quot;drscan&quot; commands, the &quot;end&quot; (really, &quot;next&quot;) state
+- * should be stable ... and *NOT* a shift state, otherwise free-running
+- * jtag clocks could change the values latched by the update state.
+- */
+-static bool scan_is_safe(tap_state_t state)
+-{
+-	switch (state)
+-	{
+-	case TAP_RESET:
+-	case TAP_IDLE:
+-	case TAP_DRPAUSE:
+-	case TAP_IRPAUSE:
+-		return true;
+-	default:
+-		return false;
+-	}
+-}
+-
+-
+-static int handle_irscan_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+-{
+-	int i;
+-	scan_field_t *fields;
+-	jtag_tap_t *tap;
+-	tap_state_t endstate;
+-
+-	if ((argc &lt; 2) || (argc % 2))
+-	{
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-	}
+-
+-	/* optional &quot;-endstate&quot; &quot;statename&quot; at the end of the arguments,
+-	 * so that e.g. IRPAUSE can let us load the data register before
+-	 * entering RUN/IDLE to execute the instruction we load here.
+-	 */
+-	endstate = TAP_IDLE;
+-
+-	if( argc &gt;= 4 ){
+-		/* have at least one pair of numbers. */
+-		/* is last pair the magic text? */
+-		if( 0 == strcmp( &quot;-endstate&quot;, args[ argc - 2 ] ) ){
+-			const char *cpA;
+-			const char *cpS;
+-			cpA = args[ argc-1 ];
+-			for( endstate = 0 ; endstate &lt; TAP_NUM_STATES ; endstate++ ){
+-				cpS = tap_state_name( endstate );
+-				if( 0 == strcmp( cpA, cpS ) ){
+-					break;
+-				}
+-			}
+-			if( endstate &gt;= TAP_NUM_STATES ){
+-				return ERROR_COMMAND_SYNTAX_ERROR;
+-			} else {
+-				if (!scan_is_safe(endstate))
+-					LOG_WARNING(&quot;irscan with unsafe &quot;
+-							&quot;endstate \&quot;%s\&quot;&quot;, cpA);
+-				/* found - remove the last 2 args */
+-				argc -= 2;
+-			}
+-		}
+-	}
+-
+-	int num_fields = argc / 2;
+-
+-	fields = malloc(sizeof(scan_field_t) * num_fields);
+-
+-	for (i = 0; i &lt; num_fields; i++)
+-	{
+-		tap = jtag_tap_by_string( args[i*2] );
+-		if (tap==NULL)
+-		{
+-			command_print( cmd_ctx, &quot;Tap: %s unknown&quot;, args[i*2] );
+-			return ERROR_FAIL;
+-		}
+-		int field_size = tap-&gt;ir_length;
+-		fields[i].tap = tap;
+-		fields[i].num_bits = field_size;
+-		fields[i].out_value = malloc(CEIL(field_size, 8));
+-		buf_set_u32(fields[i].out_value, 0, field_size, strtoul(args[i*2+1], NULL, 0));
+-		fields[i].in_value = NULL;
+-	}
+-
+-	/* did we have an endstate? */
+-	jtag_add_ir_scan(num_fields, fields, endstate);
+-
+-	int retval=jtag_execute_queue();
+-
+-	for (i = 0; i &lt; num_fields; i++)
+-		free(fields[i].out_value);
+-
+-	free (fields);
+-
+-	return retval;
+-}
+-
+-static int Jim_Command_drscan(Jim_Interp *interp, int argc, Jim_Obj *const *args)
+-{
+-	int retval;
+-	scan_field_t *fields;
+-	int num_fields;
+-	int field_count = 0;
+-	int i, e;
+-	jtag_tap_t *tap;
+-	tap_state_t endstate;
+-
+-	/* args[1] = device
+-	 * args[2] = num_bits
+-	 * args[3] = hex string
+-	 * ... repeat num bits and hex string ...
+-	 *
+-	 * .. optionally:
+-	*     args[N-2] = &quot;-endstate&quot;
+-	 *     args[N-1] = statename
+-	 */
+-	if ((argc &lt; 4) || ((argc % 2)!=0))
+-	{
+-		Jim_WrongNumArgs(interp, 1, args, &quot;wrong arguments&quot;);
+-		return JIM_ERR;
+-	}
+-
+-	endstate = TAP_IDLE;
+-
+-	/* validate arguments as numbers */
+-	e = JIM_OK;
+-	for (i = 2; i &lt; argc; i+=2)
+-	{
+-		long bits;
+-		const char *cp;
+-
+-		e = Jim_GetLong(interp, args[i], &amp;bits);
+-		/* If valid - try next arg */
+-		if( e == JIM_OK ){
+-			continue;
+-		}
+-
+-		/* Not valid.. are we at the end? */
+-		if ( ((i+2) != argc) ){
+-			/* nope, then error */
+-			return e;
+-		}
+-
+-		/* it could be: &quot;-endstate FOO&quot;
+-		 * e.g. DRPAUSE so we can issue more instructions
+-		 * before entering RUN/IDLE and executing them.
+-		 */
+-
+-		/* get arg as a string. */
+-		cp = Jim_GetString( args[i], NULL );
+-		/* is it the magic? */
+-		if( 0 == strcmp( &quot;-endstate&quot;, cp ) ){
+-			/* is the statename valid? */
+-			cp = Jim_GetString( args[i+1], NULL );
+-
+-			/* see if it is a valid state name */
+-			endstate = tap_state_by_name(cp);
+-			if( endstate &lt; 0 ){
+-				/* update the error message */
+-				Jim_SetResult_sprintf(interp,&quot;endstate: %s invalid&quot;, cp );
+-			} else {
+-				if (!scan_is_safe(endstate))
+-					LOG_WARNING(&quot;drscan with unsafe &quot;
+-							&quot;endstate \&quot;%s\&quot;&quot;, cp);
+-
+-				/* valid - so clear the error */
+-				e = JIM_OK;
+-				/* and remove the last 2 args */
+-				argc -= 2;
+-			}
+-		}
+-
+-		/* Still an error? */
+-		if( e != JIM_OK ){
+-			return e; /* too bad */
+-		}
+-	} /* validate args */
+-
+-	tap = jtag_tap_by_jim_obj( interp, args[1] );
+-	if( tap == NULL ){
+-		return JIM_ERR;
+-	}
+-
+-	num_fields=(argc-2)/2;
+-	fields = malloc(sizeof(scan_field_t) * num_fields);
+-	for (i = 2; i &lt; argc; i+=2)
+-	{
+-		long bits;
+-		int len;
+-		const char *str;
+-
+-		Jim_GetLong(interp, args[i], &amp;bits);
+-		str = Jim_GetString(args[i+1], &amp;len);
+-
+-		fields[field_count].tap = tap;
+-		fields[field_count].num_bits = bits;
+-		fields[field_count].out_value = malloc(CEIL(bits, 8));
+-		str_to_buf(str, len, fields[field_count].out_value, bits, 0);
+-		fields[field_count].in_value = fields[field_count].out_value;
+-		field_count++;
+-	}
+-
+-	jtag_add_dr_scan(num_fields, fields, endstate);
+-
+-	retval = jtag_execute_queue();
+-	if (retval != ERROR_OK)
+-	{
+-		Jim_SetResultString(interp, &quot;drscan: jtag execute failed&quot;,-1);
+-		return JIM_ERR;
+-	}
+-
+-	field_count=0;
+-	Jim_Obj *list = Jim_NewListObj(interp, NULL, 0);
+-	for (i = 2; i &lt; argc; i+=2)
+-	{
+-		long bits;
+-		char *str;
+-
+-		Jim_GetLong(interp, args[i], &amp;bits);
+-		str = buf_to_str(fields[field_count].in_value, bits, 16);
+-		free(fields[field_count].out_value);
+-
+-		Jim_ListAppendElement(interp, list, Jim_NewStringObj(interp, str, strlen(str)));
+-		free(str);
+-		field_count++;
+-	}
+-
+-	Jim_SetResult(interp, list);
+-
+-	free(fields);
+-
+-	return JIM_OK;
+-}
+-
+-
+-static int Jim_Command_flush_count(Jim_Interp *interp, int argc, Jim_Obj *const *args)
+-{
+-	Jim_SetResult(interp, Jim_NewIntObj(interp, jtag_get_flush_queue_count()));
+-
+-	return JIM_OK;
+-}
+-
+-
+-static int handle_verify_ircapture_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+-{
+-	if (argc == 1)
+-	{
+-		if (strcmp(args[0], &quot;enable&quot;) == 0)
+-		{
+-			jtag_verify_capture_ir = 1;
+-		}
+-		else if (strcmp(args[0], &quot;disable&quot;) == 0)
+-		{
+-			jtag_verify_capture_ir = 0;
+-		} else
+-		{
+-			return ERROR_COMMAND_SYNTAX_ERROR;
+-		}
+-	} else if (argc != 0)
+-	{
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-	}
+-
+-	command_print(cmd_ctx, &quot;verify Capture-IR is %s&quot;, (jtag_verify_capture_ir) ? &quot;enabled&quot;: &quot;disabled&quot;);
+-
+-	return ERROR_OK;
+-}
+-
+-void jtag_set_verify(bool enable)
+-{
+-	jtag_verify = enable;
+-}
+-
+-bool jtag_will_verify()
+-{
+-	return jtag_verify;
+-}
+-
+-static int handle_verify_jtag_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+-{
+-	if (argc &gt; 1)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-
+-	if (argc == 1)
+-	{
+-		if (strcmp(args[0], &quot;enable&quot;) == 0)
+-			jtag_set_verify(true);
+-		else if (strcmp(args[0], &quot;disable&quot;) == 0)
+-			jtag_set_verify(false);
+-		else
+-			return ERROR_COMMAND_SYNTAX_ERROR;
+-	}
+-
+-	const char *status = jtag_will_verify() ? &quot;enabled&quot;: &quot;disabled&quot;;
+-	command_print(cmd_ctx, &quot;verify jtag capture is %s&quot;, status);
+-
+-	return ERROR_OK;
+-}
+-
+-
+-int jtag_power_dropout(int *dropout)
+-{
+-	return jtag-&gt;power_dropout(dropout);
+-}
+-
+-int jtag_srst_asserted(int *srst_asserted)
+-{
+-	return jtag-&gt;srst_asserted(srst_asserted);
+-}
+-
+-void jtag_tap_handle_event( jtag_tap_t * tap, enum jtag_tap_event e)
+-{
+-	jtag_tap_event_action_t * jteap;
+-	int done;
+-
+-	jteap = tap-&gt;event_action;
+-
+-	done = 0;
+-	while (jteap) {
+-		if (jteap-&gt;event == e) {
+-			done = 1;
+-			LOG_DEBUG( &quot;JTAG tap: %s event: %d (%s) action: %s\n&quot;,
+-					tap-&gt;dotted_name,
+-					e,
+-					Jim_Nvp_value2name_simple(nvp_jtag_tap_event, e)-&gt;name,
+-					Jim_GetString(jteap-&gt;body, NULL) );
+-			if (Jim_EvalObj(interp, jteap-&gt;body) != JIM_OK) {
+-				Jim_PrintErrorMessage(interp);
+-			}
+-		}
+-
+-		jteap = jteap-&gt;next;
+-	}
+-
+-	if (!done) {
+-		LOG_DEBUG( &quot;event %d %s - no action&quot;,
+-				e,
+-				Jim_Nvp_value2name_simple( nvp_jtag_tap_event, e)-&gt;name);
+-	}
+-}
+-
+-static int handle_tms_sequence_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+-{
+-	if (argc &gt; 1)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-
+-	if (argc == 1)
+-	{
+-		bool use_new_table;
+-		if (strcmp(args[0], &quot;short&quot;) == 0)
+-			use_new_table = true;
+-		else if (strcmp(args[0], &quot;long&quot;) == 0)
+-			use_new_table = false;
+-		else
+-			return ERROR_COMMAND_SYNTAX_ERROR;
+-
+-		tap_use_new_tms_table(use_new_table);
+-	}
+-
+-	command_print(cmd_ctx, &quot;tms sequence is  %s&quot;,
+-			tap_uses_new_tms_table() ? &quot;short&quot;: &quot;long&quot;);
+-
+-	return ERROR_OK;
+-}
+-
+-int jtag_add_statemove(tap_state_t goal_state)
+-{
+-	tap_state_t cur_state = cmd_queue_cur_state;
+-
+-	LOG_DEBUG( &quot;cur_state=%s goal_state=%s&quot;,
+-		tap_state_name(cur_state),
+-		tap_state_name(goal_state) );
+-
+-
+-	if (goal_state==cur_state )
+-		;	/* nothing to do */
+-	else if( goal_state==TAP_RESET )
+-	{
+-		jtag_add_tlr();
+-	}
+-	else if( tap_is_state_stable(cur_state) &amp;&amp; tap_is_state_stable(goal_state) )
+-	{
+-		unsigned tms_bits  = tap_get_tms_path(cur_state, goal_state);
+-		unsigned tms_count = tap_get_tms_path_len(cur_state, goal_state);
+-		tap_state_t moves[8];
+-		assert(tms_count &lt; DIM(moves));
+-
+-		for (unsigned i = 0; i &lt; tms_count; i++, tms_bits &gt;&gt;= 1)
+-		{
+-			bool bit = tms_bits &amp; 1;
+-
+-			cur_state = tap_state_transition(cur_state, bit);
+-			moves[i] = cur_state;
+-		}
+-
+-		jtag_add_pathmove(tms_count, moves);
+-	}
+-	else if( tap_state_transition(cur_state, true)  == goal_state
+-		||   tap_state_transition(cur_state, false) == goal_state )
+-	{
+-		jtag_add_pathmove(1, &amp;goal_state);
+-	}
+-
+-	else
+-		return ERROR_FAIL;
+-
+-	return ERROR_OK;
+-}
+-
+-void jtag_set_nsrst_delay(unsigned delay)
+-{
+-	jtag_nsrst_delay = delay;
+-}
+-unsigned jtag_get_nsrst_delay(void)
+-{
+-	return jtag_nsrst_delay;
+-}
+-void jtag_set_ntrst_delay(unsigned delay)
+-{
+-	jtag_ntrst_delay = delay;
+-}
+-unsigned jtag_get_ntrst_delay(void)
+-{
+-	return jtag_ntrst_delay;
+-}
+
+Copied: trunk/src/jtag/tcl.c (from rev 2148, trunk/src/jtag/jtag.c)
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-09 02:48:28 UTC (rev 2148)
++++ trunk/src/jtag/tcl.c	2009-06-09 04:15:13 UTC (rev 2149)
+@@ -0,0 +1,1374 @@
++/***************************************************************************
++ *   Copyright (C) 2005 by Dominic Rath                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
++ *                                                                         *
++ *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
++ *                                                                         *
++ *   Copyright (C) 2009 SoftPLC Corporation                                *
++ *       <A HREF="http://softplc.com">http://softplc.com</A>                                                *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dick at softplc.com</A>                                                      *
++ *                                                                         *
++ *   Copyright (C) 2009 Zachary T Welch                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>                                                  *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;jtag.h&quot;
++#include &quot;minidriver.h&quot;
++#include &quot;interface.h&quot;
++
++#ifdef HAVE_STRINGS_H
++#include &lt;strings.h&gt;
++#endif
++
++/* flag if the kHz speed was defined */
++static bool hasKHz = false;
++
++/* jtag interfaces (parport, FTDI-USB, TI-USB, ...)
++ */
++
++#if BUILD_ECOSBOARD == 1
++	extern jtag_interface_t zy1000_interface;
++#elif defined(BUILD_MINIDRIVER_DUMMY)
++	extern jtag_interface_t minidummy_interface;
++#else // standard drivers
++#if BUILD_PARPORT == 1
++	extern jtag_interface_t parport_interface;
++#endif
++
++#if BUILD_DUMMY == 1
++	extern jtag_interface_t dummy_interface;
++#endif
++
++#if BUILD_FT2232_FTD2XX == 1
++	extern jtag_interface_t ft2232_interface;
++#endif
++
++#if BUILD_FT2232_LIBFTDI == 1
++	extern jtag_interface_t ft2232_interface;
++#endif
++
++#if BUILD_AMTJTAGACCEL == 1
++	extern jtag_interface_t amt_jtagaccel_interface;
++#endif
++
++#if BUILD_EP93XX == 1
++	extern jtag_interface_t ep93xx_interface;
++#endif
++
++#if BUILD_AT91RM9200 == 1
++	extern jtag_interface_t at91rm9200_interface;
++#endif
++
++#if BUILD_GW16012 == 1
++	extern jtag_interface_t gw16012_interface;
++#endif
++
++#if BUILD_PRESTO_LIBFTDI == 1 || BUILD_PRESTO_FTD2XX == 1
++	extern jtag_interface_t presto_interface;
++#endif
++
++#if BUILD_USBPROG == 1
++	extern jtag_interface_t usbprog_interface;
++#endif
++
++#if BUILD_JLINK == 1
++	extern jtag_interface_t jlink_interface;
++#endif
++
++#if BUILD_VSLLINK == 1
++	extern jtag_interface_t vsllink_interface;
++#endif
++
++#if BUILD_RLINK == 1
++	extern jtag_interface_t rlink_interface;
++#endif
++
++#if BUILD_ARMJTAGEW == 1
++	extern jtag_interface_t armjtagew_interface;
++#endif
++#endif // standard drivers
++
++/**
++ * The list of built-in JTAG interfaces, containing entries for those
++ * drivers that were enabled by the @c configure script.
++ *
++ * The list should be defined to contain either one minidriver interface
++ * or some number of standard driver interfaces, never both.
++ */
++jtag_interface_t *jtag_interfaces[] = {
++#if BUILD_ECOSBOARD == 1
++	&amp;zy1000_interface,
++#elif defined(BUILD_MINIDRIVER_DUMMY)
++	&amp;minidummy_interface,
++#else // standard drivers
++#if BUILD_PARPORT == 1
++	&amp;parport_interface,
++#endif
++#if BUILD_DUMMY == 1
++	&amp;dummy_interface,
++#endif
++#if BUILD_FT2232_FTD2XX == 1
++	&amp;ft2232_interface,
++#endif
++#if BUILD_FT2232_LIBFTDI == 1
++	&amp;ft2232_interface,
++#endif
++#if BUILD_AMTJTAGACCEL == 1
++	&amp;amt_jtagaccel_interface,
++#endif
++#if BUILD_EP93XX == 1
++	&amp;ep93xx_interface,
++#endif
++#if BUILD_AT91RM9200 == 1
++	&amp;at91rm9200_interface,
++#endif
++#if BUILD_GW16012 == 1
++	&amp;gw16012_interface,
++#endif
++#if BUILD_PRESTO_LIBFTDI == 1 || BUILD_PRESTO_FTD2XX == 1
++	&amp;presto_interface,
++#endif
++#if BUILD_USBPROG == 1
++	&amp;usbprog_interface,
++#endif
++#if BUILD_JLINK == 1
++	&amp;jlink_interface,
++#endif
++#if BUILD_VSLLINK == 1
++	&amp;vsllink_interface,
++#endif
++#if BUILD_RLINK == 1
++	&amp;rlink_interface,
++#endif
++#if BUILD_ARMJTAGEW == 1
++	&amp;armjtagew_interface,
++#endif
++#endif // standard drivers
++	NULL,
++};
++
++extern struct jtag_interface_s *jtag;
++extern jtag_interface_t *jtag_interface;
++
++/* jtag commands */
++static int handle_interface_list_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc);
++static int handle_interface_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++static int handle_jtag_speed_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++static int handle_jtag_khz_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++static int handle_jtag_device_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++static int handle_reset_config_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++static int handle_jtag_nsrst_delay_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++static int handle_jtag_ntrst_delay_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++
++static int handle_scan_chain_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++
++static int handle_jtag_reset_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++static int handle_runtest_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++static int handle_irscan_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++static int Jim_Command_drscan(Jim_Interp *interp, int argc, Jim_Obj *const *argv);
++static int Jim_Command_flush_count(Jim_Interp *interp, int argc, Jim_Obj *const *args);
++
++static int handle_verify_ircapture_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++static int handle_verify_jtag_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++static int handle_tms_sequence_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++
++extern int jtag_examine_chain(void);
++extern int jtag_validate_chain(void);
++
++enum jtag_tap_cfg_param {
++	JCFG_EVENT
++};
++
++static Jim_Nvp nvp_config_opts[] = {
++	{ .name = &quot;-event&quot;,      .value = JCFG_EVENT },
++
++	{ .name = NULL,          .value = -1 }
++};
++
++static int jtag_tap_configure_cmd( Jim_GetOptInfo *goi, jtag_tap_t * tap)
++{
++	Jim_Nvp *n;
++	Jim_Obj *o;
++	int e;
++
++	/* parse config or cget options */
++	while (goi-&gt;argc &gt; 0) {
++		Jim_SetEmptyResult (goi-&gt;interp);
++
++		e = Jim_GetOpt_Nvp(goi, nvp_config_opts, &amp;n);
++		if (e != JIM_OK) {
++			Jim_GetOpt_NvpUnknown(goi, nvp_config_opts, 0);
++			return e;
++		}
++
++		switch (n-&gt;value) {
++			case JCFG_EVENT:
++				if (goi-&gt;argc == 0) {
++					Jim_WrongNumArgs( goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event ?event-name? ...&quot; );
++					return JIM_ERR;
++				}
++
++				e = Jim_GetOpt_Nvp( goi, nvp_jtag_tap_event, &amp;n );
++				if (e != JIM_OK) {
++					Jim_GetOpt_NvpUnknown(goi, nvp_jtag_tap_event, 1);
++					return e;
++				}
++
++				if (goi-&gt;isconfigure) {
++					if (goi-&gt;argc != 1) {
++						Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event ?event-name? ?EVENT-BODY?&quot;);
++						return JIM_ERR;
++					}
++				} else {
++					if (goi-&gt;argc != 0) {
++						Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event ?event-name?&quot;);
++						return JIM_ERR;
++					}
++				}
++
++				{
++					jtag_tap_event_action_t *jteap;
++
++					jteap = tap-&gt;event_action;
++					/* replace existing? */
++					while (jteap) {
++						if (jteap-&gt;event == (enum jtag_tap_event)n-&gt;value) {
++							break;
++						}
++						jteap = jteap-&gt;next;
++					}
++
++					if (goi-&gt;isconfigure) {
++						if (jteap == NULL) {
++							/* create new */
++							jteap = calloc(1, sizeof (*jteap));
++						}
++						jteap-&gt;event = n-&gt;value;
++						Jim_GetOpt_Obj( goi, &amp;o);
++						if (jteap-&gt;body) {
++							Jim_DecrRefCount(interp, jteap-&gt;body);
++						}
++						jteap-&gt;body = Jim_DuplicateObj(goi-&gt;interp, o);
++						Jim_IncrRefCount(jteap-&gt;body);
++
++						/* add to head of event list */
++						jteap-&gt;next = tap-&gt;event_action;
++						tap-&gt;event_action = jteap;
++						Jim_SetEmptyResult(goi-&gt;interp);
++					} else {
++						/* get */
++						if (jteap == NULL) {
++							Jim_SetEmptyResult(goi-&gt;interp);
++						} else {
++							Jim_SetResult(goi-&gt;interp, Jim_DuplicateObj(goi-&gt;interp, jteap-&gt;body));
++						}
++					}
++				}
++				/* loop for more */
++				break;
++		}
++	} /* while (goi-&gt;argc) */
++
++	return JIM_OK;
++}
++
++
++extern void jtag_tap_init(jtag_tap_t *tap);
++extern void jtag_tap_free(jtag_tap_t *tap);
++
++static int jim_newtap_cmd( Jim_GetOptInfo *goi )
++{
++	jtag_tap_t *pTap;
++	jim_wide w;
++	int x;
++	int e;
++	int reqbits;
++	Jim_Nvp *n;
++	char *cp;
++	const Jim_Nvp opts[] = {
++#define NTAP_OPT_IRLEN     0
++		{ .name = &quot;-irlen&quot;			,	.value = NTAP_OPT_IRLEN },
++#define NTAP_OPT_IRMASK    1
++		{ .name = &quot;-irmask&quot;			,	.value = NTAP_OPT_IRMASK },
++#define NTAP_OPT_IRCAPTURE 2
++		{ .name = &quot;-ircapture&quot;		,	.value = NTAP_OPT_IRCAPTURE },
++#define NTAP_OPT_ENABLED   3
++		{ .name = &quot;-enable&quot;			,	.value = NTAP_OPT_ENABLED },
++#define NTAP_OPT_DISABLED  4
++		{ .name = &quot;-disable&quot;		,	.value = NTAP_OPT_DISABLED },
++#define NTAP_OPT_EXPECTED_ID 5
++		{ .name = &quot;-expected-id&quot;	,	.value = NTAP_OPT_EXPECTED_ID },
++		{ .name = NULL				,	.value = -1 },
++	};
++
++	pTap = malloc( sizeof(jtag_tap_t) );
++	memset( pTap, 0, sizeof(*pTap) );
++	if( !pTap ){
++		Jim_SetResult_sprintf( goi-&gt;interp, &quot;no memory&quot;);
++		return JIM_ERR;
++	}
++	/*
++	 * we expect CHIP + TAP + OPTIONS
++	 * */
++	if( goi-&gt;argc &lt; 3 ){
++		Jim_SetResult_sprintf(goi-&gt;interp, &quot;Missing CHIP TAP OPTIONS ....&quot;);
++		return JIM_ERR;
++	}
++	Jim_GetOpt_String( goi, &amp;cp, NULL );
++	pTap-&gt;chip = strdup(cp);
++
++	Jim_GetOpt_String( goi, &amp;cp, NULL );
++	pTap-&gt;tapname = strdup(cp);
++
++	/* name + dot + name + null */
++	x = strlen(pTap-&gt;chip) + 1 + strlen(pTap-&gt;tapname) + 1;
++	cp = malloc( x );
++	sprintf( cp, &quot;%s.%s&quot;, pTap-&gt;chip, pTap-&gt;tapname );
++	pTap-&gt;dotted_name = cp;
++
++	LOG_DEBUG(&quot;Creating New Tap, Chip: %s, Tap: %s, Dotted: %s, %d params&quot;,
++			  pTap-&gt;chip, pTap-&gt;tapname, pTap-&gt;dotted_name, goi-&gt;argc);
++
++	/* default is enabled */
++	pTap-&gt;enabled = 1;
++
++	/* deal with options */
++#define NTREQ_IRLEN      1
++#define NTREQ_IRCAPTURE  2
++#define NTREQ_IRMASK     4
++
++	/* clear them as we find them */
++	reqbits = (NTREQ_IRLEN | NTREQ_IRCAPTURE | NTREQ_IRMASK);
++
++	while( goi-&gt;argc ){
++		e = Jim_GetOpt_Nvp( goi, opts, &amp;n );
++		if( e != JIM_OK ){
++			Jim_GetOpt_NvpUnknown( goi, opts, 0 );
++			return e;
++		}
++		LOG_DEBUG(&quot;Processing option: %s&quot;, n-&gt;name );
++		switch( n-&gt;value ){
++		case NTAP_OPT_ENABLED:
++			pTap-&gt;enabled = 1;
++			break;
++		case NTAP_OPT_DISABLED:
++			pTap-&gt;enabled = 0;
++			break;
++		case NTAP_OPT_EXPECTED_ID:
++		{
++			u32 *new_expected_ids;
++
++			e = Jim_GetOpt_Wide( goi, &amp;w );
++			if( e != JIM_OK) {
++				Jim_SetResult_sprintf(goi-&gt;interp, &quot;option: %s bad parameter&quot;, n-&gt;name);
++				return e;
++			}
++
++			new_expected_ids = malloc(sizeof(u32) * (pTap-&gt;expected_ids_cnt + 1));
++			if (new_expected_ids == NULL) {
++				Jim_SetResult_sprintf( goi-&gt;interp, &quot;no memory&quot;);
++				return JIM_ERR;
++			}
++
++			memcpy(new_expected_ids, pTap-&gt;expected_ids, sizeof(u32) * pTap-&gt;expected_ids_cnt);
++
++			new_expected_ids[pTap-&gt;expected_ids_cnt] = w;
++
++			free(pTap-&gt;expected_ids);
++			pTap-&gt;expected_ids = new_expected_ids;
++			pTap-&gt;expected_ids_cnt++;
++			break;
++		}
++		case NTAP_OPT_IRLEN:
++		case NTAP_OPT_IRMASK:
++		case NTAP_OPT_IRCAPTURE:
++			e = Jim_GetOpt_Wide( goi, &amp;w );
++			if( e != JIM_OK ){
++				Jim_SetResult_sprintf( goi-&gt;interp, &quot;option: %s bad parameter&quot;, n-&gt;name );
++				return e;
++			}
++			if( (w &lt; 0) || (w &gt; 0xffff) ){
++				/* wacky value */
++				Jim_SetResult_sprintf( goi-&gt;interp, &quot;option: %s - wacky value: %d (0x%x)&quot;,
++									   n-&gt;name, (int)(w), (int)(w));
++				return JIM_ERR;
++			}
++			switch(n-&gt;value){
++			case NTAP_OPT_IRLEN:
++				pTap-&gt;ir_length = w;
++				reqbits &amp;= (~(NTREQ_IRLEN));
++				break;
++			case NTAP_OPT_IRMASK:
++				pTap-&gt;ir_capture_mask = w;
++				reqbits &amp;= (~(NTREQ_IRMASK));
++				break;
++			case NTAP_OPT_IRCAPTURE:
++				pTap-&gt;ir_capture_value = w;
++				reqbits &amp;= (~(NTREQ_IRCAPTURE));
++				break;
++			}
++		} /* switch(n-&gt;value) */
++	} /* while( goi-&gt;argc ) */
++
++	/* Did all the required option bits get cleared? */
++	if (0 == reqbits)
++	{
++		jtag_tap_init(pTap);
++		return ERROR_OK;
++	}
++
++	Jim_SetResult_sprintf(goi-&gt;interp,
++			&quot;newtap: %s missing required parameters&quot;,
++			pTap-&gt;dotted_name);
++	jtag_tap_free(pTap);
++	return JIM_ERR;
++}
++
++static int jim_jtag_command( Jim_Interp *interp, int argc, Jim_Obj *const *argv )
++{
++	Jim_GetOptInfo goi;
++	int e;
++	Jim_Nvp *n;
++	Jim_Obj *o;
++	struct command_context_s *context;
++
++	enum {
++		JTAG_CMD_INTERFACE,
++		JTAG_CMD_INIT_RESET,
++		JTAG_CMD_NEWTAP,
++		JTAG_CMD_TAPENABLE,
++		JTAG_CMD_TAPDISABLE,
++		JTAG_CMD_TAPISENABLED,
++		JTAG_CMD_CONFIGURE,
++		JTAG_CMD_CGET
++	};
++
++	const Jim_Nvp jtag_cmds[] = {
++		{ .name = &quot;interface&quot;     , .value = JTAG_CMD_INTERFACE },
++		{ .name = &quot;arp_init-reset&quot;, .value = JTAG_CMD_INIT_RESET },
++		{ .name = &quot;newtap&quot;        , .value = JTAG_CMD_NEWTAP },
++		{ .name = &quot;tapisenabled&quot;     , .value = JTAG_CMD_TAPISENABLED },
++		{ .name = &quot;tapenable&quot;     , .value = JTAG_CMD_TAPENABLE },
++		{ .name = &quot;tapdisable&quot;    , .value = JTAG_CMD_TAPDISABLE },
++		{ .name = &quot;configure&quot;     , .value = JTAG_CMD_CONFIGURE },
++		{ .name = &quot;cget&quot;          , .value = JTAG_CMD_CGET },
++
++		{ .name = NULL, .value = -1 },
++	};
++
++	context = Jim_GetAssocData(interp, &quot;context&quot;);
++	/* go past the command */
++	Jim_GetOpt_Setup( &amp;goi, interp, argc-1, argv+1 );
++
++	e = Jim_GetOpt_Nvp( &amp;goi, jtag_cmds, &amp;n );
++	if( e != JIM_OK ){
++		Jim_GetOpt_NvpUnknown( &amp;goi, jtag_cmds, 0 );
++		return e;
++	}
++		Jim_SetEmptyResult( goi.interp );
++	switch( n-&gt;value ){
++	case JTAG_CMD_INTERFACE:
++		/* return the name of the interface */
++		/* TCL code might need to know the exact type... */
++		/* FUTURE: we allow this as a means to &quot;set&quot; the interface. */
++		if( goi.argc != 0 ){
++			Jim_WrongNumArgs( goi.interp, 1, goi.argv-1, &quot;(no params)&quot;);
++			return JIM_ERR;
++		}
++		Jim_SetResultString( goi.interp, jtag_interface-&gt;name, -1 );
++		return JIM_OK;
++	case JTAG_CMD_INIT_RESET:
++		if( goi.argc != 0 ){
++			Jim_WrongNumArgs( goi.interp, 1, goi.argv-1, &quot;(no params)&quot;);
++			return JIM_ERR;
++		}
++		e = jtag_init_reset(context);
++		if( e != ERROR_OK ){
++			Jim_SetResult_sprintf( goi.interp, &quot;error: %d&quot;, e);
++			return JIM_ERR;
++		}
++		return JIM_OK;
++	case JTAG_CMD_NEWTAP:
++		return jim_newtap_cmd( &amp;goi );
++		break;
++	case JTAG_CMD_TAPISENABLED:
++	case JTAG_CMD_TAPENABLE:
++	case JTAG_CMD_TAPDISABLE:
++		if( goi.argc != 1 ){
++			Jim_SetResultString( goi.interp, &quot;Too many parameters&quot;,-1 );
++			return JIM_ERR;
++		}
++
++		{
++			jtag_tap_t *t;
++			t = jtag_tap_by_jim_obj( goi.interp, goi.argv[0] );
++			if( t == NULL ){
++				return JIM_ERR;
++			}
++			switch( n-&gt;value ){
++			case JTAG_CMD_TAPISENABLED:
++				e = t-&gt;enabled;
++				break;
++			case JTAG_CMD_TAPENABLE:
++				jtag_tap_handle_event( t, JTAG_TAP_EVENT_ENABLE);
++				e = 1;
++				t-&gt;enabled = e;
++				break;
++			case JTAG_CMD_TAPDISABLE:
++				jtag_tap_handle_event( t, JTAG_TAP_EVENT_DISABLE);
++				e = 0;
++				t-&gt;enabled = e;
++				break;
++			}
++			Jim_SetResult( goi.interp, Jim_NewIntObj( goi.interp, e ) );
++			return JIM_OK;
++		}
++		break;
++
++	case JTAG_CMD_CGET:
++		if( goi.argc &lt; 2 ){
++			Jim_WrongNumArgs( goi.interp, 0, NULL, &quot;?tap-name? -option ...&quot;);
++			return JIM_ERR;
++		}
++
++		{
++			jtag_tap_t *t;
++
++			Jim_GetOpt_Obj(&amp;goi, &amp;o);
++			t = jtag_tap_by_jim_obj( goi.interp, o );
++			if( t == NULL ){
++				return JIM_ERR;
++			}
++
++			goi.isconfigure = 0;
++			return jtag_tap_configure_cmd( &amp;goi, t);
++		}
++		break;
++
++	case JTAG_CMD_CONFIGURE:
++		if( goi.argc &lt; 3 ){
++			Jim_WrongNumArgs( goi.interp, 0, NULL, &quot;?tap-name? -option ?VALUE? ...&quot;);
++			return JIM_ERR;
++		}
++
++		{
++			jtag_tap_t *t;
++
++			Jim_GetOpt_Obj(&amp;goi, &amp;o);
++			t = jtag_tap_by_jim_obj( goi.interp, o );
++			if( t == NULL ){
++				return JIM_ERR;
++			}
++
++			goi.isconfigure = 1;
++			return jtag_tap_configure_cmd( &amp;goi, t);
++		}
++	}
++
++	return JIM_ERR;
++}
++
++int jtag_register_commands(struct command_context_s *cmd_ctx)
++{
++	register_jim( cmd_ctx, &quot;jtag&quot;, jim_jtag_command, &quot;perform jtag tap actions&quot;);
++
++	register_command(cmd_ctx, NULL, &quot;interface&quot;, handle_interface_command,
++		COMMAND_CONFIG, &quot;try to configure interface&quot;);
++	register_command(cmd_ctx, NULL,
++		&quot;interface_list&quot;, &amp;handle_interface_list_command,
++		COMMAND_ANY, &quot;list all built-in interfaces&quot;);
++	register_command(cmd_ctx, NULL, &quot;jtag_speed&quot;, handle_jtag_speed_command,
++		COMMAND_ANY, &quot;(DEPRECATED) set jtag speed (if supported)&quot;);
++	register_command(cmd_ctx, NULL, &quot;jtag_khz&quot;, handle_jtag_khz_command,
++		COMMAND_ANY, &quot;set maximum jtag speed (if supported); &quot;
++		&quot;parameter is maximum khz, or 0 for adaptive clocking (RTCK).&quot;);
++	register_command(cmd_ctx, NULL, &quot;jtag_device&quot;, handle_jtag_device_command,
++		COMMAND_CONFIG, &quot;(DEPRECATED) jtag_device &lt;ir_length&gt; &lt;ir_expected&gt; &lt;ir_mask&gt;&quot;);
++	register_command(cmd_ctx, NULL, &quot;reset_config&quot;, handle_reset_config_command,
++		COMMAND_ANY,
++		&quot;[none/trst_only/srst_only/trst_and_srst] [srst_pulls_trst/trst_pulls_srst] [combined/separate] [trst_push_pull/trst_open_drain] [srst_push_pull/srst_open_drain]&quot;);
++	register_command(cmd_ctx, NULL, &quot;jtag_nsrst_delay&quot;, handle_jtag_nsrst_delay_command,
++		COMMAND_ANY, &quot;jtag_nsrst_delay &lt;ms&gt; - delay after deasserting srst in ms&quot;);
++	register_command(cmd_ctx, NULL, &quot;jtag_ntrst_delay&quot;, handle_jtag_ntrst_delay_command,
++		COMMAND_ANY, &quot;jtag_ntrst_delay &lt;ms&gt; - delay after deasserting trst in ms&quot;);
++
++	register_command(cmd_ctx, NULL, &quot;scan_chain&quot;, handle_scan_chain_command,
++		COMMAND_EXEC, &quot;print current scan chain configuration&quot;);
++
++	register_command(cmd_ctx, NULL, &quot;jtag_reset&quot;, handle_jtag_reset_command,
++		COMMAND_EXEC, &quot;toggle reset lines &lt;trst&gt; &lt;srst&gt;&quot;);
++	register_command(cmd_ctx, NULL, &quot;runtest&quot;, handle_runtest_command,
++		COMMAND_EXEC, &quot;move to Run-Test/Idle, and execute &lt;num_cycles&gt;&quot;);
++	register_command(cmd_ctx, NULL, &quot;irscan&quot;, handle_irscan_command,
++		COMMAND_EXEC, &quot;execute IR scan &lt;device&gt; &lt;instr&gt; [dev2] [instr2] ...&quot;);
++	register_jim(cmd_ctx, &quot;drscan&quot;, Jim_Command_drscan, &quot;execute DR scan &lt;device&gt; &lt;num_bits&gt; &lt;value&gt; &lt;num_bits1&gt; &lt;value2&gt; ...&quot;);
++	register_jim(cmd_ctx, &quot;flush_count&quot;, Jim_Command_flush_count, &quot;returns number of times the JTAG queue has been flushed&quot;);
++
++	register_command(cmd_ctx, NULL, &quot;verify_ircapture&quot;, handle_verify_ircapture_command,
++		COMMAND_ANY, &quot;verify value captured during Capture-IR &lt;enable|disable&gt;&quot;);
++	register_command(cmd_ctx, NULL, &quot;verify_jtag&quot;, handle_verify_jtag_command,
++		COMMAND_ANY, &quot;verify value capture &lt;enable|disable&gt;&quot;);
++	register_command(cmd_ctx, NULL, &quot;tms_sequence&quot;, handle_tms_sequence_command,
++		COMMAND_ANY, &quot;choose short(default) or long tms_sequence &lt;short|long&gt;&quot;);
++	return ERROR_OK;
++}
++
++static int default_khz(int khz, int *jtag_speed)
++{
++	LOG_ERROR(&quot;Translation from khz to jtag_speed not implemented&quot;);
++	return ERROR_FAIL;
++}
++
++static int default_speed_div(int speed, int *khz)
++{
++	LOG_ERROR(&quot;Translation from jtag_speed to khz not implemented&quot;);
++	return ERROR_FAIL;
++}
++
++static int default_power_dropout(int *dropout)
++{
++	*dropout=0; /* by default we can't detect power dropout */
++	return ERROR_OK;
++}
++
++static int default_srst_asserted(int *srst_asserted)
++{
++	*srst_asserted=0; /* by default we can't detect srst asserted */
++	return ERROR_OK;
++}
++
++static int handle_interface_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
++{
++	/* check whether the interface is already configured */
++	if (jtag_interface)
++	{
++		LOG_WARNING(&quot;Interface already configured, ignoring&quot;);
++		return ERROR_OK;
++	}
++
++	/* interface name is a mandatory argument */
++	if (argc != 1 || args[0][0] == '\0')
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	for (unsigned i = 0; NULL != jtag_interfaces[i]; i++)
++	{
++		if (strcmp(args[0], jtag_interfaces[i]-&gt;name) != 0)
++			continue;
++
++		int retval = jtag_interfaces[i]-&gt;register_commands(cmd_ctx);
++		if (ERROR_OK != retval)
++				return retval;
++
++		jtag_interface = jtag_interfaces[i];
++
++		if (jtag_interface-&gt;khz == NULL)
++			jtag_interface-&gt;khz = default_khz;
++		if (jtag_interface-&gt;speed_div == NULL)
++			jtag_interface-&gt;speed_div = default_speed_div;
++		if (jtag_interface-&gt;power_dropout == NULL)
++			jtag_interface-&gt;power_dropout = default_power_dropout;
++		if (jtag_interface-&gt;srst_asserted == NULL)
++			jtag_interface-&gt;srst_asserted = default_srst_asserted;
++
++		return ERROR_OK;
++	}
++
++	/* no valid interface was found (i.e. the configuration option,
++	 * didn't match one of the compiled-in interfaces
++	 */
++	LOG_ERROR(&quot;The specified JTAG interface was not found (%s)&quot;, args[0]);
++	handle_interface_list_command(cmd_ctx, cmd, args, argc);
++	return ERROR_JTAG_INVALID_INTERFACE;
++}
++
++static int handle_interface_list_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
++{
++	if (strcmp(cmd, &quot;interface_list&quot;) == 0 &amp;&amp; argc &gt; 0)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	command_print(cmd_ctx, &quot;The following JTAG interfaces are available:&quot;);
++	for (unsigned i = 0; NULL != jtag_interfaces[i]; i++)
++	{
++		const char *name = jtag_interfaces[i]-&gt;name;
++		command_print(cmd_ctx, &quot;%u: %s&quot;, i + 1, name);
++	}
++
++	return ERROR_OK;
++}
++
++static int handle_jtag_device_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	int e;
++	char buf[1024];
++	Jim_Obj *newargs[ 10 ];
++	/*
++	 * CONVERT SYNTAX
++	 * argv[-1] = command
++	 * argv[ 0] = ir length
++	 * argv[ 1] = ir capture
++	 * argv[ 2] = ir mask
++	 * argv[ 3] = not actually used by anything but in the docs
++	 */
++
++	if( argc &lt; 4 ){
++		command_print( cmd_ctx, &quot;OLD DEPRECATED SYNTAX: Please use the NEW syntax&quot;);
++		return ERROR_OK;
++	}
++	command_print( cmd_ctx, &quot;OLD SYNTAX: DEPRECATED - translating to new syntax&quot;);
++	command_print( cmd_ctx, &quot;jtag newtap CHIP TAP -irlen %s -ircapture %s -irvalue %s&quot;,
++				   args[0],
++				   args[1],
++				   args[2] );
++	command_print( cmd_ctx, &quot;Example: STM32 has 2 taps, the cortexM3(len4) + boundaryscan(len5)&quot;);
++	command_print( cmd_ctx, &quot;jtag newtap stm32 cortexm3 ....., thus creating the tap: \&quot;stm32.cortexm3\&quot;&quot;);
++	command_print( cmd_ctx, &quot;jtag newtap stm32 boundary ....., and the tap: \&quot;stm32.boundary\&quot;&quot;);
++	command_print( cmd_ctx, &quot;And then refer to the taps by the dotted name.&quot;);
++
++	newargs[0] = Jim_NewStringObj( interp, &quot;jtag&quot;, -1   );
++	newargs[1] = Jim_NewStringObj( interp, &quot;newtap&quot;, -1 );
++	sprintf( buf, &quot;chip%d&quot;, jtag_tap_count() );
++	newargs[2] = Jim_NewStringObj( interp, buf, -1 );
++	sprintf( buf, &quot;tap%d&quot;, jtag_tap_count() );
++	newargs[3] = Jim_NewStringObj( interp, buf, -1  );
++	newargs[4] = Jim_NewStringObj( interp, &quot;-irlen&quot;, -1  );
++	newargs[5] = Jim_NewStringObj( interp, args[0], -1  );
++	newargs[6] = Jim_NewStringObj( interp, &quot;-ircapture&quot;, -1  );
++	newargs[7] = Jim_NewStringObj( interp, args[1], -1  );
++	newargs[8] = Jim_NewStringObj( interp, &quot;-irmask&quot;, -1  );
++	newargs[9] = Jim_NewStringObj( interp, args[2], -1  );
++
++	command_print( cmd_ctx, &quot;NEW COMMAND:&quot;);
++	sprintf( buf, &quot;%s %s %s %s %s %s %s %s %s %s&quot;,
++			 Jim_GetString( newargs[0], NULL ),
++			 Jim_GetString( newargs[1], NULL ),
++			 Jim_GetString( newargs[2], NULL ),
++			 Jim_GetString( newargs[3], NULL ),
++			 Jim_GetString( newargs[4], NULL ),
++			 Jim_GetString( newargs[5], NULL ),
++			 Jim_GetString( newargs[6], NULL ),
++			 Jim_GetString( newargs[7], NULL ),
++			 Jim_GetString( newargs[8], NULL ),
++			 Jim_GetString( newargs[9], NULL ) );
++
++	e = jim_jtag_command( interp, 10, newargs );
++	if( e != JIM_OK ){
++		command_print( cmd_ctx, &quot;%s&quot;, Jim_GetString( Jim_GetResult(interp), NULL ) );
++	}
++	return e;
++}
++
++static int handle_scan_chain_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	jtag_tap_t *tap;
++
++	tap = jtag_all_taps();
++	command_print(cmd_ctx, &quot;     TapName            | Enabled |   IdCode      Expected    IrLen IrCap  IrMask Instr     &quot;);
++	command_print(cmd_ctx, &quot;---|--------------------|---------|------------|------------|------|------|------|---------&quot;);
++
++	while( tap ){
++		u32 expected, expected_mask, cur_instr, ii;
++		expected = buf_get_u32(tap-&gt;expected, 0, tap-&gt;ir_length);
++		expected_mask = buf_get_u32(tap-&gt;expected_mask, 0, tap-&gt;ir_length);
++		cur_instr = buf_get_u32(tap-&gt;cur_instr, 0, tap-&gt;ir_length);
++
++		command_print(cmd_ctx,
++					  &quot;%2d | %-18s |    %c    | 0x%08x | 0x%08x | 0x%02x | 0x%02x | 0x%02x | 0x%02x&quot;,
++					  tap-&gt;abs_chain_position,
++					  tap-&gt;dotted_name,
++					  tap-&gt;enabled ? 'Y' : 'n',
++					  tap-&gt;idcode,
++					  (tap-&gt;expected_ids_cnt &gt; 0 ? tap-&gt;expected_ids[0] : 0),
++					  tap-&gt;ir_length,
++					  expected,
++					  expected_mask,
++					  cur_instr);
++
++		for (ii = 1; ii &lt; tap-&gt;expected_ids_cnt; ii++) {
++			command_print(cmd_ctx, &quot;   |                    |         |            | 0x%08x |      |      |      |         &quot;,
++						  tap-&gt;expected_ids[ii]);
++		}
++
++		tap = tap-&gt;next_tap;
++	}
++
++	return ERROR_OK;
++}
++
++static int handle_reset_config_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	int new_cfg = 0;
++	int mask = 0;
++
++	if (argc &lt; 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	/* Original versions cared about the order of these tokens:
++	 *   reset_config signals [combination [trst_type [srst_type]]]
++	 * They also clobbered the previous configuration even on error.
++	 *
++	 * Here we don't care about the order, and only change values
++	 * which have been explicitly specified.
++	 */
++	for (; argc; argc--, args++) {
++		int tmp = 0;
++		int m;
++
++		/* signals */
++		m = RESET_HAS_TRST | RESET_HAS_SRST;
++		if (strcmp(*args, &quot;none&quot;) == 0)
++			tmp = RESET_NONE;
++		else if (strcmp(*args, &quot;trst_only&quot;) == 0)
++			tmp = RESET_HAS_TRST;
++		else if (strcmp(*args, &quot;srst_only&quot;) == 0)
++			tmp = RESET_HAS_SRST;
++		else if (strcmp(*args, &quot;trst_and_srst&quot;) == 0)
++			tmp = RESET_HAS_TRST | RESET_HAS_SRST;
++		else
++			m = 0;
++		if (mask &amp; m) {
++			LOG_ERROR(&quot;extra reset_config %s spec (%s)&quot;,
++					&quot;signal&quot;, *args);
++			return ERROR_INVALID_ARGUMENTS;
++		}
++		if (m)
++			goto next;
++
++		/* combination (options for broken wiring) */
++		m = RESET_SRST_PULLS_TRST | RESET_TRST_PULLS_SRST;
++		if (strcmp(*args, &quot;separate&quot;) == 0)
++			/* separate reset lines - default */;
++		else if (strcmp(*args, &quot;srst_pulls_trst&quot;) == 0)
++			tmp |= RESET_SRST_PULLS_TRST;
++		else if (strcmp(*args, &quot;trst_pulls_srst&quot;) == 0)
++			tmp |= RESET_TRST_PULLS_SRST;
++		else if (strcmp(*args, &quot;combined&quot;) == 0)
++			tmp |= RESET_SRST_PULLS_TRST | RESET_TRST_PULLS_SRST;
++		else
++			m = 0;
++		if (mask &amp; m) {
++			LOG_ERROR(&quot;extra reset_config %s spec (%s)&quot;,
++					&quot;combination&quot;, *args);
++			return ERROR_INVALID_ARGUMENTS;
++		}
++		if (m)
++			goto next;
++
++		/* trst_type (NOP without HAS_TRST) */
++		m = RESET_TRST_OPEN_DRAIN;
++		if (strcmp(*args, &quot;trst_open_drain&quot;) == 0)
++			tmp |= RESET_TRST_OPEN_DRAIN;
++		else if (strcmp(*args, &quot;trst_push_pull&quot;) == 0)
++			/* push/pull from adapter - default */;
++		else
++			m = 0;
++		if (mask &amp; m) {
++			LOG_ERROR(&quot;extra reset_config %s spec (%s)&quot;,
++					&quot;trst_type&quot;, *args);
++			return ERROR_INVALID_ARGUMENTS;
++		}
++		if (m)
++			goto next;
++
++		/* srst_type (NOP without HAS_SRST) */
++		m |= RESET_SRST_PUSH_PULL;
++		if (strcmp(*args, &quot;srst_push_pull&quot;) == 0)
++			tmp |= RESET_SRST_PUSH_PULL;
++		else if (strcmp(*args, &quot;srst_open_drain&quot;) == 0)
++			/* open drain from adapter - default */;
++		else
++			m = 0;
++		if (mask &amp; m) {
++			LOG_ERROR(&quot;extra reset_config %s spec (%s)&quot;,
++					&quot;srst_type&quot;, *args);
++			return ERROR_INVALID_ARGUMENTS;
++		}
++		if (m)
++			goto next;
++
++		/* caller provided nonsense; fail */
++		LOG_ERROR(&quot;unknown reset_config flag (%s)&quot;, *args);
++		return ERROR_INVALID_ARGUMENTS;
++
++next:
++		/* Remember the bits which were specified (mask)
++		 * and their new values (new_cfg).
++		 */
++		mask |= m;
++		new_cfg |= tmp;
++	}
++
++	/* clear previous values of those bits, save new values */
++	jtag_reset_config &amp;= ~mask;
++	jtag_reset_config |= new_cfg;
++
++	return ERROR_OK;
++}
++
++static int handle_jtag_nsrst_delay_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
++{
++	if (argc &gt; 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	if (argc == 1)
++		jtag_set_nsrst_delay(strtoul(args[0], NULL, 0));
++	command_print(cmd_ctx, &quot;jtag_nsrst_delay: %u&quot;, jtag_get_nsrst_delay());
++	return ERROR_OK;
++}
++
++static int handle_jtag_ntrst_delay_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
++{
++	if (argc &gt; 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	if (argc == 1)
++		jtag_set_ntrst_delay(strtoul(args[0], NULL, 0));
++	command_print(cmd_ctx, &quot;jtag_ntrst_delay: %u&quot;, jtag_get_ntrst_delay());
++	return ERROR_OK;
++}
++
++static int handle_jtag_speed_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	int retval = ERROR_OK;
++
++	if (argc &gt; 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	if (argc == 1)
++	{
++		LOG_DEBUG(&quot;handle jtag speed&quot;);
++
++		int cur_speed = 0;
++		cur_speed = jtag_speed = strtoul(args[0], NULL, 0);
++
++		/* this command can be called during CONFIG,
++		 * in which case jtag isn't initialized */
++		if (jtag)
++			retval = jtag-&gt;speed(cur_speed);
++	}
++	command_print(cmd_ctx, &quot;jtag_speed: %d&quot;, jtag_speed);
++
++	return retval;
++}
++
++static int handle_jtag_khz_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	if (argc &gt; 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	int retval = ERROR_OK;
++	int cur_speed = 0;
++	if (argc == 1)
++	{
++		LOG_DEBUG(&quot;handle jtag khz&quot;);
++
++		jtag_set_speed_khz(strtoul(args[0], NULL, 0));
++		if (jtag != NULL)
++		{
++			LOG_DEBUG(&quot;have interface set up&quot;);
++			int speed_div1;
++			retval = jtag-&gt;khz(jtag_get_speed_khz(), &amp;speed_div1);
++			if (ERROR_OK != retval)
++			{
++				jtag_set_speed_khz(0);
++				return retval;
++			}
++			cur_speed = jtag_speed = speed_div1;
++
++			retval = jtag-&gt;speed(cur_speed);
++		}
++		else
++			hasKHz = true;
++	}
++
++	cur_speed = jtag_get_speed_khz();
++	if (jtag != NULL)
++	{
++		retval = jtag-&gt;speed_div(jtag_speed, &amp;cur_speed);
++		if (ERROR_OK != retval)
++			return retval;
++	}
++
++	if (cur_speed)
++		command_print(cmd_ctx, &quot;%d kHz&quot;, cur_speed);
++	else
++		command_print(cmd_ctx, &quot;RCLK - adaptive&quot;);
++	return retval;
++
++}
++
++static int handle_jtag_reset_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
++{
++	if (argc != 2)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	int trst = -1;
++	if (args[0][0] == '1')
++		trst = 1;
++	else if (args[0][0] == '0')
++		trst = 0;
++	else
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	int srst = -1;
++	if (args[1][0] == '1')
++		srst = 1;
++	else if (args[1][0] == '0')
++		srst = 0;
++	else
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	if (jtag_interface_init(cmd_ctx) != ERROR_OK)
++		return ERROR_JTAG_INIT_FAILED;
++
++	jtag_add_reset(trst, srst);
++	jtag_execute_queue();
++
++	return ERROR_OK;
++}
++
++static int handle_runtest_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
++{
++	if (argc != 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	jtag_add_runtest(strtol(args[0], NULL, 0), jtag_get_end_state());
++	jtag_execute_queue();
++
++	return ERROR_OK;
++}
++
++/*
++ * For &quot;irscan&quot; or &quot;drscan&quot; commands, the &quot;end&quot; (really, &quot;next&quot;) state
++ * should be stable ... and *NOT* a shift state, otherwise free-running
++ * jtag clocks could change the values latched by the update state.
++ */
++static bool scan_is_safe(tap_state_t state)
++{
++	switch (state)
++	{
++	case TAP_RESET:
++	case TAP_IDLE:
++	case TAP_DRPAUSE:
++	case TAP_IRPAUSE:
++		return true;
++	default:
++		return false;
++	}
++}
++
++
++static int handle_irscan_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	int i;
++	scan_field_t *fields;
++	jtag_tap_t *tap;
++	tap_state_t endstate;
++
++	if ((argc &lt; 2) || (argc % 2))
++	{
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	/* optional &quot;-endstate&quot; &quot;statename&quot; at the end of the arguments,
++	 * so that e.g. IRPAUSE can let us load the data register before
++	 * entering RUN/IDLE to execute the instruction we load here.
++	 */
++	endstate = TAP_IDLE;
++
++	if( argc &gt;= 4 ){
++		/* have at least one pair of numbers. */
++		/* is last pair the magic text? */
++		if( 0 == strcmp( &quot;-endstate&quot;, args[ argc - 2 ] ) ){
++			const char *cpA;
++			const char *cpS;
++			cpA = args[ argc-1 ];
++			for( endstate = 0 ; endstate &lt; TAP_NUM_STATES ; endstate++ ){
++				cpS = tap_state_name( endstate );
++				if( 0 == strcmp( cpA, cpS ) ){
++					break;
++				}
++			}
++			if( endstate &gt;= TAP_NUM_STATES ){
++				return ERROR_COMMAND_SYNTAX_ERROR;
++			} else {
++				if (!scan_is_safe(endstate))
++					LOG_WARNING(&quot;irscan with unsafe &quot;
++							&quot;endstate \&quot;%s\&quot;&quot;, cpA);
++				/* found - remove the last 2 args */
++				argc -= 2;
++			}
++		}
++	}
++
++	int num_fields = argc / 2;
++
++	fields = malloc(sizeof(scan_field_t) * num_fields);
++
++	for (i = 0; i &lt; num_fields; i++)
++	{
++		tap = jtag_tap_by_string( args[i*2] );
++		if (tap==NULL)
++		{
++			command_print( cmd_ctx, &quot;Tap: %s unknown&quot;, args[i*2] );
++			return ERROR_FAIL;
++		}
++		int field_size = tap-&gt;ir_length;
++		fields[i].tap = tap;
++		fields[i].num_bits = field_size;
++		fields[i].out_value = malloc(CEIL(field_size, 8));
++		buf_set_u32(fields[i].out_value, 0, field_size, strtoul(args[i*2+1], NULL, 0));
++		fields[i].in_value = NULL;
++	}
++
++	/* did we have an endstate? */
++	jtag_add_ir_scan(num_fields, fields, endstate);
++
++	int retval=jtag_execute_queue();
++
++	for (i = 0; i &lt; num_fields; i++)
++		free(fields[i].out_value);
++
++	free (fields);
++
++	return retval;
++}
++
++static int Jim_Command_drscan(Jim_Interp *interp, int argc, Jim_Obj *const *args)
++{
++	int retval;
++	scan_field_t *fields;
++	int num_fields;
++	int field_count = 0;
++	int i, e;
++	jtag_tap_t *tap;
++	tap_state_t endstate;
++
++	/* args[1] = device
++	 * args[2] = num_bits
++	 * args[3] = hex string
++	 * ... repeat num bits and hex string ...
++	 *
++	 * .. optionally:
++	*     args[N-2] = &quot;-endstate&quot;
++	 *     args[N-1] = statename
++	 */
++	if ((argc &lt; 4) || ((argc % 2)!=0))
++	{
++		Jim_WrongNumArgs(interp, 1, args, &quot;wrong arguments&quot;);
++		return JIM_ERR;
++	}
++
++	endstate = TAP_IDLE;
++
++	/* validate arguments as numbers */
++	e = JIM_OK;
++	for (i = 2; i &lt; argc; i+=2)
++	{
++		long bits;
++		const char *cp;
++
++		e = Jim_GetLong(interp, args[i], &amp;bits);
++		/* If valid - try next arg */
++		if( e == JIM_OK ){
++			continue;
++		}
++
++		/* Not valid.. are we at the end? */
++		if ( ((i+2) != argc) ){
++			/* nope, then error */
++			return e;
++		}
++
++		/* it could be: &quot;-endstate FOO&quot;
++		 * e.g. DRPAUSE so we can issue more instructions
++		 * before entering RUN/IDLE and executing them.
++		 */
++
++		/* get arg as a string. */
++		cp = Jim_GetString( args[i], NULL );
++		/* is it the magic? */
++		if( 0 == strcmp( &quot;-endstate&quot;, cp ) ){
++			/* is the statename valid? */
++			cp = Jim_GetString( args[i+1], NULL );
++
++			/* see if it is a valid state name */
++			endstate = tap_state_by_name(cp);
++			if( endstate &lt; 0 ){
++				/* update the error message */
++				Jim_SetResult_sprintf(interp,&quot;endstate: %s invalid&quot;, cp );
++			} else {
++				if (!scan_is_safe(endstate))
++					LOG_WARNING(&quot;drscan with unsafe &quot;
++							&quot;endstate \&quot;%s\&quot;&quot;, cp);
++
++				/* valid - so clear the error */
++				e = JIM_OK;
++				/* and remove the last 2 args */
++				argc -= 2;
++			}
++		}
++
++		/* Still an error? */
++		if( e != JIM_OK ){
++			return e; /* too bad */
++		}
++	} /* validate args */
++
++	tap = jtag_tap_by_jim_obj( interp, args[1] );
++	if( tap == NULL ){
++		return JIM_ERR;
++	}
++
++	num_fields=(argc-2)/2;
++	fields = malloc(sizeof(scan_field_t) * num_fields);
++	for (i = 2; i &lt; argc; i+=2)
++	{
++		long bits;
++		int len;
++		const char *str;
++
++		Jim_GetLong(interp, args[i], &amp;bits);
++		str = Jim_GetString(args[i+1], &amp;len);
++
++		fields[field_count].tap = tap;
++		fields[field_count].num_bits = bits;
++		fields[field_count].out_value = malloc(CEIL(bits, 8));
++		str_to_buf(str, len, fields[field_count].out_value, bits, 0);
++		fields[field_count].in_value = fields[field_count].out_value;
++		field_count++;
++	}
++
++	jtag_add_dr_scan(num_fields, fields, endstate);
++
++	retval = jtag_execute_queue();
++	if (retval != ERROR_OK)
++	{
++		Jim_SetResultString(interp, &quot;drscan: jtag execute failed&quot;,-1);
++		return JIM_ERR;
++	}
++
++	field_count=0;
++	Jim_Obj *list = Jim_NewListObj(interp, NULL, 0);
++	for (i = 2; i &lt; argc; i+=2)
++	{
++		long bits;
++		char *str;
++
++		Jim_GetLong(interp, args[i], &amp;bits);
++		str = buf_to_str(fields[field_count].in_value, bits, 16);
++		free(fields[field_count].out_value);
++
++		Jim_ListAppendElement(interp, list, Jim_NewStringObj(interp, str, strlen(str)));
++		free(str);
++		field_count++;
++	}
++
++	Jim_SetResult(interp, list);
++
++	free(fields);
++
++	return JIM_OK;
++}
++
++
++static int Jim_Command_flush_count(Jim_Interp *interp, int argc, Jim_Obj *const *args)
++{
++	Jim_SetResult(interp, Jim_NewIntObj(interp, jtag_get_flush_queue_count()));
++
++	return JIM_OK;
++}
++
++
++static int handle_verify_ircapture_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	if (argc == 1)
++	{
++		if (strcmp(args[0], &quot;enable&quot;) == 0)
++		{
++			jtag_verify_capture_ir = 1;
++		}
++		else if (strcmp(args[0], &quot;disable&quot;) == 0)
++		{
++			jtag_verify_capture_ir = 0;
++		} else
++		{
++			return ERROR_COMMAND_SYNTAX_ERROR;
++		}
++	} else if (argc != 0)
++	{
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	command_print(cmd_ctx, &quot;verify Capture-IR is %s&quot;, (jtag_verify_capture_ir) ? &quot;enabled&quot;: &quot;disabled&quot;);
++
++	return ERROR_OK;
++}
++
++static int handle_verify_jtag_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	if (argc &gt; 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	if (argc == 1)
++	{
++		if (strcmp(args[0], &quot;enable&quot;) == 0)
++			jtag_set_verify(true);
++		else if (strcmp(args[0], &quot;disable&quot;) == 0)
++			jtag_set_verify(false);
++		else
++			return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	const char *status = jtag_will_verify() ? &quot;enabled&quot;: &quot;disabled&quot;;
++	command_print(cmd_ctx, &quot;verify jtag capture is %s&quot;, status);
++
++	return ERROR_OK;
++}
++
++static int handle_tms_sequence_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	if (argc &gt; 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	if (argc == 1)
++	{
++		bool use_new_table;
++		if (strcmp(args[0], &quot;short&quot;) == 0)
++			use_new_table = true;
++		else if (strcmp(args[0], &quot;long&quot;) == 0)
++			use_new_table = false;
++		else
++			return ERROR_COMMAND_SYNTAX_ERROR;
++
++		tap_use_new_tms_table(use_new_table);
++	}
++
++	command_print(cmd_ctx, &quot;tms sequence is  %s&quot;,
++			tap_uses_new_tms_table() ? &quot;short&quot;: &quot;long&quot;);
++
++	return ERROR_OK;
++}
++
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000932.html">[Openocd-svn] r2148 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000934.html">[Openocd-svn] r2150 - trunk/doc/manual
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#933">[ date ]</a>
+              <a href="thread.html#933">[ thread ]</a>
+              <a href="subject.html#933">[ subject ]</a>
+              <a href="author.html#933">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

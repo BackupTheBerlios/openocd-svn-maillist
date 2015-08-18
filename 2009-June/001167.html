@@ -1,0 +1,2952 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2383 - in trunk: doc src/flash tcl/board tcl/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2383%20-%20in%20trunk%3A%20doc%20src/flash%20tcl/board%20tcl/target&In-Reply-To=%3C200906240201.n5O21ULK010059%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001166.html">
+   <LINK REL="Next"  HREF="001168.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2383 - in trunk: doc src/flash tcl/board tcl/target</H1>
+    <B>duane at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2383%20-%20in%20trunk%3A%20doc%20src/flash%20tcl/board%20tcl/target&In-Reply-To=%3C200906240201.n5O21ULK010059%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2383 - in trunk: doc src/flash tcl/board tcl/target">duane at mail.berlios.de
+       </A><BR>
+    <I>Wed Jun 24 04:01:30 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001166.html">[Openocd-svn] r2382 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="001168.html">[Openocd-svn] r2384 - in trunk/src: flash helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1167">[ date ]</a>
+              <a href="thread.html#1167">[ thread ]</a>
+              <a href="subject.html#1167">[ subject ]</a>
+              <a href="author.html#1167">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: duane
+Date: 2009-06-24 04:01:14 +0200 (Wed, 24 Jun 2009)
+New Revision: 2383
+
+Added:
+   trunk/src/flash/at91sam3.c
+   trunk/src/flash/at91sam3.h
+   trunk/tcl/board/atmel_sam3u_ek.cfg
+   trunk/tcl/target/at91sam3u1c.cfg
+   trunk/tcl/target/at91sam3u1e.cfg
+   trunk/tcl/target/at91sam3u2c.cfg
+   trunk/tcl/target/at91sam3u2e.cfg
+   trunk/tcl/target/at91sam3u4c.cfg
+   trunk/tcl/target/at91sam3u4e.cfg
+   trunk/tcl/target/at91sam3uXX.cfg
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/flash/Makefile.am
+   trunk/src/flash/flash.c
+Log:
+Add support for ATMEL AT91SAM3U - CortexM3 Family
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-06-24 02:00:19 UTC (rev 2382)
++++ trunk/doc/openocd.texi	2009-06-24 02:01:14 UTC (rev 2383)
+@@ -130,7 +130,7 @@
+ 
+ @b{Flash Programing:} Flash writing is supported for external CFI
+ compatible NOR flashes (Intel and AMD/Spansion command set) and several
+-internal flashes (LPC2000, AT91SAM7, STR7x, STR9x, LM3, and
++internal flashes (LPC2000, AT91SAM7, AT91SAM3U, STR7x, STR9x, LM3, and
+ STM32x). Preliminary support for various NAND flash controllers
+ (LPC3180, Orion, S3C24xx, more) controller is included.
+ 
+@@ -3374,12 +3374,69 @@
+ @end example
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> {Flash Driver} at91sam3
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at cindex</A> at91sam3
++All members of the AT91SAM3 (cortex-M3) microcontroller family from
++atmel include internal flash and use the Cortex-M3 core. The driver
++currently (6/22/09) recognizes the AT91SAM3U[1/2/4][C/E] chips. Note
++that the driver was orginaly developed and tested using the
++AT91SAM3U4E, using a SAM3U-EK eval board. Support for other chips in
++the family where cribbed from the data sheet [Note to future
++readers/updaters: Please remove this worrysome comment after other
++chips are confirmed].
++
++The AT91SAM3U4[E/C] (256K) chips have 2 flash banks, the other chips
++(3U[1/2][E/C]) have 1 flash bank, in all cases the flash banks are at
++the following fixed locations. 
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++# Flash bank 0 - all chips
++flash bank at91sam3 0x000080000 0 1 1 $_TARGETNAME
++# Flash bank 1 - only 256K chips
++flash bank at91sam3 0x000100000 0 1 1 $_TARGETNAME
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
++
++Internally, the AT91SAM3 flash memory is organized as follows:
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at itemize</A>
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{N-Banks:} 256K chips have 2 banks, others have 1 bank.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{Bank Size:}  128K/64K Per flash bank
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{Sectors:} 16 or 8 per bank
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{SectorSize:} 8K Per Sector
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{PageSize:} 256 bytes per page. Note that OpenOCD operates on 'sector' sizes, not page sizes.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> itemize
++
++The AT91SAM3 driver adds an additional command:
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {at91sam3 gpnvm set|clear|show all|NUMBER}
++This command allows you to set, clear, or show the state of the GPNVM bits.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {at91sam3 info}
++This command attempts to display information about the AT91SAM3
++chip. @b{First} it read the @var{CHIPID_CIDR} [address 0x400e0740, see
++Section 28.2.1, page 505 of the AT91SAM3U 29/may/2009 datasheet,
++document id: doc6430A] and decodes the values. @b{Second} it reads the
++various clock configuration registers and attempts to display how it
++believes the chip is configured. By default, the SLOWCLK is assumed to
++be 32768 Hz, see the command @b{at91sam3 slowclk}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {at91sam3 slowclk [VALUE]}
++This command shows/sets the slow clock frequency used in the
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{at91sam3 info} command calculations above.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+ @deffn {Flash Driver} at91sam7
+-All members of the AT91SAM7 microcontroller family from Atmel
+-include internal flash and use ARM7TDMI cores.
+-The driver automatically recognizes a number of these chips using
+-the chip identification register, and autoconfigures itself.
++All members of the AT91SAM7 microcontroller family from Atmel include
++internal flash and use ARM7TDMI cores.  The driver automatically
++recognizes a number of these chips using the chip identification
++register, and autoconfigures itself.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
+ 
++
+ @example
+ flash bank at91sam7 0 0 0 0 $_TARGETNAME
+ @end example
+@@ -3419,7 +3476,6 @@
+ the appropriate at91sam7 target.
+ @end quotation
+ @end deffn
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> deffn
+ 
+ @deffn {Flash Driver} avr
+ The AVR 8-bit microcontrollers from Atmel integrate flash memory.
+
+Modified: trunk/src/flash/Makefile.am
+===================================================================
+--- trunk/src/flash/Makefile.am	2009-06-24 02:00:19 UTC (rev 2382)
++++ trunk/src/flash/Makefile.am	2009-06-24 02:01:14 UTC (rev 2383)
+@@ -11,6 +11,7 @@
+ 	cfi.c \
+ 	non_cfi.c \
+ 	at91sam7.c \
++	at91sam3.c \
+ 	davinci_nand.c \
+ 	str7x.c \
+ 	str9x.c \
+@@ -42,6 +43,7 @@
+ 	cfi.h \
+ 	non_cfi.h \
+ 	at91sam7.h \
++	at91sam3.h \
+ 	str7x.h \
+ 	str9x.h \
+ 	nand.h \
+
+Added: trunk/src/flash/at91sam3.c
+===================================================================
+--- trunk/src/flash/at91sam3.c	2009-06-24 02:00:19 UTC (rev 2382)
++++ trunk/src/flash/at91sam3.c	2009-06-24 02:01:14 UTC (rev 2383)
+@@ -0,0 +1,2494 @@
++/***************************************************************************
++ *   Copyright (C) 2009 by Duane Ellis                                     *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">openocd at duaneellis.com</A>                                                *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS for A PARTICULAR PURPOSE.  See the         *
++ *   GNU General public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++****************************************************************************/
++
++/* Some of the the lower level code was based on code supplied by
++ * ATMEL under this copyright. */
++
++/* BEGIN ATMEL COPYRIGHT */
++/* ----------------------------------------------------------------------------
++ *         ATMEL Microcontroller Software Support 
++ * ----------------------------------------------------------------------------
++ * Copyright (c) 2009, Atmel Corporation
++ *
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are met:
++ *
++ * - Redistributions of source code must retain the above copyright notice,
++ * this list of conditions and the disclaimer below.
++ *
++ * Atmel's name may not be used to endorse or promote products derived from
++ * this software without specific prior written permission.
++ *
++ * DISCLAIMER: THIS SOFTWARE IS PROVIDED BY ATMEL &quot;AS IS&quot; AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT ARE
++ * DISCLAIMED. IN NO EVENT SHALL ATMEL BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
++ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA,
++ * OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
++ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * ----------------------------------------------------------------------------
++ */
++/* END ATMEL COPYRIGHT */
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++
++#include &lt;stdio.h&gt;
++#include &lt;string.h&gt;
++#include &lt;stddef.h&gt;
++#include &quot;log.h&quot;
++#include &quot;types.h&quot;
++#include &quot;flash.h&quot;
++#include &quot;target.h&quot;
++#include &quot;membuf.h&quot;
++#include &quot;at91sam3.h&quot;
++#include &quot;time_support.h&quot;
++
++#define REG_NAME_WIDTH  (12)
++
++
++#define FLASH_BANK0_BASE   0x00080000
++#define FLASH_BANK1_BASE   0x00100000
++
++#define 	AT91C_EFC_FCMD_GETD                 (0x0) // (EFC) Get Flash Descriptor
++#define 	AT91C_EFC_FCMD_WP                   (0x1) // (EFC) Write Page
++#define 	AT91C_EFC_FCMD_WPL                  (0x2) // (EFC) Write Page and Lock
++#define 	AT91C_EFC_FCMD_EWP                  (0x3) // (EFC) Erase Page and Write Page
++#define 	AT91C_EFC_FCMD_EWPL                 (0x4) // (EFC) Erase Page and Write Page then Lock
++#define 	AT91C_EFC_FCMD_EA                   (0x5) // (EFC) Erase All
++// cmd6 is not present int he at91sam3u4/2/1 data sheet table 17-2
++// #define 	AT91C_EFC_FCMD_EPL                  (0x6) // (EFC) Erase plane?
++// cmd7 is not present int he at91sam3u4/2/1 data sheet table 17-2
++// #define 	AT91C_EFC_FCMD_EPA                  (0x7) // (EFC) Erase pages?
++#define 	AT91C_EFC_FCMD_SLB                  (0x8) // (EFC) Set Lock Bit
++#define 	AT91C_EFC_FCMD_CLB                  (0x9) // (EFC) Clear Lock Bit
++#define 	AT91C_EFC_FCMD_GLB                  (0xA) // (EFC) Get Lock Bit
++#define 	AT91C_EFC_FCMD_SFB                  (0xB) // (EFC) Set Fuse Bit
++#define 	AT91C_EFC_FCMD_CFB                  (0xC) // (EFC) Clear Fuse Bit
++#define 	AT91C_EFC_FCMD_GFB                  (0xD) // (EFC) Get Fuse Bit
++#define 	AT91C_EFC_FCMD_STUI                 (0xE) // (EFC) Start Read Unique ID
++#define 	AT91C_EFC_FCMD_SPUI                 (0xF) // (EFC) Stop Read Unique ID
++
++#define  offset_EFC_FMR   0
++#define  offset_EFC_FCR   4
++#define  offset_EFC_FSR   8
++#define  offset_EFC_FRR   12
++
++
++static float
++_tomhz( uint32_t freq_hz )
++{
++	float f;
++
++	f = ((float)(freq_hz)) / 1000000.0;
++	return f;
++}
++
++// How the chip is configured.
++struct sam3_cfg {
++	uint32_t unique_id[4];
++
++	uint32_t slow_freq;
++	uint32_t rc_freq;
++	uint32_t mainosc_freq;
++	uint32_t plla_freq;
++	uint32_t mclk_freq;
++	uint32_t cpu_freq;
++	uint32_t fclk_freq;
++	uint32_t pclk0_freq;
++	uint32_t pclk1_freq;
++	uint32_t pclk2_freq;
++
++
++#define SAM3_CHIPID_CIDR          (0x400E0740)
++	uint32_t CHIPID_CIDR;
++#define SAM3_CHIPID_EXID          (0x400E0744)
++	uint32_t CHIPID_EXID;
++
++#define SAM3_SUPC_CR              (0x400E1210)
++	uint32_t SUPC_CR;             
++
++#define SAM3_PMC_BASE             (0x400E0400)
++#define SAM3_PMC_SCSR             (SAM3_PMC_BASE + 0x0008)
++	uint32_t PMC_SCSR;
++#define SAM3_PMC_PCSR             (SAM3_PMC_BASE + 0x0018)
++	uint32_t PMC_PCSR;
++#define SAM3_CKGR_UCKR            (SAM3_PMC_BASE + 0x001c)
++	uint32_t CKGR_UCKR;
++#define SAM3_CKGR_MOR             (SAM3_PMC_BASE + 0x0020)
++	uint32_t CKGR_MOR;
++#define SAM3_CKGR_MCFR            (SAM3_PMC_BASE + 0x0024)
++	uint32_t CKGR_MCFR;
++#define SAM3_CKGR_PLLAR           (SAM3_PMC_BASE + 0x0028)
++	uint32_t CKGR_PLLAR;
++#define SAM3_PMC_MCKR             (SAM3_PMC_BASE + 0x0030)
++	uint32_t PMC_MCKR;
++#define SAM3_PMC_PCK0             (SAM3_PMC_BASE + 0x0040)
++	uint32_t PMC_PCK0;
++#define SAM3_PMC_PCK1             (SAM3_PMC_BASE + 0x0044)
++	uint32_t PMC_PCK1;
++#define SAM3_PMC_PCK2             (SAM3_PMC_BASE + 0x0048)
++	uint32_t PMC_PCK2;
++#define SAM3_PMC_SR               (SAM3_PMC_BASE + 0x0068)
++	uint32_t PMC_SR;
++#define SAM3_PMC_IMR              (SAM3_PMC_BASE + 0x006c)
++	uint32_t PMC_IMR;
++#define SAM3_PMC_FSMR             (SAM3_PMC_BASE + 0x0070)
++	uint32_t PMC_FSMR;
++#define SAM3_PMC_FSPR             (SAM3_PMC_BASE + 0x0074)
++	uint32_t PMC_FSPR;
++};
++
++
++struct sam3_bank_private {
++	int probed;
++	// DANGER: THERE ARE DRAGONS HERE..
++	// NOTE: If you add more 'ghost' pointers
++	// be aware that you must *manually* update 
++	// these pointers in the function sam3_GetDetails()
++	// See the comment &quot;Here there be dragons&quot;
++
++	// so we can find the chip we belong to
++	struct sam3_chip *pChip;
++	// so we can find the orginal bank pointer 
++	flash_bank_t *pBank;
++	unsigned bank_number;
++	uint32_t controller_address;
++	uint32_t base_address;
++	bool present;
++	unsigned size_bytes;
++	unsigned nsectors;
++	unsigned sector_size;
++	unsigned page_size;
++};
++
++struct sam3_chip_details {
++	// THERE ARE DRAGONS HERE..
++	// note: If you add pointers here
++	// becareful about them as they
++	// may need to be updated inside
++	// the function: &quot;sam3_GetDetails()
++	// which copy/overwrites the
++	// 'runtime' copy of this structure
++	uint32_t chipid_cidr;
++	const char *name;
++
++	unsigned n_gpnvms;
++#define SAM3_N_NVM_BITS 3
++	unsigned  gpnvm[SAM3_N_NVM_BITS];
++	unsigned  total_flash_size;
++	unsigned  total_sram_size;
++	unsigned  n_banks;
++#define SAM3_MAX_FLASH_BANKS 2
++	// these are &quot;initialized&quot; from the global const data
++	struct sam3_bank_private bank[SAM3_MAX_FLASH_BANKS];
++};
++
++
++struct sam3_chip {
++	struct sam3_chip *next;
++	int    probed;
++
++	// this is &quot;initialized&quot; from the global const structure
++	struct sam3_chip_details details;
++	target_t *target;
++	struct sam3_cfg cfg;
++
++	struct membuf *mbuf;
++};
++
++
++struct sam3_reg_list {
++	uint32_t address;  size_t struct_offset; const char *name;
++	void (*explain_func)( struct sam3_chip *pInfo );
++};
++
++
++static struct sam3_chip *all_sam3_chips;
++
++static struct sam3_chip *
++get_current_sam3(struct command_context_s *cmd_ctx )
++{
++	target_t *t;
++	static struct sam3_chip *p;
++
++	t = get_current_target( cmd_ctx );
++	if( !t ){
++		command_print( cmd_ctx, &quot;No current target?&quot;);
++		return NULL;
++	}
++
++	p = all_sam3_chips;
++	if( !p ){
++		// this should not happen
++		// the command is not registered until the chip is created?
++		command_print( cmd_ctx, &quot;No SAM3 chips exist?&quot;);
++		return NULL;
++	}
++
++	while( p ){
++		if( p-&gt;target == t ){
++			return p;
++		}
++		p = p-&gt;next;
++	}
++	command_print( cmd_ctx, &quot;Cannot find SAM3 chip?&quot;);
++	return NULL;
++}
++
++
++// these are used to *initialize* the &quot;pChip-&gt;details&quot; structure.
++static const struct sam3_chip_details all_sam3_details[] = {
++	{
++		.chipid_cidr    = 0x28100960,
++		.name           = &quot;at91sam3u4e&quot;,
++		.total_flash_size     = 256 * 1024,
++		.total_sram_size      = 52 * 1024,
++		.n_gpnvms       = 3, 
++		.n_banks        = 2,
++
++		// System boots at address 0x0
++		// gpnvm[1] = selects boot code
++		//     if gpnvm[1] == 0
++		//         boot is via &quot;SAMBA&quot; (rom)
++		//     else 
++		//         boot is via FLASH
++		//         Selection is via gpnvm[2]
++		//     endif
++		//
++		// NOTE: banks 0 &amp; 1 switch places
++		//     if gpnvm[2] == 0
++		//         Bank0 is the boot rom
++		//      else
++		//         Bank1 is the boot rom
++		//      endif
++		.bank[0] = { 
++			.probed = 0,
++			.pChip  = NULL,
++			.pBank  = NULL,
++			.bank_number = 0,
++			.base_address = FLASH_BANK0_BASE, 
++			.controller_address = 0x400e0800,
++			.present = 1,
++			.size_bytes = 128 * 1024,
++			.nsectors   = 16,
++			.sector_size = 8192,
++			.page_size   = 256,
++		},
++
++		.bank[1] = {
++			.probed = 0,
++			.pChip  = NULL,
++			.pBank  = NULL,
++			.bank_number = 1,
++			.base_address = FLASH_BANK1_BASE,
++			.controller_address = 0x400e0a00,
++			.present = 1,
++			.size_bytes = 128 * 1024,
++			.nsectors   = 16,
++			.sector_size = 8192,
++			.page_size   = 256,
++		},
++	},
++
++	{
++		.chipid_cidr    = 0x281a0760,
++		.name           = &quot;at91sam3u2e&quot;,
++		.total_flash_size     = 128 * 1024,
++		.total_sram_size      =  36 * 1024,
++		.n_gpnvms       = 2, 
++		.n_banks        = 1,
++
++		// System boots at address 0x0
++		// gpnvm[1] = selects boot code
++		//     if gpnvm[1] == 0
++		//         boot is via &quot;SAMBA&quot; (rom)
++		//     else 
++		//         boot is via FLASH
++		//         Selection is via gpnvm[2]
++		//     endif
++		.bank[0] = { 
++			.probed = 0,
++			.pChip  = NULL,
++			.pBank  = NULL,
++			.bank_number = 0,
++			.base_address = FLASH_BANK0_BASE, 
++			.controller_address = 0x400e0800,
++			.present = 1,
++			.size_bytes = 128 * 1024,
++			.nsectors   = 16,
++			.sector_size = 8192,
++			.page_size   = 256,
++		},
++
++		.bank[1] = {
++			.present = 0,
++			.probed = 0,
++			.bank_number = 1,
++		},
++	},
++	{
++		.chipid_cidr    = 0x28190560,
++		.name           = &quot;at91sam3u1e&quot;,
++		.total_flash_size     = 64 * 1024,
++		.total_sram_size      = 20 * 1024,
++		.n_gpnvms       = 2, 
++		.n_banks        = 1,
++
++		// System boots at address 0x0
++		// gpnvm[1] = selects boot code
++		//     if gpnvm[1] == 0
++		//         boot is via &quot;SAMBA&quot; (rom)
++		//     else 
++		//         boot is via FLASH
++		//         Selection is via gpnvm[2]
++		//     endif
++		//
++	
++		.bank[0] = { 
++			.probed = 0,
++			.pChip  = NULL,
++			.pBank  = NULL,
++			.bank_number = 0,
++			.base_address = FLASH_BANK0_BASE, 
++			.controller_address = 0x400e0800,
++			.present = 1,
++			.size_bytes =  64 * 1024,
++			.nsectors   =  8,
++			.sector_size = 8192,
++			.page_size   = 256,
++		},
++
++		.bank[1] = {
++			.present = 0,
++			.probed = 0,
++			.bank_number = 1,
++		},
++	},
++		
++	{
++		.chipid_cidr    = 0x28000960,
++		.name           = &quot;at91sam3u4c&quot;,
++		.total_flash_size     = 256 * 1024,
++		.total_sram_size      = 52 * 1024,
++		.n_gpnvms       = 3, 
++		.n_banks        = 2,
++
++		// System boots at address 0x0
++		// gpnvm[1] = selects boot code
++		//     if gpnvm[1] == 0
++		//         boot is via &quot;SAMBA&quot; (rom)
++		//     else 
++		//         boot is via FLASH
++		//         Selection is via gpnvm[2]
++		//     endif
++		//
++		// NOTE: banks 0 &amp; 1 switch places
++		//     if gpnvm[2] == 0
++		//         Bank0 is the boot rom
++		//      else
++		//         Bank1 is the boot rom
++		//      endif
++		.bank[0] = { 
++			.probed = 0,
++			.pChip  = NULL,
++			.pBank  = NULL,
++			.bank_number = 0,
++			.base_address = FLASH_BANK0_BASE, 
++			.controller_address = 0x400e0800,
++			.present = 1,
++			.size_bytes = 128 * 1024,
++			.nsectors   = 16,
++			.sector_size = 8192,
++			.page_size   = 256,
++		},
++
++		.bank[1] = {
++			.probed = 0,
++			.pChip  = NULL,
++			.pBank  = NULL,
++			.bank_number = 1,
++			.base_address = FLASH_BANK1_BASE,
++			.controller_address = 0x400e0a00,
++			.present = 1,
++			.size_bytes = 128 * 1024,
++			.nsectors   = 16,
++			.sector_size = 8192,
++			.page_size   = 256,
++		},
++	},
++
++	{
++		.chipid_cidr    = 0x280a0760,
++		.name           = &quot;at91sam3u2c&quot;,
++		.total_flash_size     = 128 * 1024,
++		.total_sram_size      = 36 * 1024,
++		.n_gpnvms       = 2, 
++		.n_banks        = 1,
++
++		// System boots at address 0x0
++		// gpnvm[1] = selects boot code
++		//     if gpnvm[1] == 0
++		//         boot is via &quot;SAMBA&quot; (rom)
++		//     else 
++		//         boot is via FLASH
++		//         Selection is via gpnvm[2]
++		//     endif
++		.bank[0] = { 
++			.probed = 0,
++			.pChip  = NULL,
++			.pBank  = NULL,
++			.bank_number = 0,
++			.base_address = FLASH_BANK0_BASE, 
++			.controller_address = 0x400e0800,
++			.present = 1,
++			.size_bytes = 128 * 1024,
++			.nsectors   = 16,
++			.sector_size = 8192,
++			.page_size   = 256,
++		},
++
++		.bank[1] = {
++			.present = 0,
++			.probed = 0,
++			.bank_number = 1,
++		},
++	},
++	{
++		.chipid_cidr    = 0x28090560,
++		.name           = &quot;at91sam3u1c&quot;,
++		.total_flash_size     = 64 * 1024,
++		.total_sram_size      = 20 * 1024,
++		.n_gpnvms       = 2, 
++		.n_banks        = 1,
++
++		// System boots at address 0x0
++		// gpnvm[1] = selects boot code
++		//     if gpnvm[1] == 0
++		//         boot is via &quot;SAMBA&quot; (rom)
++		//     else 
++		//         boot is via FLASH
++		//         Selection is via gpnvm[2]
++		//     endif
++		//
++	
++		.bank[0] = { 
++			.probed = 0,
++			.pChip  = NULL,
++			.pBank  = NULL,
++			.bank_number = 0,
++			.base_address = FLASH_BANK0_BASE, 
++			.controller_address = 0x400e0800,
++			.present = 1,
++			.size_bytes =  64 * 1024,
++			.nsectors   =  8,
++			.sector_size = 8192,
++			.page_size   = 256,
++		},
++
++		.bank[1] = {
++			.present = 0,
++			.probed = 0,
++			.bank_number = 1,
++		},
++	},
++
++	// terminate
++	{ 
++		.chipid_cidr	= 0,
++		.name			= NULL,
++	}
++};
++
++/* Globals above */
++/***********************************************************************
++ **********************************************************************
++ **********************************************************************
++ **********************************************************************
++ **********************************************************************
++ **********************************************************************/
++/* *ATMEL* style code - from the SAM3 driver code */
++
++/** Get the current status of the EEFC
++ *
++ * the value of some status bits (LOCKE, PROGE).
++ * @param pPrivate - info about the bank
++ * @param v        - result goes here
++ */
++static int 
++EFC_GetStatus( struct sam3_bank_private *pPrivate, uint32_t *v )
++{
++	int r;
++	r = target_read_u32( pPrivate-&gt;pChip-&gt;target, pPrivate-&gt;controller_address + offset_EFC_FSR, v );
++	LOG_DEBUG(&quot;Status: 0x%08x (lockerror: %d, cmderror: %d, ready: %d)&quot;, 
++			  (unsigned int)(*v),
++			  ((unsigned int)((*v &gt;&gt; 2) &amp; 1)),
++			  ((unsigned int)((*v &gt;&gt; 1) &amp; 1)),
++			  ((unsigned int)((*v &gt;&gt; 0) &amp; 1)));
++			  
++	return r;
++}
++
++/** Get the result of the last executed command.
++ * @param pPrivate - info about the bank
++ * @param v        - result goes here
++ */
++static int 
++EFC_GetResult( struct sam3_bank_private *pPrivate, uint32_t *v )
++{
++	int r;
++	uint32_t rv;
++	r = target_read_u32( pPrivate-&gt;pChip-&gt;target, pPrivate-&gt;controller_address + offset_EFC_FRR, &amp;rv );
++	if( v ){
++		*v = rv;
++	}
++	LOG_DEBUG(&quot;Result: 0x%08x&quot;, ((unsigned int)(rv)));
++	return r;
++}
++
++static int
++EFC_StartCommand(struct sam3_bank_private *pPrivate,
++				 unsigned command, unsigned argument )
++{
++	uint32_t n,v;
++	int r;
++	int retry;
++
++	retry = 0;
++ do_retry:
++
++    // Check command &amp; argument
++    switch (command) {
++
++	case AT91C_EFC_FCMD_WP:
++	case AT91C_EFC_FCMD_WPL:
++	case AT91C_EFC_FCMD_EWP: 
++	case AT91C_EFC_FCMD_EWPL:
++		// case AT91C_EFC_FCMD_EPL:
++		// case AT91C_EFC_FCMD_EPA:
++	case AT91C_EFC_FCMD_SLB:
++	case AT91C_EFC_FCMD_CLB:
++		n = (pPrivate-&gt;size_bytes / pPrivate-&gt;page_size);
++		if( argument &gt;= n ){
++			LOG_ERROR(&quot;*BUG*: Embedded flash has only %u pages&quot;, (unsigned)(n));
++		}
++		break;
++		
++	case AT91C_EFC_FCMD_SFB:
++	case AT91C_EFC_FCMD_CFB:
++		if( argument &gt;= pPrivate-&gt;pChip-&gt;details.n_gpnvms ){
++			LOG_ERROR(&quot;*BUG*: Embedded flash has only %d GPNVMs&quot;, 
++					  pPrivate-&gt;pChip-&gt;details.n_gpnvms );
++		}
++		break;
++		
++	case AT91C_EFC_FCMD_GETD:
++	case AT91C_EFC_FCMD_EA:
++	case AT91C_EFC_FCMD_GLB:
++	case AT91C_EFC_FCMD_GFB:
++	case AT91C_EFC_FCMD_STUI:
++	case AT91C_EFC_FCMD_SPUI:
++		if( argument != 0 ){
++			LOG_ERROR(&quot;Argument is meaningless for cmd: %d&quot;, command );
++		}
++		break;
++	default:
++		LOG_ERROR(&quot;Unknown command %d&quot;, command);
++		break;
++    }
++
++	if( command == AT91C_EFC_FCMD_SPUI ){
++		// this is a very special situation.
++		// Situation (1) - error/retry - see below
++		//      And we are being called recursively
++		// Situation (2) - normal, finished reading unique id
++	} else {
++		// it should be &quot;ready&quot;
++		EFC_GetStatus( pPrivate, &amp;v );
++		if( v &amp; 1 ){
++			// then it is ready
++			// we go on
++		} else {
++			if( retry ){
++				// we have done this before
++				// the controller is not responding.
++				LOG_ERROR(&quot;flash controller(%d) is not ready! Error&quot;, pPrivate-&gt;bank_number );
++				return ERROR_FAIL;
++			} else {
++				retry++;
++				LOG_ERROR(&quot;Flash controller(%d) is not ready, attempting reset&quot;, 
++						  pPrivate-&gt;bank_number );
++				// we do that by issuing the *STOP* command
++				EFC_StartCommand( pPrivate, AT91C_EFC_FCMD_SPUI, 0 );
++				// above is recursive, and further recursion is blocked by 
++				// if( command == AT91C_EFC_FCMD_SPUI ) above
++				goto do_retry;
++			}
++		}
++	}
++
++	v = (0x5A &lt;&lt; 24) | (argument &lt;&lt; 8) | command;
++	LOG_DEBUG(&quot;Command: 0x%08x&quot;, ((unsigned int)(v)) );
++	r = target_write_u32( pPrivate-&gt;pBank-&gt;target, 
++						  pPrivate-&gt;controller_address + offset_EFC_FCR,
++						  v);
++	if( r != ERROR_OK ){
++		LOG_DEBUG(&quot;Error Write failed&quot;);
++	}
++	return r;
++}
++
++/** Performs the given command and wait until its completion (or an error).
++ *
++ * @param pPrivate - info about the bank
++ * @param command  - Command to perform.
++ * @param argument - Optional command argument.
++ * @param status   - put command status bits here
++ */
++static int 
++EFC_PerformCommand( struct sam3_bank_private *pPrivate, 
++					unsigned command, 
++					unsigned argument, 
++					uint32_t *status)
++{
++
++	int r;
++	uint32_t v;
++	long long ms_now, ms_end;
++
++	// default 
++	if( status ){
++		*status = 0;
++	}
++
++	r = EFC_StartCommand( pPrivate, command, argument );
++	if( r != ERROR_OK ){
++		return r;
++	}
++
++	ms_end = 500 + timeval_ms();
++
++
++    do {
++		r = EFC_GetStatus( pPrivate, &amp;v );
++		if( r != ERROR_OK ){
++			return r;
++		}
++		ms_now = timeval_ms();
++		if( ms_now &gt; ms_end ){
++			// error
++			LOG_ERROR(&quot;Command timeout&quot;);
++			return ERROR_FAIL;
++		}
++    }
++    while ( (v &amp; 1) == 0 )
++		;
++
++	// error bits..
++	if( status ){
++		*status = (v &amp; 0x6);
++	}
++	return ERROR_OK;
++
++}
++
++
++
++
++
++/** Read the unique ID.
++ * 
++ * \param pPrivate - info about the bank
++ *
++ * The unique ID is stored in the 'pPrivate' structure.
++ */
++
++static int
++FLASHD_ReadUniqueID ( struct sam3_bank_private *pPrivate )
++{
++	int r;
++	uint32_t v;
++	int x;
++	// assume 0
++    pPrivate-&gt;pChip-&gt;cfg.unique_id[0] = 0;
++    pPrivate-&gt;pChip-&gt;cfg.unique_id[1] = 0;
++    pPrivate-&gt;pChip-&gt;cfg.unique_id[2] = 0;
++    pPrivate-&gt;pChip-&gt;cfg.unique_id[3] = 0;
++
++	LOG_DEBUG(&quot;Begin&quot;);
++	r = EFC_StartCommand( pPrivate, AT91C_EFC_FCMD_STUI, 0);
++	if( r &lt; 0 ){
++		return r;
++	}
++
++	for( x = 0 ; x &lt; 4 ; x++ ){
++		r = target_read_u32( pPrivate-&gt;pChip-&gt;target, 
++							 pPrivate-&gt;pBank-&gt;base + (x * 4),
++							 &amp;v );
++		if( r &lt; 0 ){
++			return r;
++		}
++		pPrivate-&gt;pChip-&gt;cfg.unique_id[x] = v;
++	}
++
++    r = EFC_PerformCommand( pPrivate, AT91C_EFC_FCMD_SPUI, 0, NULL );
++	LOG_DEBUG(&quot;End: R=%d, id=0x%08x, 0x%08x, 0x%08x, 0x%08x&quot;,
++			  r, 
++			  (unsigned int)(pPrivate-&gt;pChip-&gt;cfg.unique_id[0]),
++			  (unsigned int)(pPrivate-&gt;pChip-&gt;cfg.unique_id[1]),
++			  (unsigned int)(pPrivate-&gt;pChip-&gt;cfg.unique_id[2]),
++			  (unsigned int)(pPrivate-&gt;pChip-&gt;cfg.unique_id[3]));
++	return r;
++	
++}
++
++/** Erases the entire flash.
++ * @param pPrivate - the info about the bank.
++ */
++static int
++FLASHD_EraseEntireBank( struct sam3_bank_private *pPrivate )
++{
++	LOG_DEBUG(&quot;Here&quot;);
++	return EFC_PerformCommand( pPrivate, AT91C_EFC_FCMD_EA, 0, NULL );
++}
++
++
++
++/** Gets current GPNVM state.
++ * @param pPrivate - info about the bank.
++ * @param gpnvm    -  GPNVM bit index.
++ * @param puthere  - result stored here.
++ *
++ */
++//------------------------------------------------------------------------------
++static int 
++FLASHD_GetGPNVM( struct sam3_bank_private *pPrivate, unsigned gpnvm, unsigned *puthere)
++{
++	uint32_t v;
++	int r;
++
++	LOG_DEBUG(&quot;Here&quot;);
++	if( pPrivate-&gt;bank_number != 0 ){
++		LOG_ERROR(&quot;GPNVM only works with Bank0&quot;);
++		return ERROR_FAIL;
++	}
++
++	if( gpnvm &gt;= pPrivate-&gt;pChip-&gt;details.n_gpnvms ){
++		LOG_ERROR(&quot;Invalid GPNVM %d, max: %d, ignored&quot;,
++				  gpnvm,pPrivate-&gt;pChip-&gt;details.n_gpnvms );
++		return ERROR_FAIL;
++	}
++
++    // Get GPNVMs status
++	r = EFC_PerformCommand( pPrivate, AT91C_EFC_FCMD_GFB, 0, NULL );
++	if( r != ERROR_OK ){
++		LOG_ERROR(&quot;Failed&quot;);
++		return r;
++	}
++
++    r = EFC_GetResult(pPrivate, &amp;v );
++
++	if( puthere ){
++		// Check if GPNVM is set
++		// get the bit and make it a 0/1 
++		*puthere = (v &gt;&gt; gpnvm) &amp; 1;
++	}
++
++	return r;
++}
++
++
++
++
++/** Clears the selected GPNVM bit.
++ * @param gpnvm  GPNVM index.
++ *
++ * Returns 0 if successful; otherwise returns an error code.
++ */
++static int 
++FLASHD_ClrGPNVM( struct sam3_bank_private *pPrivate, unsigned gpnvm)
++{
++	int r;
++	unsigned v;
++
++	LOG_DEBUG(&quot;Here&quot;);
++	if( pPrivate-&gt;bank_number != 0 ){
++		LOG_ERROR(&quot;GPNVM only works with Bank0&quot;);
++		return ERROR_FAIL;
++	}
++
++	if( gpnvm &gt;= pPrivate-&gt;pChip-&gt;details.n_gpnvms ){
++		LOG_ERROR(&quot;Invalid GPNVM %d, max: %d, ignored&quot;,
++				  gpnvm,pPrivate-&gt;pChip-&gt;details.n_gpnvms );
++		return ERROR_FAIL;
++	}
++
++	r = FLASHD_GetGPNVM( pPrivate, gpnvm, &amp;v );
++	if( r != ERROR_OK ){
++		LOG_DEBUG(&quot;Failed: %d&quot;,r);
++		return r;
++	}
++	r = EFC_PerformCommand( pPrivate, AT91C_EFC_FCMD_CFB, gpnvm, NULL);
++	LOG_DEBUG(&quot;End: %d&quot;,r);
++	return r;
++}
++
++
++
++/** Sets the selected GPNVM bit.
++ *  @param gpnvm  GPNVM index.
++ *
++ */
++static int 
++FLASHD_SetGPNVM( struct sam3_bank_private *pPrivate, unsigned gpnvm)
++{
++	int r;
++	unsigned v;
++
++	if( pPrivate-&gt;bank_number != 0 ){
++		LOG_ERROR(&quot;GPNVM only works with Bank0&quot;);
++		return ERROR_FAIL;
++	}
++
++	if( gpnvm &gt;= pPrivate-&gt;pChip-&gt;details.n_gpnvms ){
++		LOG_ERROR(&quot;Invalid GPNVM %d, max: %d, ignored&quot;,
++				  gpnvm,pPrivate-&gt;pChip-&gt;details.n_gpnvms );
++		return ERROR_FAIL;
++	}
++
++	r = FLASHD_GetGPNVM( pPrivate, gpnvm, &amp;v );
++	if( r != ERROR_OK ){
++		return r;
++	}
++	if( v ){
++		// already set
++		r = ERROR_OK;
++	} else {
++		// set it
++		r = EFC_PerformCommand( pPrivate, AT91C_EFC_FCMD_SFB, gpnvm, NULL );
++	}
++	return r;
++}
++
++
++/** Returns a bit field (at most 64) of locked regions within a page.
++ * @param pPrivate - info about the bank
++ * @param v        - where to store locked bits
++ * \param end  End address of range.
++ */
++
++static int 
++FLASHD_GetLockBits(struct sam3_bank_private *pPrivate, uint32_t *v )
++{
++	int r;
++	LOG_DEBUG(&quot;Here&quot;);
++    r = EFC_PerformCommand( pPrivate, AT91C_EFC_FCMD_GLB, 0, NULL);
++	if( r == ERROR_OK ){
++		r = EFC_GetResult(pPrivate, v );
++	}
++	LOG_DEBUG(&quot;End: %d&quot;,r);
++	return r;
++}
++
++
++/**Unlocks all the regions in the given address range. 
++ *
++ * \param start_sector - first sector to unlock
++ * \param end_sector   - last (inclusive) to unlock
++ */
++
++static int
++FLASHD_Unlock( struct sam3_bank_private *pPrivate,
++			   unsigned start_sector,
++			   unsigned end_sector )
++{
++	int r;
++	uint32_t status;
++	uint32_t pg;
++	uint32_t pages_per_sector;
++
++	pages_per_sector = pPrivate-&gt;sector_size / pPrivate-&gt;page_size;
++
++    /* Unlock all pages */
++    while (start_sector &lt;= end_sector){
++		pg = start_sector * pages_per_sector;
++
++        r = EFC_PerformCommand(pPrivate, AT91C_EFC_FCMD_CLB, pg, &amp;status );
++        if (r != ERROR_OK) {
++            return r;
++        }
++        start_sector++;
++    }
++
++    return ERROR_OK;
++}
++
++
++/** Locks regions
++ *
++ * @param start_sector - first sector to lock
++ * @param end_sector   - last sector (inclusive) to lock
++ */
++
++
++static int 
++FLASHD_Lock( struct sam3_bank_private *pPrivate,
++			 unsigned start_sector,
++			 unsigned end_sector )
++{
++	uint32_t status;
++	uint32_t pg;
++	uint32_t pages_per_sector;
++	int r;
++
++	pages_per_sector = pPrivate-&gt;sector_size / pPrivate-&gt;page_size;
++	
++    /* Lock all pages */
++    while (start_sector &lt;= end_sector){
++		pg = start_sector * pages_per_sector;
++
++        r = EFC_PerformCommand(pPrivate, AT91C_EFC_FCMD_SLB, pg, &amp;status );
++        if (r != ERROR_OK) {
++            return r;
++        }
++        start_sector++;
++    }
++    return ERROR_OK;
++}
++
++
++/****** END SAM3 CODE ********/
++
++/* begin helpful debug code */
++
++static void
++sam3_sprintf( struct sam3_chip *pChip , const char *fmt, ... )
++{
++	va_list ap;
++	va_start(ap,fmt);
++	if( pChip-&gt;mbuf == NULL ){
++		return;
++	}
++
++	membuf_vsprintf( pChip-&gt;mbuf, fmt, ap );
++	va_end(ap);
++}
++
++// print the fieldname, the field value, in dec &amp; hex, and return field value
++static uint32_t 
++sam3_reg_fieldname( struct sam3_chip *pChip, 
++					const char *regname,
++					uint32_t value,
++					unsigned shift,
++					unsigned width)
++{
++	uint32_t v;
++	int hwidth, dwidth;
++
++
++	// extract the field
++	v = value &gt;&gt; shift;
++	v = v &amp; ((1 &lt;&lt; width)-1);
++	if( width &lt;= 16 ){
++		hwidth = 4;
++		dwidth = 5;
++	} else {
++		hwidth = 8;
++		dwidth = 12;
++	}
++	
++	// show the basics
++	sam3_sprintf( pChip, &quot;\t%*s: %*d [0x%0*x] &quot;, 
++				  REG_NAME_WIDTH, regname,
++				  dwidth, v,
++				  hwidth, v  );
++	return v;
++}
++
++
++static const char _unknown[] = &quot;unknown&quot;;
++static const char * const eproc_names[] = {
++	_unknown,					// 0
++	&quot;arm946es&quot;,					// 1
++	&quot;arm7tdmi&quot;,					// 2 
++	&quot;cortex-m3&quot;,				// 3
++	&quot;arm920t&quot;,					// 4
++	&quot;arm926ejs&quot;,				// 5
++	_unknown,					// 6
++	_unknown,					// 7
++	_unknown,					// 8
++	_unknown,					// 9
++	_unknown,					// 10
++	_unknown,					// 11
++	_unknown,					// 12
++	_unknown,					// 13
++	_unknown,					// 14
++	_unknown,					// 15
++};
++
++#define nvpsize2 nvpsize		// these two tables are identical
++static const char * const nvpsize[] = {
++	&quot;none&quot;,						//  0
++	&quot;8K bytes&quot;,					//  1
++	&quot;16K bytes&quot;,				//  2
++	&quot;32K bytes&quot;,				//  3
++	_unknown,					//  4
++	&quot;64K bytes&quot;,				//  5
++	_unknown,					//  6
++	&quot;128K bytes&quot;,				//  7
++	_unknown,					//  8
++	&quot;256K bytes&quot;,				//  9
++	&quot;512K bytes&quot;,				// 10
++	_unknown,					// 11
++	&quot;1024K bytes&quot;,				// 12
++	_unknown,					// 13
++	&quot;2048K bytes&quot;,				// 14
++	_unknown,					// 15
++};
++
++
++static const char * const sramsize[] = {
++	&quot;48K Bytes&quot;,				//  0
++	&quot;1K Bytes&quot;,					//  1
++	&quot;2K Bytes&quot;,					//  2
++	&quot;6K Bytes&quot;,					//  3 
++	&quot;112K Bytes&quot;,				//  4
++	&quot;4K Bytes&quot;,					//  5
++	&quot;80K Bytes&quot;,				//  6
++	&quot;160K Bytes&quot;,				//  7
++	&quot;8K Bytes&quot;,					//  8 
++	&quot;16K Bytes&quot;,				//  9 
++	&quot;32K Bytes&quot;,				// 10
++	&quot;64K Bytes&quot;,				// 11
++	&quot;128K Bytes&quot;,				// 12
++	&quot;256K Bytes&quot;,				// 13
++	&quot;96K Bytes&quot;,				// 14
++	&quot;512K Bytes&quot;,				// 15
++
++};
++
++static const struct archnames { unsigned value; const char *name; } archnames[] = {
++	{ 0x19,  &quot;AT91SAM9xx Series&quot;						},
++	{ 0x29,  &quot;AT91SAM9XExx Series&quot;						},
++	{ 0x34,  &quot;AT91x34 Series&quot;							},
++	{ 0x37,  &quot;CAP7 Series&quot;								},
++	{ 0x39,  &quot;CAP9 Series&quot;								},
++	{ 0x3B,  &quot;CAP11 Series&quot;								},
++	{ 0x40,  &quot;AT91x40 Series&quot;							},
++	{ 0x42,  &quot;AT91x42 Series&quot;							},
++	{ 0x55,  &quot;AT91x55 Series&quot;							},
++	{ 0x60,  &quot;AT91SAM7Axx Series&quot;						},
++	{ 0x61,  &quot;AT91SAM7AQxx Series&quot;						},
++	{ 0x63,  &quot;AT91x63 Series&quot;							},
++	{ 0x70,  &quot;AT91SAM7Sxx Series&quot;						},
++	{ 0x71,  &quot;AT91SAM7XCxx Series&quot;						},
++	{ 0x72,  &quot;AT91SAM7SExx Series&quot;						},
++	{ 0x73,  &quot;AT91SAM7Lxx Series&quot;						},
++	{ 0x75,  &quot;AT91SAM7Xxx Series&quot;						},
++	{ 0x76,  &quot;AT91SAM7SLxx Series&quot;						},
++	{ 0x80,  &quot;ATSAM3UxC Series (100-pin version)&quot;		},
++	{ 0x81,  &quot;ATSAM3UxE Series (144-pin version)&quot;		},
++	{ 0x83,  &quot;ATSAM3AxC Series (100-pin version)&quot;		},
++	{ 0x84,  &quot;ATSAM3XxC Series (100-pin version)&quot;		},
++	{ 0x85,  &quot;ATSAM3XxE Series (144-pin version)&quot;		},
++	{ 0x86,  &quot;ATSAM3XxG Series (208/217-pin version)&quot;	},
++	{ 0x88,  &quot;ATSAM3SxA Series (48-pin version)&quot;		},
++	{ 0x89,  &quot;ATSAM3SxB Series (64-pin version)&quot;		},
++	{ 0x8A,  &quot;ATSAM3SxC Series (100-pin version)&quot;		},
++	{ 0x92,  &quot;AT91x92 Series&quot;							},
++	{ 0xF0,  &quot;AT75Cxx Series&quot;							},
++	{ -1, NULL },
++
++};
++
++static const char * const nvptype[] = {
++	&quot;rom&quot;, // 0
++	&quot;romless or onchip flash&quot;, // 1
++	&quot;embedded flash memory&quot;, // 2
++	&quot;rom(nvpsiz) + embedded flash (nvpsiz2)&quot;, //3
++	&quot;sram emulating flash&quot;, // 4
++	_unknown, // 5
++	_unknown, // 6
++	_unknown, // 7	
++	
++};
++
++static const char *_yes_or_no( uint32_t v )
++{
++	if( v ){
++		return &quot;YES&quot;;
++	} else {
++		return &quot;NO&quot;;
++	}
++}
++
++static const char * const _rc_freq[] = {
++	&quot;4 MHz&quot;, &quot;8 MHz&quot;, &quot;12 MHz&quot;, &quot;reserved&quot;
++};
++
++static void 
++sam3_explain_ckgr_mor(  struct sam3_chip *pChip )
++{
++	uint32_t v;
++	uint32_t rcen;
++
++	v = sam3_reg_fieldname(pChip, &quot;MOSCXTEN&quot;, pChip-&gt;cfg.CKGR_MOR, 0, 1 );
++	sam3_sprintf( pChip, &quot;(main xtal enabled: %s)\n&quot;,
++				  _yes_or_no(v) );
++	v = sam3_reg_fieldname(pChip, &quot;MOSCXTBY&quot;, pChip-&gt;cfg.CKGR_MOR, 1, 1 ); 
++	sam3_sprintf( pChip, &quot;(main osc bypass: %s)\n&quot;,
++				  _yes_or_no(v) );
++	rcen = sam3_reg_fieldname(pChip, &quot;MOSCRCEN&quot;, pChip-&gt;cfg.CKGR_MOR, 2, 1 );
++	sam3_sprintf( pChip, &quot;(onchip RC-OSC enabled: %s)\n&quot;,
++				  _yes_or_no(rcen) );
++	v = sam3_reg_fieldname(pChip, &quot;MOSCRCF&quot;, pChip-&gt;cfg.CKGR_MOR, 4, 3 );
++	sam3_sprintf( pChip, &quot;(onchip RC-OSC freq: %s)\n&quot;,
++				  _rc_freq[v] );
++
++	pChip-&gt;cfg.rc_freq = 0;
++	if( rcen ){
++		switch( v ){
++		default:
++			pChip-&gt;cfg.rc_freq = 0;
++		case 0:
++			pChip-&gt;cfg.rc_freq = 4 * 1000 * 1000;
++			break;
++		case 1:
++			pChip-&gt;cfg.rc_freq = 8 * 1000 * 1000;
++			break;
++		case 2:
++			pChip-&gt;cfg.rc_freq = 12* 1000 * 1000;
++			break;
++		}
++	}
++
++	v = sam3_reg_fieldname(pChip,&quot;MOSCXTST&quot;, pChip-&gt;cfg.CKGR_MOR, 8, 8 );
++	sam3_sprintf( pChip, &quot;(startup clks, time= %f uSecs)\n&quot;,
++				  ((float)(v * 1000000)) / ((float)(pChip-&gt;cfg.slow_freq)));
++	v = sam3_reg_fieldname(pChip, &quot;MOSCSEL&quot;, pChip-&gt;cfg.CKGR_MOR, 24, 1 );
++	sam3_sprintf( pChip, &quot;(mainosc source: %s)\n&quot;,
++				  v ? &quot;external xtal&quot; : &quot;internal RC&quot;);
++	
++	v = sam3_reg_fieldname(pChip,&quot;CFDEN&quot;, pChip-&gt;cfg.CKGR_MOR, 25, 1 );
++	sam3_sprintf(pChip, &quot;(clock failure enabled: %s)\n&quot;,
++				 _yes_or_no(v));
++}
++
++	
++
++static void 
++sam3_explain_chipid_cidr( struct sam3_chip *pChip )
++{
++	int x;
++	uint32_t v;
++	const char *cp;
++
++	sam3_reg_fieldname( pChip, &quot;Version&quot;, pChip-&gt;cfg.CHIPID_CIDR, 0, 5 );
++	sam3_sprintf(pChip,&quot;\n&quot;);
++
++	v = sam3_reg_fieldname( pChip, &quot;EPROC&quot;, pChip-&gt;cfg.CHIPID_CIDR, 5, 3 );
++	sam3_sprintf( pChip, &quot;%s\n&quot;, eproc_names[v]);
++	
++	v = sam3_reg_fieldname( pChip, &quot;NVPSIZE&quot;, pChip-&gt;cfg.CHIPID_CIDR, 8, 4 );
++	sam3_sprintf( pChip, &quot;%s\n&quot;, nvpsize[v]);
++
++	v = sam3_reg_fieldname( pChip, &quot;NVPSIZE2&quot;, pChip-&gt;cfg.CHIPID_CIDR, 12, 4 );
++	sam3_sprintf( pChip, &quot;%s\n&quot;, nvpsize2[v]);
++
++	v = sam3_reg_fieldname( pChip, &quot;SRAMSIZE&quot;, pChip-&gt;cfg.CHIPID_CIDR, 16,4 );
++	sam3_sprintf( pChip, &quot;%s\n&quot;, sramsize[ v ] );
++
++	v = sam3_reg_fieldname( pChip, &quot;ARCH&quot;, pChip-&gt;cfg.CHIPID_CIDR, 20, 8 );
++	cp = _unknown;
++	for( x = 0 ; archnames[x].name ; x++ ){
++		if( v == archnames[x].value ){
++			cp = archnames[x].name;
++			break;
++		}
++	}
++	
++	sam3_sprintf( pChip, &quot;%s\n&quot;, cp );
++
++	v = sam3_reg_fieldname( pChip, &quot;NVPTYP&quot;, pChip-&gt;cfg.CHIPID_CIDR, 28, 3 );
++	sam3_sprintf( pChip, &quot;%s\n&quot;, nvptype[ v ] );
++
++	v = sam3_reg_fieldname( pChip, &quot;EXTID&quot;, pChip-&gt;cfg.CHIPID_CIDR, 31, 1 );
++	sam3_sprintf(pChip, &quot;(exists: %s)\n&quot;, _yes_or_no(v));
++}
++
++static void 
++sam3_explain_ckgr_mcfr( struct sam3_chip *pChip )
++{
++	uint32_t v;
++
++	
++	v = sam3_reg_fieldname( pChip, &quot;MAINFRDY&quot;, pChip-&gt;cfg.CKGR_MCFR, 16, 1 );
++	sam3_sprintf( pChip, &quot;(main ready: %s)\n&quot;, _yes_or_no( v ));
++
++	v = sam3_reg_fieldname( pChip, &quot;MAINF&quot;, pChip-&gt;cfg.CKGR_MCFR, 0, 16 );
++	
++	v = (v * pChip-&gt;cfg.slow_freq) / 16;
++	pChip-&gt;cfg.mainosc_freq = v;
++
++	sam3_sprintf(pChip, &quot;(%3.03f Mhz (%d.%03dkhz slowclk)\n&quot;,
++				 _tomhz( v ),
++				 pChip-&gt;cfg.slow_freq / 1000,
++				 pChip-&gt;cfg.slow_freq % 1000);
++
++}
++
++static void
++sam3_explain_ckgr_plla( struct sam3_chip *pChip )
++{
++	uint32_t mula,diva;
++
++	diva = sam3_reg_fieldname( pChip, &quot;DIVA&quot;, pChip-&gt;cfg.CKGR_PLLAR, 0, 8 );
++	sam3_sprintf(pChip,&quot;\n&quot;);
++	mula = sam3_reg_fieldname( pChip, &quot;MULA&quot;, pChip-&gt;cfg.CKGR_PLLAR, 16, 11 );
++	sam3_sprintf(pChip,&quot;\n&quot;);
++	pChip-&gt;cfg.plla_freq = 0;
++	if( mula==0 ){
++		sam3_sprintf(pChip,&quot;\tPLLA Freq: (Disabled,mula=0)\n&quot;);
++	} else if( diva == 0 ){
++		sam3_sprintf(pChip,&quot;\tPLLA Freq: (Disabled,diva=0)\n&quot;);
++	} else if( diva == 1 ){
++		pChip-&gt;cfg.plla_freq = (pChip-&gt;cfg.mainosc_freq * (mula+1));
++		sam3_sprintf(pChip,&quot;\tPLLA Freq: %3.03f MHz\n&quot;,
++					 _tomhz( pChip-&gt;cfg.plla_freq ));
++	}
++}
++		
++		
++static void
++sam3_explain_mckr( struct sam3_chip *pChip )
++{
++	uint32_t css, pres,fin;
++	int pdiv;
++	const char *cp;
++
++	css = sam3_reg_fieldname( pChip, &quot;CSS&quot;, pChip-&gt;cfg.PMC_MCKR, 0, 2 );
++	switch( css &amp; 3 ){
++	case 0:
++		fin = pChip-&gt;cfg.slow_freq;
++		cp = &quot;slowclk&quot;;
++		break;
++	case 1:
++		fin = pChip-&gt;cfg.mainosc_freq;
++		cp  = &quot;mainosc&quot;;
++		break;
++	case 2:
++		fin = pChip-&gt;cfg.plla_freq;
++		cp  = &quot;plla&quot;;
++		break;
++	case 3:
++		if( pChip-&gt;cfg.CKGR_UCKR &amp; (1 &lt;&lt; 16) ){
++			fin = 480 * 1000 * 1000;
++			cp = &quot;upll&quot;;
++		} else {
++			fin = 0;
++			cp  = &quot;upll (*ERROR* UPLL is disabled)&quot;;
++		}
++		break;
++	}
++
++	sam3_sprintf( pChip, &quot;%s (%3.03f Mhz)\n&quot;,
++				  cp, 
++				  _tomhz( fin ) );
++	pres = sam3_reg_fieldname(pChip, &quot;PRES&quot;, pChip-&gt;cfg.PMC_MCKR, 4, 3 );
++	switch( pres &amp; 0x07 ){
++	case 0:
++		pdiv = 1;
++		cp = &quot;selected clock&quot;;
++	case 1:
++		pdiv = 2;
++		cp = &quot;clock/2&quot;;
++		break;
++	case 2:
++		pdiv = 4;
++		cp = &quot;clock/4&quot;;
++		break;
++	case 3:
++		pdiv = 8;
++		cp = &quot;clock/8&quot;;
++		break;
++	case 4:
++		pdiv = 16;
++		cp = &quot;clock/16&quot;;
++		break;
++	case 5:
++		pdiv = 32;
++		cp = &quot;clock/32&quot;;
++		break;
++	case 6:
++		pdiv = 64;
++		cp = &quot;clock/64&quot;;
++		break;
++	case 7:
++		pdiv = 6;
++		cp = &quot;clock/6&quot;;
++		break;
++	}
++	sam3_sprintf( pChip, &quot;(%s)\n&quot;, cp );
++	fin = fin / pdiv;
++	// sam3 has a *SINGLE* clock - 
++	// other at91 series parts have divisors for these.
++	pChip-&gt;cfg.cpu_freq = fin;
++	pChip-&gt;cfg.mclk_freq = fin;
++	pChip-&gt;cfg.fclk_freq = fin;
++	sam3_sprintf( pChip, &quot;\t\tResult CPU Freq: %3.03f\n&quot;,
++				  _tomhz( fin ) );
++}
++	
++#if 0
++static struct sam3_chip *
++target2sam3( target_t *pTarget )
++{
++	struct sam3_chip *pChip;
++
++	if(pTarget == NULL ){
++		return NULL;
++	}
++
++	pChip = all_sam3_chips;
++	while(pChip){
++		if(pChip-&gt;target == pTarget ){
++			break; // return below
++		} else {
++			pChip = pChip-&gt;next;
++		}
++	}
++	return pChip;
++}
++#endif
++
++static uint32_t *
++sam3_get_reg_ptr( struct sam3_cfg *pCfg, const struct sam3_reg_list *pList )
++{
++	// this function exists to help 
++	// keep funky offsetof() errors
++	// and casting from causing bugs
++
++	// By using prototypes - we can detect what would
++	// be casting errors.
++
++	return ((uint32_t *)(  ((char *)(pCfg)) + pList-&gt;struct_offset ));
++}
++	
++	
++#define SAM3_ENTRY( NAME, FUNC )  { .address = SAM3_ ## NAME, .struct_offset = offsetof( struct sam3_cfg, NAME ), #NAME, FUNC }
++static const struct sam3_reg_list sam3_all_regs[] = {
++	SAM3_ENTRY( CKGR_MOR , sam3_explain_ckgr_mor ),
++	SAM3_ENTRY( CKGR_MCFR , sam3_explain_ckgr_mcfr ),
++	SAM3_ENTRY( CKGR_PLLAR , sam3_explain_ckgr_plla ),
++	SAM3_ENTRY( CKGR_UCKR , NULL ),
++	SAM3_ENTRY( PMC_FSMR , NULL ),
++	SAM3_ENTRY( PMC_FSPR , NULL ),
++	SAM3_ENTRY( PMC_IMR , NULL ),
++	SAM3_ENTRY( PMC_MCKR , sam3_explain_mckr ),
++	SAM3_ENTRY( PMC_PCK0 , NULL ),
++	SAM3_ENTRY( PMC_PCK1 , NULL ),
++	SAM3_ENTRY( PMC_PCK2 , NULL ),
++	SAM3_ENTRY( PMC_PCSR , NULL ),
++	SAM3_ENTRY( PMC_SCSR , NULL ),
++	SAM3_ENTRY( PMC_SR , NULL ),
++	SAM3_ENTRY( CHIPID_CIDR , sam3_explain_chipid_cidr ),
++	SAM3_ENTRY( CHIPID_EXID , NULL ),
++	SAM3_ENTRY( SUPC_CR, NULL ),
++
++	// TERMINATE THE LIST
++	{ .name = NULL }
++};
++#undef SAM3_ENTRY
++
++
++
++
++static struct sam3_bank_private *
++get_sam3_bank_private( flash_bank_t *bank )
++{
++	return (struct sam3_bank_private *)(bank-&gt;driver_priv);
++}
++
++/*
++ * Given a pointer to where it goes in the structure..
++ *    Determine the register name, address from the all registers table.
++ */
++static const struct sam3_reg_list *
++sam3_GetReg( struct sam3_chip *pChip, uint32_t *goes_here )
++{
++	const struct sam3_reg_list *pReg;
++
++	pReg = &amp;(sam3_all_regs[0]);
++	while(pReg-&gt;name){
++		uint32_t *pPossible;
++
++		// calculate where this one go..
++		// it is &quot;possibly&quot; this register.
++		
++		pPossible = ((uint32_t *)( ((char *)(&amp;(pChip-&gt;cfg))) + pReg-&gt;struct_offset ));
++
++		// well? Is it this register
++		if( pPossible == goes_here ){
++			// Jump for joy!
++			return pReg;
++		}
++
++		// next...
++		pReg++;
++	}
++	// This is *TOTAL*PANIC* - we are totally screwed.
++	LOG_ERROR(&quot;INVALID SAM3 REGISTER&quot;);
++	return NULL;
++}
++
++
++static int
++sam3_ReadThisReg( struct sam3_chip *pChip, uint32_t *goes_here )
++{
++	const struct sam3_reg_list *pReg;
++	int r;
++
++	pReg = sam3_GetReg( pChip, goes_here );
++	if( !pReg ){
++		return ERROR_FAIL;
++	}
++
++	r = target_read_u32( pChip-&gt;target, pReg-&gt;address, goes_here );
++	if( r != ERROR_OK ){
++		LOG_ERROR(&quot;Cannot read SAM3 register: %s @ 0x%08x, Err: %d\n&quot;,
++				  pReg-&gt;name, (unsigned)(pReg-&gt;address), r );
++	}
++	return r;
++}
++		
++	
++
++static int
++sam3_ReadAllRegs( struct sam3_chip *pChip )
++{
++	int r;
++	const struct sam3_reg_list *pReg;
++
++	pReg = &amp;(sam3_all_regs[0]);
++	while( pReg-&gt;name ){
++		r = sam3_ReadThisReg( pChip, 
++								  sam3_get_reg_ptr( &amp;(pChip-&gt;cfg), pReg ) );
++		if( r != ERROR_OK ){
++			LOG_ERROR(&quot;Cannot read SAM3 registere: %s @ 0x%08x, Error: %d\n&quot;,
++					  pReg-&gt;name, ((unsigned)(pReg-&gt;address)), r );
++			return r;
++		}
++		
++		pReg++;
++	}
++
++	return ERROR_OK;
++}
++
++
++static int
++sam3_GetInfo( struct sam3_chip *pChip )
++{
++	const struct sam3_reg_list *pReg;
++	uint32_t regval;
++
++	membuf_reset( pChip-&gt;mbuf );
++
++
++	pReg = &amp;(sam3_all_regs[0]);
++	while(pReg-&gt;name){
++		// display all regs
++		LOG_DEBUG(&quot;Start: %s&quot;, pReg-&gt;name );
++		regval = *sam3_get_reg_ptr( &amp;(pChip-&gt;cfg), pReg );
++		sam3_sprintf(pChip, &quot;%*s: [0x%08x] -&gt; 0x%08x\n&quot;, 
++					 REG_NAME_WIDTH,
++					 pReg-&gt;name,
++					 pReg-&gt;address,
++					 regval );
++ 		if( pReg-&gt;explain_func ){
++			(*(pReg-&gt;explain_func))( pChip );
++		}
++		LOG_DEBUG(&quot;End: %s&quot;, pReg-&gt;name );
++		pReg++;
++	}
++	sam3_sprintf(pChip,&quot;   rc-osc: %3.03f MHz\n&quot;, _tomhz( pChip-&gt;cfg.rc_freq		));
++	sam3_sprintf(pChip,&quot;  mainosc: %3.03f MHz\n&quot;, _tomhz( pChip-&gt;cfg.mainosc_freq	));
++	sam3_sprintf(pChip,&quot;     plla: %3.03f MHz\n&quot;, _tomhz( pChip-&gt;cfg.plla_freq		));
++	sam3_sprintf(pChip,&quot; cpu-freq: %3.03f MHz\n&quot;, _tomhz( pChip-&gt;cfg.cpu_freq		));
++	sam3_sprintf(pChip,&quot;mclk-freq: %3.03f MHz\n&quot;, _tomhz( pChip-&gt;cfg.mclk_freq		));	
++
++
++	sam3_sprintf( pChip, &quot; UniqueId: 0x%08x 0x%08x 0x%08x 0x%08x\n&quot;,
++				  pChip-&gt;cfg.unique_id[0],
++				  pChip-&gt;cfg.unique_id[1],
++				  pChip-&gt;cfg.unique_id[2],
++				  pChip-&gt;cfg.unique_id[3]);
++
++	
++	return ERROR_OK;
++}
++
++	
++static int 
++sam3_erase_check(struct flash_bank_s *bank)
++{
++	int x;
++
++	LOG_DEBUG(&quot;Here&quot;);
++	if (bank-&gt;target-&gt;state != TARGET_HALTED) {
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++	if( 0 == bank-&gt;num_sectors ){
++		LOG_ERROR(&quot;Target: not supported/not probed\n&quot;);
++		return ERROR_FAIL;
++	}
++
++	LOG_INFO(&quot;sam3 - supports auto-erase, erase_check ignored&quot;);
++	for( x = 0 ; x &lt; bank-&gt;num_sectors ; x++ ){
++		bank-&gt;sectors[x].is_erased = 1;
++	}
++
++	LOG_DEBUG(&quot;Done&quot;);
++	return ERROR_OK;
++}
++
++static int 
++sam3_protect_check(struct flash_bank_s *bank)
++{
++	int r;
++	uint32_t v;
++	unsigned x;
++	struct sam3_bank_private *pPrivate;
++
++	LOG_DEBUG(&quot;Begin&quot;);
++	if (bank-&gt;target-&gt;state != TARGET_HALTED) {
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	pPrivate = get_sam3_bank_private(bank);
++	if( !pPrivate ){
++		LOG_ERROR(&quot;no private for this bank?&quot;);
++		return ERROR_FAIL;
++	}
++	if( !(pPrivate-&gt;probed) ){
++		return ERROR_FLASH_BANK_NOT_PROBED;
++	}
++	
++	r = FLASHD_GetLockBits( pPrivate , &amp;v );
++	if( r != ERROR_OK ){
++		LOG_DEBUG(&quot;Failed: %d&quot;,r);
++		return r;
++	}
++
++	for( x = 0 ; x &lt; pPrivate-&gt;nsectors ; x++ ){
++		bank-&gt;sectors[x].is_protected = (!!(v &amp; (1 &lt;&lt; x)));
++	}
++	LOG_DEBUG(&quot;Done&quot;);
++	return ERROR_OK;
++}
++
++static int 
++sam3_flash_bank_command(struct command_context_s *cmd_ctx, 
++			    char *cmd, 
++			    char **args, 
++			    int argc, 
++			    struct flash_bank_s *bank)
++{
++	struct sam3_chip *pChip;
++
++	pChip = all_sam3_chips;
++	
++	// is this an existing chip?
++	while(pChip){
++		if( pChip-&gt;target == bank-&gt;target ){
++			break;
++		}
++		pChip = pChip-&gt;next;
++	}
++
++	if( !pChip ){
++		// this is a *NEW* chip
++		pChip = calloc( 1, sizeof(struct sam3_chip) );
++		if( !pChip ){
++			LOG_ERROR(&quot;NO RAM!&quot;);
++			return ERROR_FAIL;
++		}
++		pChip-&gt;target = bank-&gt;target;
++		// insert at head
++		pChip-&gt;next = all_sam3_chips;
++		all_sam3_chips = pChip;
++		pChip-&gt;target = bank-&gt;target;
++		// assumption is this runs at 32khz
++		pChip-&gt;cfg.slow_freq = 32768;
++		pChip-&gt;probed = 0;
++		pChip-&gt;mbuf = membuf_new();
++		if( !(pChip-&gt;mbuf) ){
++			LOG_ERROR(&quot;no memory&quot;);
++			return ERROR_FAIL;
++		}
++	}
++	
++	switch( bank-&gt;base ){
++	default:
++		LOG_ERROR(&quot;Address 0x%08x invalid bank address (try 0x%08x or 0x%08x)&quot;,
++				  ((unsigned int)(bank-&gt;base)),
++				  ((unsigned int)(FLASH_BANK0_BASE)),
++				  ((unsigned int)(FLASH_BANK1_BASE)));
++		return ERROR_FAIL;
++		break;
++	case FLASH_BANK0_BASE:
++		bank-&gt;driver_priv = &amp;(pChip-&gt;details.bank[0]);
++		bank-&gt;bank_number = 0;
++		pChip-&gt;details.bank[0].pChip = pChip;
++		pChip-&gt;details.bank[0].pBank = bank;
++		break;
++	case FLASH_BANK1_BASE:
++		bank-&gt;driver_priv = &amp;(pChip-&gt;details.bank[1]);
++		bank-&gt;bank_number = 1;
++		pChip-&gt;details.bank[1].pChip = pChip;
++		pChip-&gt;details.bank[1].pBank = bank;
++		break;
++	}
++
++	// we initialize after probing.
++	return ERROR_OK;
++}
++
++static int
++sam3_GetDetails( struct sam3_bank_private *pPrivate )
++{
++	const struct sam3_chip_details *pDetails;
++	struct sam3_chip *pChip;
++	void *vp;
++	flash_bank_t *saved_banks[SAM3_MAX_FLASH_BANKS];
++
++	unsigned x;
++	const char *cp;
++
++	LOG_DEBUG(&quot;Begin&quot;);
++	pDetails = all_sam3_details;
++	while( pDetails-&gt;name ){
++		if( pDetails-&gt;chipid_cidr == pPrivate-&gt;pChip-&gt;cfg.CHIPID_CIDR ){
++			break;
++		} else {
++			pDetails++;
++		}
++	}
++	if( pDetails-&gt;name == NULL ){
++		LOG_ERROR(&quot;SAM3 ChipID 0x%08x not found in table (perhaps you can this chip?)&quot;, 
++				  (unsigned int)(pPrivate-&gt;pChip-&gt;cfg.CHIPID_CIDR) );
++		// Help the victim, print details about the chip
++		membuf_reset( pPrivate-&gt;pChip-&gt;mbuf );
++		membuf_sprintf( pPrivate-&gt;pChip-&gt;mbuf, 
++						&quot;SAM3 CHIPID_CIDR: 0x%08x decodes as follows\n&quot;,
++						pPrivate-&gt;pChip-&gt;cfg.CHIPID_CIDR );
++		sam3_explain_chipid_cidr( pPrivate-&gt;pChip );
++		cp = membuf_strtok( pPrivate-&gt;pChip-&gt;mbuf, &quot;\n&quot;, &amp;vp );
++		while(cp){
++			LOG_INFO(&quot;%s&quot;, cp );
++			cp = membuf_strtok( NULL, &quot;\n&quot;, &amp;vp );
++		}
++		return ERROR_FAIL;
++	}
++
++	// DANGER: THERE ARE DRAGONS HERE
++
++	// get our pChip - it is going
++	// to be over-written shortly
++	pChip = pPrivate-&gt;pChip;
++
++	// Note that, in reality:
++	//
++	//     pPrivate = &amp;(pChip-&gt;details.bank[0])
++	// or  pPrivate = &amp;(pChip-&gt;details.bank[1])
++	//
++
++	// save the &quot;bank&quot; pointers
++	for( x = 0 ; x &lt; SAM3_MAX_FLASH_BANKS ; x++ ){
++		saved_banks[ x ] = pChip-&gt;details.bank[x].pBank;
++	}
++
++	// Overwrite the &quot;details&quot; structure.
++	memcpy( &amp;(pPrivate-&gt;pChip-&gt;details), 
++			pDetails, 
++			sizeof(pPrivate-&gt;pChip-&gt;details));
++
++	// now fix the ghosted pointers
++	for( x = 0 ; x &lt; SAM3_MAX_FLASH_BANKS ; x++ ){
++		pChip-&gt;details.bank[x].pChip = pChip;
++		pChip-&gt;details.bank[x].pBank = saved_banks[x];
++	}
++
++	// update the *BANK*SIZE* 
++
++	LOG_DEBUG(&quot;End&quot;);
++	return ERROR_OK;
++}		
++				  
++
++
++static int 
++_sam3_probe(struct flash_bank_s *bank, int noise)
++{
++	unsigned x;
++	int r;
++	struct sam3_bank_private *pPrivate;
++
++
++	LOG_DEBUG(&quot;Begin: Bank: %d, Noise: %d&quot;, bank-&gt;bank_number, noise );
++	if (bank-&gt;target-&gt;state != TARGET_HALTED)
++	{
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	pPrivate = get_sam3_bank_private( bank );
++	if( !pPrivate ){
++		LOG_ERROR(&quot;Invalid/unknown bank number\n&quot;);
++		return ERROR_FAIL;
++	}
++
++	r = sam3_ReadAllRegs(pPrivate-&gt;pChip);
++	if( r != ERROR_OK ){
++		return r;
++	}
++
++	
++	LOG_DEBUG(&quot;Here&quot;);
++	r = sam3_GetInfo( pPrivate-&gt;pChip );
++	if( r != ERROR_OK ){
++		return r;
++	}
++	if( !(pPrivate-&gt;pChip-&gt;probed) ){
++		pPrivate-&gt;pChip-&gt;probed = 1;
++		LOG_DEBUG(&quot;Here&quot;);
++		r = sam3_GetDetails( pPrivate );
++		if( r != ERROR_OK ){
++			return r;
++		}		
++	}
++
++	// update the flash bank size
++	for( x = 0 ; x &lt; SAM3_MAX_FLASH_BANKS ; x++ ){
++		if( bank-&gt;base == pPrivate-&gt;pChip-&gt;details.bank[0].base_address ){
++			bank-&gt;size =  pPrivate-&gt;pChip-&gt;details.bank[0].size_bytes;
++			break;
++		}
++	}
++
++	if( bank-&gt;sectors == NULL ){
++		bank-&gt;sectors     = calloc(pPrivate-&gt;nsectors, (sizeof( (bank-&gt;sectors)[0] )));
++		if( bank-&gt;sectors == NULL ){
++			LOG_ERROR(&quot;No memory!&quot;);
++			return ERROR_FAIL;
++		}
++		bank-&gt;num_sectors = pPrivate-&gt;nsectors;
++			
++		for( x = 0 ; ((int)(x)) &lt; bank-&gt;num_sectors ; x++ ){
++			bank-&gt;sectors[x].size         = pPrivate-&gt;sector_size;
++			bank-&gt;sectors[x].offset       = x * (pPrivate-&gt;sector_size);
++			// mark as unknown
++			bank-&gt;sectors[x].is_erased    = -1;
++			bank-&gt;sectors[x].is_protected = -1;
++		}
++	}
++
++	pPrivate-&gt;probed = 1;
++
++	r = sam3_protect_check( bank );
++	if( r != ERROR_OK ){
++		return r;
++	}
++
++	LOG_DEBUG(&quot;Bank = %d, nbanks = %d&quot;,
++			  pPrivate-&gt;bank_number , pPrivate-&gt;pChip-&gt;details.n_banks);
++	if( (pPrivate-&gt;bank_number+1) == pPrivate-&gt;pChip-&gt;details.n_banks ){
++		// read unique id, 
++		// it appears to be associated with the *last* flash bank.
++		FLASHD_ReadUniqueID(pPrivate);
++	}
++
++	return r;
++}
++
++static int 
++sam3_probe(struct flash_bank_s *bank)
++{
++	return _sam3_probe( bank, 1 );
++}
++
++static int 
++sam3_auto_probe(struct flash_bank_s *bank)
++{
++	return _sam3_probe( bank, 0 );
++}
++
++
++
++static int 
++sam3_erase(struct flash_bank_s *bank, int first, int last)
++{
++	struct sam3_bank_private *pPrivate;
++	int r;
++
++	LOG_DEBUG(&quot;Here&quot;);
++	if (bank-&gt;target-&gt;state != TARGET_HALTED) {
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	r = sam3_auto_probe( bank );
++	if( r != ERROR_OK ){
++		LOG_DEBUG(&quot;Here,r=%d&quot;,r);
++		return r;
++	}
++
++	pPrivate = get_sam3_bank_private( bank );
++	if( !(pPrivate-&gt;probed) ){
++		return ERROR_FLASH_BANK_NOT_PROBED;
++	}
++
++	if( (first == 0) &amp;&amp; ((last+1)== ((int)(pPrivate-&gt;nsectors))) ){
++		// whole chip
++		LOG_DEBUG(&quot;Here&quot;);
++		return FLASHD_EraseEntireBank( pPrivate );
++	}
++	LOG_INFO(&quot;sam3 auto-erases while programing (request ignored)&quot;);
++	return ERROR_OK;
++}
++
++static int 
++sam3_protect(struct flash_bank_s *bank, int set, int first, int last)
++{
++	struct sam3_bank_private *pPrivate;
++	int r;
++
++	LOG_DEBUG(&quot;Here&quot;);
++	if (bank-&gt;target-&gt;state != TARGET_HALTED) {
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	pPrivate = get_sam3_bank_private( bank );
++	if( !(pPrivate-&gt;probed) ){
++		return ERROR_FLASH_BANK_NOT_PROBED;
++	}
++
++	if( set ){
++		r = FLASHD_Lock( pPrivate, (unsigned)(first), (unsigned)(last));
++	} else {
++		r = FLASHD_Unlock( pPrivate, (unsigned)(first), (unsigned)(last));
++	}
++	LOG_DEBUG(&quot;End: r=%d&quot;,r);
++
++	return r;
++		
++}
++
++
++static int
++sam3_info( flash_bank_t *bank, char *buf, int buf_size )
++{
++	if (bank-&gt;target-&gt;state != TARGET_HALTED) {
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++	buf[ 0 ] = 0;
++	return ERROR_OK;
++}
++
++static int
++sam3_page_read( struct sam3_bank_private *pPrivate, unsigned pagenum, uint8_t *buf )
++{
++	uint32_t adr;
++	int r;
++
++	adr = pagenum * pPrivate-&gt;page_size;
++	adr += adr + pPrivate-&gt;base_address;
++
++	r = target_read_memory( pPrivate-&gt;pChip-&gt;target, 
++							adr,
++							4, /* THIS*MUST*BE* in 32bit values */
++							pPrivate-&gt;page_size / 4,
++							buf );
++	if( r != ERROR_OK ){
++		LOG_ERROR(&quot;SAM3: Flash program failed to read page phys address: 0x%08x&quot;, (unsigned int)(adr) );
++	}
++	return r;
++}
++
++// The code below is basically this:
++// compiled with
++// arm-none-eabi-gcc -mthumb -mcpu=cortex-m3 -O9 -S ./foobar.c -o foobar.s
++//
++// Only the *CPU* can write to the flash buffer.
++// the DAP cannot... so - we download this 28byte thing
++// Run the algorithm - (below)
++// to program the device
++// 
++// ========================================
++// #include &lt;stdint.h&gt;
++// 
++// struct foo { 
++//   uint32_t *dst;
++//   const uint32_t *src;
++//   int   n;
++//   volatile uint32_t *base;
++//   uint32_t   cmd;
++// };
++//
++// 
++// uint32_t sam3_function( struct foo *p )
++// {
++//   volatile uint32_t *v;
++//   uint32_t *d;
++//   const uint32_t *s;
++//   int   n;
++//   uint32_t r;
++// 
++//   d = p-&gt;dst;
++//   s = p-&gt;src;
++//   n = p-&gt;n;
++// 
++//   do {
++//     *d++ = *s++;
++//   } while( --n )
++//     ;
++// 
++//   v = p-&gt;base;
++//   
++//   v[ 1 ] = p-&gt;cmd;
++//   do {
++//     r = v[8/4];
++//   } while( !(r&amp;1) )
++//     ;
++//   return r;
++// }
++// ========================================
++
++
++
++static const uint8_t 
++sam3_page_write_opcodes[] = {
++	//  24 0000 0446     		mov	r4, r0
++	0x04,0x46,
++	//  25 0002 6168     		ldr	r1, [r4, #4]
++	0x61,0x68,
++	//  26 0004 0068     		ldr	r0, [r0, #0]
++	0x00,0x68,
++	//  27 0006 A268     		ldr	r2, [r4, #8]
++	0xa2,0x68,
++	//  28              		@ lr needed for prologue
++	//  29              	.L2:
++	//  30 0008 51F8043B 		ldr	r3, [r1], #4
++	0x51,0xf8,0x04,0x3b,
++	//  31 000c 12F1FF32 		adds	r2, r2, #-1
++	0x12,0xf1,0xff,0x32,
++	//  32 0010 40F8043B 		str	r3, [r0], #4
++	0x40,0xf8,0x04,0x3b,
++	//  33 0014 F8D1     		bne	.L2
++	0xf8,0xd1,
++	//  34 0016 E268     		ldr	r2, [r4, #12]
++	0xe2,0x68,
++	//  35 0018 2369     		ldr	r3, [r4, #16]
++	0x23,0x69,
++	//  36 001a 5360     		str	r3, [r2, #4]
++	0x53,0x60,
++	//  37 001c 0832     		adds	r2, r2, #8
++	0x08,0x32,
++	//  38              	.L4:
++	//  39 001e 1068     		ldr	r0, [r2, #0]
++	0x10,0x68,
++	//  40 0020 10F0010F 		tst	r0, #1
++	0x10,0xf0,0x01,0x0f,
++	//  41 0024 FBD0     		beq	.L4
++	0xfb,0xd0,
++	//  42              	.done:
++	//  43 0026 FEE7     		b	.done
++	0xfe,0xe7
++};
++
++
++static int
++sam3_page_write( struct sam3_bank_private *pPrivate, unsigned pagenum, uint8_t *buf )
++{
++	uint32_t adr;
++	uint32_t status;
++	int r;
++
++	adr = pagenum * pPrivate-&gt;page_size;
++	adr += (adr + pPrivate-&gt;base_address);
++
++	LOG_DEBUG(&quot;Wr Page %u @ phys address: 0x%08x&quot;, pagenum, (unsigned int)(adr) );
++	r = target_write_memory( pPrivate-&gt;pChip-&gt;target, 
++							 adr,
++							 4, /* THIS*MUST*BE* in 32bit values */
++							 pPrivate-&gt;page_size / 4,
++							 buf );
++	if( r != ERROR_OK ){
++		LOG_ERROR(&quot;SAM3: Failed to write (buffer) page at phys address 0x%08x&quot;, (unsigned int)(adr) );
++		return r;
++	}
++
++	r = EFC_PerformCommand( pPrivate,
++							// send Erase &amp; Write Page
++							AT91C_EFC_FCMD_EWP,
++							pagenum,
++							&amp;status );
++
++	if( r != ERROR_OK ){
++		LOG_ERROR(&quot;SAM3: Error performing Erase &amp; Write page @ phys address 0x%08x&quot;, (unsigned int)(adr) );
++	}
++	if( status &amp; (1 &lt;&lt; 2) ){
++		LOG_ERROR(&quot;SAM3: Page @ Phys address 0x%08x is locked&quot;, (unsigned int)(adr) );
++		return ERROR_FAIL;
++	}
++	if( status &amp; (1 &lt;&lt; 1) ){
++		LOG_ERROR(&quot;SAM3: Flash Command error @phys address 0x%08x&quot;, (unsigned int)(adr) );
++		return ERROR_FAIL;
++	}
++	return ERROR_OK;
++}
++						
++						
++						
++				  
++
++static int 
++sam3_write(struct flash_bank_s *bank, 
++		   uint8_t *buffer, 
++		   uint32_t offset, 
++		   uint32_t count)
++{
++	int n;
++	unsigned page_cur;
++	unsigned page_end;
++	int r;
++	unsigned page_offset;
++	struct sam3_bank_private *pPrivate;
++	uint8_t *pagebuffer;
++
++	// ignore dumb requests
++	if( count == 0 ){
++		return ERROR_OK;
++	}
++
++	if (bank-&gt;target-&gt;state != TARGET_HALTED) {
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	pPrivate = get_sam3_bank_private(bank);
++	if( !(pPrivate-&gt;probed) ){
++		return ERROR_FLASH_BANK_NOT_PROBED;
++	}
++
++
++	if( (offset + count) &gt; pPrivate-&gt;size_bytes ){
++		LOG_ERROR(&quot;Flash write error - past end of bank&quot;);
++		LOG_ERROR(&quot; offset: 0x%08x, count 0x%08x, BankEnd: 0x%08x&quot;,
++				  (unsigned int)(offset), 
++				  (unsigned int)(count),
++				  (unsigned int)(pPrivate-&gt;size_bytes) );
++		return ERROR_FAIL;
++	}
++
++	pagebuffer = alloca( pPrivate-&gt;page_size );
++		
++	// what page do we start &amp; end in?
++	page_cur = offset / pPrivate-&gt;page_size;
++	page_end = (offset + count - 1) / pPrivate-&gt;page_size;
++	
++	LOG_DEBUG(&quot;Offset: 0x%08x, Count: 0x%08x&quot;, (unsigned int)(offset), (unsigned int)(count));
++	LOG_DEBUG(&quot;Page start: %d, Page End: %d&quot;, (int)(page_cur), (int)(page_end) );
++			  
++	// Special case: all one page
++	//
++	// Otherwise:
++	//    (1) non-aligned start
++	//    (2) body pages
++	//    (3) non-aligned end.
++	
++	// Handle special case - all one page.
++	if( page_cur == page_end ){
++		LOG_DEBUG(&quot;Special case, all in one page&quot;);
++		r = sam3_page_read( pPrivate, page_cur, pagebuffer );
++		if( r != ERROR_OK ){
++			return r;
++		}
++		
++		page_offset = (offset &amp; (pPrivate-&gt;page_size-1));
++		memcpy( pagebuffer + page_offset,
++				buffer,
++				count );
++		
++		r = sam3_page_write( pPrivate, page_cur, pagebuffer );
++		if( r != ERROR_OK ){
++			return r;
++		}
++		return ERROR_OK;
++	}
++
++	// non-aligned start
++	page_offset = offset &amp; (pPrivate-&gt;page_size - 1);
++	if( page_offset ){
++		LOG_DEBUG(&quot;Not-Aligned start&quot;);
++		// read the partial
++		r = sam3_page_read( pPrivate, page_cur, pagebuffer );
++		if( r != ERROR_OK ){
++			return r;
++		}
++
++		// over-write with new data
++		n = (pPrivate-&gt;page_size - page_offset );
++		memcpy( pagebuffer + page_offset,
++				buffer,
++				n );
++	
++		r = sam3_page_write( pPrivate, page_cur, pagebuffer );
++		if( r != ERROR_OK ){
++			return r;
++		}
++
++		count  -= n;
++		offset += n;
++		buffer += n;
++		page_cur++;
++	}
++
++	// intermediate large pages
++	// also - the final *terminal* 
++	// if that terminal page is a full page
++	LOG_DEBUG(&quot;Full Page Loop: cur=%d, end=%d, count=0x%08x&quot;, 
++			  (int)page_cur, (int)page_end, (unsigned int)(count) );
++
++	while( (page_cur &lt; page_end) &amp;&amp; 
++		   (count &gt;= pPrivate-&gt;page_size) ){
++		r = sam3_page_write( pPrivate, page_cur, buffer );
++		if( r != ERROR_OK ){
++			return r;
++		}
++		count    -= pPrivate-&gt;page_size;
++		buffer   += pPrivate-&gt;page_size;
++		page_cur += 1;
++	}
++
++	// terminal partial page?
++	if( count ){
++		LOG_DEBUG(&quot;Terminal partial page, count=0x%08x&quot;, (unsigned int)(count));
++		// we have a partial page
++		r = sam3_page_read( pPrivate, page_cur, pagebuffer );
++		if( r != ERROR_OK ){
++			return r;
++		}
++		// data goes at start
++		memcpy( pagebuffer, buffer, count );
++		r = sam3_page_write( pPrivate, page_cur, pagebuffer );
++		if( r != ERROR_OK ){
++			return r;
++		}
++		buffer += count;
++		count  -= count;
++	}
++	LOG_DEBUG(&quot;Done!&quot;);
++	return ERROR_OK;
++}
++
++static int
++sam3_handle_info_command(  struct command_context_s *cmd_ctx, char *cmd, char **argv, int argc )
++{
++	struct sam3_chip *pChip;
++	void *vp;
++	const char *cp;
++	unsigned x;
++	int r;
++
++	pChip = get_current_sam3(cmd_ctx);
++	if( !pChip ){
++		return ERROR_OK;
++	}
++
++	r = 0;
++	
++	// bank0 must exist before we can do anything
++	if( pChip-&gt;details.bank[0].pBank == NULL ){
++		x = 0;
++	need_define:
++		command_print( cmd_ctx, 
++					   &quot;Please define bank %d via command: flash bank %s ... &quot;, 
++					   x,
++					   at91sam3_flash.name );
++		return ERROR_FAIL;
++	}
++
++	// if bank 0 is not probed, then probe it
++	if( !(pChip-&gt;details.bank[0].probed) ){
++		r = sam3_auto_probe( pChip-&gt;details.bank[0].pBank );
++		if( r != ERROR_OK ){
++			return ERROR_FAIL;
++		}
++	}
++	// above garentees the &quot;chip details&quot; structure is valid
++	// and thus, bank private areas are valid
++	// and we have a SAM3 chip, what a concept! 
++		
++
++	// auto-probe other banks, 0 done above
++    for( x = 1 ; x &lt; SAM3_MAX_FLASH_BANKS ; x++ ){
++		// skip banks not present
++		if( !(pChip-&gt;details.bank[x].present) ){
++			continue;
++		}
++		
++		if( pChip-&gt;details.bank[x].pBank == NULL ){
++			goto need_define;
++		}
++
++		if( pChip-&gt;details.bank[x].probed ){
++			continue;
++		}
++		
++		r = sam3_auto_probe( pChip-&gt;details.bank[x].pBank );
++		if( r != ERROR_OK ){
++			return r;
++		}
++	}
++			
++
++	r = sam3_GetInfo( pChip );
++	if( r != ERROR_OK ){
++		LOG_DEBUG(&quot;Sam3Info, Failed %d\n&quot;,r);
++		return r;
++	}
++	
++
++	// print results
++	cp = membuf_strtok( pChip-&gt;mbuf, &quot;\n&quot;, &amp;vp );
++	while(cp){
++		command_print(cmd_ctx,&quot;%s&quot;, cp );
++		cp = membuf_strtok( NULL, &quot;\n&quot;, &amp;vp );
++	}
++	return ERROR_OK;
++}
++
++static int
++sam3_handle_gpnvm_command( struct command_context_s *cmd_ctx, char *cmd, char **argv, int argc)
++{
++	unsigned x,v;
++	uint32_t v32;
++	int r,who;
++	struct sam3_chip *pChip;
++
++	pChip = get_current_sam3(cmd_ctx);
++	if( !pChip ){
++		return ERROR_OK;
++	}
++
++	if ( pChip-&gt;target-&gt;state != TARGET_HALTED ){
++		LOG_ERROR(&quot;sam3 - target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++
++	if( pChip-&gt;details.bank[0].pBank == NULL ){
++		command_print( cmd_ctx, &quot;Bank0 must be defined first via: flash bank %s ...&quot;,
++					   at91sam3_flash.name );
++		return ERROR_FAIL;
++	}
++	if( !pChip-&gt;details.bank[0].probed ){
++		r = sam3_auto_probe( pChip-&gt;details.bank[0].pBank );
++		if( r != ERROR_OK ){
++			return r;
++		}
++	}
++
++
++	switch( argc ){
++	default:
++		command_print(cmd_ctx,&quot;Too many parameters\n&quot;);
++		return ERROR_COMMAND_SYNTAX_ERROR;
++		break;
++	case 0:
++		who = -1;
++		goto showall;
++		break;
++	case 1:
++		who = -1;
++		break;
++	case 2:
++		if( (0 == strcmp( argv[0], &quot;show&quot; )) &amp;&amp; (0 == strcmp( argv[1], &quot;all&quot; )) ){
++			who = -1;
++		} else {
++			r = parse_u32( argv[1], &amp;v32 );
++			if( r != ERROR_OK ){
++				command_print( cmd_ctx, &quot;Not a number: %s&quot;, argv[1] );
++				return r;
++			}
++			who = v32;
++		}
++		break;
++	}
++
++	if( 0 == strcmp( &quot;show&quot;, argv[0] ) ){
++		if( who == -1 ){
++		showall:
++			for( x = 0 ; x &lt; pChip-&gt;details.n_gpnvms ; x++ ){
++				r = FLASHD_GetGPNVM( &amp;(pChip-&gt;details.bank[0]), x, &amp;v );
++				if( r != ERROR_OK ){
++					break;
++				}
++				command_print(cmd_ctx, &quot;sam3-gpnvm%u: %u&quot;, x, v );
++			}
++			return r;
++		}
++		if( (who &gt;= 0) &amp;&amp; (((unsigned)(who)) &lt; pChip-&gt;details.n_gpnvms) ){
++			r = FLASHD_GetGPNVM( &amp;(pChip-&gt;details.bank[0]), who, &amp;v );
++			command_print(cmd_ctx, &quot;sam3-gpnvm%u: %u&quot;, who, v );
++			return r;
++		} else {
++			command_print(cmd_ctx, &quot;sam3-gpnvm invalid GPNVM: %u&quot;, who );
++			return ERROR_COMMAND_SYNTAX_ERROR;
++		}
++	}
++
++	if( who == -1 ){
++		command_print( cmd_ctx, &quot;Missing GPNVM number&quot;);
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++	
++	if( 0 == strcmp( &quot;set&quot;, argv[0] ) ){
++		r = FLASHD_SetGPNVM( &amp;(pChip-&gt;details.bank[0]), who );
++	} else if( (0 == strcmp( &quot;clr&quot;, argv[0] )) ||
++			   (0 == strcmp( &quot;clear&quot;, argv[0])) ){ // quietly accept both
++		r = FLASHD_ClrGPNVM( &amp;(pChip-&gt;details.bank[0]), who );
++	} else {
++		command_print( cmd_ctx, &quot;Unkown command: %s&quot;, argv[0] );
++		r = ERROR_COMMAND_SYNTAX_ERROR;
++	}
++	return r;
++}
++
++static int 
++sam3_handle_slowclk_command( struct command_context_s *cmd_ctx, char *cmd, char **argv, int argc)
++{
++	uint32_t v;
++	int r;
++
++	struct sam3_chip *pChip;
++
++	pChip = get_current_sam3(cmd_ctx);
++	if( !pChip ){
++		return ERROR_OK;
++	}
++
++
++	switch( argc ){
++	case 0:
++		// show
++		break;
++	case 1:
++		// set
++		r = parse_u32( argv[0], &amp;v );
++		if( v &gt; 200000 ){
++			// absurd slow clock of 200Khz?
++			command_print(cmd_ctx,&quot;Absurd/illegal slow clock freq: %d\n&quot;, (int)(v));
++			return ERROR_COMMAND_SYNTAX_ERROR;
++		}
++		pChip-&gt;cfg.slow_freq = v;
++		break;
++		
++	default:
++		// error
++		command_print( cmd_ctx,&quot;Too many parameters&quot;);
++		return ERROR_COMMAND_SYNTAX_ERROR;
++		break;
++	}
++	command_print( cmd_ctx, &quot;Slowclk freq: %d.%03dkhz&quot;, 
++				   (int)(pChip-&gt;cfg.slow_freq/ 1000),
++				   (int)(pChip-&gt;cfg.slow_freq% 1000));
++	return ERROR_OK;
++}
++
++
++static int sam3_registered;
++static int
++sam3_register_commands( struct command_context_s *cmd_ctx)
++{
++	command_t *pCmd;
++
++	// only register once
++	if( !sam3_registered ){
++		sam3_registered++;
++
++		pCmd = register_command( cmd_ctx, NULL, &quot;at91sam3&quot;, NULL, COMMAND_ANY, NULL );
++		register_command( cmd_ctx, pCmd,
++						  &quot;gpnvm&quot;, 
++						  sam3_handle_gpnvm_command, 
++						  COMMAND_EXEC, 
++						  &quot;at91sam3 gpnvm [action [&lt;BIT&gt;], by default 'show', otherwise set|clear BIT&quot;);
++		register_command( cmd_ctx, pCmd,
++						  &quot;info&quot;,
++						  sam3_handle_info_command,
++						  COMMAND_EXEC,
++						  &quot;at91sam3 info - print information about the current sam3 chip&quot;);
++		register_command( cmd_ctx, pCmd,
++						  &quot;slowclk&quot;,
++						  sam3_handle_slowclk_command,
++						  COMMAND_EXEC,
++						  &quot;at91sam3 slowclk [VALUE] set the slowclock frequency (default 32768hz)&quot;);
++	}
++	return ERROR_OK;
++}
++
++
++flash_driver_t at91sam3_flash =
++{
++	.name						= &quot;at91sam3&quot;,
++	.register_commands			= sam3_register_commands,
++	
++	.flash_bank_command			= sam3_flash_bank_command,
++	.erase						= sam3_erase,
++	.protect					= sam3_protect,
++	.write						= sam3_write,
++	.probe						= sam3_probe,
++	.auto_probe					= sam3_auto_probe,
++	.erase_check				= sam3_erase_check,
++	.protect_check				= sam3_protect_check,
++	.info						= sam3_info
++};
++
++
++
++/**
++ * Local Variables: **
++ * mode: c **
++ * c-basic-offset: 4 **
++ * tab-width: 4 **
++ * End: **
++ */
+
+
+Property changes on: trunk/src/flash/at91sam3.c
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/src/flash/at91sam3.h
+===================================================================
+--- trunk/src/flash/at91sam3.h	2009-06-24 02:00:19 UTC (rev 2382)
++++ trunk/src/flash/at91sam3.h	2009-06-24 02:01:14 UTC (rev 2383)
+@@ -0,0 +1,23 @@
++/***************************************************************************
++ *   Copyright (C) 2009 by Duane Ellis                                     *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">openocd at duaneellis.com</A>                                                *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++
++// nothing to do here other then export this.
++extern flash_driver_t at91sam3_flash;
+
+
+Property changes on: trunk/src/flash/at91sam3.h
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Modified: trunk/src/flash/flash.c
+===================================================================
+--- trunk/src/flash/flash.c	2009-06-24 02:00:19 UTC (rev 2382)
++++ trunk/src/flash/flash.c	2009-06-24 02:01:14 UTC (rev 2383)
+@@ -30,6 +30,7 @@
+ #include &quot;flash.h&quot;
+ #include &quot;image.h&quot;
+ #include &quot;time_support.h&quot;
++#include &quot;at91sam3.h&quot;
+ 
+ /* command handlers */
+ static int handle_flash_bank_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+@@ -66,6 +67,7 @@
+ 	&amp;lpc2000_flash,
+ 	&amp;cfi_flash,
+ 	&amp;at91sam7_flash,
++	&amp;at91sam3_flash,
+ 	&amp;str7x_flash,
+ 	&amp;str9x_flash,
+ 	&amp;aduc702x_flash,
+
+Added: trunk/tcl/board/atmel_sam3u_ek.cfg
+===================================================================
+--- trunk/tcl/board/atmel_sam3u_ek.cfg	2009-06-24 02:00:19 UTC (rev 2382)
++++ trunk/tcl/board/atmel_sam3u_ek.cfg	2009-06-24 02:01:14 UTC (rev 2383)
+@@ -0,0 +1 @@
++source [find target/at91sam3u4e.cfg]
+
+
+Property changes on: trunk/tcl/board/atmel_sam3u_ek.cfg
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/tcl/target/at91sam3u1c.cfg
+===================================================================
+--- trunk/tcl/target/at91sam3u1c.cfg	2009-06-24 02:00:19 UTC (rev 2382)
++++ trunk/tcl/target/at91sam3u1c.cfg	2009-06-24 02:01:14 UTC (rev 2383)
+@@ -0,0 +1,7 @@
++# common stuff
++source [find target/at91sam3uxx.cfg]
++
++# size is automatically &quot;calculated&quot; by probing
++flash bank at91sam3 0x000080000 0 1 1 $_TARGETNAME
++
++
+
+
+Property changes on: trunk/tcl/target/at91sam3u1c.cfg
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/tcl/target/at91sam3u1e.cfg
+===================================================================
+--- trunk/tcl/target/at91sam3u1e.cfg	2009-06-24 02:00:19 UTC (rev 2382)
++++ trunk/tcl/target/at91sam3u1e.cfg	2009-06-24 02:01:14 UTC (rev 2383)
+@@ -0,0 +1,7 @@
++# common stuff
++source [find target/at91sam3uxx.cfg]
++
++# size is automatically &quot;calculated&quot; by probing
++flash bank at91sam3 0x000080000 0 1 1 $_TARGETNAME
++
++
+
+
+Property changes on: trunk/tcl/target/at91sam3u1e.cfg
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/tcl/target/at91sam3u2c.cfg
+===================================================================
+--- trunk/tcl/target/at91sam3u2c.cfg	2009-06-24 02:00:19 UTC (rev 2382)
++++ trunk/tcl/target/at91sam3u2c.cfg	2009-06-24 02:01:14 UTC (rev 2383)
+@@ -0,0 +1,7 @@
++# common stuff
++source [find target/at91sam3uxx.cfg]
++
++# size is automatically &quot;calculated&quot; by probing
++flash bank at91sam3 0x000080000 0 1 1 $_TARGETNAME
++
++
+
+
+Property changes on: trunk/tcl/target/at91sam3u2c.cfg
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/tcl/target/at91sam3u2e.cfg
+===================================================================
+--- trunk/tcl/target/at91sam3u2e.cfg	2009-06-24 02:00:19 UTC (rev 2382)
++++ trunk/tcl/target/at91sam3u2e.cfg	2009-06-24 02:01:14 UTC (rev 2383)
+@@ -0,0 +1,7 @@
++# common stuff
++source [find target/at91sam3uxx.cfg]
++
++# size is automatically &quot;calculated&quot; by probing
++flash bank at91sam3 0x000080000 0 1 1 $_TARGETNAME
++
++
+
+
+Property changes on: trunk/tcl/target/at91sam3u2e.cfg
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/tcl/target/at91sam3u4c.cfg
+===================================================================
+--- trunk/tcl/target/at91sam3u4c.cfg	2009-06-24 02:00:19 UTC (rev 2382)
++++ trunk/tcl/target/at91sam3u4c.cfg	2009-06-24 02:01:14 UTC (rev 2383)
+@@ -0,0 +1,9 @@
++# common stuff
++source [find target/at91sam3uxx.cfg]
++
++# size is automatically &quot;calculated&quot; by probing
++flash bank at91sam3 0x000080000 0 1 1 $_TARGETNAME
++# This is a 256K chip, it has the 2nd bank
++flash bank at91sam3 0x000100000 0 1 1 $_TARGETNAME
++
++
+
+
+Property changes on: trunk/tcl/target/at91sam3u4c.cfg
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/tcl/target/at91sam3u4e.cfg
+===================================================================
+--- trunk/tcl/target/at91sam3u4e.cfg	2009-06-24 02:00:19 UTC (rev 2382)
++++ trunk/tcl/target/at91sam3u4e.cfg	2009-06-24 02:01:14 UTC (rev 2383)
+@@ -0,0 +1,9 @@
++# common stuff
++source [find target/at91sam3uxx.cfg]
++
++# size is automatically &quot;calculated&quot; by probing
++flash bank at91sam3 0x000080000 0 1 1 $_TARGETNAME
++# This is a 256K chip - it has the 2nd bank
++flash bank at91sam3 0x000100000 0 1 1 $_TARGETNAME
++
++
+
+
+Property changes on: trunk/tcl/target/at91sam3u4e.cfg
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/tcl/target/at91sam3uXX.cfg
+===================================================================
+--- trunk/tcl/target/at91sam3uXX.cfg	2009-06-24 02:00:19 UTC (rev 2382)
++++ trunk/tcl/target/at91sam3uXX.cfg	2009-06-24 02:01:14 UTC (rev 2383)
+@@ -0,0 +1,47 @@
++# script for ATMEL sam3, a CORTEX-M3 chip
++#
++#  at91sam3u4e
++#  at91sam3u2e
++#  at91sam3u1e
++#  at91sam3u4c
++#  at91sam3u2c
++#  at91sam3u1c
++
++if { [info exists CHIPNAME] } {	
++   set  _CHIPNAME $CHIPNAME    
++} else {	 
++   set  _CHIPNAME sam3
++}
++
++if { [info exists ENDIAN] } {	
++   set  _ENDIAN $ENDIAN    
++} else {	 
++   set  _ENDIAN little
++}
++
++
++#jtag scan chain
++if { [info exists CPUTAPID ] } {
++   set _CPUTAPID $CPUTAPID
++} else {
++   set _CPUTAPID 0x4ba00477
++}
++
++jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_CPUTAPID
++
++set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
++target create $_TARGETNAME cortex_m3 -endian $_ENDIAN -chain-position $_TARGETNAME
++
++# 16K is plenty, the smallest chip has this much
++$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x20000000 -work-area-size 16384 -work-area-backup 0
++
++reset_config srst_only
++
++# GDB can use this
++gdb_memory_map enable
++# And GDB can flash the chip
++gdb_flash_program enable
++
++$_TARGETNAME configure -event gdb-flash-erase-start {
++    halt
++}
+
+
+Property changes on: trunk/tcl/target/at91sam3uXX.cfg
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001166.html">[Openocd-svn] r2382 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="001168.html">[Openocd-svn] r2384 - in trunk/src: flash helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1167">[ date ]</a>
+              <a href="thread.html#1167">[ thread ]</a>
+              <a href="subject.html#1167">[ subject ]</a>
+              <a href="author.html#1167">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

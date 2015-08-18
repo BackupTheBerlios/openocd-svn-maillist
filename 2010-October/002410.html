@@ -1,0 +1,185 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-551-g7e4cf8d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-551-g7e4cf8d&In-Reply-To=%3CE1P2qpo-00034I-3l%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002409.html">
+   <LINK REL="Next"  HREF="002411.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-551-g7e4cf8d</H1>
+    <B>Spencer Oliver</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-551-g7e4cf8d&In-Reply-To=%3CE1P2qpo-00034I-3l%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-551-g7e4cf8d">ntfreak at users.sourceforge.net
+       </A><BR>
+    <I>Mon Oct  4 21:36:19 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002409.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-549-gd543aa0
+</A></li>
+        <LI>Next message: <A HREF="002411.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-552-gebe4318
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2410">[ date ]</a>
+              <a href="thread.html#2410">[ thread ]</a>
+              <a href="subject.html#2410">[ subject ]</a>
+              <a href="author.html#2410">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  7e4cf8db585841985115a6835d403613487993a2 (commit)
+       via  45de3b1fbe875de7ed322d76bb517bdb48e20a5a (commit)
+      from  d543aa01480f1b54041f98707102622308252e11 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 7e4cf8db585841985115a6835d403613487993a2
+Author: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ntfreak at users.sourceforge.net</A>&gt;
+Date:   Mon Oct 4 20:35:33 2010 +0100
+
+    gdbserver: fix gdb_port memory leak
+    
+    Signed-off-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ntfreak at users.sourceforge.net</A>&gt;
+
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index 5180902..74dec63 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -2466,8 +2466,10 @@ COMMAND_HANDLER(handle_gdb_sync_command)
+ COMMAND_HANDLER(handle_gdb_port_command)
+ {
+ 	int retval = CALL_COMMAND_HANDLER(server_pipe_command, &amp;gdb_port);
+-	if (ERROR_OK == retval)
++	if (ERROR_OK == retval) {
++		free((void*)gdb_port_next);
+ 		gdb_port_next = strdup(gdb_port);
++	}
+ 	return retval;
+ }
+ 
+
+commit 45de3b1fbe875de7ed322d76bb517bdb48e20a5a
+Author: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ntfreak at users.sourceforge.net</A>&gt;
+Date:   Mon Oct 4 20:34:47 2010 +0100
+
+    server: fix server pipe windows support
+    
+    commit 50d5441e2a615fb2c44b41a777e4373901f7a2e6 caused
+    native windows build to fail.
+    
+    Firstly this patch fixes the build issue, but it also disables support
+    for named pipes under Windows. Windows does not support posix named
+    pipes.
+    A cross-platfom access layer will need creating before support can be
+    enabled again.
+    
+    Signed-off-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ntfreak at users.sourceforge.net</A>&gt;
+
+diff --git a/src/server/server.c b/src/server/server.c
+index c7e1e40..01d91d3 100644
+--- a/src/server/server.c
++++ b/src/server/server.c
+@@ -90,6 +90,11 @@ static int add_connection(struct service *service, struct command_context *cmd_c
+ 		c-&gt;fd = service-&gt;fd;
+ 		c-&gt;fd_out = fileno(stdout);
+ 
++#ifdef _WIN32
++		/* we are using stdin/out so ignore ctrl-c under windoze */
++		SetConsoleCtrlHandler(NULL, TRUE);
++#endif
++
+ 		/* do not check for new connections again on stdin */
+ 		service-&gt;fd = -1;
+ 
+@@ -268,6 +273,12 @@ int add_service(char *name, const char *port, int max_connections, new_connectio
+ 	}
+ 	else if (c-&gt;type == CONNECTION_PIPE)
+ 	{
++#ifdef _WIN32
++		/* we currenty do not support named pipes under win32
++		 * so exit openocd for now */
++		LOG_ERROR(&quot;Named pipes currently not supported under this os&quot;);
++		exit(1);
++#else
+ 		/* Pipe we're reading from */
+ 		c-&gt;fd = open(c-&gt;port, O_RDONLY | O_NONBLOCK);
+ 		if (c-&gt;fd == -1)
+@@ -275,6 +286,7 @@ int add_service(char *name, const char *port, int max_connections, new_connectio
+ 			LOG_ERROR(&quot;could not open %s&quot;, c-&gt;port);
+ 			exit(1);
+ 		}
++#endif
+ 	}
+ 
+ 	/* add to the end of linked list */
+@@ -526,16 +538,8 @@ int server_preinit(void)
+ 		exit(-1);
+ 	}
+ 
+-	if (server_use_pipes == 0)
+-	{
+-		/* register ctrl-c handler */
+-		SetConsoleCtrlHandler(ControlHandler, TRUE);
+-	}
+-	else
+-	{
+-		/* we are using pipes so ignore ctrl-c */
+-		SetConsoleCtrlHandler(NULL, TRUE);
+-	}
++	/* register ctrl-c handler */
++	SetConsoleCtrlHandler(ControlHandler, TRUE);
+ 
+ 	signal(SIGINT, sig_handler);
+ 	signal(SIGTERM, sig_handler);
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/server/gdb_server.c |    4 +++-
+ src/server/server.c     |   24 ++++++++++++++----------
+ 2 files changed, 17 insertions(+), 11 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002409.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-549-gd543aa0
+</A></li>
+	<LI>Next message: <A HREF="002411.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-552-gebe4318
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2410">[ date ]</a>
+              <a href="thread.html#2410">[ thread ]</a>
+              <a href="subject.html#2410">[ subject ]</a>
+              <a href="author.html#2410">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

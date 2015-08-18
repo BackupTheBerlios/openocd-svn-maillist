@@ -1,0 +1,231 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2402 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2402%20-%20trunk/src/target&In-Reply-To=%3C200906251218.n5PCI7gj016165%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001185.html">
+   <LINK REL="Next"  HREF="001187.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2402 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2402%20-%20trunk/src/target&In-Reply-To=%3C200906251218.n5PCI7gj016165%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2402 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Thu Jun 25 14:18:07 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001185.html">[Openocd-svn] r2401 - in trunk/src: flash helper
+</A></li>
+        <LI>Next message: <A HREF="001187.html">[Openocd-svn] r2403 - trunk/src/server
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1186">[ date ]</a>
+              <a href="thread.html#1186">[ thread ]</a>
+              <a href="subject.html#1186">[ subject ]</a>
+              <a href="author.html#1186">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-06-25 14:18:07 +0200 (Thu, 25 Jun 2009)
+New Revision: 2402
+
+Modified:
+   trunk/src/target/mips_ejtag.h
+   trunk/src/target/mips_m4k.c
+Log:
+Oleksandr Tymoshenko &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">gonzo at bluezbox.com</A>&gt; simple watchpoint support
+for MIPS32/EJTAG (no value comparation yet).
+
+Modified: trunk/src/target/mips_ejtag.h
+===================================================================
+--- trunk/src/target/mips_ejtag.h	2009-06-25 00:12:40 UTC (rev 2401)
++++ trunk/src/target/mips_ejtag.h	2009-06-25 12:18:07 UTC (rev 2402)
+@@ -96,6 +96,11 @@
+ #define EJTAG_IBA1				0xFF301100
+ #define EJTAG_DBS				0xFF302000
+ #define EJTAG_DBA1				0xFF302100
++#define		EJTAG_DBCn_NOSB				(1 &lt;&lt; 13)
++#define		EJTAG_DBCn_NOLB				(1 &lt;&lt; 12)
++#define		EJTAG_DBCn_BLM_MASK			0xff
++#define		EJTAG_DBCn_BLM_SHIFT		4
++#define		EJTAG_DBCn_BE				(1 &lt;&lt; 0)
+ 
+ typedef struct mips_ejtag_s
+ {
+
+Modified: trunk/src/target/mips_m4k.c
+===================================================================
+--- trunk/src/target/mips_m4k.c	2009-06-25 00:12:40 UTC (rev 2401)
++++ trunk/src/target/mips_m4k.c	2009-06-25 12:18:07 UTC (rev 2402)
+@@ -693,25 +693,132 @@
+ 
+ int mips_m4k_set_watchpoint(struct target_s *target, watchpoint_t *watchpoint)
+ {
+-	/* TODO */
++	mips32_common_t *mips32 = target-&gt;arch_info;
++	mips32_comparator_t * comparator_list = mips32-&gt;data_break_list;
++	int wp_num = 0;
++	/*
++	 * watchpoint enabled, ignore all byte lanes in value register
++	 * and exclude both load and store accesses from  watchpoint
++	 * condition evaluation
++	*/
++	int enable = EJTAG_DBCn_NOSB | EJTAG_DBCn_NOLB | EJTAG_DBCn_BE | 
++                (0xff &lt;&lt; EJTAG_DBCn_BLM_SHIFT);
++	
++	if (watchpoint-&gt;set)
++	{
++		LOG_WARNING(&quot;watchpoint already set&quot;);
++		return ERROR_OK;
++	}
++
++	while(comparator_list[wp_num].used &amp;&amp; (wp_num &lt; mips32-&gt;num_data_bpoints))
++		wp_num++;
++	if (wp_num &gt;= mips32-&gt;num_data_bpoints)
++	{
++		LOG_DEBUG(&quot;ERROR Can not find free FP Comparator&quot;);
++		LOG_WARNING(&quot;ERROR Can not find free FP Comparator&quot;);
++		exit(-1);
++	}
++
++	if (watchpoint-&gt;length != 4)
++	{
++		LOG_ERROR(&quot;Only watchpoints of length 4 are supported&quot;);
++		return ERROR_TARGET_UNALIGNED_ACCESS;
++	}
++
++	if (watchpoint-&gt;address % 4)
++	{
++		LOG_ERROR(&quot;Watchpoints address should be word aligned&quot;);
++		return ERROR_TARGET_UNALIGNED_ACCESS;
++	}
++
++	switch (watchpoint-&gt;rw)
++	{
++		case WPT_READ:
++			enable &amp;= ~EJTAG_DBCn_NOLB;
++			break;
++		case WPT_WRITE:
++			enable &amp;= ~EJTAG_DBCn_NOSB;
++			break;
++		case WPT_ACCESS:
++			enable &amp;= ~(EJTAG_DBCn_NOLB | EJTAG_DBCn_NOSB);
++			break;
++		default:
++			LOG_ERROR(&quot;BUG: watchpoint-&gt;rw neither read, write nor access&quot;);
++	}
++
++	watchpoint-&gt;set = wp_num + 1;
++	comparator_list[wp_num].used = 1;
++	comparator_list[wp_num].bp_value = watchpoint-&gt;address;
++	target_write_u32(target, comparator_list[wp_num].reg_address, comparator_list[wp_num].bp_value);
++	target_write_u32(target, comparator_list[wp_num].reg_address + 0x08, 0x00000000);
++	target_write_u32(target, comparator_list[wp_num].reg_address + 0x10, 0x00000000);
++	target_write_u32(target, comparator_list[wp_num].reg_address + 0x18, enable);
++	target_write_u32(target, comparator_list[wp_num].reg_address + 0x20, 0);
++	LOG_DEBUG(&quot;wp_num %i bp_value 0x%&quot; PRIx32 &quot;&quot;, wp_num, comparator_list[wp_num].bp_value);
++	
+ 	return ERROR_OK;
+ }
+ 
+ int mips_m4k_unset_watchpoint(struct target_s *target, watchpoint_t *watchpoint)
+ {
+-	/* TODO */
++	/* get pointers to arch-specific information */
++	mips32_common_t *mips32 = target-&gt;arch_info;
++	mips32_comparator_t * comparator_list = mips32-&gt;data_break_list;
++	
++	if (!watchpoint-&gt;set)
++	{
++		LOG_WARNING(&quot;watchpoint not set&quot;);
++		return ERROR_OK;
++	}
++
++	int wp_num = watchpoint-&gt;set - 1;
++	if ((wp_num &lt; 0) || (wp_num &gt;= mips32-&gt;num_data_bpoints))
++	{
++		LOG_DEBUG(&quot;Invalid FP Comparator number in watchpoint&quot;);
++		return ERROR_OK;
++	}
++	comparator_list[wp_num].used = 0;
++	comparator_list[wp_num].bp_value = 0;
++	target_write_u32(target, comparator_list[wp_num].reg_address + 0x18, 0);
++	watchpoint-&gt;set = 0;
++
+ 	return ERROR_OK;
+ }
+ 
+ int mips_m4k_add_watchpoint(struct target_s *target, watchpoint_t *watchpoint)
+ {
+-	/* TODO */
++	mips32_common_t *mips32 = target-&gt;arch_info;
++
++	if (mips32-&gt;num_data_bpoints_avail &lt; 1)
++	{
++		LOG_INFO(&quot;no hardware watchpoints available&quot;);
++		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	}
++		
++	mips32-&gt;num_data_bpoints_avail--;
++
++	mips_m4k_set_watchpoint(target, watchpoint);
+ 	return ERROR_OK;
+ }
+ 
+ int mips_m4k_remove_watchpoint(struct target_s *target, watchpoint_t *watchpoint)
+ {
+-	/* TODO */
++	/* get pointers to arch-specific information */
++	mips32_common_t *mips32 = target-&gt;arch_info;
++
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		LOG_WARNING(&quot;target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	if (watchpoint-&gt;set)
++	{
++		mips_m4k_unset_watchpoint(target, watchpoint);
++	}
++
++	mips32-&gt;num_data_bpoints_avail++;
++
+ 	return ERROR_OK;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001185.html">[Openocd-svn] r2401 - in trunk/src: flash helper
+</A></li>
+	<LI>Next message: <A HREF="001187.html">[Openocd-svn] r2403 - trunk/src/server
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1186">[ date ]</a>
+              <a href="thread.html#1186">[ thread ]</a>
+              <a href="subject.html#1186">[ subject ]</a>
+              <a href="author.html#1186">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

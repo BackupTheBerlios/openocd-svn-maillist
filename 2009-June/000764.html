@@ -1,0 +1,359 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1980 - in trunk/src: jtag xsvf
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1980%20-%20in%20trunk/src%3A%20jtag%20xsvf&In-Reply-To=%3C200906011958.n51JwMwK012041%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000763.html">
+   <LINK REL="Next"  HREF="000765.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1980 - in trunk/src: jtag xsvf</H1>
+    <B>oharboe at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1980%20-%20in%20trunk/src%3A%20jtag%20xsvf&In-Reply-To=%3C200906011958.n51JwMwK012041%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1980 - in trunk/src: jtag xsvf">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Mon Jun  1 21:58:22 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000763.html">[Openocd-svn] r1979 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="000765.html">[Openocd-svn] r1981 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#764">[ date ]</a>
+              <a href="thread.html#764">[ thread ]</a>
+              <a href="subject.html#764">[ subject ]</a>
+              <a href="author.html#764">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-06-01 21:58:20 +0200 (Mon, 01 Jun 2009)
+New Revision: 1980
+
+Modified:
+   trunk/src/jtag/jtag.c
+   trunk/src/jtag/jtag.h
+   trunk/src/xsvf/xsvf.c
+Log:
+added jtag_add_statemove() helper fn(actual fn written by Dick Hollonbeck, I just moved it).
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-01 19:06:11 UTC (rev 1979)
++++ trunk/src/jtag/jtag.c	2009-06-01 19:58:20 UTC (rev 1980)
+@@ -3719,3 +3719,90 @@
+ }
+ 
+ /*-----&lt;/Cable Helper API&gt;--------------------------------------*/
++
++
++/**
++ * Function jtag_add_statemove
++ * moves from the current state to the goal \a state. This needs
++ * to be handled according to the xsvf spec, see the XSTATE command
++ * description.
++ */
++int jtag_add_statemove(tap_state_t goal_state)
++{
++	int retval = ERROR_OK;
++
++	tap_state_t moves[8];
++	tap_state_t cur_state = cmd_queue_cur_state;
++	int i;
++	int tms_bits;
++	int	tms_count;
++
++	LOG_DEBUG( &quot;cur_state=%s goal_state=%s&quot;,
++		tap_state_name(cur_state),
++		tap_state_name(goal_state) );
++
++
++	/*	From the XSVF spec, pertaining to XSTATE:
++
++		For special states known as stable states (Test-Logic-Reset,
++		Run-Test/Idle, Pause-DR, Pause- IR), an XSVF interpreter follows
++		predefined TAP state paths when the starting state is a stable state and
++		when the XSTATE specifies a new stable state (see the STATE command in
++		the [Ref 5] for the TAP state paths between stable states). For
++		non-stable states, XSTATE should specify a state that is only one TAP
++		state transition distance from the current TAP state to avoid undefined
++		TAP state paths. A sequence of multiple XSTATE commands can be issued to
++		transition the TAP through a specific state path.
++	*/
++
++	if (goal_state==cur_state )
++		;	/* nothing to do */
++
++	else if( goal_state==TAP_RESET )
++	{
++		jtag_add_tlr();
++	}
++
++	else if( tap_is_state_stable(cur_state) &amp;&amp; tap_is_state_stable(goal_state) )
++	{
++		/* 	note: unless tms_bits holds a path that agrees with [Ref 5] in above
++			spec, then this code is not fully conformant to the xsvf spec.  This
++			puts a burden on tap_get_tms_path() function from the xsvf spec.
++			If in doubt, you should confirm that that burden is being met.
++		*/
++
++		tms_bits  = tap_get_tms_path(cur_state, goal_state);
++		tms_count = tap_get_tms_path_len(cur_state, goal_state);
++
++		assert( (unsigned) tms_count &lt; DIM(moves) );
++
++		for (i=0;   i&lt;tms_count;   i++, tms_bits&gt;&gt;=1)
++		{
++			bool bit = tms_bits &amp; 1;
++
++			cur_state = tap_state_transition(cur_state, bit);
++			moves[i] = cur_state;
++		}
++
++		jtag_add_pathmove(tms_count, moves);
++	}
++
++	/* 	else state must be immediately reachable in one clock cycle, and does not
++		need to be a stable state.
++	*/
++	else if( tap_state_transition(cur_state, true)  == goal_state
++		||   tap_state_transition(cur_state, false) == goal_state )
++	{
++		/* move a single state */
++		moves[0] = goal_state;
++		jtag_add_pathmove( 1, moves );
++	}
++
++	else
++	{
++		retval = ERROR_FAIL;
++	}
++
++	return retval;
++}
++
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-06-01 19:06:11 UTC (rev 1979)
++++ trunk/src/jtag/jtag.h	2009-06-01 19:58:20 UTC (rev 1980)
+@@ -894,4 +894,14 @@
+ }
+ 
+ 
++
++
++/**
++ * Function jtag_add_statemove
++ * moves from the current state to the goal \a state. This needs
++ * to be handled according to the xsvf spec, see the XSTATE command
++ * description.
++ */
++extern int jtag_add_statemove(tap_state_t goal_state);
++
+ #endif /* JTAG_H */
+
+Modified: trunk/src/xsvf/xsvf.c
+===================================================================
+--- trunk/src/xsvf/xsvf.c	2009-06-01 19:06:11 UTC (rev 1979)
++++ trunk/src/xsvf/xsvf.c	2009-06-01 19:58:20 UTC (rev 1980)
+@@ -160,92 +160,7 @@
+ }
+ 
+ 
+-/**
+- * Function xsvf_add_statemove
+- * moves from the current state to the goal \a state. This needs
+- * to be handled according to the xsvf spec, see the XSTATE command
+- * description.
+- */
+-static int xsvf_add_statemove(tap_state_t goal_state)
+-{
+-	int retval = ERROR_OK;
+ 
+-	tap_state_t moves[8];
+-	tap_state_t cur_state = cmd_queue_cur_state;
+-	int i;
+-	int tms_bits;
+-	int	tms_count;
+-
+-	LOG_DEBUG( &quot;cur_state=%s goal_state=%s&quot;,
+-		tap_state_name(cur_state),
+-		tap_state_name(goal_state) );
+-
+-
+-	/*	From the XSVF spec, pertaining to XSTATE:
+-
+-		For special states known as stable states (Test-Logic-Reset,
+-		Run-Test/Idle, Pause-DR, Pause- IR), an XSVF interpreter follows
+-		predefined TAP state paths when the starting state is a stable state and
+-		when the XSTATE specifies a new stable state (see the STATE command in
+-		the [Ref 5] for the TAP state paths between stable states). For
+-		non-stable states, XSTATE should specify a state that is only one TAP
+-		state transition distance from the current TAP state to avoid undefined
+-		TAP state paths. A sequence of multiple XSTATE commands can be issued to
+-		transition the TAP through a specific state path.
+-	*/
+-
+-	if (goal_state==cur_state )
+-		;	/* nothing to do */
+-
+-	else if( goal_state==TAP_RESET )
+-	{
+-		jtag_add_tlr();
+-	}
+-
+-	else if( tap_is_state_stable(cur_state) &amp;&amp; tap_is_state_stable(goal_state) )
+-	{
+-		/* 	note: unless tms_bits holds a path that agrees with [Ref 5] in above
+-			spec, then this code is not fully conformant to the xsvf spec.  This
+-			puts a burden on tap_get_tms_path() function from the xsvf spec.
+-			If in doubt, you should confirm that that burden is being met.
+-		*/
+-
+-		tms_bits  = tap_get_tms_path(cur_state, goal_state);
+-		tms_count = tap_get_tms_path_len(cur_state, goal_state);
+-
+-		assert( (unsigned) tms_count &lt; DIM(moves) );
+-
+-		for (i=0;   i&lt;tms_count;   i++, tms_bits&gt;&gt;=1)
+-		{
+-			bool bit = tms_bits &amp; 1;
+-
+-			cur_state = tap_state_transition(cur_state, bit);
+-			moves[i] = cur_state;
+-		}
+-
+-		jtag_add_pathmove(tms_count, moves);
+-	}
+-
+-	/* 	else state must be immediately reachable in one clock cycle, and does not
+-		need to be a stable state.
+-	*/
+-	else if( tap_state_transition(cur_state, true)  == goal_state
+-		||   tap_state_transition(cur_state, false) == goal_state )
+-	{
+-		/* move a single state */
+-		moves[0] = goal_state;
+-		jtag_add_pathmove( 1, moves );
+-	}
+-
+-	else
+-	{
+-		retval = ERROR_FAIL;
+-	}
+-
+-	return retval;
+-}
+-
+-
+ int xsvf_register_commands(struct command_context_s *cmd_ctx)
+ {
+ 	register_command(cmd_ctx, NULL, &quot;xsvf&quot;, handle_xsvf_command,
+@@ -518,7 +433,7 @@
+ 				/* See page 19 of XSVF spec regarding opcode &quot;XSDR&quot; */
+ 				if (xruntest)
+ 				{
+-					xsvf_add_statemove(TAP_IDLE);
++					jtag_add_statemove(TAP_IDLE);
+ 
+ 					if (runtest_requires_tck)
+ 						jtag_add_clocks(xruntest);
+@@ -526,7 +441,7 @@
+ 						jtag_add_sleep(xruntest);
+ 				}
+ 				else if (xendir != TAP_DRPAUSE)	/* we are already in TAP_DRPAUSE */
+-					xsvf_add_statemove(xenddr);
++					jtag_add_statemove(xenddr);
+ 			}
+ 			break;
+ 
+@@ -590,7 +505,7 @@
+ 					the XSTATE.
+ 				*/
+ 
+-				if( xsvf_add_statemove( mystate ) != ERROR_OK )
++				if( jtag_add_statemove( mystate ) != ERROR_OK )
+ 				{
+ 					/*	For special states known as stable states
+ 						(Test-Logic-Reset, Run-Test/Idle, Pause-DR, Pause- IR),
+@@ -794,9 +709,9 @@
+ 				}
+ 				else
+ 				{
+-					xsvf_add_statemove( wait_state );
++					jtag_add_statemove( wait_state );
+ 					jtag_add_sleep(delay);
+-					xsvf_add_statemove( end_state );
++					jtag_add_statemove( end_state );
+ 				}
+ 			}
+ 			break;
+@@ -847,13 +762,13 @@
+ 					unsupported = 1;
+ 				}
+ 
+-				xsvf_add_statemove( wait_state );
++				jtag_add_statemove( wait_state );
+ 
+ 				jtag_add_clocks( clock_count );
+ 
+ 				jtag_add_sleep( usecs );
+ 
+-				xsvf_add_statemove( end_state );
++				jtag_add_statemove( end_state );
+ 			}
+ 			break;
+ 
+@@ -925,7 +840,7 @@
+ 				{
+ 					scan_field_t field;
+ 
+-					xsvf_add_statemove( loop_state );
++					jtag_add_statemove( loop_state );
+ 					jtag_add_clocks(loop_clocks);
+ 					jtag_add_sleep(loop_usecs);
+ 
+@@ -1003,7 +918,7 @@
+ 			LOG_DEBUG(&quot;xsvf failed, setting taps to reasonable state&quot;);
+ 
+ 			/* upon error, return the TAPs to a reasonable state */
+-			xsvf_add_statemove( TAP_IDLE );
++			jtag_add_statemove( TAP_IDLE );
+ 			jtag_execute_queue();
+ 			break;
+ 		}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000763.html">[Openocd-svn] r1979 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="000765.html">[Openocd-svn] r1981 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#764">[ date ]</a>
+              <a href="thread.html#764">[ thread ]</a>
+              <a href="subject.html#764">[ subject ]</a>
+              <a href="author.html#764">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

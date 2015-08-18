@@ -1,0 +1,215 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2755 - trunk/src/helper
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2755%20-%20trunk/src/helper&In-Reply-To=%3C200909251111.n8PBBhHq026231%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001537.html">
+   <LINK REL="Next"  HREF="001539.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2755 - trunk/src/helper</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2755%20-%20trunk/src/helper&In-Reply-To=%3C200909251111.n8PBBhHq026231%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2755 - trunk/src/helper">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Fri Sep 25 13:11:43 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001537.html">[Openocd-svn] r2754 - trunk/src/server
+</A></li>
+        <LI>Next message: <A HREF="001539.html">[Openocd-svn] r2756 - in trunk/tcl: board target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1538">[ date ]</a>
+              <a href="thread.html#1538">[ thread ]</a>
+              <a href="subject.html#1538">[ subject ]</a>
+              <a href="author.html#1538">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-09-25 13:11:39 +0200 (Fri, 25 Sep 2009)
+New Revision: 2755
+
+Modified:
+   trunk/src/helper/log.c
+   trunk/src/helper/log.h
+Log:
+Try/catch scheme. Typed up the functionality and regression tested.
+Ready for discussion and tiny patches that tries out this scheme.
+
+Modified: trunk/src/helper/log.c
+===================================================================
+--- trunk/src/helper/log.c	2009-09-24 06:34:23 UTC (rev 2754)
++++ trunk/src/helper/log.c	2009-09-25 11:11:39 UTC (rev 2755)
+@@ -64,6 +64,95 @@
+ 
+ static int count = 0;
+ 
++
++static struct store_log_forward * log_head = NULL;
++static int log_forward_count = 0;
++
++struct store_log_forward
++{
++	struct store_log_forward * next;
++	const char * file;
++	int line;
++	const char * function;
++	const char * string;
++};
++
++/* either forward the log to the listeners or store it for possible forwarding later */
++static void log_forward(const char *file, int line, const char *function, const char *string)
++{
++	if (log_forward_count==0)
++	{
++		log_callback_t *cb, *next;
++		cb = log_callbacks;
++		/* DANGER!!!! the log callback can remove itself!!!! */
++		while (cb)
++		{
++			next = cb-&gt;next;
++			cb-&gt;fn(cb-&gt;priv, file, line, function, string);
++			cb = next;
++		}
++	} else
++	{
++		struct store_log_forward *log = malloc(sizeof (struct store_log_forward));
++		log-&gt;file = strdup(file);
++		log-&gt;line = line;
++		log-&gt;function = strdup(function);
++		log-&gt;string = strdup(string);
++		log-&gt;next = NULL;
++		if (log_head==NULL)
++			log_head = log;
++		else
++		{
++			/* append to tail */
++			struct store_log_forward * t;
++			t = log_head;
++			while (t-&gt;next!=NULL)
++			{
++				t = t-&gt;next;
++			}
++			t-&gt;next = log;
++		}
++	}
++}
++
++void log_try(void)
++{
++	log_forward_count++;
++}
++
++void log_catch(void)
++{
++	assert(log_forward_count&gt;0);
++	log_forward_count--;
++}
++
++void log_rethrow(void)
++{
++	log_catch();
++	if (log_forward_count==0)
++	{
++		struct store_log_forward *log;
++
++		log = log_head;
++		while (log != NULL)
++		{
++			log_forward(log-&gt;file, log-&gt;line, log-&gt;function, log-&gt;string);
++
++			struct store_log_forward *t=log;
++			log = log-&gt;next;
++
++			free((void *)t-&gt;file);
++			free((void *)t-&gt;function);
++			free((void *)t-&gt;string);
++			free(t);
++
++		}
++
++		log_head = NULL;
++	}
++}
++
++
+ /* The log_puts() serves to somewhat different goals:
+  *
+  * - logging
+@@ -131,18 +220,11 @@
+ 	/* Never forward LOG_LVL_DEBUG, too verbose and they can be found in the log if need be */
+ 	if (level &lt;= LOG_LVL_INFO)
+ 	{
+-		log_callback_t *cb, *next;
+-		cb = log_callbacks;
+-		/* DANGER!!!! the log callback can remove itself!!!! */
+-		while (cb)
+-		{
+-			next = cb-&gt;next;
+-			cb-&gt;fn(cb-&gt;priv, file, line, function, string);
+-			cb = next;
+-		}
++		log_forward(file, line, function, string);
+ 	}
+ }
+ 
++
+ void log_printf(enum log_levels level, const char *file, int line, const char *function, const char *format, ...)
+ {
+ 	char *string;
+
+Modified: trunk/src/helper/log.h
+===================================================================
+--- trunk/src/helper/log.h	2009-09-24 06:34:23 UTC (rev 2754)
++++ trunk/src/helper/log.h	2009-09-25 11:11:39 UTC (rev 2755)
+@@ -64,6 +64,15 @@
+ extern void alive_sleep(int ms);
+ extern void busy_sleep(int ms);
+ 
++
++/* log entries can be paused and replayed roughly according to the try/catch/rethrow
++ * concepts in C++
++ */
++void log_try(void);
++void log_catch(void);
++void log_rethrow(void);
++
++
+ typedef void (*log_callback_fn)(void *priv, const char *file, int line,
+ 		const char *function, const char *string);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001537.html">[Openocd-svn] r2754 - trunk/src/server
+</A></li>
+	<LI>Next message: <A HREF="001539.html">[Openocd-svn] r2756 - in trunk/tcl: board target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1538">[ date ]</a>
+              <a href="thread.html#1538">[ thread ]</a>
+              <a href="subject.html#1538">[ subject ]</a>
+              <a href="author.html#1538">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

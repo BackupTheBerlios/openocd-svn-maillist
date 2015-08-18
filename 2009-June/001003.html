@@ -1,0 +1,230 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2219 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2219%20-%20trunk/src/target&In-Reply-To=%3C200906120414.n5C4ENtY009013%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001002.html">
+   <LINK REL="Next"  HREF="001004.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2219 - trunk/src/target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2219%20-%20trunk/src/target&In-Reply-To=%3C200906120414.n5C4ENtY009013%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2219 - trunk/src/target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Fri Jun 12 06:14:23 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001002.html">[Openocd-svn] r2218 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="001004.html">[Openocd-svn] r2220 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1003">[ date ]</a>
+              <a href="thread.html#1003">[ thread ]</a>
+              <a href="subject.html#1003">[ subject ]</a>
+              <a href="author.html#1003">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-12 06:14:18 +0200 (Fri, 12 Jun 2009)
+New Revision: 2219
+
+Modified:
+   trunk/src/target/mips_ejtag.c
+   trunk/src/target/mips_m4k.c
+Log:
+David Claffey &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dnclaffey at gmail.com</A>&gt;:
+
+This patch helps fix MIPS big endian (elf32-tradbigmips) targets.
+If &quot;-endian big&quot; is not set in target create, the endianess defaults to
+little.  mw and md commands will still work, but binary file loads will
+have the incorrect word order loaded into memory.
+
+The EJTAG processor access data register (PrAcc) is little endian
+regardless of the CPU endianness; it is always loaded LSB first. This
+is confirmed by the fact that mips_ejtag_drscan_32() uses buf_set_u32()
+to load the scan field; buf_set_u32() is a little-endian formatter. For
+big endian targets, data buffers have to be modified so the LSB of each
+u32 or u16 is at the lower (first) memory location.  If the drscan
+out_value word order is set using buf_set_u32() then it makes sense to
+also fixup the in_value with buf_get_u32(); a symmetry argument. This
+has no affect on little endian hosts.
+
+
+Modified: trunk/src/target/mips_ejtag.c
+===================================================================
+--- trunk/src/target/mips_ejtag.c	2009-06-12 01:41:07 UTC (rev 2218)
++++ trunk/src/target/mips_ejtag.c	2009-06-12 04:14:18 UTC (rev 2219)
+@@ -118,7 +118,7 @@
+ 	if (tap==NULL)
+ 		return ERROR_FAIL;
+ 	scan_field_t field;
+-	u8 t[4];
++	u8 t[4], r[4];
+ 	int retval;
+ 
+ 	field.tap = tap;
+@@ -126,7 +126,7 @@
+ 	field.out_value = t;
+ 	buf_set_u32(field.out_value, 0, field.num_bits, *data);
+ 
+-	field.in_value = (u8*)data;
++	field.in_value = r;
+ 	
+ 	
+ 	
+@@ -139,6 +139,8 @@
+ 		return retval;
+ 	}
+ 
++	*data = buf_get_u32(field.in_value, 0, 32);
++
+ 	keep_alive();
+ 
+ 	return ERROR_OK;
+
+Modified: trunk/src/target/mips_m4k.c
+===================================================================
+--- trunk/src/target/mips_m4k.c	2009-06-12 01:41:07 UTC (rev 2218)
++++ trunk/src/target/mips_m4k.c	2009-06-12 04:14:18 UTC (rev 2219)
+@@ -732,6 +732,7 @@
+ {
+ 	mips32_common_t *mips32 = target-&gt;arch_info;
+ 	mips_ejtag_t *ejtag_info = &amp;mips32-&gt;ejtag_info;
++	int retval;
+ 
+ 	LOG_DEBUG(&quot;address: 0x%8.8x, size: 0x%8.8x, count: 0x%8.8x&quot;, address, size, count);
+ 
+@@ -755,22 +756,46 @@
+ 		case 1:
+ 			/* if noDMA off, use DMAACC mode for memory read */
+ 			if(ejtag_info-&gt;impcode &amp; EJTAG_IMP_NODMA)
+-				return mips32_pracc_read_mem(ejtag_info, address, size, count, (void *)buffer);
++				retval = mips32_pracc_read_mem(ejtag_info, address, size, count, (void *)buffer);
+ 			else
+-				return mips32_dmaacc_read_mem(ejtag_info, address, size, count, (void *)buffer);
++				retval = mips32_dmaacc_read_mem(ejtag_info, address, size, count, (void *)buffer);
++			break;
+ 		default:
+ 			LOG_ERROR(&quot;BUG: we shouldn't get here&quot;);
+ 			exit(-1);
+ 			break;
+ 	}
+ 
+-	return ERROR_OK;
++	/* TAP data register is loaded LSB first (little endian) */
++	if (target-&gt;endianness == TARGET_BIG_ENDIAN) 
++	{
++		u32 i, t32;
++		u16 t16;
++
++		for(i = 0; i &lt; (count*size); i += size)
++		{
++			switch(size)
++			{
++				case 4:
++					t32 = le_to_h_u32(&amp;buffer[i]);
++					h_u32_to_be(&amp;buffer[i], t32);
++					break;
++				case 2:
++					t16 = le_to_h_u16(&amp;buffer[i]);
++					h_u16_to_be(&amp;buffer[i], t16);
++					break;
++			}
++		}
++	}
++	
++	return retval;
+ }
+ 
+ int mips_m4k_write_memory(struct target_s *target, u32 address, u32 size, u32 count, u8 *buffer)
+ {
+ 	mips32_common_t *mips32 = target-&gt;arch_info;
+ 	mips_ejtag_t *ejtag_info = &amp;mips32-&gt;ejtag_info;
++	int retval;
+ 
+ 	LOG_DEBUG(&quot;address: 0x%8.8x, size: 0x%8.8x, count: 0x%8.8x&quot;, address, size, count);
+ 
+@@ -793,10 +818,6 @@
+ 		case 2:
+ 		case 1:
+ 			/* if noDMA off, use DMAACC mode for memory write */
+-			if(ejtag_info-&gt;impcode &amp; EJTAG_IMP_NODMA)
+-				mips32_pracc_write_mem(ejtag_info, address, size, count, (void *)buffer);
+-			else
+-				mips32_dmaacc_write_mem(ejtag_info, address, size, count, (void *)buffer);
+ 			break;
+ 		default:
+ 			LOG_ERROR(&quot;BUG: we shouldn't get here&quot;);
+@@ -804,7 +825,35 @@
+ 			break;
+ 	}
+ 
+-	return ERROR_OK;
++	/* TAP data register is loaded LSB first (little endian) */
++	if (target-&gt;endianness == TARGET_BIG_ENDIAN)
++	{
++		u32 i, t32;
++		u16 t16;
++
++		for(i = 0; i &lt; (count*size); i += size)
++		{
++			switch(size) 
++			{
++				case 4:
++					t32 = be_to_h_u32(&amp;buffer[i]);
++					h_u32_to_le(&amp;buffer[i], t32);
++					break;
++				case 2:
++					t16 = be_to_h_u16(&amp;buffer[i]);
++					h_u16_to_le(&amp;buffer[i], t16);
++					break;
++			}
++		}
++	}	   
++
++	if(ejtag_info-&gt;impcode &amp; EJTAG_IMP_NODMA)
++		retval = mips32_pracc_write_mem(ejtag_info, address, size, count, (void *)buffer);
++	else
++		retval = mips32_dmaacc_write_mem(ejtag_info, address, size, count, (void *)buffer);
++	
++
++	return retval;
+ }
+ 
+ int mips_m4k_register_commands(struct command_context_s *cmd_ctx)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001002.html">[Openocd-svn] r2218 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="001004.html">[Openocd-svn] r2220 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1003">[ date ]</a>
+              <a href="thread.html#1003">[ thread ]</a>
+              <a href="subject.html#1003">[ subject ]</a>
+              <a href="author.html#1003">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

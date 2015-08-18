@@ -1,0 +1,611 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1526 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1526%20-%20trunk/src/jtag&In-Reply-To=%3C200904250054.n3P0sQPs010465%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000309.html">
+   <LINK REL="Next"  HREF="000311.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1526 - trunk/src/jtag</H1>
+    <B>mlu at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1526%20-%20trunk/src/jtag&In-Reply-To=%3C200904250054.n3P0sQPs010465%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1526 - trunk/src/jtag">mlu at mail.berlios.de
+       </A><BR>
+    <I>Sat Apr 25 02:54:26 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000309.html">[Openocd-svn] r1525 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000311.html">[Openocd-svn] r1527 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#310">[ date ]</a>
+              <a href="thread.html#310">[ thread ]</a>
+              <a href="subject.html#310">[ subject ]</a>
+              <a href="author.html#310">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: mlu
+Date: 2009-04-25 02:54:21 +0200 (Sat, 25 Apr 2009)
+New Revision: 1526
+
+Modified:
+   trunk/src/jtag/ft2232.c
+Log:
+Break ft2232_execute_quie into smaller functions, follows restructure of jlink.c
+
+Modified: trunk/src/jtag/ft2232.c
+===================================================================
+--- trunk/src/jtag/ft2232.c	2009-04-24 18:10:04 UTC (rev 1525)
++++ trunk/src/jtag/ft2232.c	2009-04-25 00:54:21 UTC (rev 1526)
+@@ -423,8 +423,8 @@
+ 	int             scan_size;
+ 	enum scan_type  type;
+ 	int             retval;
+-	u32             bytes_written;
+-	u32             bytes_read;
++	u32             bytes_written=0;
++	u32             bytes_read=0;
+ 
+ #ifdef _DEBUG_USB_IO_
+ 	struct timeval  start, inter, inter2, end;
+@@ -1267,246 +1267,328 @@
+ 	LOG_DEBUG(&quot;trst: %i, srst: %i, high_output: 0x%2.2x, high_direction: 0x%2.2x&quot;, trst, srst, high_output, high_direction);
+ }
+ 
+-static int ft2232_execute_queue()
++static int ft2232_execute_end_state(jtag_command_t *cmd)
+ {
+-	jtag_command_t* cmd = jtag_command_queue;   /* currently processed command */
+-	u8*             buffer;
+-	int             scan_size;                  /* size of IR or DR scan */
+-	enum scan_type  type;
+-	int             i;
+-	int             predicted_size = 0;
+-	int             retval;
++	int  retval;
++	retval = ERROR_OK;
+ 
+-	first_unsent = cmd;         /* next command that has to be sent */
+-	require_send = 0;
++	DEBUG_JTAG_IO(&quot;end_state: %i&quot;, cmd-&gt;cmd.end_state-&gt;end_state);
+ 
+-	/* return ERROR_OK, unless ft2232_send_and_recv reports a failed check
+-	 * that wasn't handled by a caller-provided error handler
+-	 */
+-	retval = ERROR_OK;
++	if (cmd-&gt;cmd.end_state-&gt;end_state != TAP_INVALID)
++		ft2232_end_state(cmd-&gt;cmd.end_state-&gt;end_state);
+ 
+-	ft2232_buffer_size = 0;
+-	ft2232_expect_read = 0;
++	return retval;
++}
+ 
+-	/* blink, if the current layout has that feature */
+-	if (layout-&gt;blink)
+-		layout-&gt;blink();
+ 
+-	while (cmd)
++static int ft2232_execute_runtest(jtag_command_t *cmd)
++{
++	int  retval;
++	int             i;
++	int predicted_size = 0;
++	retval = ERROR_OK;
++
++	DEBUG_JTAG_IO(&quot;runtest %i cycles, end in %i&quot;,
++			cmd-&gt;cmd.runtest-&gt;num_cycles,
++			cmd-&gt;cmd.runtest-&gt;end_state);
++	/* only send the maximum buffer size that FT2232C can handle */
++	predicted_size = 0;
++	if (tap_get_state() != TAP_IDLE)
++		predicted_size += 3;
++	predicted_size += 3 * CEIL(cmd-&gt;cmd.runtest-&gt;num_cycles, 7);
++	if ( (cmd-&gt;cmd.runtest-&gt;end_state != TAP_INVALID) &amp;&amp; (cmd-&gt;cmd.runtest-&gt;end_state != TAP_IDLE) )
++		predicted_size += 3;
++	if ( (cmd-&gt;cmd.runtest-&gt;end_state == TAP_INVALID) &amp;&amp; (tap_get_end_state() != TAP_IDLE) )
++		predicted_size += 3;
++	if (ft2232_buffer_size + predicted_size + 1 &gt; FT2232_BUFFER_SIZE)
+ 	{
+-		switch (cmd-&gt;type)
+-		{
+-		case JTAG_END_STATE:
+-			if (cmd-&gt;cmd.end_state-&gt;end_state != TAP_INVALID)
+-				ft2232_end_state(cmd-&gt;cmd.end_state-&gt;end_state);
+-			break;
++		if (ft2232_send_and_recv(first_unsent, cmd) != ERROR_OK)
++			retval = ERROR_JTAG_QUEUE_FAILED;
++		require_send = 0;
++		first_unsent = cmd;
++	}
++	if (tap_get_state() != TAP_IDLE)
++	{
++		/* command &quot;Clock Data to TMS/CS Pin (no Read)&quot; */
++		BUFFER_ADD = 0x4b;
++		BUFFER_ADD = 0x6;    /* scan 7 bits */
+ 
+-		case JTAG_RESET:
+-			/* only send the maximum buffer size that FT2232C can handle */
+-			predicted_size = 3;
+-			if (ft2232_buffer_size + predicted_size + 1 &gt; FT2232_BUFFER_SIZE)
+-			{
+-				if (ft2232_send_and_recv(first_unsent, cmd) != ERROR_OK)
+-					retval = ERROR_JTAG_QUEUE_FAILED;
+-				require_send = 0;
+-				first_unsent = cmd;
+-			}
++		/* TMS data bits */
++		BUFFER_ADD = tap_get_tms_path(tap_get_state(), TAP_IDLE);
++		tap_set_state(TAP_IDLE);
++		require_send = 1;
++	}
++	i = cmd-&gt;cmd.runtest-&gt;num_cycles;
++	while (i &gt; 0)
++	{
++		/* command &quot;Clock Data to TMS/CS Pin (no Read)&quot; */
++		BUFFER_ADD = 0x4b;
+ 
+-			if ( (cmd-&gt;cmd.reset-&gt;trst == 1) || ( cmd-&gt;cmd.reset-&gt;srst &amp;&amp; (jtag_reset_config &amp; RESET_SRST_PULLS_TRST) ) )
+-			{
+-				tap_set_state(TAP_RESET);
+-			}
+-			layout-&gt;reset(cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
+-			require_send = 1;
++		/* scan 7 bits */
++		BUFFER_ADD = (i &gt; 7) ? 6 : (i - 1);
+ 
++		/* TMS data bits */
++		BUFFER_ADD = 0x0;
++		tap_set_state(TAP_IDLE);
++		i -= (i &gt; 7) ? 7 : i;
++		/* LOG_DEBUG(&quot;added TMS scan (no read)&quot;); */
++	}
++
++	if (cmd-&gt;cmd.runtest-&gt;end_state != TAP_INVALID)
++		ft2232_end_state(cmd-&gt;cmd.runtest-&gt;end_state);
++
++	if ( tap_get_state() != tap_get_end_state() )
++	{
++		/* command &quot;Clock Data to TMS/CS Pin (no Read)&quot; */
++		BUFFER_ADD = 0x4b;
++		/* scan 7 bit */
++		BUFFER_ADD = 0x6;
++		/* TMS data bits */
++		BUFFER_ADD = tap_get_tms_path( tap_get_state(), tap_get_end_state() );
++		tap_set_state( tap_get_end_state() );
++		/* LOG_DEBUG(&quot;added TMS scan (no read)&quot;); */
++	}
++	require_send = 1;
+ #ifdef _DEBUG_JTAG_IO_
+-			LOG_DEBUG(&quot;trst: %i, srst: %i&quot;, cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
++	LOG_DEBUG( &quot;runtest: %i, end in %s&quot;, cmd-&gt;cmd.runtest-&gt;num_cycles, tap_state_name( tap_get_end_state() ) );
+ #endif
+-			break;
+ 
+-		case JTAG_RUNTEST:
+-			/* only send the maximum buffer size that FT2232C can handle */
+-			predicted_size = 0;
+-			if (tap_get_state() != TAP_IDLE)
+-				predicted_size += 3;
+-			predicted_size += 3 * CEIL(cmd-&gt;cmd.runtest-&gt;num_cycles, 7);
+-			if ( (cmd-&gt;cmd.runtest-&gt;end_state != TAP_INVALID) &amp;&amp; (cmd-&gt;cmd.runtest-&gt;end_state != TAP_IDLE) )
+-				predicted_size += 3;
+-			if ( (cmd-&gt;cmd.runtest-&gt;end_state == TAP_INVALID) &amp;&amp; (tap_get_end_state() != TAP_IDLE) )
+-				predicted_size += 3;
+-			if (ft2232_buffer_size + predicted_size + 1 &gt; FT2232_BUFFER_SIZE)
+-			{
+-				if (ft2232_send_and_recv(first_unsent, cmd) != ERROR_OK)
+-					retval = ERROR_JTAG_QUEUE_FAILED;
+-				require_send = 0;
+-				first_unsent = cmd;
+-			}
+-			if (tap_get_state() != TAP_IDLE)
+-			{
+-				/* command &quot;Clock Data to TMS/CS Pin (no Read)&quot; */
+-				BUFFER_ADD = 0x4b;
+-				BUFFER_ADD = 0x6;    /* scan 7 bits */
++	return retval;
++}
+ 
+-				/* TMS data bits */
+-				BUFFER_ADD = tap_get_tms_path(tap_get_state(), TAP_IDLE);
+-				tap_set_state(TAP_IDLE);
+-				require_send = 1;
+-			}
+-			i = cmd-&gt;cmd.runtest-&gt;num_cycles;
+-			while (i &gt; 0)
+-			{
+-				/* command &quot;Clock Data to TMS/CS Pin (no Read)&quot; */
+-				BUFFER_ADD = 0x4b;
++static int ft2232_execute_statemove(jtag_command_t *cmd)
++{
++	int  retval;
++	int predicted_size = 0;
++	retval = ERROR_OK;
+ 
+-				/* scan 7 bits */
+-				BUFFER_ADD = (i &gt; 7) ? 6 : (i - 1);
++	DEBUG_JTAG_IO(&quot;statemove end in %i&quot;, cmd-&gt;cmd.statemove-&gt;end_state);
+ 
+-				/* TMS data bits */
+-				BUFFER_ADD = 0x0;
+-				tap_set_state(TAP_IDLE);
+-				i -= (i &gt; 7) ? 7 : i;
+-				/* LOG_DEBUG(&quot;added TMS scan (no read)&quot;); */
+-			}
++	/* only send the maximum buffer size that FT2232C can handle */
++	predicted_size = 3;
++	if (ft2232_buffer_size + predicted_size + 1 &gt; FT2232_BUFFER_SIZE)
++	{
++		if (ft2232_send_and_recv(first_unsent, cmd) != ERROR_OK)
++			retval = ERROR_JTAG_QUEUE_FAILED;
++		require_send = 0;
++		first_unsent = cmd;
++	}
++	if (cmd-&gt;cmd.statemove-&gt;end_state != TAP_INVALID)
++		ft2232_end_state(cmd-&gt;cmd.statemove-&gt;end_state);
+ 
+-			if (cmd-&gt;cmd.runtest-&gt;end_state != TAP_INVALID)
+-				ft2232_end_state(cmd-&gt;cmd.runtest-&gt;end_state);
++	/* command &quot;Clock Data to TMS/CS Pin (no Read)&quot; */
++	BUFFER_ADD = 0x4b;
+ 
+-			if ( tap_get_state() != tap_get_end_state() )
+-			{
+-				/* command &quot;Clock Data to TMS/CS Pin (no Read)&quot; */
+-				BUFFER_ADD = 0x4b;
+-				/* scan 7 bit */
+-				BUFFER_ADD = 0x6;
+-				/* TMS data bits */
+-				BUFFER_ADD = tap_get_tms_path( tap_get_state(), tap_get_end_state() );
+-				tap_set_state( tap_get_end_state() );
+-				/* LOG_DEBUG(&quot;added TMS scan (no read)&quot;); */
+-			}
+-			require_send = 1;
++	BUFFER_ADD = 0x6;       /* scan 7 bits */
++
++			/* TMS data bits */
++	BUFFER_ADD = tap_get_tms_path( tap_get_state(), tap_get_end_state() );
++	/* LOG_DEBUG(&quot;added TMS scan (no read)&quot;); */
++	tap_set_state( tap_get_end_state() );
++	require_send = 1;
+ #ifdef _DEBUG_JTAG_IO_
+-			LOG_DEBUG( &quot;runtest: %i, end in %s&quot;, cmd-&gt;cmd.runtest-&gt;num_cycles, tap_state_name( tap_get_end_state() ) );
++	LOG_DEBUG( &quot;statemove: %s&quot;, tap_state_name( tap_get_end_state() ) );
+ #endif
+-			break;
++	
++	return retval;
++}
+ 
+-		case JTAG_STATEMOVE:
+-			/* only send the maximum buffer size that FT2232C can handle */
+-			predicted_size = 3;
+-			if (ft2232_buffer_size + predicted_size + 1 &gt; FT2232_BUFFER_SIZE)
+-			{
+-				if (ft2232_send_and_recv(first_unsent, cmd) != ERROR_OK)
+-					retval = ERROR_JTAG_QUEUE_FAILED;
+-				require_send = 0;
+-				first_unsent = cmd;
+-			}
+-			if (cmd-&gt;cmd.statemove-&gt;end_state != TAP_INVALID)
+-				ft2232_end_state(cmd-&gt;cmd.statemove-&gt;end_state);
++static int ft2232_execute_pathmove(jtag_command_t *cmd)
++{
++	int  retval;
++	int predicted_size = 0;
++	retval = ERROR_OK;
+ 
+-			/* command &quot;Clock Data to TMS/CS Pin (no Read)&quot; */
+-			BUFFER_ADD = 0x4b;
+-
+-			BUFFER_ADD = 0x6;       /* scan 7 bits */
+-
+-			/* TMS data bits */
+-			BUFFER_ADD = tap_get_tms_path( tap_get_state(), tap_get_end_state() );
+-			/* LOG_DEBUG(&quot;added TMS scan (no read)&quot;); */
+-			tap_set_state( tap_get_end_state() );
+-			require_send = 1;
++	DEBUG_JTAG_IO(&quot;pathmove: %i states, end in %i&quot;,
++		cmd-&gt;cmd.pathmove-&gt;num_states,
++		cmd-&gt;cmd.pathmove-&gt;path[cmd-&gt;cmd.pathmove-&gt;num_states - 1]);
++	/* only send the maximum buffer size that FT2232C can handle */
++	predicted_size = 3 * CEIL(cmd-&gt;cmd.pathmove-&gt;num_states, 7);
++	if (ft2232_buffer_size + predicted_size + 1 &gt; FT2232_BUFFER_SIZE)
++	{
++		if (ft2232_send_and_recv(first_unsent, cmd) != ERROR_OK)
++		retval = ERROR_JTAG_QUEUE_FAILED;
++		require_send = 0;
++		first_unsent = cmd;
++	}
++	ft2232_add_pathmove(cmd-&gt;cmd.pathmove);
++	require_send = 1;
+ #ifdef _DEBUG_JTAG_IO_
+-			LOG_DEBUG( &quot;statemove: %s&quot;, tap_state_name( tap_get_end_state() ) );
++	LOG_DEBUG( &quot;pathmove: %i states, end in %s&quot;, cmd-&gt;cmd.pathmove-&gt;num_states,
++		tap_state_name(cmd-&gt;cmd.pathmove-&gt;path[cmd-&gt;cmd.pathmove-&gt;num_states - 1]) );
+ #endif
+-			break;
++	return retval;
++}
+ 
+-		case JTAG_PATHMOVE:
+-			/* only send the maximum buffer size that FT2232C can handle */
+-			predicted_size = 3 * CEIL(cmd-&gt;cmd.pathmove-&gt;num_states, 7);
+-			if (ft2232_buffer_size + predicted_size + 1 &gt; FT2232_BUFFER_SIZE)
+-			{
+-				if (ft2232_send_and_recv(first_unsent, cmd) != ERROR_OK)
+-					retval = ERROR_JTAG_QUEUE_FAILED;
+-				require_send = 0;
+-				first_unsent = cmd;
+-			}
+-			ft2232_add_pathmove(cmd-&gt;cmd.pathmove);
+-			require_send = 1;
++static int ft2232_execute_scan(jtag_command_t *cmd)
++{
++	int             retval;
++	u8*             buffer;
++	int             scan_size;                  /* size of IR or DR scan */
++	enum scan_type  type;
++	int             predicted_size = 0;
++	retval = ERROR_OK;
++
++	scan_size = jtag_build_buffer(cmd-&gt;cmd.scan, &amp;buffer);
++	type = jtag_scan_type(cmd-&gt;cmd.scan);
++	predicted_size = ft2232_predict_scan_out(scan_size, type);
++	if ( (predicted_size + 1) &gt; FT2232_BUFFER_SIZE )
++	{
++		LOG_DEBUG(&quot;oversized ft2232 scan (predicted_size &gt; FT2232_BUFFER_SIZE)&quot;);
++		/* unsent commands before this */
++		if (first_unsent != cmd)
++			if (ft2232_send_and_recv(first_unsent, cmd) != ERROR_OK)
++				retval = ERROR_JTAG_QUEUE_FAILED;
++
++		/* current command */
++		if (cmd-&gt;cmd.scan-&gt;end_state != TAP_INVALID)
++			ft2232_end_state(cmd-&gt;cmd.scan-&gt;end_state);
++		ft2232_large_scan(cmd-&gt;cmd.scan, type, buffer, scan_size);
++		require_send = 0;
++		first_unsent = cmd-&gt;next;
++		if (buffer)
++			free(buffer);
++		return retval;
++	}
++	else if (ft2232_buffer_size + predicted_size + 1 &gt; FT2232_BUFFER_SIZE)
++	{
++		LOG_DEBUG(&quot;ft2232 buffer size reached, sending queued commands (first_unsent: %p, cmd: %p)&quot;,
++				first_unsent,
++				cmd);
++		if (ft2232_send_and_recv(first_unsent, cmd) != ERROR_OK)
++			retval = ERROR_JTAG_QUEUE_FAILED;
++		require_send = 0;
++		first_unsent = cmd;
++	}
++	ft2232_expect_read += ft2232_predict_scan_in(scan_size, type);
++	/* LOG_DEBUG(&quot;new read size: %i&quot;, ft2232_expect_read); */
++	if (cmd-&gt;cmd.scan-&gt;end_state != TAP_INVALID)
++		ft2232_end_state(cmd-&gt;cmd.scan-&gt;end_state);
++	ft2232_add_scan(cmd-&gt;cmd.scan-&gt;ir_scan, type, buffer, scan_size);
++	require_send = 1;
++	if (buffer)
++		free(buffer);
+ #ifdef _DEBUG_JTAG_IO_
+-			LOG_DEBUG( &quot;pathmove: %i states, end in %s&quot;, cmd-&gt;cmd.pathmove-&gt;num_states,
+-					tap_state_name(cmd-&gt;cmd.pathmove-&gt;path[cmd-&gt;cmd.pathmove-&gt;num_states - 1]) );
++	LOG_DEBUG( &quot;%s scan, %i bits, end in %s&quot;, (cmd-&gt;cmd.scan-&gt;ir_scan) ? &quot;IR&quot; : &quot;DR&quot;, scan_size,
++			tap_state_name( tap_get_end_state() ) );
+ #endif
+-			break;
++	return retval;
+ 
+-		case JTAG_SCAN:
+-			scan_size = jtag_build_buffer(cmd-&gt;cmd.scan, &amp;buffer);
+-			type = jtag_scan_type(cmd-&gt;cmd.scan);
+-			predicted_size = ft2232_predict_scan_out(scan_size, type);
+-			if ( (predicted_size + 1) &gt; FT2232_BUFFER_SIZE )
+-			{
+-				LOG_DEBUG(&quot;oversized ft2232 scan (predicted_size &gt; FT2232_BUFFER_SIZE)&quot;);
+-				/* unsent commands before this */
+-				if (first_unsent != cmd)
+-					if (ft2232_send_and_recv(first_unsent, cmd) != ERROR_OK)
+-						retval = ERROR_JTAG_QUEUE_FAILED;
++}
+ 
+-				/* current command */
+-				if (cmd-&gt;cmd.scan-&gt;end_state != TAP_INVALID)
+-					ft2232_end_state(cmd-&gt;cmd.scan-&gt;end_state);
+-				ft2232_large_scan(cmd-&gt;cmd.scan, type, buffer, scan_size);
+-				require_send = 0;
+-				first_unsent = cmd-&gt;next;
+-				if (buffer)
+-					free(buffer);
+-				break;
+-			}
+-			else if (ft2232_buffer_size + predicted_size + 1 &gt; FT2232_BUFFER_SIZE)
+-			{
+-				LOG_DEBUG(&quot;ft2232 buffer size reached, sending queued commands (first_unsent: %p, cmd: %p)&quot;,
+-						first_unsent,
+-						cmd);
+-				if (ft2232_send_and_recv(first_unsent, cmd) != ERROR_OK)
+-					retval = ERROR_JTAG_QUEUE_FAILED;
+-				require_send = 0;
+-				first_unsent = cmd;
+-			}
+-			ft2232_expect_read += ft2232_predict_scan_in(scan_size, type);
+-			/* LOG_DEBUG(&quot;new read size: %i&quot;, ft2232_expect_read); */
+-			if (cmd-&gt;cmd.scan-&gt;end_state != TAP_INVALID)
+-				ft2232_end_state(cmd-&gt;cmd.scan-&gt;end_state);
+-			ft2232_add_scan(cmd-&gt;cmd.scan-&gt;ir_scan, type, buffer, scan_size);
+-			require_send = 1;
+-			if (buffer)
+-				free(buffer);
++static int ft2232_execute_reset(jtag_command_t *cmd)
++{
++	int             retval;
++	int             predicted_size = 0;
++	retval = ERROR_OK;
++
++	DEBUG_JTAG_IO(&quot;reset trst: %i srst %i&quot;,
++			cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
++
++	/* only send the maximum buffer size that FT2232C can handle */
++	predicted_size = 3;
++	if (ft2232_buffer_size + predicted_size + 1 &gt; FT2232_BUFFER_SIZE)
++	{
++		if (ft2232_send_and_recv(first_unsent, cmd) != ERROR_OK)
++			retval = ERROR_JTAG_QUEUE_FAILED;
++		require_send = 0;
++		first_unsent = cmd;
++	}
++
++	if ( (cmd-&gt;cmd.reset-&gt;trst == 1) || ( cmd-&gt;cmd.reset-&gt;srst &amp;&amp; (jtag_reset_config &amp; RESET_SRST_PULLS_TRST) ) )
++	{
++		tap_set_state(TAP_RESET);
++	}
++	layout-&gt;reset(cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
++	require_send = 1;
++
+ #ifdef _DEBUG_JTAG_IO_
+-			LOG_DEBUG( &quot;%s scan, %i bits, end in %s&quot;, (cmd-&gt;cmd.scan-&gt;ir_scan) ? &quot;IR&quot; : &quot;DR&quot;, scan_size,
+-					tap_state_name( tap_get_end_state() ) );
++	LOG_DEBUG(&quot;trst: %i, srst: %i&quot;, cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
+ #endif
+-			break;
++	return retval;
++}
+ 
+-		case JTAG_SLEEP:
+-			if (ft2232_send_and_recv(first_unsent, cmd) != ERROR_OK)
++static int ft2232_execute_sleep(jtag_command_t *cmd)
++{
++	int             retval;
++	retval = ERROR_OK;
++
++	DEBUG_JTAG_IO(&quot;sleep %i&quot;, cmd-&gt;cmd.sleep-&gt;us);
++
++	if (ft2232_send_and_recv(first_unsent, cmd) != ERROR_OK)
+ 				retval = ERROR_JTAG_QUEUE_FAILED;
+-			first_unsent = cmd-&gt;next;
+-			jtag_sleep(cmd-&gt;cmd.sleep-&gt;us);
++	first_unsent = cmd-&gt;next;
++	jtag_sleep(cmd-&gt;cmd.sleep-&gt;us);
+ #ifdef _DEBUG_JTAG_IO_
+ 			LOG_DEBUG( &quot;sleep %i usec while in %s&quot;, cmd-&gt;cmd.sleep-&gt;us, tap_state_name( tap_get_state() ) );
+ #endif
+-			break;
+ 
+-		case JTAG_STABLECLOCKS:
++	return retval;
++}
+ 
+-			/* this is only allowed while in a stable state.  A check for a stable
+-			 * state was done in jtag_add_clocks()
+-			 */
+-			if (ft2232_stableclocks(cmd-&gt;cmd.stableclocks-&gt;num_cycles, cmd) != ERROR_OK)
+-				retval = ERROR_JTAG_QUEUE_FAILED;
++static int ft2232_execute_stableclocks(jtag_command_t *cmd)
++{
++	int             retval;
++	retval = ERROR_OK;
++
++	/* this is only allowed while in a stable state.  A check for a stable
++	 * state was done in jtag_add_clocks()
++	 */
++	if (ft2232_stableclocks(cmd-&gt;cmd.stableclocks-&gt;num_cycles, cmd) != ERROR_OK)
++		retval = ERROR_JTAG_QUEUE_FAILED;
+ #ifdef _DEBUG_JTAG_IO_
+-			LOG_DEBUG( &quot;clocks %i while in %s&quot;, cmd-&gt;cmd.stableclocks-&gt;num_cycles, tap_state_name( tap_get_state() ) );
++	LOG_DEBUG( &quot;clocks %i while in %s&quot;, cmd-&gt;cmd.stableclocks-&gt;num_cycles, tap_state_name( tap_get_state() ) );
+ #endif
+-			break;
+ 
++	return retval;
++}
++
++static int ft2232_execute_command(jtag_command_t *cmd)
++{
++	int             retval;
++	retval = ERROR_OK;
++
++	switch (cmd-&gt;type)
++	{
++		case JTAG_END_STATE: retval = ft2232_execute_end_state(cmd); break;
++		case JTAG_RESET:	 retval = ft2232_execute_reset(cmd); break;
++		case JTAG_RUNTEST:   retval = ft2232_execute_runtest(cmd); break;
++		case JTAG_STATEMOVE: retval = ft2232_execute_statemove(cmd); break;
++		case JTAG_PATHMOVE:  retval = ft2232_execute_pathmove(cmd); break;
++		case JTAG_SCAN: 	 retval = ft2232_execute_scan(cmd); break;
++		case JTAG_SLEEP:	 retval = ft2232_execute_sleep(cmd); break;
++		case JTAG_STABLECLOCKS: retval = ft2232_execute_stableclocks(cmd); break;
+ 		default:
+ 			LOG_ERROR(&quot;BUG: unknown JTAG command type encountered&quot;);
+-			exit(-1);
+-		}
++			exit(-1);	
++	}
++	return retval;
++}
+ 
++static int ft2232_execute_queue()
++{
++	jtag_command_t* cmd = jtag_command_queue;   /* currently processed command */
++	int             retval;
++
++	first_unsent = cmd;         /* next command that has to be sent */
++	require_send = 0;
++
++	/* return ERROR_OK, unless ft2232_send_and_recv reports a failed check
++	 * that wasn't handled by a caller-provided error handler
++	 */
++	retval = ERROR_OK;
++
++	ft2232_buffer_size = 0;
++	ft2232_expect_read = 0;
++
++	/* blink, if the current layout has that feature */
++	if (layout-&gt;blink)
++		layout-&gt;blink();
++
++	while (cmd)
++	{
++		if (ft2232_execute_command(cmd) != ERROR_OK)
++			retval = ERROR_JTAG_QUEUE_FAILED;
+ 		cmd = cmd-&gt;next;
+ 	}
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000309.html">[Openocd-svn] r1525 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000311.html">[Openocd-svn] r1527 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#310">[ date ]</a>
+              <a href="thread.html#310">[ thread ]</a>
+              <a href="subject.html#310">[ subject ]</a>
+              <a href="author.html#310">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

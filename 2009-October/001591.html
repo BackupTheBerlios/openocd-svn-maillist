@@ -1,0 +1,151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2808 - trunk/tcl/board
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2808%20-%20trunk/tcl/board&In-Reply-To=%3C200910062256.n96Murkn002735%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001590.html">
+   <LINK REL="Next"  HREF="001592.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2808 - trunk/tcl/board</H1>
+    <B>dbrownell at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2808%20-%20trunk/tcl/board&In-Reply-To=%3C200910062256.n96Murkn002735%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2808 - trunk/tcl/board">dbrownell at mail.berlios.de
+       </A><BR>
+    <I>Wed Oct  7 00:56:53 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001590.html">[Openocd-svn] r2807 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001592.html">[Openocd-svn] r2809 - in trunk: . doc/manual src tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1591">[ date ]</a>
+              <a href="thread.html#1591">[ thread ]</a>
+              <a href="subject.html#1591">[ subject ]</a>
+              <a href="author.html#1591">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: dbrownell
+Date: 2009-10-07 00:56:52 +0200 (Wed, 07 Oct 2009)
+New Revision: 2808
+
+Added:
+   trunk/tcl/board/dm6446evm.cfg
+Log:
+Add basic support for DM6446 EVM board.
+
+
+Added: trunk/tcl/board/dm6446evm.cfg
+===================================================================
+--- trunk/tcl/board/dm6446evm.cfg	2009-10-06 22:55:46 UTC (rev 2807)
++++ trunk/tcl/board/dm6446evm.cfg	2009-10-06 22:56:52 UTC (rev 2808)
+@@ -0,0 +1,74 @@
++# DM6446 EVM board
++#   <A HREF="http://focus.ti.com/docs/toolsw/folders/print/tmdsevm6446.html">http://focus.ti.com/docs/toolsw/folders/print/tmdsevm6446.html</A>
++#   <A HREF="http://c6000.spectrumdigital.com/davincievm/">http://c6000.spectrumdigital.com/davincievm/</A>
++# EVM is just the board; buy that at Spectrum.
++# The &quot;kit&quot; from TI also has: video camera, LCD video monitor, more.
++
++source [find target/ti_dm6446.cfg]
++
++# J4 controls what CS2 hooks up to, usually NOR or NAND flash.
++# S3.1/S3.2 controls boot mode, which may force J4 and S3.3 settings.
++# S3.3 controls AEMIF bus width.
++
++if { [info exists J4_OPTION] } {
++	# NOR, NAND, SRAM, ...
++	set CS2_MODE $J4_OPTION
++} else {
++	set CS2_MODE &quot;&quot;
++}
++
++# ARM boot:
++#  S3.1 = 0, S3.2 = 0	==&gt; ROM/UBL boot via NAND (J4 == NAND)
++#  S3.1 = 1, S3.2 = 0	==&gt; AEMIF boot (J4 == NOR or SRAM)
++#  S3.1 = 0, S3.2 = 1	==&gt; ROM/UBL boot via HPI
++#  S3.1 = 1, S3.2 = 1	==&gt; ROM/UBL boot via UART (J4 == don't care)
++# AEMIF bus width:
++#  S3.3 = 0		==&gt; 8 bit bus width
++#  S3.3 = 1		==&gt; 16 bit bus width
++# DSP boot:
++#  S3.4 = 0		==&gt; controlled by ARM
++
++if { $CS2_MODE == &quot;NOR&quot; } {
++	# 16 Mbytes address space; 16 bit bus width
++	# (older boards used 32MB parts, with upper 16 MB unusable)
++	flash bank cfi 0x02000000 0x01000000 2 2 $_TARGETNAME
++	proc flashprobe {} { flash probe 0 }
++} elseif { $CS2_MODE == &quot;NAND&quot; } {
++	# 64 Mbyte small page; 8 bit bus width
++	nand device davinci $_TARGETNAME 0x02000000 hwecc1 0x01e00000
++	proc flashprobe {} { nand probe 0 }
++} elseif { $CS2_MODE == &quot;SRAM&quot; } {
++	# 4 Mbyte address space; 16 bit bus width
++	# loaded via JTAG or HPI
++	proc flashprobe {} {}
++} else {
++	# maybe it's HPI boot?  can't tell...
++	echo &quot;WARNING:  CS2/flash configuration not recognized&quot;
++	proc flashprobe {} {}
++}
++
++# NOTE:  disable or replace this call to dm6446evm_init if you're
++# debugging new UBL code from SRAM (for NAND boot).
++$_TARGETNAME configure -event reset-init { dm6446evm_init }
++
++#
++# This post-reset init is called when the MMU isn't active, all IRQs
++# are disabled, etc.  It should do most of what a UBL does, except for
++# loading code (like U-Boot) into DRAM and running it.
++#
++proc dm6446evm_init {} {
++
++	puts &quot;Initialize DM6446 EVM board&quot;
++
++	# FIXME initialize everything:
++	#  - PLL1
++	#  - PLL2
++	#  - PINMUX
++	#  - PSC
++	#  - DDR
++	#  - AEMIF
++	#  - UART0
++	#  - icache
++
++	flashprobe
++}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001590.html">[Openocd-svn] r2807 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001592.html">[Openocd-svn] r2809 - in trunk: . doc/manual src tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1591">[ date ]</a>
+              <a href="thread.html#1591">[ thread ]</a>
+              <a href="subject.html#1591">[ subject ]</a>
+              <a href="author.html#1591">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

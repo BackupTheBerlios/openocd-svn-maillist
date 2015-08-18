@@ -1,0 +1,164 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-371-g36564d7
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%200.2.0-371-g36564d7&In-Reply-To=%3CE1MxzwF-0000mk-0M%40cj8yhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001636.html">
+   <LINK REL="Next"  HREF="001638.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-371-g36564d7</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%200.2.0-371-g36564d7&In-Reply-To=%3CE1MxzwF-0000mk-0M%40cj8yhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-371-g36564d7">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Wed Oct 14 11:14:29 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001636.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-370-g77ca2f3
+</A></li>
+        <LI>Next message: <A HREF="001638.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-372-ga3697c3
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1637">[ date ]</a>
+              <a href="thread.html#1637">[ thread ]</a>
+              <a href="subject.html#1637">[ subject ]</a>
+              <a href="author.html#1637">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  36564d74505598c328fab91d0cfe415b0fc61676 (commit)
+      from  77ca2f3a702c7a9cfceba14166042a0ed09947fe (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 36564d74505598c328fab91d0cfe415b0fc61676
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Wed Oct 14 11:14:04 2009 +0200
+
+    Work in progress on arm11 reset. Assert srst.
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index f46e424..94d5fb1 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -1200,18 +1200,62 @@ int arm11_step(struct target_s *target, int current, uint32_t address, int handl
+ int arm11_assert_reset(target_t *target)
+ {
+ 	FNC_INFO;
++	int retval;
+ 
+-	/* FIX! we really should assert srst here, but
+-	 * how do we reset the target into the halted state?
+-	 *
+-	 * Also arm11 behaves &quot;funny&quot; when srst is asserted
+-	 * (as of writing the rules are not understood).
+-	 */
++	arm11_common_t * arm11 = target-&gt;arch_info;
++	retval = arm11_check_init(arm11, NULL);
++	if (retval != ERROR_OK)
++		return retval;
++
++	target-&gt;state = TARGET_UNKNOWN;
++
++	/* we would very much like to reset into the halted, state,
++	 * but resetting and halting is second best... */
+ 	if (target-&gt;reset_halt)
+ 	{
+ 		CHECK_RETVAL(target_halt(target));
+ 	}
+ 
++
++	/* srst is funny. We can not do *anything* else while it's asserted
++	 * and it has unkonwn side effects. Make sure no other code runs
++	 * meanwhile.
++	 *
++	 * Code below assumes srst:
++	 *
++	 * - Causes power-on-reset (but of what parts of the system?). Bug
++	 * in arm11?
++	 *
++	 * - Messes us TAP state without asserting trst.
++	 *
++	 * - There is another bug in the arm11 core. When you generate an access to
++	 * external logic (for example ddr controller via AHB bus) and that block
++	 * is not configured (perhaps it is still held in reset), that transaction
++	 * will never complete. This will hang arm11 core but it will also hang
++	 * JTAG controller. Nothing, short of srst assertion will bring it out of
++	 * this.
++	 *
++	 * Mysteries:
++	 *
++	 * - What should the PC be after an srst reset when starting in the halted
++	 * state?
++	 */
++
++	jtag_add_reset(0, 1);
++	jtag_add_reset(0, 0);
++
++	/* How long do we have to wait? */
++	jtag_add_sleep(5000);
++
++	/* un-mess up TAP state */
++	jtag_add_tlr();
++
++	retval = jtag_execute_queue();
++	if (retval != ERROR_OK)
++	{
++		return retval;
++	}
++
+ 	return ERROR_OK;
+ }
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm11.c |   56 ++++++++++++++++++++++++++++++++++++++++++++++-----
+ 1 files changed, 50 insertions(+), 6 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001636.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-370-g77ca2f3
+</A></li>
+	<LI>Next message: <A HREF="001638.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-372-ga3697c3
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1637">[ date ]</a>
+              <a href="thread.html#1637">[ thread ]</a>
+              <a href="subject.html#1637">[ subject ]</a>
+              <a href="author.html#1637">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

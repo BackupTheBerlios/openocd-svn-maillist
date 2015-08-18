@@ -1,0 +1,300 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-403-ge8445c9
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-403-ge8445c9&In-Reply-To=%3CE1OXMA0-0008Eo-Sw%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002317.html">
+   <LINK REL="Next"  HREF="002319.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-403-ge8445c9</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-403-ge8445c9&In-Reply-To=%3CE1OXMA0-0008Eo-Sw%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-403-ge8445c9">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Sat Jul 10 00:35:06 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002317.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-402-gac5ad4a
+</A></li>
+        <LI>Next message: <A HREF="002319.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-404-g1c79432
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2318">[ date ]</a>
+              <a href="thread.html#2318">[ thread ]</a>
+              <a href="subject.html#2318">[ subject ]</a>
+              <a href="author.html#2318">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  e8445c9c9f02e82ea417776fa27fbe793ae22f83 (commit)
+      from  ac5ad4ad8d0312259974d4aeb947a43fa815c3a8 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit e8445c9c9f02e82ea417776fa27fbe793ae22f83
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Jul 9 18:34:31 2010 -0400
+
+    transport selection tweaks
+    
+    * Bugfix and simplify legacy jtag-only defaulting
+    * Make &quot;dummy&quot; declare its jtag-only nature
+    * likewise update ft2232
+    * warn if selection is _required_ (multi-transport adapters),
+    
+    fixes the &quot;only ft2232 works&quot; bug for at least dummy, with
+    other drivers going the &quot;legacy&quot; path (submit patches).
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">db at helium.</A>(none)&gt;
+
+diff --git a/src/jtag/adapter.c b/src/jtag/adapter.c
+index 37e6ee9..2d95e18 100644
+--- a/src/jtag/adapter.c
++++ b/src/jtag/adapter.c
+@@ -93,6 +93,9 @@ static int default_srst_asserted(int *srst_asserted)
+ 	return ERROR_OK;
+ }
+ 
++const char *jtag_only[] = { &quot;jtag&quot;, NULL, };
++
++
+ COMMAND_HANDLER(interface_transport_command)
+ {
+ 	char **transports;
+@@ -130,6 +133,8 @@ COMMAND_HANDLER(handle_interface_list_command)
+ 
+ COMMAND_HANDLER(handle_interface_command)
+ {
++	int retval;
++
+ 	/* check whether the interface is already configured */
+ 	if (jtag_interface)
+ 	{
+@@ -148,7 +153,7 @@ COMMAND_HANDLER(handle_interface_command)
+ 
+ 		if (NULL != jtag_interfaces[i]-&gt;commands)
+ 		{
+-			int retval = register_commands(CMD_CTX, NULL,
++			retval = register_commands(CMD_CTX, NULL,
+ 					jtag_interfaces[i]-&gt;commands);
+ 			if (ERROR_OK != retval)
+ 				return retval;
+@@ -156,6 +161,20 @@ COMMAND_HANDLER(handle_interface_command)
+ 
+ 		jtag_interface = jtag_interfaces[i];
+ 
++	/* LEGACY SUPPORT ... adapter drivers  must declare what
++	 * transports they allow.  Until they all do so, assume
++	 * the legacy drivers are JTAG-only
++	 */
++	if (!jtag_interface-&gt;transports)
++		LOG_WARNING(&quot;Adapter driver '%s' did not declare &quot;
++			&quot;which transports it allows; assuming&quot;
++			&quot;legacy JTAG-only&quot;, jtag_interface-&gt;name);
++		retval = allow_transports(CMD_CTX,
++					jtag_interface-&gt;transports
++						? : jtag_only);
++			if (ERROR_OK != retval)
++				return retval;
++
+ 		if (jtag_interface-&gt;khz == NULL)
+ 			jtag_interface-&gt;khz = default_khz;
+ 		if (jtag_interface-&gt;speed_div == NULL)
+@@ -171,7 +190,8 @@ COMMAND_HANDLER(handle_interface_command)
+ 	/* no valid interface was found (i.e. the configuration option,
+ 	 * didn't match one of the compiled-in interfaces
+ 	 */
+-	LOG_ERROR(&quot;The specified debug interface was not found (%s)&quot;, CMD_ARGV[0]);
++	LOG_ERROR(&quot;The specified debug interface was not found (%s)&quot;,
++				CMD_ARGV[0]);
+ 	CALL_COMMAND_HANDLER(handle_interface_list_command);
+ 	return ERROR_JTAG_INVALID_INTERFACE;
+ }
+diff --git a/src/jtag/drivers/dummy.c b/src/jtag/drivers/dummy.c
+index 7cb0e33..8b1e5ec 100644
+--- a/src/jtag/drivers/dummy.c
++++ b/src/jtag/drivers/dummy.c
+@@ -166,6 +166,7 @@ struct jtag_interface dummy_interface = {
+ 
+ 		.supported = DEBUG_CAP_TMS_SEQ,
+ 		.commands = dummy_command_handlers,
++		.transports = jtag_only,
+ 
+ 		.execute_queue = &amp;bitbang_execute_queue,
+ 
+diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+index f06e13b..bf71fa3 100644
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -168,7 +168,6 @@ struct ft2232_layout {
+ 	void (*reset)(int trst, int srst);
+ 	void (*blink)(void);
+ 	int channel;
+-	const char **transports;
+ };
+ 
+ /* init procedures for supported layouts */
+@@ -213,11 +212,8 @@ static void signalyzer_h_blink(void);
+ static void ktlink_blink(void);
+ 
+ /* common transport support options */
+-static const char *jtag_only[] = { &quot;jtag&quot;, NULL };
+-
+ 
+ //static const char *jtag_and_swd[] = { &quot;jtag&quot;, &quot;swd&quot;, NULL };
+-#define jtag_and_swd NULL
+ 
+ static const struct ft2232_layout  ft2232_layouts[] =
+ {
+@@ -244,12 +240,10 @@ static const struct ft2232_layout  ft2232_layouts[] =
+ 	{ .name = &quot;evb_lm3s811&quot;,
+ 		.init = lm3s811_jtag_init,
+ 		.reset = ftx23_reset,
+-		.transports = jtag_and_swd,
+ 	},
+ 	{ .name = &quot;luminary_icdi&quot;,
+ 		.init = icdi_jtag_init,
+ 		.reset = ftx23_reset,
+-		.transports = jtag_and_swd,
+ 	},
+ 	{ .name = &quot;olimex-jtag&quot;,
+ 		.init = olimex_jtag_init,
+@@ -3206,11 +3200,7 @@ COMMAND_HANDLER(ft2232_handle_layout_command)
+ 	for (const struct ft2232_layout *l = ft2232_layouts; l-&gt;name; l++) {
+ 		if (strcmp(l-&gt;name, CMD_ARGV[0]) == 0) {
+ 			layout = l;
+-			/* This may also select the transport
+-			 * if we only support one of them.
+-			 */
+-			return allow_transports(CMD_CTX,
+-				l-&gt;transports ? : jtag_only);
++			return ERROR_OK;
+ 		}
+ 	}
+ 
+@@ -4372,6 +4362,7 @@ struct jtag_interface ft2232_interface = {
+ 	.name = &quot;ft2232&quot;,
+ 	.supported = DEBUG_CAP_TMS_SEQ,
+ 	.commands = ft2232_command_handlers,
++	.transports = jtag_only,
+ 
+ 	.init = ft2232_init,
+ 	.quit = ft2232_quit,
+diff --git a/src/jtag/interface.h b/src/jtag/interface.h
+index 0d47404..3226944 100644
+--- a/src/jtag/interface.h
++++ b/src/jtag/interface.h
+@@ -206,6 +206,9 @@ struct jtag_interface {
+ 	unsigned supported;
+ #define DEBUG_CAP_TMS_SEQ	(1 &lt;&lt; 0)
+ 
++	/** transports supported in C code (NULL terminated vector) */
++	const char **transports;
++
+ 	/**
+ 	 * Execute queued commands.
+ 	 * @returns ERROR_OK on success, or an error code on failure.
+@@ -289,4 +292,6 @@ struct jtag_interface {
+ };
+ 
+ 
++extern const char *jtag_only[];
++
+ #endif // OPENOCD_JTAG_INTERFACE_H
+diff --git a/src/jtag/transport.c b/src/jtag/transport.c
+index cce45fb..d290bd2 100644
+--- a/src/jtag/transport.c
++++ b/src/jtag/transport.c
+@@ -101,6 +101,10 @@ int allow_transports(struct command_context *ctx, const char **vector)
+ 	 *
+ 	 * REVISIT should we validate that?  and insist there's
+ 	 * at least one non-NULL element in that list?
++	 *
++	 * ... allow removals, e.g. external strapping prevents use
++	 * of one transport; C code should be definitive about what
++	 * can be used when all goes well.
+ 	 */
+ 	if (allowed_transports != NULL || session) {
+ 		LOG_ERROR(&quot;Can't modify the set of allowed transports.&quot;);
+@@ -116,6 +120,8 @@ int allow_transports(struct command_context *ctx, const char **vector)
+ 				vector[0]);
+ 		return transport_select(ctx, vector [0]);
+ 	} else {
++		/* guard against user config errors */
++		LOG_WARNING(&quot;must select a transport.&quot;);
+ 		while (*vector)
+ 			LOG_DEBUG(&quot;allow transport '%s'&quot;, *vector++);
+ 		return ERROR_OK;
+@@ -304,13 +310,14 @@ COMMAND_HANDLER(handle_transport_select)
+ 	/* Is this transport supported by our debug adapter?
+ 	 * Example, &quot;JTAG-only&quot; means SWD is not supported.
+ 	 *
+-	 * NOTE:  requires adapter to have been set up, including
+-	 * declaring transport via C code or Tcl script.
++	 * NOTE:  requires adapter to have been set up, with
++	 * transports declared via C.
+ 	 */
+ 	if (!allowed_transports) {
+ 		LOG_ERROR(&quot;Debug adapter doesn't support any transports?&quot;);
+ 		return ERROR_FAIL;
+ 	}
++
+ 	for (unsigned i = 0; allowed_transports[i]; i++) {
+ 
+ 		if (strcmp(allowed_transports[i], CMD_ARGV[0]) == 0)
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/adapter.c        |   24 ++++++++++++++++++++++--
+ src/jtag/drivers/dummy.c  |    1 +
+ src/jtag/drivers/ft2232.c |   13 ++-----------
+ src/jtag/interface.h      |    5 +++++
+ src/jtag/transport.c      |   11 +++++++++--
+ 5 files changed, 39 insertions(+), 15 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002317.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-402-gac5ad4a
+</A></li>
+	<LI>Next message: <A HREF="002319.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-404-g1c79432
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2318">[ date ]</a>
+              <a href="thread.html#2318">[ thread ]</a>
+              <a href="subject.html#2318">[ subject ]</a>
+              <a href="author.html#2318">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

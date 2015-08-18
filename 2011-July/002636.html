@@ -1,0 +1,595 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-948-gd4cd6f0
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-948-gd4cd6f0&In-Reply-To=%3Cmailman.121.1331736155.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002635.html">
+   <LINK REL="Next"  HREF="002637.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-948-gd4cd6f0</H1>
+    <B>Spencer Oliver</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-948-gd4cd6f0&In-Reply-To=%3Cmailman.121.1331736155.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-948-gd4cd6f0">ntfreak at users.sourceforge.net
+       </A><BR>
+    <I>Mon Jul  4 12:40:14 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002635.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-946-gbad3ee8
+</A></li>
+        <LI>Next message: <A HREF="002637.html">[openocd-svn] Main OpenOCD repository annotated tag, v0.5.0-rc1,	created. v0.5.0-rc1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2636">[ date ]</a>
+              <a href="thread.html#2636">[ thread ]</a>
+              <a href="subject.html#2636">[ subject ]</a>
+              <a href="author.html#2636">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  d4cd6f032015552f00bf4b5a90f25f5f958e9d9e (commit)
+       via  89fa8ce2d8c58707f3dfda397138f8ee336e1a47 (commit)
+      from  bad3ee87ac170150a9a8a72c731aa631a1ad8cf5 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit d4cd6f032015552f00bf4b5a90f25f5f958e9d9e
+Author: Peter Horn &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">peter.horn at bluewin.ch</A>&gt;
+Date:   Mon Jul 4 11:25:26 2011 +0100
+
+    cortex_m3: add auto maskisr
+    
+    This patch extends the cortex_m3 maskisr command by a new option 'auto'.
+    The 'auto' option handles interrupts during stepping in a way they are
+    processed but don't disturb the program flow during debugging.
+    
+    Before one had to choose to either enable or disable interrupts. The former
+    steps into interrupt handlers when they trigger. This disturbs the flow during
+    debugging, making it hard to follow some piece of code when interrupts occur
+    often.
+    
+    When interrupts are disabled, the flow isn't disturbed but code relying on
+    interrupt handlers to be processed will stop working. For example a delay
+    function counting the number of timer interrupts will never complete, RTOS
+    task switching will not occur and output I/O queues of interrupt driven
+    I/O will stall or overflow.
+    
+    Using the 'maskisr' command also typically requires gdb hooks to be supplied
+    by the user to switch interrupts off during the step and to enable them again
+    afterward.
+    
+    The new 'auto' option of the 'maskisr' command solves the above problems. When
+    set, the step command allows pending interrupt handlers to be executed before
+    the step, then the step is taken with interrupts disabled and finally interrupts
+    are enabled again. This way interrupt processing stays in the background without
+    disturbing the flow of debugging. No gdb hooks are required. The 'auto'
+    option is the default, since it's believed that handling interrupts in this
+    way is suitable for most users.
+    
+    The principle used for interrupt handling could probably be used for other
+    targets too.
+    
+    Signed-off-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ntfreak at users.sourceforge.net</A>&gt;
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index 892661f..fd92d51 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -6720,8 +6720,21 @@ If @var{value} is defined, first assigns that.
+ @subsection Cortex-M3 specific commands
+ @cindex Cortex-M3
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffn</A> Command {cortex_m3 maskisr} (@option{on}|@option{off})
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {cortex_m3 maskisr} (@option{auto}|@option{on}|@option{off})
+ Control masking (disabling) interrupts during target step/resume.
++
++The @option{auto} option handles interrupts during stepping a way they get
++served but don't disturb the program flow. The step command first allows
++pending interrupt handlers to execute, then disables interrupts and steps over
++the next instruction where the core was halted. After the step interrupts
++are enabled again. If the interrupt handlers don't complete within 500ms,
++the step command leaves with the core running.
++
++Note that a free breakpoint is required for the @option{auto} option. If no
++breakpoint is available at the time of the step, then the step is taken
++with interrupts enabled, i.e. the same way the @option{off} option does.
++
++Default is @option{auto}.
+ @end deffn
+ 
+ @deffn Command {cortex_m3 vector_catch} [@option{all}|@option{none}|list]
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index 9c3d2d9..98a775c 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -39,6 +39,7 @@
+ #include &quot;register.h&quot;
+ #include &quot;arm_opcodes.h&quot;
+ #include &quot;arm_semihosting.h&quot;
++#include &lt;helper/time_support.h&gt;
+ 
+ /* NOTE:  most of this should work fine for the Cortex-M1 and
+  * Cortex-M0 cores too, although they're ARMv6-M not ARMv7-M.
+@@ -858,6 +859,8 @@ static int cortex_m3_step(struct target *target, int current,
+ 	struct breakpoint *breakpoint = NULL;
+ 	struct reg *pc = armv7m-&gt;arm.pc;
+ 	bool bkpt_inst_found = false;
++	int retval;
++	bool isr_timed_out = false;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -891,11 +894,79 @@ static int cortex_m3_step(struct target *target, int current,
+ 	 * instruction - as such simulate a step */
+ 	if (bkpt_inst_found == false)
+ 	{
+-		/* set step and clear halt */
+-		cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
++		/* Automatic ISR masking mode off: Just step over the next instruction */
++		if ((cortex_m3-&gt;isrmasking_mode != CORTEX_M3_ISRMASK_AUTO))
++		{
++			cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
++		}
++		else
++		{
++			/* Process interrupts during stepping in a way they don't interfere
++			 * debugging.
++			 *
++			 * Principle:
++			 *
++			 * Set a temporary break point at the current pc and let the core run
++			 * with interrupts enabled. Pending interrupts get served and we run
++			 * into the breakpoint again afterwards. Then we step over the next
++			 * instruction with interrupts disabled.
++			 *
++			 * If the pending interrupts don't complete within time, we leave the
++			 * core running. This may happen if the interrupts trigger faster
++			 * than the core can process them or the handler doesn't return.
++			 *
++			 * If no more breakpoints are available we simply do a step with
++			 * interrupts enabled.
++			 *
++			 */
++
++			/* Set a temporary break point */
++			retval = breakpoint_add(target, pc_value , 2, BKPT_TYPE_BY_ADDR(pc_value));
++			bool tmp_bp_set = (retval == ERROR_OK);
++
++			/* No more breakpoints left, just do a step */
++			if (!tmp_bp_set)
++			{
++				cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
++			}
++			else
++			{
++				/* Start the core */
++				LOG_DEBUG(&quot;Starting core to serve pending interrupts&quot;);
++				int64_t t_start = timeval_ms();
++				cortex_m3_write_debug_halt_mask(target, 0, C_HALT | C_STEP);
++
++				/* Wait for pending handlers to complete or timeout */
++				do {
++					retval = mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
++					if (retval != ERROR_OK)
++					{
++						target-&gt;state = TARGET_UNKNOWN;
++						return retval;
++					}
++					isr_timed_out = ((timeval_ms() - t_start) &gt; 500);
++				} while (!((cortex_m3-&gt;dcb_dhcsr &amp; S_HALT) || isr_timed_out));
++
++				/* Remove the temporary breakpoint */
++				breakpoint_remove(target, pc_value);
++
++				if (isr_timed_out)
++				{
++					LOG_DEBUG(&quot;Interrupt handlers didn't complete within time, &quot;
++							&quot;leaving target running&quot;);
++				}
++				else
++				{
++					/* Step over next instruction with interrupts disabled */
++					cortex_m3_write_debug_halt_mask(target, C_HALT | C_MASKINTS, 0);
++					cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
++					/* Re-enable interrupts */
++					cortex_m3_write_debug_halt_mask(target, C_HALT, C_MASKINTS);
++				}
++			}
++		}
+ 	}
+ 
+-	int retval;
+ 	retval = mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -906,6 +977,13 @@ static int cortex_m3_step(struct target *target, int current,
+ 	if (breakpoint)
+ 		cortex_m3_set_breakpoint(target, breakpoint);
+ 
++	if (isr_timed_out) {
++		/* Leave the core running. The user has to stop execution manually. */
++		target-&gt;debug_reason = DBG_REASON_NOTHALTED;
++		target-&gt;state = TARGET_RUNNING;
++		return ERROR_OK;
++	}
++
+ 	LOG_DEBUG(&quot;target stepped dcb_dhcsr = 0x%&quot; PRIx32
+ 			&quot; nvic_icsr = 0x%&quot; PRIx32,
+ 			cortex_m3-&gt;dcb_dhcsr, cortex_m3-&gt;nvic_icsr);
+@@ -2104,6 +2182,15 @@ COMMAND_HANDLER(handle_cortex_m3_mask_interrupts_command)
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+ 	int retval;
+ 
++	static const Jim_Nvp nvp_maskisr_modes[] = {
++		{ .name = &quot;auto&quot;, .value = CORTEX_M3_ISRMASK_AUTO },
++		{ .name = &quot;off&quot; , .value = CORTEX_M3_ISRMASK_OFF },
++		{ .name = &quot;on&quot;  , .value = CORTEX_M3_ISRMASK_ON },
++		{ .name = NULL  , .value = -1 },
++	};
++	const Jim_Nvp *n;
++
++
+ 	retval = cortex_m3_verify_pointer(CMD_CTX, cortex_m3);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -2116,15 +2203,26 @@ COMMAND_HANDLER(handle_cortex_m3_mask_interrupts_command)
+ 
+ 	if (CMD_ARGC &gt; 0)
+ 	{
+-		bool enable;
+-		COMMAND_PARSE_ON_OFF(CMD_ARGV[0], enable);
+-		uint32_t mask_on = C_HALT | (enable ? C_MASKINTS : 0);
+-		uint32_t mask_off = enable ? 0 : C_MASKINTS;
+-		cortex_m3_write_debug_halt_mask(target, mask_on, mask_off);
++		n = Jim_Nvp_name2value_simple(nvp_maskisr_modes, CMD_ARGV[0]);
++		if (n-&gt;name == NULL)
++		{
++			return ERROR_COMMAND_SYNTAX_ERROR;
++		}
++		cortex_m3-&gt;isrmasking_mode = n-&gt;value;
++
++
++		if(cortex_m3-&gt;isrmasking_mode == CORTEX_M3_ISRMASK_ON)
++		{
++			cortex_m3_write_debug_halt_mask(target, C_HALT | C_MASKINTS, 0);
++		}
++		else
++		{
++			cortex_m3_write_debug_halt_mask(target, C_HALT, C_MASKINTS);
++		}
+ 	}
+ 
+-	command_print(CMD_CTX, &quot;cortex_m3 interrupt mask %s&quot;,
+-			(cortex_m3-&gt;dcb_dhcsr &amp; C_MASKINTS) ? &quot;on&quot; : &quot;off&quot;);
++	n = Jim_Nvp_value2name_simple(nvp_maskisr_modes, cortex_m3-&gt;isrmasking_mode);
++	command_print(CMD_CTX, &quot;cortex_m3 interrupt mask %s&quot;, n-&gt;name);
+ 
+ 	return ERROR_OK;
+ }
+@@ -2174,7 +2272,7 @@ static const struct command_registration cortex_m3_exec_command_handlers[] = {
+ 		.handler = handle_cortex_m3_mask_interrupts_command,
+ 		.mode = COMMAND_EXEC,
+ 		.help = &quot;mask cortex_m3 interrupts&quot;,
+-		.usage = &quot;['on'|'off']&quot;,
++		.usage = &quot;['auto'|'on'|'off']&quot;,
+ 	},
+ 	{
+ 		.name = &quot;vector_catch&quot;,
+diff --git a/src/target/cortex_m3.h b/src/target/cortex_m3.h
+index e1f8ef8..e16aa89 100644
+--- a/src/target/cortex_m3.h
++++ b/src/target/cortex_m3.h
+@@ -140,6 +140,13 @@ enum cortex_m3_soft_reset_config
+ 	CORTEX_M3_RESET_VECTRESET,
+ };
+ 
++enum cortex_m3_isrmasking_mode
++{
++	CORTEX_M3_ISRMASK_AUTO,
++	CORTEX_M3_ISRMASK_OFF,
++	CORTEX_M3_ISRMASK_ON,
++};
++
+ struct cortex_m3_common
+ {
+ 	int common_magic;
+@@ -166,6 +173,8 @@ struct cortex_m3_common
+ 
+ 	enum cortex_m3_soft_reset_config soft_reset_config;
+ 
++	enum cortex_m3_isrmasking_mode isrmasking_mode;
++
+ 	struct armv7m_common armv7m;
+ };
+ 
+
+commit 89fa8ce2d8c58707f3dfda397138f8ee336e1a47
+Author: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ntfreak at users.sourceforge.net</A>&gt;
+Date:   Mon Jul 4 11:19:19 2011 +0100
+
+    Revert &quot;cortex_m3: add auto maskisr&quot;
+    
+    This reverts commit ff640f197a9a343b2f3ed10e9174e35282334e8c.
+    
+    Original patch reverted as Author's name was incorrectly set.
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index fd92d51..892661f 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -6720,21 +6720,8 @@ If @var{value} is defined, first assigns that.
+ @subsection Cortex-M3 specific commands
+ @cindex Cortex-M3
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffn</A> Command {cortex_m3 maskisr} (@option{auto}|@option{on}|@option{off})
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {cortex_m3 maskisr} (@option{on}|@option{off})
+ Control masking (disabling) interrupts during target step/resume.
+-
+-The @option{auto} option handles interrupts during stepping a way they get
+-served but don't disturb the program flow. The step command first allows
+-pending interrupt handlers to execute, then disables interrupts and steps over
+-the next instruction where the core was halted. After the step interrupts
+-are enabled again. If the interrupt handlers don't complete within 500ms,
+-the step command leaves with the core running.
+-
+-Note that a free breakpoint is required for the @option{auto} option. If no
+-breakpoint is available at the time of the step, then the step is taken
+-with interrupts enabled, i.e. the same way the @option{off} option does.
+-
+-Default is @option{auto}.
+ @end deffn
+ 
+ @deffn Command {cortex_m3 vector_catch} [@option{all}|@option{none}|list]
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index 98a775c..9c3d2d9 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -39,7 +39,6 @@
+ #include &quot;register.h&quot;
+ #include &quot;arm_opcodes.h&quot;
+ #include &quot;arm_semihosting.h&quot;
+-#include &lt;helper/time_support.h&gt;
+ 
+ /* NOTE:  most of this should work fine for the Cortex-M1 and
+  * Cortex-M0 cores too, although they're ARMv6-M not ARMv7-M.
+@@ -859,8 +858,6 @@ static int cortex_m3_step(struct target *target, int current,
+ 	struct breakpoint *breakpoint = NULL;
+ 	struct reg *pc = armv7m-&gt;arm.pc;
+ 	bool bkpt_inst_found = false;
+-	int retval;
+-	bool isr_timed_out = false;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -894,79 +891,11 @@ static int cortex_m3_step(struct target *target, int current,
+ 	 * instruction - as such simulate a step */
+ 	if (bkpt_inst_found == false)
+ 	{
+-		/* Automatic ISR masking mode off: Just step over the next instruction */
+-		if ((cortex_m3-&gt;isrmasking_mode != CORTEX_M3_ISRMASK_AUTO))
+-		{
+-			cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
+-		}
+-		else
+-		{
+-			/* Process interrupts during stepping in a way they don't interfere
+-			 * debugging.
+-			 *
+-			 * Principle:
+-			 *
+-			 * Set a temporary break point at the current pc and let the core run
+-			 * with interrupts enabled. Pending interrupts get served and we run
+-			 * into the breakpoint again afterwards. Then we step over the next
+-			 * instruction with interrupts disabled.
+-			 *
+-			 * If the pending interrupts don't complete within time, we leave the
+-			 * core running. This may happen if the interrupts trigger faster
+-			 * than the core can process them or the handler doesn't return.
+-			 *
+-			 * If no more breakpoints are available we simply do a step with
+-			 * interrupts enabled.
+-			 *
+-			 */
+-
+-			/* Set a temporary break point */
+-			retval = breakpoint_add(target, pc_value , 2, BKPT_TYPE_BY_ADDR(pc_value));
+-			bool tmp_bp_set = (retval == ERROR_OK);
+-
+-			/* No more breakpoints left, just do a step */
+-			if (!tmp_bp_set)
+-			{
+-				cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
+-			}
+-			else
+-			{
+-				/* Start the core */
+-				LOG_DEBUG(&quot;Starting core to serve pending interrupts&quot;);
+-				int64_t t_start = timeval_ms();
+-				cortex_m3_write_debug_halt_mask(target, 0, C_HALT | C_STEP);
+-
+-				/* Wait for pending handlers to complete or timeout */
+-				do {
+-					retval = mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
+-					if (retval != ERROR_OK)
+-					{
+-						target-&gt;state = TARGET_UNKNOWN;
+-						return retval;
+-					}
+-					isr_timed_out = ((timeval_ms() - t_start) &gt; 500);
+-				} while (!((cortex_m3-&gt;dcb_dhcsr &amp; S_HALT) || isr_timed_out));
+-
+-				/* Remove the temporary breakpoint */
+-				breakpoint_remove(target, pc_value);
+-
+-				if (isr_timed_out)
+-				{
+-					LOG_DEBUG(&quot;Interrupt handlers didn't complete within time, &quot;
+-							&quot;leaving target running&quot;);
+-				}
+-				else
+-				{
+-					/* Step over next instruction with interrupts disabled */
+-					cortex_m3_write_debug_halt_mask(target, C_HALT | C_MASKINTS, 0);
+-					cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
+-					/* Re-enable interrupts */
+-					cortex_m3_write_debug_halt_mask(target, C_HALT, C_MASKINTS);
+-				}
+-			}
+-		}
++		/* set step and clear halt */
++		cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
+ 	}
+ 
++	int retval;
+ 	retval = mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -977,13 +906,6 @@ static int cortex_m3_step(struct target *target, int current,
+ 	if (breakpoint)
+ 		cortex_m3_set_breakpoint(target, breakpoint);
+ 
+-	if (isr_timed_out) {
+-		/* Leave the core running. The user has to stop execution manually. */
+-		target-&gt;debug_reason = DBG_REASON_NOTHALTED;
+-		target-&gt;state = TARGET_RUNNING;
+-		return ERROR_OK;
+-	}
+-
+ 	LOG_DEBUG(&quot;target stepped dcb_dhcsr = 0x%&quot; PRIx32
+ 			&quot; nvic_icsr = 0x%&quot; PRIx32,
+ 			cortex_m3-&gt;dcb_dhcsr, cortex_m3-&gt;nvic_icsr);
+@@ -2182,15 +2104,6 @@ COMMAND_HANDLER(handle_cortex_m3_mask_interrupts_command)
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+ 	int retval;
+ 
+-	static const Jim_Nvp nvp_maskisr_modes[] = {
+-		{ .name = &quot;auto&quot;, .value = CORTEX_M3_ISRMASK_AUTO },
+-		{ .name = &quot;off&quot; , .value = CORTEX_M3_ISRMASK_OFF },
+-		{ .name = &quot;on&quot;  , .value = CORTEX_M3_ISRMASK_ON },
+-		{ .name = NULL  , .value = -1 },
+-	};
+-	const Jim_Nvp *n;
+-
+-
+ 	retval = cortex_m3_verify_pointer(CMD_CTX, cortex_m3);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -2203,26 +2116,15 @@ COMMAND_HANDLER(handle_cortex_m3_mask_interrupts_command)
+ 
+ 	if (CMD_ARGC &gt; 0)
+ 	{
+-		n = Jim_Nvp_name2value_simple(nvp_maskisr_modes, CMD_ARGV[0]);
+-		if (n-&gt;name == NULL)
+-		{
+-			return ERROR_COMMAND_SYNTAX_ERROR;
+-		}
+-		cortex_m3-&gt;isrmasking_mode = n-&gt;value;
+-
+-
+-		if(cortex_m3-&gt;isrmasking_mode == CORTEX_M3_ISRMASK_ON)
+-		{
+-			cortex_m3_write_debug_halt_mask(target, C_HALT | C_MASKINTS, 0);
+-		}
+-		else
+-		{
+-			cortex_m3_write_debug_halt_mask(target, C_HALT, C_MASKINTS);
+-		}
++		bool enable;
++		COMMAND_PARSE_ON_OFF(CMD_ARGV[0], enable);
++		uint32_t mask_on = C_HALT | (enable ? C_MASKINTS : 0);
++		uint32_t mask_off = enable ? 0 : C_MASKINTS;
++		cortex_m3_write_debug_halt_mask(target, mask_on, mask_off);
+ 	}
+ 
+-	n = Jim_Nvp_value2name_simple(nvp_maskisr_modes, cortex_m3-&gt;isrmasking_mode);
+-	command_print(CMD_CTX, &quot;cortex_m3 interrupt mask %s&quot;, n-&gt;name);
++	command_print(CMD_CTX, &quot;cortex_m3 interrupt mask %s&quot;,
++			(cortex_m3-&gt;dcb_dhcsr &amp; C_MASKINTS) ? &quot;on&quot; : &quot;off&quot;);
+ 
+ 	return ERROR_OK;
+ }
+@@ -2272,7 +2174,7 @@ static const struct command_registration cortex_m3_exec_command_handlers[] = {
+ 		.handler = handle_cortex_m3_mask_interrupts_command,
+ 		.mode = COMMAND_EXEC,
+ 		.help = &quot;mask cortex_m3 interrupts&quot;,
+-		.usage = &quot;['auto'|'on'|'off']&quot;,
++		.usage = &quot;['on'|'off']&quot;,
+ 	},
+ 	{
+ 		.name = &quot;vector_catch&quot;,
+diff --git a/src/target/cortex_m3.h b/src/target/cortex_m3.h
+index e16aa89..e1f8ef8 100644
+--- a/src/target/cortex_m3.h
++++ b/src/target/cortex_m3.h
+@@ -140,13 +140,6 @@ enum cortex_m3_soft_reset_config
+ 	CORTEX_M3_RESET_VECTRESET,
+ };
+ 
+-enum cortex_m3_isrmasking_mode
+-{
+-	CORTEX_M3_ISRMASK_AUTO,
+-	CORTEX_M3_ISRMASK_OFF,
+-	CORTEX_M3_ISRMASK_ON,
+-};
+-
+ struct cortex_m3_common
+ {
+ 	int common_magic;
+@@ -173,8 +166,6 @@ struct cortex_m3_common
+ 
+ 	enum cortex_m3_soft_reset_config soft_reset_config;
+ 
+-	enum cortex_m3_isrmasking_mode isrmasking_mode;
+-
+ 	struct armv7m_common armv7m;
+ };
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002635.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-946-gbad3ee8
+</A></li>
+	<LI>Next message: <A HREF="002637.html">[openocd-svn] Main OpenOCD repository annotated tag, v0.5.0-rc1,	created. v0.5.0-rc1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2636">[ date ]</a>
+              <a href="thread.html#2636">[ thread ]</a>
+              <a href="subject.html#2636">[ subject ]</a>
+              <a href="author.html#2636">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

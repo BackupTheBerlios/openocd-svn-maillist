@@ -1,0 +1,698 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-82-gbfe634a
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-82-gbfe634a&In-Reply-To=%3Cmailman.174.1331736157.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002688.html">
+   <LINK REL="Next"  HREF="002690.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-82-gbfe634a</H1>
+    <B>&#195;&#152;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-82-gbfe634a&In-Reply-To=%3Cmailman.174.1331736157.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-82-gbfe634a">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Sat Sep 17 14:24:00 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002688.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-81-g8d40b03
+</A></li>
+        <LI>Next message: <A HREF="002690.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-83-g508bc7c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2689">[ date ]</a>
+              <a href="thread.html#2689">[ thread ]</a>
+              <a href="subject.html#2689">[ subject ]</a>
+              <a href="author.html#2689">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  bfe634aa914c4ac528a1168907069de8ee4dd345 (commit)
+      from  8d40b03ba3c127bc908388ea06f069a8f6eaff37 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit bfe634aa914c4ac528a1168907069de8ee4dd345
+Author: Mathias K &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">kesmtp at freenet.de</A>&gt;
+Date:   Sat Sep 17 10:09:50 2011 +0200
+
+    kinetis cpu flash driver
+    
+    Initial release of the freescale kinetis cpu flash driver.
+
+diff --git a/src/flash/nor/Makefile.am b/src/flash/nor/Makefile.am
+index d7d66b0..a966826 100644
+--- a/src/flash/nor/Makefile.am
++++ b/src/flash/nor/Makefile.am
+@@ -32,7 +32,8 @@ NOR_DRIVERS = \
+ 	tms470.c \
+ 	virtual.c \
+ 	fm3.c \
+-	dsp5680xx_flash.c
++	dsp5680xx_flash.c \
++	kinetis.c
+ 
+ noinst_HEADERS = \
+ 	core.h \
+diff --git a/src/flash/nor/drivers.c b/src/flash/nor/drivers.c
+index 5d6e248..a437d84 100644
+--- a/src/flash/nor/drivers.c
++++ b/src/flash/nor/drivers.c
+@@ -45,6 +45,7 @@ extern struct flash_driver stmsmi_flash;
+ extern struct flash_driver em357_flash;
+ extern struct flash_driver dsp5680xx_flash;
+ extern struct flash_driver fm3_flash;
++extern struct flash_driver kinetis_flash;
+ 
+ /**
+  * The list of built-in flash drivers.
+@@ -75,6 +76,7 @@ static struct flash_driver *flash_drivers[] = {
+ 	&amp;em357_flash,
+ 	&amp;fm3_flash,
+ 	&amp;dsp5680xx_flash,
++	&amp;kinetis_flash,
+ 	NULL,
+ };
+ 
+diff --git a/src/flash/nor/kinetis.c b/src/flash/nor/kinetis.c
+new file mode 100644
+index 0000000..2613522
+--- /dev/null
++++ b/src/flash/nor/kinetis.c
+@@ -0,0 +1,562 @@
++/***************************************************************************
++ *   Copyright (C) 2011 by Mathias Kuester                                  *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">kesmtp at freenet.de</A>                                                     *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;imp.h&quot;
++#include &quot;helper/binarybuffer.h&quot;
++
++static int kinetis_get_master_bank(struct flash_bank *bank,
++				   struct flash_bank **master_bank)
++{
++	*master_bank = get_flash_bank_by_name_noprobe(bank-&gt;name);
++	if (*master_bank == NULL) {
++		LOG_ERROR(&quot;master flash bank '%s' does not exist&quot;,
++			  (char *)bank-&gt;driver_priv);
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	return ERROR_OK;
++}
++
++static int kinetis_update_bank_info(struct flash_bank *bank)
++{
++	int result;
++	struct flash_bank *master_bank;
++
++	result = kinetis_get_master_bank(bank, &amp;master_bank);
++
++	if (result != ERROR_OK) {
++		return result;
++	}
++
++	/* update the info we do not have */
++	bank-&gt;size = master_bank-&gt;size;
++	bank-&gt;chip_width = master_bank-&gt;chip_width;
++	bank-&gt;bus_width = master_bank-&gt;bus_width;
++	bank-&gt;num_sectors = master_bank-&gt;num_sectors;
++	bank-&gt;sectors = master_bank-&gt;sectors;
++
++	return ERROR_OK;
++}
++
++FLASH_BANK_COMMAND_HANDLER(kinetis_flash_bank_command)
++{
++	if (CMD_ARGC &lt; 6) {
++		LOG_ERROR(&quot;incomplete flash_bank kinetis configuration %d&quot;,
++			  CMD_ARGC);
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	LOG_INFO(&quot;add flash_bank kinetis %s&quot;, bank-&gt;name);
++
++	return ERROR_OK;
++}
++
++static int kinetis_protect(struct flash_bank *bank, int set, int first,
++			   int last)
++{
++	int result;
++	struct flash_bank *master_bank;
++
++	result = kinetis_get_master_bank(bank, &amp;master_bank);
++
++	if (result != ERROR_OK) {
++		return result;
++	}
++
++	LOG_WARNING(&quot;kinetis_protect not supported yet&quot;);
++
++	if (bank-&gt;target-&gt;state != TARGET_HALTED) {
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	return ERROR_OK;
++}
++
++static int kinetis_protect_check(struct flash_bank *bank)
++{
++	int result;
++	struct flash_bank *master_bank;
++	uint8_t buffer[4];
++	uint32_t fprot, psize, psec;
++	int i, b;
++
++	if (bank-&gt;target-&gt;state != TARGET_HALTED) {
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	result = kinetis_get_master_bank(bank, &amp;master_bank);
++
++	if (result != ERROR_OK) {
++		return result;
++	}
++
++	/* read protection register FTFL_FPROT */
++	result = target_read_memory(bank-&gt;target, 0x40020010, 1, 4, buffer);
++
++	if (result != ERROR_OK) {
++		return result;
++	}
++
++	fprot = target_buffer_get_u32(bank-&gt;target, buffer);
++
++	/* every bit protect 1/32 of the full flash */
++	psize = bank-&gt;size / 32;
++	psec = 0;
++	b = 0;
++
++	for (i = 0; i &lt; bank-&gt;num_sectors; i++) {
++		if ((fprot &gt;&gt; b) &amp; 1)
++			bank-&gt;sectors[i].is_protected = 0;
++		else
++			bank-&gt;sectors[i].is_protected = 1;
++
++		psec += bank-&gt;sectors[i].size;
++
++		if (psec &gt;= psize) {
++			psec = 0;
++			b++;
++		}
++	}
++
++	return ERROR_OK;
++}
++
++static int kinetis_ftfl_command(struct flash_bank *bank, uint32_t w0,
++				uint32_t w1, uint32_t w2)
++{
++	uint8_t buffer[12];
++	int result, i;
++
++	/* wait for done */
++	for (i = 0; i &lt; 50; i++) {
++		result =
++		    target_read_memory(bank-&gt;target, 0x40020000, 1, 1, buffer);
++
++		if (result != ERROR_OK) {
++			return result;
++		}
++
++		if (buffer[0] &amp; 0x80)
++			break;
++
++		buffer[0] = 0x00;
++	}
++
++	if (buffer[0] != 0x80) {
++		/* reset error flags */
++		buffer[0] = 0x30;
++		result =
++		    target_write_memory(bank-&gt;target, 0x40020000, 1, 1, buffer);
++		if (result != ERROR_OK) {
++			return result;
++		}
++	}
++
++	target_buffer_set_u32(bank-&gt;target, buffer, w0);
++	target_buffer_set_u32(bank-&gt;target, buffer + 4, w1);
++	target_buffer_set_u32(bank-&gt;target, buffer + 8, w2);
++
++	result = target_write_memory(bank-&gt;target, 0x40020004, 4, 3, buffer);
++
++	if (result != ERROR_OK) {
++		return result;
++	}
++
++	/* start command */
++	buffer[0] = 0x80;
++	result = target_write_memory(bank-&gt;target, 0x40020000, 1, 1, buffer);
++	if (result != ERROR_OK) {
++		return result;
++	}
++
++	/* wait for done */
++	for (i = 0; i &lt; 50; i++) {
++		result =
++		    target_read_memory(bank-&gt;target, 0x40020000, 1, 1, buffer);
++
++		if (result != ERROR_OK) {
++			return result;
++		}
++
++		if (buffer[0] &amp; 0x80)
++			break;
++
++		buffer[0] = 0x00;
++	}
++
++	if (buffer[0] != 0x80) {
++		LOG_ERROR
++		    (&quot;ftfl command failed FSTAT: %02X W0: %08X W1: %08X W2: %08X&quot;,
++		     buffer[0], w0, w1, w2);
++
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	return ERROR_OK;
++}
++
++static int kinetis_erase(struct flash_bank *bank, int first, int last)
++{
++	struct flash_bank *master_bank;
++	int result, i;
++	uint32_t w0 = 0, w1 = 0, w2 = 0;
++
++	if (bank-&gt;target-&gt;state != TARGET_HALTED) {
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	result = kinetis_get_master_bank(bank, &amp;master_bank);
++
++	if (result != ERROR_OK) {
++		return result;
++	}
++
++	if ((first &gt; bank-&gt;num_sectors) || (last &gt; bank-&gt;num_sectors)) {
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	for (i = first; i &lt;= last; i++) {
++		/* set command and sector address */
++		w0 = (0x09 &lt;&lt; 24) | bank-&gt;sectors[i].offset;
++
++		result = kinetis_ftfl_command(bank, w0, w1, w2);
++
++		if (result != ERROR_OK) {
++			LOG_WARNING(&quot;erase sector %d failed&quot;, i);
++			return ERROR_FLASH_OPERATION_FAILED;
++		}
++
++		bank-&gt;sectors[i].is_erased = 1;
++	}
++
++	if (first == 0) {
++		LOG_WARNING
++		    (&quot;flash configuration field erased, please reset the device&quot;);
++	}
++
++	return ERROR_OK;
++}
++
++static int kinetis_write(struct flash_bank *bank, uint8_t * buffer,
++			 uint32_t offset, uint32_t count)
++{
++	struct flash_bank *master_bank;
++	unsigned int i, result, fallback = 0;
++	uint8_t buf[8];
++	uint32_t wc, w0 = 0, w1 = 0, w2 = 0;
++
++	if (bank-&gt;target-&gt;state != TARGET_HALTED) {
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	result = kinetis_get_master_bank(bank, &amp;master_bank);
++
++	if (result != ERROR_OK) {
++		return result;
++	}
++
++	/* make flex ram available */
++	w0 = (0x81 &lt;&lt; 24) | 0x00ff0000;
++
++	result = kinetis_ftfl_command(bank, w0, w1, w2);
++
++	if (result != ERROR_OK) {
++		return ERROR_FLASH_OPERATION_FAILED;
++	}
++
++	/* check if ram ready */
++	result = target_read_memory(bank-&gt;target, 0x40020001, 1, 1, buf);
++
++	if (result != ERROR_OK) {
++		return result;
++	}
++
++	if (!(buf[0] &amp; (1 &lt;&lt; 1))) {
++		/* fallback to longword write */
++		fallback = 1;
++
++		LOG_WARNING
++		    (&quot;ram not ready, fallback to slow longword write (FCNFG: %02X)&quot;,
++		     buf[0]);
++	}
++
++	/* program section command */
++	if (fallback == 0) {
++		for (i = 0; i &lt; count; i += (2 * 1024)) {
++			wc = 512;
++
++			if ((count - i) &lt; (2 * 1024)) {
++				wc = count - i;
++				wc /= 4;
++			}
++
++			LOG_DEBUG(&quot;write section @ %08X with length %d&quot;,
++				  offset + i, wc * 4);
++
++			/* write data to flexram */
++			result =
++			    target_write_memory(bank-&gt;target, 0x14000000, 4, wc,
++						buffer + i);
++
++			if (result != ERROR_OK) {
++				LOG_ERROR(&quot;target_write_memory failed&quot;);
++
++				return result;
++			}
++
++			/* execute section command */
++			w0 = (0x0b &lt;&lt; 24) | (offset + i);
++			w1 = (256 &lt;&lt; 16);
++
++			result = kinetis_ftfl_command(bank, w0, w1, w2);
++
++			if (result != ERROR_OK) {
++				return ERROR_FLASH_OPERATION_FAILED;
++			}
++		}
++	}
++	/* program longword command */
++	else {
++		for (i = 0; i &lt; count; i += 4) {
++			LOG_DEBUG(&quot;write longword @ %08X&quot;, offset + i);
++
++			w0 = (0x06 &lt;&lt; 24) | (offset + i);
++			w1 = buf_get_u32(buffer + offset + i, 0, 32);
++
++			result = kinetis_ftfl_command(bank, w0, w1, w2);
++
++			if (result != ERROR_OK) {
++				return ERROR_FLASH_OPERATION_FAILED;
++			}
++		}
++	}
++
++	return ERROR_OK;
++}
++
++static int kinetis_probe(struct flash_bank *bank)
++{
++	struct flash_bank *master_bank;
++	int result, i;
++	uint8_t buf[4];
++	uint32_t sim_sdid, sim_fcfg1, sim_fcfg2, offset = 0;
++	uint32_t nvm_size, pf_size, flash_size, ee_size;
++
++	if (bank-&gt;target-&gt;state != TARGET_HALTED) {
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	result = kinetis_get_master_bank(bank, &amp;master_bank);
++
++	if (result != ERROR_OK) {
++		return result;
++	}
++
++	result = target_read_memory(bank-&gt;target, 0x40048024, 1, 4, buf);
++	if (result != ERROR_OK) {
++		return result;
++	}
++	sim_sdid = target_buffer_get_u32(bank-&gt;target, buf);
++	result = target_read_memory(bank-&gt;target, 0x4004804c, 1, 4, buf);
++	if (result != ERROR_OK) {
++		return result;
++	}
++	sim_fcfg1 = target_buffer_get_u32(bank-&gt;target, buf);
++	result = target_read_memory(bank-&gt;target, 0x40048050, 1, 4, buf);
++	if (result != ERROR_OK) {
++		return result;
++	}
++	sim_fcfg2 = target_buffer_get_u32(bank-&gt;target, buf);
++
++	LOG_DEBUG(&quot;SDID: %08X FCFG1: %08X FCFG2: %08X&quot;, sim_sdid, sim_fcfg1,
++		  sim_fcfg2);
++
++	switch ((sim_fcfg1 &gt;&gt; 28) &amp; 0x0f) {
++	case 0x07:
++		nvm_size = 128 * 1024;
++		break;
++	case 0x09:
++	case 0x0f:
++		nvm_size = 256 * 1024;
++		break;
++	default:
++		nvm_size = 0;
++		break;
++	}
++
++	switch ((sim_fcfg1 &gt;&gt; 24) &amp; 0x0f) {
++	case 0x07:
++		pf_size = 128 * 1024;
++		break;
++	case 0x09:
++		pf_size = 256 * 1024;
++		break;
++	case 0x0b:
++	case 0x0f:
++		pf_size = 512 * 1024;
++		break;
++	default:
++		pf_size = 0;
++		break;
++	}
++
++	/* pf_size is the total size */
++	flash_size = pf_size - nvm_size;
++
++	switch ((sim_fcfg1 &gt;&gt; 16) &amp; 0x0f) {
++	case 0x02:
++		ee_size = 4 * 1024;
++		break;
++	case 0x03:
++		ee_size = 2 * 1024;
++		break;
++	case 0x04:
++		ee_size = 1 * 1024;
++		break;
++	case 0x05:
++		ee_size = 512;
++		break;
++	case 0x06:
++		ee_size = 256;
++		break;
++	case 0x07:
++		ee_size = 128;
++		break;
++	case 0x08:
++		ee_size = 64;
++		break;
++	case 0x09:
++		ee_size = 32;
++		break;
++	default:
++		ee_size = 0;
++		break;
++	}
++
++	LOG_DEBUG(&quot;NVM: %d PF: %d EE: %d BL1: %d&quot;, nvm_size, pf_size, ee_size,
++		  (sim_fcfg2 &gt;&gt; 23) &amp; 1);
++
++	if (flash_size != bank-&gt;size) {
++		LOG_WARNING(&quot;flash size is different %d != %d&quot;, flash_size,
++			    bank-&gt;size);
++	}
++
++	bank-&gt;num_sectors = bank-&gt;size / (2 * 1024);
++	bank-&gt;sectors = malloc(sizeof(struct flash_sector) * bank-&gt;num_sectors);
++
++	for (i = 0; i &lt; bank-&gt;num_sectors; i++) {
++		bank-&gt;sectors[i].offset = offset;
++		bank-&gt;sectors[i].size = 2 * 1024;
++		offset += bank-&gt;sectors[i].size;
++		bank-&gt;sectors[i].is_erased = -1;
++		bank-&gt;sectors[i].is_protected = 1;
++	}
++
++	/* update the info we do not have */
++	return kinetis_update_bank_info(bank);
++}
++
++static int kinetis_auto_probe(struct flash_bank *bank)
++{
++	return kinetis_probe(bank);
++}
++
++static int kinetis_info(struct flash_bank *bank, char *buf, int buf_size)
++{
++	int result;
++	struct flash_bank *master_bank;
++
++	result = kinetis_get_master_bank(bank, &amp;master_bank);
++
++	if (result != ERROR_OK) {
++		return result;
++	}
++
++	snprintf(buf, buf_size,
++		 &quot;%s driver for flash bank %s at 0x%8.8&quot; PRIx32 &quot;&quot;,
++		 bank-&gt;driver-&gt;name, master_bank-&gt;name, master_bank-&gt;base);
++
++	return ERROR_OK;
++}
++
++static int kinetis_blank_check(struct flash_bank *bank)
++{
++	int result;
++	struct flash_bank *master_bank;
++
++	LOG_WARNING(&quot;kinetis_blank_check not supported yet&quot;);
++
++	if (bank-&gt;target-&gt;state != TARGET_HALTED) {
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	result = kinetis_get_master_bank(bank, &amp;master_bank);
++
++	if (result != ERROR_OK) {
++		return result;
++	}
++
++	return ERROR_OK;
++}
++
++static int kinetis_flash_read(struct flash_bank *bank,
++			      uint8_t * buffer, uint32_t offset, uint32_t count)
++{
++	int result;
++	struct flash_bank *master_bank;
++
++	LOG_WARNING(&quot;kinetis_flash_read not supported yet&quot;);
++
++	if (bank-&gt;target-&gt;state != TARGET_HALTED) {
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	result = kinetis_get_master_bank(bank, &amp;master_bank);
++
++	if (result != ERROR_OK) {
++		return result;
++	}
++
++	return ERROR_OK;
++}
++
++struct flash_driver kinetis_flash = {
++	.name = &quot;kinetis&quot;,
++	.flash_bank_command = kinetis_flash_bank_command,
++	.erase = kinetis_erase,
++	.protect = kinetis_protect,
++	.write = kinetis_write,
++	.read = kinetis_flash_read,
++	.probe = kinetis_probe,
++	.auto_probe = kinetis_auto_probe,
++	.erase_check = kinetis_blank_check,
++	.protect_check = kinetis_protect_check,
++	.info = kinetis_info,
++};
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/Makefile.am |    3 +-
+ src/flash/nor/drivers.c   |    2 +
+ src/flash/nor/kinetis.c   |  562 +++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 566 insertions(+), 1 deletions(-)
+ create mode 100644 src/flash/nor/kinetis.c
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002688.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-81-g8d40b03
+</A></li>
+	<LI>Next message: <A HREF="002690.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-83-g508bc7c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2689">[ date ]</a>
+              <a href="thread.html#2689">[ thread ]</a>
+              <a href="subject.html#2689">[ subject ]</a>
+              <a href="author.html#2689">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

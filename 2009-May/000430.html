@@ -1,0 +1,260 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1646 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1646%20-%20trunk/src/target&In-Reply-To=%3C200905071357.n47DvhJ7001680%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000429.html">
+   <LINK REL="Next"  HREF="000431.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1646 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1646%20-%20trunk/src/target&In-Reply-To=%3C200905071357.n47DvhJ7001680%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1646 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Thu May  7 15:57:43 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000429.html">[Openocd-svn] r1645 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="000431.html">[Openocd-svn] r1647 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#430">[ date ]</a>
+              <a href="thread.html#430">[ thread ]</a>
+              <a href="subject.html#430">[ subject ]</a>
+              <a href="author.html#430">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-05-07 15:57:43 +0200 (Thu, 07 May 2009)
+New Revision: 1646
+
+Modified:
+   trunk/src/target/etb.c
+Log:
+remove in_handler usage
+
+Modified: trunk/src/target/etb.c
+===================================================================
+--- trunk/src/target/etb.c	2009-05-07 13:54:41 UTC (rev 1645)
++++ trunk/src/target/etb.c	2009-05-07 13:57:43 UTC (rev 1646)
+@@ -70,13 +70,13 @@
+ 		field.num_bits = tap-&gt;ir_length;
+ 		field.out_value = calloc(CEIL(field.num_bits, 8), 1);
+ 		buf_set_u32(field.out_value, 0, field.num_bits, new_instr);
+-		
++
+ 		field.in_value = NULL;
+-		
+-		
++
++
+ 		field.in_handler = NULL;
+-		
+ 
++
+ 		jtag_add_ir_scan(1, &amp;field, TAP_INVALID);
+ 
+ 		free(field.out_value);
+@@ -95,13 +95,13 @@
+ 		field.num_bits = 5;
+ 		field.out_value = calloc(CEIL(field.num_bits, 8), 1);
+ 		buf_set_u32(field.out_value, 0, field.num_bits, new_scan_chain);
+-		
++
+ 		field.in_value = NULL;
+-		
+-		
++
++
+ 		field.in_handler = NULL;
+-		
+ 
++
+ 		/* select INTEST instruction */
+ 		etb_set_instr(etb, 0x2);
+ 		jtag_add_dr_scan(1, &amp;field, TAP_INVALID);
+@@ -186,38 +186,26 @@
+ 	fields[0].tap = etb-&gt;tap;
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = NULL;
+-	
+-	fields[0].in_value = NULL;
+-	
+-	
++	u8 tmp[4];
++	fields[0].in_value = tmp;
+ 	fields[0].in_handler = NULL;
+-	
+ 
+ 	fields[1].tap = etb-&gt;tap;
+ 	fields[1].num_bits = 7;
+ 	fields[1].out_value = malloc(1);
+ 	buf_set_u32(fields[1].out_value, 0, 7, 4);
+-	
+ 	fields[1].in_value = NULL;
+-	
+-	
+ 	fields[1].in_handler = NULL;
+-	
+ 
+ 	fields[2].tap = etb-&gt;tap;
+ 	fields[2].num_bits = 1;
+ 	fields[2].out_value = malloc(1);
+ 	buf_set_u32(fields[2].out_value, 0, 1, 0);
+-	
+ 	fields[2].in_value = NULL;
+-	
+-	
+ 	fields[2].in_handler = NULL;
+-	
+ 
+ 	jtag_add_dr_scan(3, fields, TAP_INVALID);
+ 
+-	fields[0].in_handler = buf_to_u32_handler; /* deprecated! invoke this from user code! */
+ 
+ 	for (i = 0; i &lt; num_frames; i++)
+ 	{
+@@ -230,8 +218,9 @@
+ 		else
+ 			buf_set_u32(fields[1].out_value, 0, 7, 0);
+ 
+-		fields[0].in_handler_priv = &amp;data[i];
+-		jtag_add_dr_scan(3, fields, TAP_INVALID);
++		jtag_add_dr_scan_now(3, fields, TAP_INVALID);
++
++		data[i]=buf_get_u32(tmp, 0, 32);
+ 	}
+ 
+ 	jtag_execute_queue();
+@@ -257,35 +246,35 @@
+ 	fields[0].tap = etb_reg-&gt;etb-&gt;tap;
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = reg-&gt;value;
+-	
++
+ 	fields[0].in_value = NULL;
+-	
+-	
++
++
+ 	fields[0].in_handler = NULL;
+-	
+ 
++
+ 	fields[1].tap = etb_reg-&gt;etb-&gt;tap;
+ 	fields[1].num_bits = 7;
+ 	fields[1].out_value = malloc(1);
+ 	buf_set_u32(fields[1].out_value, 0, 7, reg_addr);
+-	
++
+ 	fields[1].in_value = NULL;
+-	
+-	
++
++
+ 	fields[1].in_handler = NULL;
+-	
+ 
++
+ 	fields[2].tap = etb_reg-&gt;etb-&gt;tap;
+ 	fields[2].num_bits = 1;
+ 	fields[2].out_value = malloc(1);
+ 	buf_set_u32(fields[2].out_value, 0, 1, 0);
+-	
++
+ 	fields[2].in_value = NULL;
+-	
+-	
++
++
+ 	fields[2].in_handler = NULL;
+-	
+ 
++
+ 	jtag_add_dr_scan(3, fields, TAP_INVALID);
+ 
+ 	/* read the identification register in the second run, to make sure we
+@@ -354,35 +343,35 @@
+ 	fields[0].num_bits = 32;
+ 	fields[0].out_value = malloc(4);
+ 	buf_set_u32(fields[0].out_value, 0, 32, value);
+-	
++
+ 	fields[0].in_value = NULL;
+-	
+-	
++
++
+ 	fields[0].in_handler = NULL;
+-	
+ 
++
+ 	fields[1].tap = etb_reg-&gt;etb-&gt;tap;
+ 	fields[1].num_bits = 7;
+ 	fields[1].out_value = malloc(1);
+ 	buf_set_u32(fields[1].out_value, 0, 7, reg_addr);
+-	
++
+ 	fields[1].in_value = NULL;
+-	
+-	
++
++
+ 	fields[1].in_handler = NULL;
+-	
+ 
++
+ 	fields[2].tap = etb_reg-&gt;etb-&gt;tap;
+ 	fields[2].num_bits = 1;
+ 	fields[2].out_value = malloc(1);
+ 	buf_set_u32(fields[2].out_value, 0, 1, 1);
+-	
++
+ 	fields[2].in_value = NULL;
+-	
+-	
++
++
+ 	fields[2].in_handler = NULL;
+-	
+ 
++
+ 	jtag_add_dr_scan(3, fields, TAP_INVALID);
+ 
+ 	free(fields[0].out_value);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000429.html">[Openocd-svn] r1645 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="000431.html">[Openocd-svn] r1647 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#430">[ date ]</a>
+              <a href="thread.html#430">[ thread ]</a>
+              <a href="subject.html#430">[ subject ]</a>
+              <a href="author.html#430">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

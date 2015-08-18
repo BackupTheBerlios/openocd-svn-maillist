@@ -1,0 +1,150 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2564 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2564%20-%20trunk/src/target&In-Reply-To=%3C200907241649.n6OGnvJt016512%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001346.html">
+   <LINK REL="Next"  HREF="001348.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2564 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2564%20-%20trunk/src/target&In-Reply-To=%3C200907241649.n6OGnvJt016512%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2564 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul 24 18:49:57 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001346.html">[Openocd-svn] r2563 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001348.html">[Openocd-svn] r2565 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1347">[ date ]</a>
+              <a href="thread.html#1347">[ thread ]</a>
+              <a href="subject.html#1347">[ subject ]</a>
+              <a href="author.html#1347">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-07-24 18:49:44 +0200 (Fri, 24 Jul 2009)
+New Revision: 2564
+
+Modified:
+   trunk/src/target/arm_disassembler.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt; More instruction decoding fixes based on test cases, covering
+ARMv7-M arch manual:
+
+ A5.3.1 Data processing (modified immediate)
+ A5.3.3 Data processing (plain binary immediate)
+ A5.3.4 Branches and miscellaneous control
+
+and other (immediate) encodings referenced there.  Several of
+these just tweak the new syntax (&quot;Unified&quot; ARM/Thumb: UAL) but
+there were a few bugs too.
+
+Modified: trunk/src/target/arm_disassembler.c
+===================================================================
+--- trunk/src/target/arm_disassembler.c	2009-07-24 16:48:12 UTC (rev 2563)
++++ trunk/src/target/arm_disassembler.c	2009-07-24 16:49:44 UTC (rev 2564)
+@@ -1644,7 +1644,7 @@
+ 				break;
+ 			case 0x9:
+ 				instruction-&gt;type = ARM_RSB;
+-				mnemonic = &quot;NEGS&quot;;
++				mnemonic = &quot;RSBS&quot;;
+ 				instruction-&gt;info.data_proc.variant = 0 /*immediate*/;
+ 				instruction-&gt;info.data_proc.shifter_operand.immediate.immediate = 0;
+ 				instruction-&gt;info.data_proc.Rn = Rm;
+@@ -2600,7 +2600,6 @@
+ 			mnemonic = &quot;TST&quot;;
+ 			one = true;
+ 			suffix = &quot;&quot;;
+-			suffix2 = &quot;.W&quot;;
+ 			rd = rn;
+ 		} else {
+ 			instruction-&gt;type = ARM_AND;
+@@ -2660,6 +2659,7 @@
+ 	case 10:
+ 		instruction-&gt;type = ARM_ADC;
+ 		mnemonic = &quot;ADC&quot;;
++		suffix2 = &quot;.W&quot;;
+ 		break;
+ 	case 11:
+ 		instruction-&gt;type = ARM_SBC;
+@@ -2708,8 +2708,8 @@
+ 	bool add = false;
+ 	bool is_signed = false;
+ 
+-	immed = (opcode &amp; 0x0ff) | ((opcode &amp; 0x7000) &gt;&gt; 12);
+-	if (opcode &amp; (1 &lt;&lt; 27))
++	immed = (opcode &amp; 0x0ff) | ((opcode &amp; 0x7000) &gt;&gt; 4);
++	if (opcode &amp; (1 &lt;&lt; 26))
+ 		immed |= (1 &lt;&lt; 11);
+ 
+ 	switch ((opcode &gt;&gt; 20) &amp; 0x1f) {
+@@ -2718,15 +2718,16 @@
+ 			add = true;
+ 			goto do_adr;
+ 		}
+-		mnemonic = &quot;ADD.W&quot;;
++		mnemonic = &quot;ADDW&quot;;
+ 		break;
+ 	case 4:
+-		mnemonic = &quot;MOV.W&quot;;
+-		break;
++		immed |= (opcode &gt;&gt; 4) &amp; 0xf000;
++		sprintf(cp, &quot;MOVW\tr%d, #%d\t; %#3.3x&quot;, rd, immed, immed);
++		return ERROR_OK;
+ 	case 0x0a:
+ 		if (rn == 0xf)
+ 			goto do_adr;
+-		mnemonic = &quot;SUB.W&quot;;
++		mnemonic = &quot;SUBW&quot;;
+ 		break;
+ 	case 0x0c:
+ 		/* move constant to top 16 bits of register */
+@@ -2743,7 +2744,7 @@
+ 		immed |= (opcode &gt;&gt; 10) &amp; 0x1c;
+ 		sprintf(cp, &quot;%sSAT\tr%d, #%d, r%d, %s #%d\t&quot;,
+ 				is_signed ? &quot;S&quot; : &quot;U&quot;,
+-				rd, (int) (opcode &amp; 0x1f) + 1, rn,
++				rd, (int) (opcode &amp; 0x1f) + is_signed, rn,
+ 				(opcode &amp; (1 &lt;&lt; 21)) ? &quot;ASR&quot; : &quot;LSL&quot;,
+ 				immed ? immed : 32);
+ 		return ERROR_OK;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001346.html">[Openocd-svn] r2563 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001348.html">[Openocd-svn] r2565 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1347">[ date ]</a>
+              <a href="thread.html#1347">[ thread ]</a>
+              <a href="subject.html#1347">[ subject ]</a>
+              <a href="author.html#1347">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

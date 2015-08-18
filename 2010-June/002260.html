@@ -1,0 +1,168 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-277-g54f3f8e
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-277-g54f3f8e&In-Reply-To=%3CE1OLuKF-0001oe-Re%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002259.html">
+   <LINK REL="Next"  HREF="002261.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-277-g54f3f8e</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-277-g54f3f8e&In-Reply-To=%3CE1OLuKF-0001oe-Re%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-277-g54f3f8e">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Tue Jun  8 10:38:19 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002259.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-276-g00635e2
+</A></li>
+        <LI>Next message: <A HREF="002261.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-278-g31bbb3c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2260">[ date ]</a>
+              <a href="thread.html#2260">[ thread ]</a>
+              <a href="subject.html#2260">[ subject ]</a>
+              <a href="author.html#2260">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  54f3f8e4c1477bec077e132cdccd8097938332e2 (commit)
+      from  00635e28ba5c405742cae261d8551f165dc78ba3 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 54f3f8e4c1477bec077e132cdccd8097938332e2
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Mon Jun 7 15:14:04 2010 +0200
+
+    gdb-server: fix error reporting bugs
+    
+    GDB and OpenOCD has two different error number
+    spaces and no mapping exists between them.
+    
+    If a specific error number is to be reported
+    to GDB then this has to be done at the calling
+    site, rather than as a generic routine that
+    tries to map &quot;retval&quot; to GDB error number speak.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index a84c618..029bdf8 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -1219,29 +1219,14 @@ static int gdb_set_register_packet(struct connection *connection,
+ 	return ERROR_OK;
+ }
+ 
++/* No attempt is made to translate the &quot;retval&quot; to
++ * GDB speak. This has to be done at the calling
++ * site as no mapping really exists.
++ */
+ static int gdb_error(struct connection *connection, int retval)
+ {
+-	switch (retval)
+-	{
+-		case ERROR_TARGET_DATA_ABORT:
+-			gdb_send_error(connection, EIO);
+-			break;
+-		case ERROR_TARGET_TRANSLATION_FAULT:
+-			gdb_send_error(connection, EFAULT);
+-			break;
+-		case ERROR_TARGET_UNALIGNED_ACCESS:
+-			gdb_send_error(connection, EFAULT);
+-			break;
+-		case ERROR_TARGET_NOT_HALTED:
+-			gdb_send_error(connection, EFAULT);
+-			break;
+-		default:
+-			/* This could be that the target reset itself. */
+-			LOG_ERROR(&quot;unexpected error %i&quot;, retval);
+-			gdb_send_error(connection, EFAULT);
+-			break;
+-	}
+-
++	LOG_DEBUG(&quot;Reporting %i to GDB as generic error&quot;, retval);
++	gdb_send_error(connection, EFAULT);
+ 	return ERROR_OK;
+ }
+ 
+@@ -1719,7 +1704,7 @@ static int gdb_memory_map(struct connection *connection,
+ 		if (retval != ERROR_OK)
+ 		{
+ 			free(banks);
+-			gdb_send_error(connection, retval);
++			gdb_error(connection, retval);
+ 			return retval;
+ 		}
+ 		banks[i] = p;
+@@ -1801,7 +1786,7 @@ static int gdb_memory_map(struct connection *connection,
+ 	xml_printf(&amp;retval, &amp;xml, &amp;pos, &amp;size, &quot;&lt;/memory-map&gt;\n&quot;);
+ 
+ 	if (retval != ERROR_OK) {
+-		gdb_send_error(connection, retval);
++		gdb_error(connection, retval);
+ 		return retval;
+ 	}
+ 
+@@ -1952,7 +1937,7 @@ static int gdb_query_packet(struct connection *connection,
+ 
+ 		if (retval != ERROR_OK)
+ 		{
+-			gdb_send_error(connection, retval);
++			gdb_error(connection, retval);
+ 			return retval;
+ 		}
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/server/gdb_server.c |   33 +++++++++------------------------
+ 1 files changed, 9 insertions(+), 24 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002259.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-276-g00635e2
+</A></li>
+	<LI>Next message: <A HREF="002261.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-278-g31bbb3c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2260">[ date ]</a>
+              <a href="thread.html#2260">[ thread ]</a>
+              <a href="subject.html#2260">[ subject ]</a>
+              <a href="author.html#2260">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

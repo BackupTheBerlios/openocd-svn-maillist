@@ -1,0 +1,374 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-638-g2e7d51c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-638-g2e7d51c&In-Reply-To=%3CE1POnh3-0005aL-9Z%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002453.html">
+   <LINK REL="Next"  HREF="002455.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-638-g2e7d51c</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-638-g2e7d51c&In-Reply-To=%3CE1POnh3-0005aL-9Z%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-638-g2e7d51c">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Sat Dec  4 09:42:08 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002453.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-637-g81790fb
+</A></li>
+        <LI>Next message: <A HREF="002455.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-639-g6ef4e97
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2454">[ date ]</a>
+              <a href="thread.html#2454">[ thread ]</a>
+              <a href="subject.html#2454">[ subject ]</a>
+              <a href="author.html#2454">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  2e7d51c96a80f7fb2135af8558886e6516ddf661 (commit)
+      from  81790fb56a6db1e5cd9af2b6889071d1dc975052 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 2e7d51c96a80f7fb2135af8558886e6516ddf661
+Author: Mike Dunn &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mikedunn at newsguy.com</A>&gt;
+Date:   Thu Dec 2 11:08:28 2010 -0800
+
+    xscale: trace buffer remains enabled until explicitly disabled
+    
+    Hi everyone,
+    
+    Since a call went out for patches... been sitting on this for months.  For some
+    reason, the xscale trace buffer is automatically disabled as soon as a break
+    occurs and the trace data is collected.  This patch was a result of the
+    frustration of always re-enabling it, or else hitting a breakpoint and checking
+    the trace data, only to discover that I forgot to re-enable it before resuming.
+    Don't see why it should work this way.  There is no run-time penalty, AFAIK.
+    
+    Along the way, I also cleaned up a little by removing the ugly practice of
+    recording wrap mode by setting the fill count variable to &quot;-1&quot;, replacing it
+    with an enum that records the trace mode.
+    
+    I've been using this for months.  Comments, criticisms gratefully received.
+    
+    Mike
+    
+    Signed-off-by: Mike Dunn &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mikedunn at newsguy.com</A>&gt;
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index e0ce400..32c656b 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -1044,21 +1044,20 @@ static int xscale_debug_entry(struct target *target)
+ 	xscale-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled = (xscale-&gt;cp15_control_reg &amp; 0x1000U) ? 1 : 0;
+ 
+ 	/* tracing enabled, read collected trace data */
+-	if (xscale-&gt;trace.buffer_enabled)
++	if (xscale-&gt;trace.mode != XSCALE_TRACE_DISABLED)
+ 	{
+ 		xscale_read_trace(target);
+-		xscale-&gt;trace.buffer_fill--;
+ 
+-		/* resume if we're still collecting trace data */
+-		if ((xscale-&gt;arch_debug_reason == XSCALE_DBG_REASON_TB_FULL)
+-			&amp;&amp; (xscale-&gt;trace.buffer_fill &gt; 0))
++		/* Resume if entered debug due to buffer fill and we're still collecting
++		 * trace data.  Note that a debug exception due to trace buffer full
++		 * can only happen in fill mode. */
++		if (xscale-&gt;arch_debug_reason == XSCALE_DBG_REASON_TB_FULL)
+ 		{
++		  if (--xscale-&gt;trace.fill_counter &gt; 0)
+ 			xscale_resume(target, 1, 0x0, 1, 0);
+ 		}
+-		else
+-		{
+-			xscale-&gt;trace.buffer_enabled = 0;
+-		}
++		else 	/* entered debug for other reason; reset counter */
++		  xscale-&gt;trace.fill_counter = 0;
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -1162,6 +1161,20 @@ static void xscale_enable_breakpoints(struct target *target)
+ 	}
+ }
+ 
++static void xscale_free_trace_data(struct xscale_common *xscale)
++{
++   struct xscale_trace_data *td = xscale-&gt;trace.data;
++   while (td)
++   {
++	  struct xscale_trace_data *next_td = td-&gt;next;
++	  if (td-&gt;entries)
++		 free(td-&gt;entries);
++	  free(td);
++	  td = next_td;
++   }
++   xscale-&gt;trace.data = NULL;
++}
++
+ static int xscale_resume(struct target *target, int current,
+ 		uint32_t address, int handle_breakpoints, int debug_execution)
+ {
+@@ -1210,7 +1223,7 @@ static int xscale_resume(struct target *target, int current,
+ 		if (breakpoint != NULL)
+ 		{
+ 			uint32_t next_pc;
+-			int saved_trace_buffer_enabled;
++			enum trace_mode saved_trace_mode;
+ 
+ 			/* there's a breakpoint at the current PC, we have to step over it */
+ 			LOG_DEBUG(&quot;unset breakpoint at 0x%8.8&quot; PRIx32 &quot;&quot;, breakpoint-&gt;address);
+@@ -1253,14 +1266,14 @@ static int xscale_resume(struct target *target, int current,
+ 					buf_get_u32(armv4_5-&gt;pc-&gt;value, 0, 32));
+ 
+ 			/* disable trace data collection in xscale_debug_entry() */
+-			saved_trace_buffer_enabled = xscale-&gt;trace.buffer_enabled;
+-			xscale-&gt;trace.buffer_enabled = 0;
++			saved_trace_mode = xscale-&gt;trace.mode;
++			xscale-&gt;trace.mode = XSCALE_TRACE_DISABLED;
+ 
+ 			/* wait for and process debug entry */
+ 			xscale_debug_entry(target);
+ 
+ 			/* re-enable trace buffer, if enabled previously */
+-			xscale-&gt;trace.buffer_enabled = saved_trace_buffer_enabled;
++			xscale-&gt;trace.mode = saved_trace_mode;
+ 
+ 			LOG_DEBUG(&quot;disable single-step&quot;);
+ 			xscale_disable_single_step(target);
+@@ -1279,8 +1292,21 @@ static int xscale_resume(struct target *target, int current,
+ 
+ 	/* send resume request (command 0x30 or 0x31)
+ 	 * clean the trace buffer if it is to be enabled (0x62) */
+-	if (xscale-&gt;trace.buffer_enabled)
++	if (xscale-&gt;trace.mode != XSCALE_TRACE_DISABLED)
+ 	{
++		if (xscale-&gt;trace.mode == XSCALE_TRACE_FILL)
++		{
++		   /* If trace enabled in fill mode and starting collection of new set
++			* of buffers, initialize buffer counter and free previous buffers */
++		   if (xscale-&gt;trace.fill_counter == 0)
++		   {
++			  xscale-&gt;trace.fill_counter = xscale-&gt;trace.buffer_fill;
++			  xscale_free_trace_data(xscale);
++		   }
++		}
++		else	 /* wrap mode; free previous buffer */
++		   xscale_free_trace_data(xscale);
++
+ 		xscale_send_u32(target, 0x62);
+ 		xscale_send_u32(target, 0x31);
+ 	}
+@@ -1356,7 +1382,7 @@ static int xscale_step_inner(struct target *target, int current,
+ 
+ 	/* send resume request (command 0x30 or 0x31)
+ 	 * clean the trace buffer if it is to be enabled (0x62) */
+-	if (xscale-&gt;trace.buffer_enabled)
++	if (xscale-&gt;trace.mode != XSCALE_TRACE_DISABLED)
+ 	{
+ 		if ((retval = xscale_send_u32(target, 0x62)) != ERROR_OK)
+ 			return retval;
+@@ -1533,6 +1559,9 @@ static int xscale_deassert_reset(struct target *target)
+ 		breakpoint = breakpoint-&gt;next;
+ 	}
+ 
++	xscale-&gt;trace.mode = XSCALE_TRACE_DISABLED;
++	xscale_free_trace_data(xscale);
++
+ 	register_cache_invalidate(xscale-&gt;armv4_5_common.core_cache);
+ 
+ 	/* FIXME mark hardware watchpoints got unset too.  Also,
+@@ -3120,11 +3149,11 @@ static int xscale_init_arch_info(struct target *target,
+ 
+ 	xscale-&gt;vector_catch = 0x1;
+ 
+-	xscale-&gt;trace.capture_status = TRACE_IDLE;
+ 	xscale-&gt;trace.data = NULL;
+ 	xscale-&gt;trace.image = NULL;
+-	xscale-&gt;trace.buffer_enabled = 0;
++	xscale-&gt;trace.mode = XSCALE_TRACE_DISABLED;
+ 	xscale-&gt;trace.buffer_fill = 0;
++	xscale-&gt;trace.fill_counter = 0;
+ 
+ 	/* prepare ARMv4/5 specific information */
+ 	armv4_5-&gt;arch_info = xscale;
+@@ -3466,47 +3495,54 @@ COMMAND_HANDLER(xscale_handle_trace_buffer_command)
+ 		return ERROR_OK;
+ 	}
+ 
+-	if ((CMD_ARGC &gt;= 1) &amp;&amp; (strcmp(&quot;enable&quot;, CMD_ARGV[0]) == 0))
+-	{
+-		struct xscale_trace_data *td, *next_td;
+-		xscale-&gt;trace.buffer_enabled = 1;
+-
+-		/* free old trace data */
+-		td = xscale-&gt;trace.data;
+-		while (td)
+-		{
+-			next_td = td-&gt;next;
+-
+-			if (td-&gt;entries)
+-				free(td-&gt;entries);
+-			free(td);
+-			td = next_td;
+-		}
+-		xscale-&gt;trace.data = NULL;
+-	}
+-	else if ((CMD_ARGC &gt;= 1) &amp;&amp; (strcmp(&quot;disable&quot;, CMD_ARGV[0]) == 0))
++	if (CMD_ARGC &gt;= 1)
+ 	{
+-		xscale-&gt;trace.buffer_enabled = 0;
++	   if (strcmp(&quot;enable&quot;, CMD_ARGV[0]) == 0)
++		  xscale-&gt;trace.mode = XSCALE_TRACE_WRAP; /* default */
++	   else if (strcmp(&quot;disable&quot;, CMD_ARGV[0]) == 0)
++		  xscale-&gt;trace.mode = XSCALE_TRACE_DISABLED;
++	   else
++		  return ERROR_INVALID_ARGUMENTS;
+ 	}
+ 
+-	if ((CMD_ARGC &gt;= 2) &amp;&amp; (strcmp(&quot;fill&quot;, CMD_ARGV[1]) == 0))
++	if (CMD_ARGC &gt;= 2 &amp;&amp; xscale-&gt;trace.mode != XSCALE_TRACE_DISABLED)
+ 	{
+-		uint32_t fill = 1;
+-		if (CMD_ARGC &gt;= 3)
+-			COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], fill);
+-		xscale-&gt;trace.buffer_fill = fill;
++	   if (strcmp(&quot;fill&quot;, CMD_ARGV[1]) == 0)
++	   {
++		  int buffcount = 1;			/* default */
++		  if (CMD_ARGC &gt;= 3)
++			 COMMAND_PARSE_NUMBER(int, CMD_ARGV[2], buffcount);
++		  if (buffcount &lt; 1)			/* invalid */
++		  {
++			 command_print(CMD_CTX, &quot;fill buffer count must be &gt; 0&quot;);
++			 xscale-&gt;trace.mode = XSCALE_TRACE_DISABLED;
++			 return ERROR_INVALID_ARGUMENTS;
++		  }
++		  xscale-&gt;trace.buffer_fill = buffcount;
++		  xscale-&gt;trace.mode = XSCALE_TRACE_FILL;
++	   }
++	   else if (strcmp(&quot;wrap&quot;, CMD_ARGV[1]) == 0)
++		  xscale-&gt;trace.mode = XSCALE_TRACE_WRAP;
++	   else
++	   {
++		  xscale-&gt;trace.mode = XSCALE_TRACE_DISABLED;
++		  return ERROR_INVALID_ARGUMENTS;
++	   }
+ 	}
+-	else if ((CMD_ARGC &gt;= 2) &amp;&amp; (strcmp(&quot;wrap&quot;, CMD_ARGV[1]) == 0))
++	
++	if (xscale-&gt;trace.mode != XSCALE_TRACE_DISABLED)
+ 	{
+-		xscale-&gt;trace.buffer_fill = -1;
++	   char fill_string[12];
++	   sprintf(fill_string, &quot;fill %&quot; PRId32, xscale-&gt;trace.buffer_fill); 
++	   command_print(CMD_CTX, &quot;trace buffer enabled (%s)&quot;,
++					 (xscale-&gt;trace.mode == XSCALE_TRACE_FILL)
++					 ? fill_string : &quot;wrap&quot;);
+ 	}
+-
+-	command_print(CMD_CTX, &quot;trace buffer %s (%s)&quot;,
+-		(xscale-&gt;trace.buffer_enabled) ? &quot;enabled&quot; : &quot;disabled&quot;,
+-		(xscale-&gt;trace.buffer_fill &gt; 0) ? &quot;fill&quot; : &quot;wrap&quot;);
+-
++	else
++	   command_print(CMD_CTX, &quot;trace buffer disabled&quot;);
++	   
+ 	dcsr_value = buf_get_u32(xscale-&gt;reg_cache-&gt;reg_list[XSCALE_DCSR].value, 0, 32);
+-	if (xscale-&gt;trace.buffer_fill &gt;= 0)
++	if (xscale-&gt;trace.mode == XSCALE_TRACE_FILL)
+ 		xscale_write_dcsr_sw(target, (dcsr_value &amp; 0xfffffffc) | 2);
+ 	else
+ 		xscale_write_dcsr_sw(target, dcsr_value &amp; 0xfffffffc);
+@@ -3774,7 +3810,7 @@ static const struct command_registration xscale_exec_command_handlers[] = {
+ 		.mode = COMMAND_EXEC,
+ 		.help = &quot;display trace buffer status, enable or disable &quot;
+ 			&quot;tracing, and optionally reconfigure trace mode&quot;,
+-		.usage = &quot;['enable'|'disable' ['fill' number|'wrap']]&quot;,
++		.usage = &quot;['enable'|'disable' ['fill' [number]|'wrap']]&quot;,
+ 	},
+ 	{
+ 		.name = &quot;dump_trace&quot;,
+diff --git a/src/target/xscale.h b/src/target/xscale.h
+index d429336..e480da9 100644
+--- a/src/target/xscale.h
++++ b/src/target/xscale.h
+@@ -71,13 +71,20 @@ struct xscale_trace_data
+ 	struct xscale_trace_data *next;
+ };
+ 
++enum trace_mode
++{
++   XSCALE_TRACE_DISABLED,
++   XSCALE_TRACE_FILL,
++   XSCALE_TRACE_WRAP
++};
++
+ struct xscale_trace
+ {
+-	trace_status_t capture_status;	/* current state of capture run */
+ 	struct image *image;					/* source for target opcodes */
+ 	struct xscale_trace_data *data;		/* linked list of collected trace data */
+-	int buffer_enabled;				/* whether trace buffer is enabled */
+-	int buffer_fill;				/* maximum number of trace runs to read (-1 for wrap-around) */
++	int buffer_fill;				/* maximum number of trace runs to read */
++    int fill_counter;				/* running count during trace collection */
++    enum trace_mode mode;
+ 	enum arm_state core_state;	/* current core state (ARM, Thumb) */
+ };
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/xscale.c |  138 ++++++++++++++++++++++++++++++++-------------------
+ src/target/xscale.h |   13 ++++-
+ 2 files changed, 97 insertions(+), 54 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002453.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-637-g81790fb
+</A></li>
+	<LI>Next message: <A HREF="002455.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-639-g6ef4e97
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2454">[ date ]</a>
+              <a href="thread.html#2454">[ thread ]</a>
+              <a href="subject.html#2454">[ subject ]</a>
+              <a href="author.html#2454">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

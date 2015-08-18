@@ -1,0 +1,154 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1477 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1477%20-%20trunk/src/target&In-Reply-To=%3C200904201052.n3KAqCjO022579%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000260.html">
+   <LINK REL="Next"  HREF="000262.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1477 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1477%20-%20trunk/src/target&In-Reply-To=%3C200904201052.n3KAqCjO022579%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1477 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Mon Apr 20 12:52:12 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000260.html">[Openocd-svn] r1476 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000262.html">[Openocd-svn] r1478 - in trunk/src: jtag target/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#261">[ date ]</a>
+              <a href="thread.html#261">[ thread ]</a>
+              <a href="subject.html#261">[ subject ]</a>
+              <a href="author.html#261">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-04-20 12:52:08 +0200 (Mon, 20 Apr 2009)
+New Revision: 1477
+
+Modified:
+   trunk/src/target/arm7_9_common.c
+Log:
+Holger Freyther &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zecke at selfish.org</A>&gt; Attempt to fix arm7_9 breakpoint handling
+
+Modified: trunk/src/target/arm7_9_common.c
+===================================================================
+--- trunk/src/target/arm7_9_common.c	2009-04-20 06:40:45 UTC (rev 1476)
++++ trunk/src/target/arm7_9_common.c	2009-04-20 10:52:08 UTC (rev 1477)
+@@ -78,6 +78,26 @@
+ 	return jtag_execute_queue();
+ }
+ 
++static void arm7_9_assign_wp(arm7_9_common_t *arm7_9, breakpoint_t *breakpoint)
++{
++	if (!arm7_9-&gt;wp0_used)
++	{
++		arm7_9-&gt;wp0_used = 1;
++		breakpoint-&gt;set = 1;
++		arm7_9-&gt;wp_available--;
++	}
++	else if (!arm7_9-&gt;wp1_used)
++	{
++		arm7_9-&gt;wp1_used = 1;
++		breakpoint-&gt;set = 2;
++		arm7_9-&gt;wp_available--;
++	}
++	else
++	{
++		LOG_ERROR(&quot;BUG: no hardware comparator available&quot;);
++	}
++}
++
+ /* set up embedded ice registers */
+ static int arm7_9_set_software_breakpoints(arm7_9_common_t *arm7_9)
+ {
+@@ -182,6 +202,13 @@
+ 	{
+ 		/* either an ARM (4 byte) or Thumb (2 byte) breakpoint */
+ 		u32 mask = (breakpoint-&gt;length == 4) ? 0x3u : 0x1u;
++
++		/* reassign a hw breakpoint */
++		if (breakpoint-&gt;set==0)
++		{
++			arm7_9_assign_wp(arm7_9, breakpoint);
++		}
++
+ 		if (breakpoint-&gt;set==1)
+ 		{
+ 			embeddedice_set_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W0_ADDR_VALUE], breakpoint-&gt;address);
+@@ -288,11 +315,13 @@
+ 		{
+ 			embeddedice_set_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W0_CONTROL_VALUE], 0x0);
+ 			arm7_9-&gt;wp0_used = 0;
++			arm7_9-&gt;wp_available++;
+ 		}
+ 		else if (breakpoint-&gt;set == 2)
+ 		{
+ 			embeddedice_set_reg(&amp;arm7_9-&gt;eice_cache-&gt;reg_list[EICE_W1_CONTROL_VALUE], 0x0);
+ 			arm7_9-&gt;wp1_used = 0;
++			arm7_9-&gt;wp_available++;
+ 		}
+ 		retval = jtag_execute_queue();
+ 		breakpoint-&gt;set = 0;
+@@ -367,22 +396,7 @@
+ 
+ 	if (breakpoint-&gt;type == BKPT_HARD)
+ 	{
+-		arm7_9-&gt;wp_available--;
+-
+-		if (!arm7_9-&gt;wp0_used)
+-		{
+-			arm7_9-&gt;wp0_used = 1;
+-			breakpoint-&gt;set = 1;
+-		}
+-		else if (!arm7_9-&gt;wp1_used)
+-		{
+-			arm7_9-&gt;wp1_used = 1;
+-			breakpoint-&gt;set = 2;
+-		}
+-		else
+-		{
+-			LOG_ERROR(&quot;BUG: no hardware comparator available&quot;);
+-		}
++		arm7_9_assign_wp(arm7_9, breakpoint);
+ 	}
+ 
+ 	arm7_9-&gt;breakpoint_count++;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000260.html">[Openocd-svn] r1476 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000262.html">[Openocd-svn] r1478 - in trunk/src: jtag target/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#261">[ date ]</a>
+              <a href="thread.html#261">[ thread ]</a>
+              <a href="subject.html#261">[ subject ]</a>
+              <a href="author.html#261">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

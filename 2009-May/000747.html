@@ -1,0 +1,144 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1963 - in trunk/src: flash target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1963%20-%20in%20trunk/src%3A%20flash%20target&In-Reply-To=%3C200905310939.n4V9d9TC014280%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000746.html">
+   <LINK REL="Next"  HREF="000748.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1963 - in trunk/src: flash target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1963%20-%20in%20trunk/src%3A%20flash%20target&In-Reply-To=%3C200905310939.n4V9d9TC014280%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1963 - in trunk/src: flash target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Sun May 31 11:39:09 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000746.html">[Openocd-svn] r1962 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="000748.html">[Openocd-svn] r1964 - in trunk/src: server target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#747">[ date ]</a>
+              <a href="thread.html#747">[ thread ]</a>
+              <a href="subject.html#747">[ subject ]</a>
+              <a href="author.html#747">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-31 11:39:04 +0200 (Sun, 31 May 2009)
+New Revision: 1963
+
+Modified:
+   trunk/src/flash/orion_nand.c
+   trunk/src/target/target.c
+   trunk/src/target/target.h
+Log:
+Add target_bulk_write_memory wrapper:
+- replaces all calls to target-&gt;type-&gt;bulk_write_memory.
+- add documentation in target_s to warn not to invoke callback directly.
+
+
+Modified: trunk/src/flash/orion_nand.c
+===================================================================
+--- trunk/src/flash/orion_nand.c	2009-05-31 09:38:43 UTC (rev 1962)
++++ trunk/src/flash/orion_nand.c	2009-05-31 09:39:04 UTC (rev 1963)
+@@ -140,8 +140,7 @@
+ 
+ 	/* copy data to target's memory */
+ 	target_buf = hw-&gt;copy_area-&gt;address + code_size;
+-	retval = target-&gt;type-&gt;bulk_write_memory(target, target_buf,
+-						 size/4, data);
++	retval = target_bulk_write_memory(target, target_buf, size/4, data);
+ 	if (retval == ERROR_OK &amp;&amp; size &amp; 3) {
+ 		retval = target_write_memory(target,
+ 					target_buf + (size &amp; ~3),
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-05-31 09:38:43 UTC (rev 1962)
++++ trunk/src/target/target.c	2009-05-31 09:39:04 UTC (rev 1963)
+@@ -536,7 +536,13 @@
+ {
+ 	return target-&gt;type-&gt;write_memory(target, address, size, count, buffer);
+ }
++int target_bulk_write_memory(struct target_s *target,
++		u32 address, u32 count, u8 *buffer)
++{
++	return target-&gt;type-&gt;bulk_write_memory(target, address, count, buffer);
++}
+ 
++
+ int target_run_algorithm(struct target_s *target,
+ 		int num_mem_params, mem_param_t *mem_params,
+ 		int num_reg_params, reg_param_t *reg_param,
+
+Modified: trunk/src/target/target.h
+===================================================================
+--- trunk/src/target/target.h	2009-05-31 09:38:43 UTC (rev 1962)
++++ trunk/src/target/target.h	2009-05-31 09:39:04 UTC (rev 1963)
+@@ -179,7 +179,11 @@
+ 	 */
+ 	int (*write_memory)(struct target_s *target, u32 address, u32 size, u32 count, u8 *buffer);
+ 
+-	/* write target memory in multiples of 4 byte, optimized for writing large quantities of data */
++	/**
++	 * Write target memory in multiples of 4 bytes, optimized for
++	 * writing large quantities of data.  Do @b not call this
++	 * function directly, use target_bulk_write_memory() instead.
++	 */
+ 	int (*bulk_write_memory)(struct target_s *target, u32 address, u32 count, u8 *buffer);
+ 
+ 	int (*checksum_memory)(struct target_s *target, u32 address, u32 count, u32* checksum);
+@@ -424,6 +428,16 @@
+ extern int target_write_memory(struct target_s *target,
+ 		u32 address, u32 size, u32 count, u8 *buffer);
+ 
++/**
++ * Write @count items of 4 bytes to the memory of @a target at
++ * the @a address given.  Because it operates only on whole words,
++ * this should be faster than target_write_memory().
++ *
++ * This routine is wrapper for target-&gt;type-&gt;bulk_write_memory.
++ */
++extern int target_bulk_write_memory(struct target_s *target,
++		u32 address, u32 count, u8 *buffer);
++
+ extern int target_write_buffer(struct target_s *target, u32 address, u32 size, u8 *buffer);
+ extern int target_read_buffer(struct target_s *target, u32 address, u32 size, u8 *buffer);
+ extern int target_checksum_memory(struct target_s *target, u32 address, u32 size, u32* crc);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000746.html">[Openocd-svn] r1962 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="000748.html">[Openocd-svn] r1964 - in trunk/src: server target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#747">[ date ]</a>
+              <a href="thread.html#747">[ thread ]</a>
+              <a href="subject.html#747">[ subject ]</a>
+              <a href="author.html#747">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

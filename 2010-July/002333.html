@@ -1,0 +1,153 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-431-g6121841
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-431-g6121841&In-Reply-To=%3CE1OaweJ-0003SB-8P%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002332.html">
+   <LINK REL="Next"  HREF="002334.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-431-g6121841</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-431-g6121841&In-Reply-To=%3CE1OaweJ-0003SB-8P%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-431-g6121841">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Mon Jul 19 22:09:08 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002332.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-430-g8dbe367
+</A></li>
+        <LI>Next message: <A HREF="002334.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-443-ga9761c9
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2333">[ date ]</a>
+              <a href="thread.html#2333">[ thread ]</a>
+              <a href="subject.html#2333">[ subject ]</a>
+              <a href="author.html#2333">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  612184176fee6333e5372c4637e3cf54628ee416 (commit)
+      from  8dbe367c53682b1217f0f5d599a7a79bf0415796 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 612184176fee6333e5372c4637e3cf54628ee416
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Jul 19 16:08:09 2010 -0400
+
+    more careful luminary init
+    
+    Set up more of the Luminary-specific signals, and stop cloning
+    a few of the JTAG defaults.  More comments too.
+    
+    Still leaves the &quot;dap info 0&quot; bugs unresolved (presumably coupled
+    to this particular adapter family) where TPIU, ITM, DWT, and other
+    debug modules wrongly display as extra NVICs.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+index 4dcc045..1a0eb4b 100644
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -316,7 +316,7 @@ static uint8_t                  nSRSTnOE;
+ /** the layout being used with this debug session */
+ static const struct ft2232_layout *layout;
+ 
+-/** default bitmask values ddriven on DBUS: TCK/TDI/TDO/TMS and GPIOL(0..4) */
++/** default bitmask values driven on DBUS: TCK/TDI/TDO/TMS and GPIOL(0..4) */
+ static uint8_t                  low_output     = 0x0;
+ 
+ /* note that direction bit == 1 means that signal is an output */
+@@ -2496,9 +2496,11 @@ static int icdi_jtag_init(void)
+ 	/* Most Luminary eval boards support SWO trace output,
+ 	 * and should use this &quot;luminary_icdi&quot; layout.
+ 	 *
+-	 * DBUS 0..3 are used for JTAG as usual.  GPIOs are used
++	 * ADBUS 0..3 are used for JTAG as usual.  GPIOs are used
+ 	 * to switch between JTAG and SWD, or switch the ft2232 UART
+-	 * between (i) the target UART or (ii) SWO trace data.
++	 * on the second MPSSE channel/interface (BDBUS)
++	 * between (i) the stellaris UART (on Luminary boards)
++	 * or (ii) SWO trace data (generic).
+ 	 *
+ 	 * We come up in JTAG mode and may switch to SWD later (with
+ 	 * SWO/trace option if SWD is active).
+@@ -2511,18 +2513,21 @@ static int icdi_jtag_init(void)
+ #define ICDI_JTAG_EN (1 &lt;&lt; 7)		/* ADBUS 7 (a.k.a. DBGMOD) */
+ #define ICDI_DBG_ENn (1 &lt;&lt; 6)		/* ADBUS 6 */
+ #define ICDI_SRST (1 &lt;&lt; 5)		/* ADBUS 5 */
+-#define ICDI_TDI (1 &lt;&lt; 2)		/* ADBUS 2 (INPUT) */
+ 
++
++	/* GPIOs on second channel/interface (UART) ... */
+ #define ICDI_SWO_EN (1 &lt;&lt; 4)		/* BDBUS 4 */
+ #define ICDI_TX_SWO (1 &lt;&lt; 1)	 	/* BDBUS 1 */
++#define ICDI_VCP_RX (1 &lt;&lt; 0)	 	/* BDBUS 0 (to stellaris UART) */
+ 
+ 	nTRST = 0x0;
+ 	nTRSTnOE = 0x00;
+ 	nSRST = ICDI_SRST;
+-	nSRSTnOE = 0x20;
++	nSRSTnOE = ICDI_SRST;
+ 
+-	low_output    = 0x08 | ICDI_JTAG_EN;
+-	low_direction = 0xcb | ICDI_JTAG_EN;
++	low_direction |= ICDI_JTAG_EN | ICDI_DBG_ENn;
++	low_output    |= ICDI_JTAG_EN;
++	low_output    &amp;= ~ICDI_DBG_ENn;
+ 
+ 	return ftx232_dbus_write();
+ }
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/drivers/ft2232.c |   19 ++++++++++++-------
+ 1 files changed, 12 insertions(+), 7 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002332.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-430-g8dbe367
+</A></li>
+	<LI>Next message: <A HREF="002334.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-443-ga9761c9
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2333">[ date ]</a>
+              <a href="thread.html#2333">[ thread ]</a>
+              <a href="subject.html#2333">[ subject ]</a>
+              <a href="author.html#2333">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

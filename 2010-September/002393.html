@@ -1,0 +1,160 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-526-g6000411
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-526-g6000411&In-Reply-To=%3CE1OxvgL-0001oA-Nl%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002392.html">
+   <LINK REL="Next"  HREF="002394.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-526-g6000411</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-526-g6000411&In-Reply-To=%3CE1OxvgL-0001oA-Nl%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-526-g6000411">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Tue Sep 21 07:46:19 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002392.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-525-g241fd0b
+</A></li>
+        <LI>Next message: <A HREF="002394.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-527-g1abc26d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2393">[ date ]</a>
+              <a href="thread.html#2393">[ thread ]</a>
+              <a href="subject.html#2393">[ subject ]</a>
+              <a href="author.html#2393">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  6000411dddd9930b99a4931bc363f425cc0fdcda (commit)
+      from  241fd0b5a8a95e814395f79b5ea7715c1862f045 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 6000411dddd9930b99a4931bc363f425cc0fdcda
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Wed Sep 8 20:04:27 2010 +0200
+
+    tcl_server: switch to ctrl-z
+    
+    by using ctrl-z instead of line end, multi-line tcl scripts
+    can be handled.
+    
+    Testing: send ctrl-z a couple of times to make telnet enter the
+    mode where it sends ctrl-z unencoded.
+    
+    Programs that talk to the tcl_server can send ctrl-z to
+    indicate end of tcl-let to be executed without having
+    to worry about telnet protocols.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/server/tcl_server.c b/src/server/tcl_server.c
+index 7c8e130..06f67ab 100644
+--- a/src/server/tcl_server.c
++++ b/src/server/tcl_server.c
+@@ -1,5 +1,6 @@
+ /***************************************************************************
+- *   Copyright (C) 2008                                                    *
++ *   Copyright (C) 2010 &#195;&#152;yvind Harboe                                      *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
+  *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+@@ -104,13 +105,6 @@ static int tcl_input(struct connection *connection)
+ 	/* push as much data into the line as possible */
+ 	for (i = 0; i &lt; rlen; i++)
+ 	{
+-		if (!isprint(in[i]) &amp;&amp; !isspace(in[i]))
+-		{
+-			/* drop this line */
+-			tclc-&gt;tc_linedrop = 1;
+-			continue;
+-		}
+-
+ 		/* buffer the data */
+ 		tclc-&gt;tc_line[tclc-&gt;tc_lineoffset] = in[i];
+ 		if (tclc-&gt;tc_lineoffset &lt; TCL_MAX_LINE)
+@@ -118,7 +112,11 @@ static int tcl_input(struct connection *connection)
+ 		else
+ 			tclc-&gt;tc_linedrop = 1;
+ 
+-		if (in[i] != '\n')
++		/* ctrl-z is end of command. When testing from telnet, just
++		 * press ctrl-z a couple of times first to put telnet into the
++		 * mode where it will send 0x1a in response to pressing ctrl-z
++		 */
++		if (in[i] != '\x1a')
+ 			continue;
+ 
+ 		/* process the line */
+@@ -131,13 +129,15 @@ static int tcl_input(struct connection *connection)
+ 		}
+ 		else {
+ 			tclc-&gt;tc_line[tclc-&gt;tc_lineoffset-1] = '\0';
++			LOG_DEBUG(&quot;Executing script:\n %s&quot;, tclc-&gt;tc_line);
+ 			retval = Jim_Eval_Named(interp, tclc-&gt;tc_line, &quot;remote:connection&quot;,1);
++			LOG_DEBUG(&quot;Result: %d\n %s&quot;, retval, Jim_GetString(Jim_GetResult(interp), &amp;reslen));
+ 			result = Jim_GetString(Jim_GetResult(interp), &amp;reslen);
+ 			retval = tcl_output(connection, result, reslen);
+ 			if (retval != ERROR_OK)
+ 				return retval;
+-			if (memchr(result, '\n', reslen) == NULL)
+-				tcl_output(connection, &quot;\n&quot;, 1);
++			/* Always output ctrl-d as end of line to allow multiline results */
++			tcl_output(connection, &quot;\x1a&quot;, 1);
+ 		}
+ 
+ 		tclc-&gt;tc_lineoffset = 0;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/server/tcl_server.c |   22 +++++++++++-----------
+ 1 files changed, 11 insertions(+), 11 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002392.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-525-g241fd0b
+</A></li>
+	<LI>Next message: <A HREF="002394.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-527-g1abc26d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2393">[ date ]</a>
+              <a href="thread.html#2393">[ thread ]</a>
+              <a href="subject.html#2393">[ subject ]</a>
+              <a href="author.html#2393">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

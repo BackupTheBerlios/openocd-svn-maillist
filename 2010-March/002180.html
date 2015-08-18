@@ -1,0 +1,336 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-120-g7373d1c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-120-g7373d1c&In-Reply-To=%3CE1NscYW-0001B2-Jh%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002179.html">
+   <LINK REL="Next"  HREF="002181.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-120-g7373d1c</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-120-g7373d1c&In-Reply-To=%3CE1NscYW-0001B2-Jh%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-120-g7373d1c">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Mar 19 14:48:01 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002179.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-119-g03359b1
+</A></li>
+        <LI>Next message: <A HREF="002181.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-121-g3b310db
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2180">[ date ]</a>
+              <a href="thread.html#2180">[ thread ]</a>
+              <a href="subject.html#2180">[ subject ]</a>
+              <a href="author.html#2180">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  7373d1c342ff0ef5c0663fcee2f688eb5eb4ef65 (commit)
+      from  03359b16800c618ea4489d086bac9cd26a8d4547 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 7373d1c342ff0ef5c0663fcee2f688eb5eb4ef65
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Fri Mar 19 14:47:01 2010 +0100
+
+    zy1000: clean up jtag_add_xx_scan fn's
+    
+    The implementation is now more straightforward as the
+    scan_fields have been greatly simplified over time.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index a844dc3..6f75e59 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -492,103 +492,93 @@ static void shiftValueInnerFlip(const tap_state_t state, const tap_state_t endSt
+ }
+ #endif
+ 
+-static void gotoEndState(tap_state_t end_state)
++// here we shuffle N bits out/in
++static __inline void scanBits(const uint8_t *out_value, uint8_t *in_value, int num_bits, bool pause, tap_state_t shiftState, tap_state_t end_state)
+ {
+-	setCurrentState(end_state);
+-}
+-
+-static __inline void scanFields(int num_fields, const struct scan_field *fields, tap_state_t shiftState, int pause)
+-{
+-	int i;
+-	int j;
+-	int k;
+-
+-	for (i = 0; i &lt; num_fields; i++)
++	tap_state_t pause_state = shiftState;
++	for (int j = 0; j &lt; num_bits; j += 32)
+ 	{
+-		cyg_uint32 value;
+-
+-		uint8_t *inBuffer = NULL;
+-
+-
+-		// figure out where to store the input data
+-		int num_bits = fields[i].num_bits;
+-		if (fields[i].in_value != NULL)
++		int k = num_bits - j;
++		if (k &gt; 32)
+ 		{
+-			inBuffer = fields[i].in_value;
++			k = 32;
++			/* we have more to shift out */
++		} else if (pause)
++		{
++			/* this was the last to shift out this time */
++			pause_state = end_state;
+ 		}
+ 
+-		// here we shuffle N bits out/in
+-		j = 0;
+-		while (j &lt; num_bits)
++		// we have (num_bits + 7)/8 bytes of bits to toggle out.
++		// bits are pushed out LSB to MSB
++		cyg_uint32 value;
++		value = 0;
++		if (out_value != NULL)
+ 		{
+-			tap_state_t pause_state;
+-			int l;
+-			k = num_bits-j;
+-			pause_state = (shiftState == TAP_DRSHIFT)?TAP_DRSHIFT:TAP_IRSHIFT;
+-			if (k &gt; 32)
+-			{
+-				k = 32;
+-				/* we have more to shift out */
+-			} else if (pause&amp;&amp;(i == num_fields-1))
++			for (int l = 0; l &lt; k; l += 8)
+ 			{
+-				/* this was the last to shift out this time */
+-				pause_state = (shiftState==TAP_DRSHIFT)?TAP_DRPAUSE:TAP_IRPAUSE;
++				value|=out_value[(j + l)/8]&lt;&lt;l;
+ 			}
++		}
++		/* mask away unused bits for easier debugging */
++		if (k &lt; 32)
++		{
++			value&amp;=~(((uint32_t)0xffffffff) &lt;&lt; k);
++		} else
++		{
++			/* Shifting by &gt;= 32 is not defined by the C standard
++			 * and will in fact shift by &amp;0x1f bits on nios */
++		}
+ 
+-			// we have (num_bits + 7)/8 bytes of bits to toggle out.
+-			// bits are pushed out LSB to MSB
+-			value = 0;
+-			if (fields[i].out_value != NULL)
+-			{
+-				for (l = 0; l &lt; k; l += 8)
+-				{
+-					value|=fields[i].out_value[(j + l)/8]&lt;&lt;l;
+-				}
+-			}
+-			/* mask away unused bits for easier debugging */
+-			if (k &lt; 32)
+-			{
+-				value&amp;=~(((uint32_t)0xffffffff) &lt;&lt; k);
+-			} else
+-			{
+-				/* Shifting by &gt;= 32 is not defined by the C standard
+-				 * and will in fact shift by &amp;0x1f bits on nios */
+-			}
++		shiftValueInner(shiftState, pause_state, k, value);
+ 
+-			shiftValueInner(shiftState, pause_state, k, value);
++		if (in_value != NULL)
++		{
++			// data in, LSB to MSB
++			value = getShiftValue();
++			// we're shifting in data to MSB, shift data to be aligned for returning the value
++			value &gt;&gt;= 32-k;
+ 
+-			if (inBuffer != NULL)
++			for (int l = 0; l &lt; k; l += 8)
+ 			{
+-				// data in, LSB to MSB
+-				value = getShiftValue();
+-				// we're shifting in data to MSB, shift data to be aligned for returning the value
+-				value &gt;&gt;= 32-k;
+-
+-				for (l = 0; l &lt; k; l += 8)
+-				{
+-					inBuffer[(j + l)/8]=(value &gt;&gt; l)&amp;0xff;
+-				}
++				in_value[(j + l)/8]=(value &gt;&gt; l)&amp;0xff;
+ 			}
+-			j += k;
+ 		}
+ 	}
+ }
+ 
++static __inline void scanFields(int num_fields, const struct scan_field *fields, tap_state_t shiftState, tap_state_t end_state)
++{
++	for (int i = 0; i &lt; num_fields; i++)
++	{
++		scanBits(fields[i].out_value,
++				fields[i].in_value,
++				fields[i].num_bits,
++				(i == num_fields-1),
++				shiftState,
++				end_state);
++	}
++}
++
+ int interface_jtag_add_ir_scan(struct jtag_tap *active, const struct scan_field *fields, tap_state_t state)
+ {
+ 	int scan_size = 0;
+ 	struct jtag_tap *tap, *nextTap;
++	tap_state_t pause_state = TAP_IRSHIFT;
+ 
+ 	for (tap = jtag_tap_next_enabled(NULL); tap!= NULL; tap = nextTap)
+ 	{
+ 		nextTap = jtag_tap_next_enabled(tap);
+-		bool pause = (nextTap==NULL);
++		if (nextTap==NULL)
++		{
++			pause_state = state;
++		}
+ 		scan_size = tap-&gt;ir_length;
+ 
+ 		/* search the list */
+ 		if (tap == active)
+ 		{
+-			scanFields(1, fields, TAP_IRSHIFT, pause);
++			scanFields(1, fields, TAP_IRSHIFT, pause_state);
+ 			/* update device information */
+ 			buf_cpy(fields[0].out_value, tap-&gt;cur_instr, scan_size);
+ 
+@@ -597,12 +587,11 @@ int interface_jtag_add_ir_scan(struct jtag_tap *active, const struct scan_field
+ 		{
+ 			/* if a device isn't listed, set it to BYPASS */
+ 			assert(scan_size &lt;= 32);
+-			shiftValueInner(TAP_IRSHIFT, pause?TAP_IRPAUSE:TAP_IRSHIFT, scan_size, 0xffffffff);
++			shiftValueInner(TAP_IRSHIFT, pause_state, scan_size, 0xffffffff);
+ 
+ 			tap-&gt;bypass = 1;
+ 		}
+ 	}
+-	gotoEndState(state);
+ 
+ 	return ERROR_OK;
+ }
+@@ -613,51 +602,41 @@ int interface_jtag_add_ir_scan(struct jtag_tap *active, const struct scan_field
+ 
+ int interface_jtag_add_plain_ir_scan(int num_bits, const uint8_t *out_bits, uint8_t *in_bits, tap_state_t state)
+ {
+-	struct scan_field field;
+-	field.num_bits	= num_bits;
+-	field.out_value	= out_bits;
+-	field.in_value	= in_bits;
+-
+-	scanFields(1, &amp;field, TAP_IRSHIFT, 1);
+-	gotoEndState(state);
+-
++	scanBits(out_bits, in_bits, num_bits, true, TAP_IRSHIFT, state);
+ 	return ERROR_OK;
+ }
+ 
+ int interface_jtag_add_dr_scan(struct jtag_tap *active, int num_fields, const struct scan_field *fields, tap_state_t state)
+ {
+ 	struct jtag_tap *tap, *nextTap;
++	tap_state_t pause_state = TAP_DRSHIFT;
+ 	for (tap = jtag_tap_next_enabled(NULL); tap!= NULL; tap = nextTap)
+ 	{
+ 		nextTap = jtag_tap_next_enabled(tap);
+-		bool pause = (nextTap==NULL);
++		if (nextTap==NULL)
++		{
++			pause_state = state;
++		}
+ 
+ 		/* Find a range of fields to write to this tap */
+ 		if (tap == active)
+ 		{
+ 			assert(!tap-&gt;bypass);
+ 
+-			scanFields(num_fields, fields, TAP_DRSHIFT, pause);
++			scanFields(num_fields, fields, TAP_DRSHIFT, pause_state);
+ 		} else
+ 		{
+ 			/* Shift out a 0 for disabled tap's */
+ 			assert(tap-&gt;bypass);
+-			shiftValueInner(TAP_DRSHIFT, pause?TAP_DRPAUSE:TAP_DRSHIFT, 1, 0);
++			shiftValueInner(TAP_DRSHIFT, pause_state, 1, 0);
+ 		}
+ 	}
+-	gotoEndState(state);
+ 	return ERROR_OK;
+ }
+ 
+ int interface_jtag_add_plain_dr_scan(int num_bits, const uint8_t *out_bits, uint8_t *in_bits, tap_state_t state)
+ {
+-	struct scan_field field;
+-	field.num_bits	= num_bits;
+-	field.out_value	= out_bits;
+-	field.in_value	= in_bits;
+-
+-	scanFields(1, &amp;field, TAP_DRSHIFT, 1);
+-	gotoEndState(state);
++	scanBits(out_bits, in_bits, num_bits, true, TAP_DRSHIFT, state);
+ 	return ERROR_OK;
+ }
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/zy1000/zy1000.c |  155 ++++++++++++++++++++--------------------------
+ 1 files changed, 67 insertions(+), 88 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002179.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-119-g03359b1
+</A></li>
+	<LI>Next message: <A HREF="002181.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-121-g3b310db
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2180">[ date ]</a>
+              <a href="thread.html#2180">[ thread ]</a>
+              <a href="subject.html#2180">[ subject ]</a>
+              <a href="author.html#2180">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

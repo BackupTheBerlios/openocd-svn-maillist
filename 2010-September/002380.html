@@ -1,0 +1,170 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-511-g3569106
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-511-g3569106&In-Reply-To=%3CE1OvF9l-0006rX-Vo%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002379.html">
+   <LINK REL="Next"  HREF="002381.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-511-g3569106</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-511-g3569106&In-Reply-To=%3CE1OvF9l-0006rX-Vo%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-511-g3569106">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Mon Sep 13 21:57:36 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002379.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-510-g81e0d44
+</A></li>
+        <LI>Next message: <A HREF="002381.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-512-g1b0f194
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2380">[ date ]</a>
+              <a href="thread.html#2380">[ thread ]</a>
+              <a href="subject.html#2380">[ subject ]</a>
+              <a href="author.html#2380">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  35691065f72110d4490df3a127467ea9c04c70ca (commit)
+      from  81e0d4438ec4b4112e28a9e90ba2fc1fb548310b (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 35691065f72110d4490df3a127467ea9c04c70ca
+Author: Mike Dunn &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mikedunn at newsguy.com</A>&gt;
+Date:   Mon Sep 13 12:45:37 2010 -0700
+
+    xscale: fix sw breakpoints for thumb; set bp immediately
+    
+    Hi everyone,
+    
+    Version 2 of this patch.  Code added to breakpoints.c was removed from previous
+    patch, and item 3 added, per discussion with &#195;&#152;yvind regarding error reporting.
+    Item 4 added, which I just noticed.
+    
+    I tried to use a software breakpoint in thumb code on the xscale for the first
+    time recently, and was surprised to find that it didn't work.  The result was
+    this patch, which does four things:
+    
+    1): fix trivial cut-n-paste error that caused thumb breakpoints to not work
+    2): call xscale_set_breakpoint() from xscale_add_breakpoint()
+    3): log error on data abort in xscale_write_memory()
+    4): fixed incorrect error code returned by xscale_set_breakpoint() when no
+        breakpoint register is available; added comment
+    
+    Item 2 not only makes the xscale breakpoint code consistent with other targets,
+    but also alerts the user immediately if an error occurs when writing the
+    breakpoint instruction to target memory (previously, xscale_set_breakpoint() was
+    not called until execution resumed).  Also, calling xscale_breakpoint_set() as
+    part of the call chain starting with handle_bp_command() and propagating the
+    return status back up the chain avoids the situation where OpenOCD &quot;thinks&quot; the
+    breakpoint is set when in reality an error ocurred.
+    
+    Item 3 provides a helpful message for a common reason for failure to set sw
+    breakpoint.
+    
+    This was thoroughly tested, mindful of the fact that breakpoint management is
+    somewhat dicey during single-stepping.
+    
+    Comments and criticisms of course gratefully received.
+    
+    Mike
+    
+    Signed-off-by: Mike Dunn &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mikedunn at newsguy.com</A>&gt;
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 2b8bff1..82b0f34 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -1979,6 +1979,7 @@ static int xscale_write_memory(struct target *target, uint32_t address,
+ 		if ((retval = xscale_send_u32(target, 0x60)) != ERROR_OK)
+ 			return retval;
+ 
++		LOG_ERROR(&quot;data abort writing memory&quot;);
+ 		return ERROR_TARGET_DATA_ABORT;
+ 	}
+ 
+@@ -2141,9 +2142,9 @@ static int xscale_set_breakpoint(struct target *target,
+ 			breakpoint-&gt;set = 2;	/* breakpoint set on second breakpoint register */
+ 		}
+ 		else
+-		{
++		{	/* bug: availability previously verified in xscale_add_breakpoint() */
+ 			LOG_ERROR(&quot;BUG: no hardware comparator available&quot;);
+-			return ERROR_OK;
++			return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+ 		}
+ 	}
+ 	else if (breakpoint-&gt;type == BKPT_SOFT)
+@@ -2169,7 +2170,7 @@ static int xscale_set_breakpoint(struct target *target,
+ 				return retval;
+ 			}
+ 			/* write the bkpt instruction in target endianness (arm7_9-&gt;arm_bkpt is host endian) */
+-			if ((retval = target_write_u32(target, breakpoint-&gt;address, xscale-&gt;thumb_bkpt)) != ERROR_OK)
++			if ((retval = target_write_u16(target, breakpoint-&gt;address, xscale-&gt;thumb_bkpt)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+@@ -2207,7 +2208,7 @@ static int xscale_add_breakpoint(struct target *target,
+ 		xscale-&gt;ibcr_available--;
+ 	}
+ 
+-	return ERROR_OK;
++	return xscale_set_breakpoint(target, breakpoint);
+ }
+ 
+ static int xscale_unset_breakpoint(struct target *target,
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/xscale.c |    9 +++++----
+ 1 files changed, 5 insertions(+), 4 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002379.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-510-g81e0d44
+</A></li>
+	<LI>Next message: <A HREF="002381.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-512-g1b0f194
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2380">[ date ]</a>
+              <a href="thread.html#2380">[ thread ]</a>
+              <a href="subject.html#2380">[ subject ]</a>
+              <a href="author.html#2380">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

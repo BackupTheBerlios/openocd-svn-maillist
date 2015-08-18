@@ -1,0 +1,791 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-960-ge872d28
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-960-ge872d28&In-Reply-To=%3Cmailman.131.1331736156.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002645.html">
+   <LINK REL="Next"  HREF="002647.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-960-ge872d28</H1>
+    <B>Spencer Oliver</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-960-ge872d28&In-Reply-To=%3Cmailman.131.1331736156.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-960-ge872d28">ntfreak at users.sourceforge.net
+       </A><BR>
+    <I>Tue Jul 26 22:18:08 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002645.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-959-gd6c42bf
+</A></li>
+        <LI>Next message: <A HREF="002647.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-962-gba4b8af
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2646">[ date ]</a>
+              <a href="thread.html#2646">[ thread ]</a>
+              <a href="subject.html#2646">[ subject ]</a>
+              <a href="author.html#2646">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  e872d2880e019bde20a176166fc748334845f13e (commit)
+      from  d6c42bf312ec6cdf95c6837fdadcebf1b104fa4f (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit e872d2880e019bde20a176166fc748334845f13e
+Author: Ronny Strutz &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ronny at ewoks.de</A>&gt;
+Date:   Tue Jul 26 21:14:47 2011 +0100
+
+    add Fujitsu FM3 Family flash support
+    
+    Signed-off-by: Ronny Strutz &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ronny at ewoks.de</A>&gt;
+    Signed-off-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ntfreak at users.sourceforge.net</A>&gt;
+
+diff --git a/src/flash/nor/Makefile.am b/src/flash/nor/Makefile.am
+index 41fb564..c897851 100644
+--- a/src/flash/nor/Makefile.am
++++ b/src/flash/nor/Makefile.am
+@@ -30,7 +30,8 @@ NOR_DRIVERS = \
+ 	str9x.c \
+ 	str9xpec.c \
+ 	tms470.c \
+-	virtual.c
++	virtual.c \
++	fm3.c
+ 
+ # Disabled for now, it generates warnings
+ # dsp5680xx_flash.c 
+diff --git a/src/flash/nor/drivers.c b/src/flash/nor/drivers.c
+index 637c63b..dc927b3 100644
+--- a/src/flash/nor/drivers.c
++++ b/src/flash/nor/drivers.c
+@@ -44,6 +44,7 @@ extern struct flash_driver virtual_flash;
+ extern struct flash_driver stmsmi_flash;
+ extern struct flash_driver em357_flash;
+ //extern struct flash_driver dsp5680xx_flash;
++extern struct flash_driver fm3_flash;
+ 
+ /**
+  * The list of built-in flash drivers.
+@@ -74,6 +75,7 @@ static struct flash_driver *flash_drivers[] = {
+ 	&amp;em357_flash,
+ 	// Disabled for now, it generates warnings
+ 	//&amp;dsp5680xx_flash,
++	&amp;fm3_flash,
+ 	NULL,
+ };
+ 
+diff --git a/src/flash/nor/fm3.c b/src/flash/nor/fm3.c
+new file mode 100644
+index 0000000..a584964
+--- /dev/null
++++ b/src/flash/nor/fm3.c
+@@ -0,0 +1,654 @@
++/***************************************************************************
++ *   Copyright (C) 2011 by Marc Willam, Holger Wech                        *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">m.willam at gmx.eu</A>                                                       *
++ *   Copyright (C) 2011 Ronny Strutz                                       *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;imp.h&quot;
++#include &lt;helper/binarybuffer.h&gt;
++#include &lt;target/algorithm.h&gt;
++#include &lt;target/armv7m.h&gt;
++
++#define FLASH_DQ6 0x00000040	/* Data toggle flag bit (TOGG) position */
++#define FLASH_DQ5 0x00000020	/* Time limit exceeding flag bit (TLOV) position */
++
++enum fm3_variant
++{
++	mb9bfxx1,
++	mb9bfxx2,
++	mb9bfxx3,
++	mb9bfxx4,
++	mb9bfxx5,
++	mb9bfxx6
++};
++
++struct fm3_flash_bank
++{
++	struct working_area *write_algorithm;
++	enum fm3_variant variant;
++	int probed;
++};
++
++FLASH_BANK_COMMAND_HANDLER(fm3_flash_bank_command)
++{
++	struct fm3_flash_bank *fm3_info;
++
++	if (CMD_ARGC &lt; 6)
++	{
++		LOG_WARNING(&quot;incomplete flash_bank fm3 configuration&quot;);
++		return ERROR_FLASH_BANK_INVALID;
++	}
++
++	LOG_INFO(&quot;******HWE* FLASH CMD Parameter %s&quot;, CMD_ARGV[5]);
++
++	fm3_info = malloc(sizeof(struct fm3_flash_bank));
++	bank-&gt;driver_priv = fm3_info;
++
++	if (strcmp(CMD_ARGV[5], &quot;mb9bfxx1.cpu&quot;) == 0)
++	{
++		fm3_info-&gt;variant = mb9bfxx1;
++	}
++	else if (strcmp(CMD_ARGV[5], &quot;mb9bfxx2.cpu&quot;) == 0)
++	{
++		fm3_info-&gt;variant = mb9bfxx2;
++	}
++	else if (strcmp(CMD_ARGV[5], &quot;mb9bfxx3.cpu&quot;) == 0)
++	{
++		fm3_info-&gt;variant = mb9bfxx3;
++	}
++	else if (strcmp(CMD_ARGV[5], &quot;mb9bfxx4.cpu&quot;) == 0)
++	{
++		fm3_info-&gt;variant = mb9bfxx4;
++	}
++	else if (strcmp(CMD_ARGV[5], &quot;mb9bfxx5.cpu&quot;) == 0)
++	{
++		fm3_info-&gt;variant = mb9bfxx5;
++	}
++	else if (strcmp(CMD_ARGV[5], &quot;mb9bfxx6.cpu&quot;) == 0)
++	{
++		fm3_info-&gt;variant = mb9bfxx6;
++		LOG_INFO(&quot;******HWE* fm3 Variant set to: mb9bfxx6&quot;);
++	}
++	else
++	{
++		LOG_ERROR(&quot;unknown fm3 variant: %s&quot;, CMD_ARGV[5]);
++		free(fm3_info);
++		return ERROR_FLASH_BANK_INVALID;
++	}
++
++	fm3_info-&gt;write_algorithm = NULL;
++	fm3_info-&gt;probed = 0;
++
++	return ERROR_OK;
++}
++
++static int fm3_busy_wait(struct target *target, uint32_t offset, int timeout_ms)
++{
++	int retval = ERROR_OK;
++	uint16_t state1, state2;
++	int ms = 0;
++
++	while(1) {
++		target_read_u16(target, offset, &amp;state1);	/* dummy-read - see flash manual */
++		target_read_u16(target, offset, &amp;state1);
++		target_read_u16(target, offset, &amp;state2);
++
++		if ( (state1 &amp; FLASH_DQ6) == (state2 &amp; FLASH_DQ6) ) {
++			break;
++		}
++		else if (state1 &amp; FLASH_DQ5) {
++			target_read_u16(target, offset, &amp;state1);
++			target_read_u16(target, offset, &amp;state2);
++			if ( (state1 &amp; FLASH_DQ6) != (state2 &amp; FLASH_DQ6) )
++				retval = ERROR_FLASH_OPERATION_FAILED;
++			break;
++		}
++		usleep(1000);
++		++ms;
++
++		if (ms &gt; timeout_ms) {
++			LOG_ERROR(&quot;toggle bit reading timed out!&quot;);
++			retval = ERROR_FLASH_OPERATION_FAILED;
++			break;
++		}
++	}
++
++	if (retval == ERROR_OK)
++		LOG_DEBUG(&quot;fm3_busy_wait(%x) needs about %d ms&quot;, offset, ms);
++
++	return retval;
++}
++
++static int fm3_erase(struct flash_bank *bank, int first, int last)
++{
++	struct target *target = bank-&gt;target;
++	int retval = ERROR_OK;
++	uint32_t u32DummyRead;
++	int sector, odd;
++
++	if (target-&gt;state != TARGET_HALTED) {
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	LOG_INFO(&quot;Fujitsu MB9Bxxx: Sector Erase ... (%d to %d)&quot;, first, last);
++
++	target_write_u32(target, 0x40000000, 0x0001);		/* FASZR = 0x01, Enables CPU Programming Mode */
++	target_read_u32(target, 0x40000000, &amp;u32DummyRead); /* dummy read of FASZR */
++
++	for (sector = first ; sector &lt;= last ; sector++) {
++		uint32_t offset = bank-&gt;sectors[sector].offset;
++
++		for (odd = 0; odd &lt; 2 ; odd++) {
++
++			if (odd)
++				offset += 4;
++
++			target_write_u16(target, 0x1550, 0x00AA);
++			target_write_u16(target, 0x0AA8, 0x0055);
++			target_write_u16(target, 0x1550, 0x0080);
++			target_write_u16(target, 0x1550, 0x00AA);
++			target_write_u16(target, 0x0AA8, 0x0055);
++			target_write_u16(target, offset, 0x0030);
++
++			retval = fm3_busy_wait(target, offset, 500);
++
++			if (retval != ERROR_OK)
++				break;
++		}
++		bank-&gt;sectors[sector].is_erased = 1;
++	}
++
++	target_write_u32(target, 0x40000000, 0x0002);
++	target_read_u32(target, 0x40000000, &amp;u32DummyRead); /* dummy read of FASZR */
++
++	return retval;
++}
++
++static int fm3_write_block(struct flash_bank *bank, uint8_t *buffer, uint32_t offset, uint32_t count)
++{
++	struct fm3_flash_bank *fm3_info = bank-&gt;driver_priv;
++	struct target *target = bank-&gt;target;
++	uint32_t buffer_size = 8192;
++	struct working_area *source;
++	uint32_t address = bank-&gt;base + offset;
++	struct reg_param reg_params[4];
++	struct armv7m_algorithm armv7m_info;
++	int retval = ERROR_OK;
++
++	/* RAMCODE used for fm3 Flash programming:                 */
++	/* R0 keeps source start address         (u32Source)       */
++	/* R1 keeps target start address         (u32Target)       */
++	/* R2 keeps number of halfwords to write (u32Count)        */
++	/* R3 returns result value               (u32FlashResult)  */
++
++	const uint8_t fm3_flash_write_code[] = {
++								/*    fm3_FLASH_IF-&gt;FASZ &amp;= 0xFFFD;                               */
++	0x00, 0xBF,                 /*        NOP                                                     */
++	0x5F, 0xF0, 0x80, 0x43,     /*        MOVS.W   R3, #(fm3_FLASH_IF-&gt;FASZ)                      */
++	0x1B, 0x68,                 /*        LDR      R3, [R3]                                       */
++	0x4F, 0xF6, 0xFD, 0x74,     /*        MOVW     R4, #0xFFFD                                    */
++	0x23, 0x40,                 /*        ANDS     R3, R3, R4                                     */
++	0x5F, 0xF0, 0x80, 0x44,     /*        MOVS.W   R4, #(fm3_FLASH_IF-&gt;FASZ)                      */
++	0x23, 0x60,                 /*        STR      R3, [R4]                                       */
++								/*    fm3_FLASH_IF-&gt;FASZ |= 1;                                    */
++	0x5F, 0xF0, 0x80, 0x43,     /*        MOVS.W   R3, #(fm3_FLASH_IF-&gt;FASZ)                      */
++	0x1B, 0x68,                 /*        LDR      R3, [R3]                                       */
++	0x53, 0xF0, 0x01, 0x03,     /*        ORRS.W   R3, R3, #1                                     */
++	0x5F, 0xF0, 0x80, 0x44,     /*        MOVS.W   R4, #(fm3_FLASH_IF-&gt;FASZ)                      */
++	0x23, 0x60,                 /*        STR      R3, [R4]                                       */
++	                            /*    u32DummyRead = fm3_FLASH_IF-&gt;FASZ;                          */
++	0x2B, 0x4B,                 /*        LDR.N    R3, ??u32DummyRead                             */
++	0x5F, 0xF0, 0x80, 0x44,     /*        MOVS.W   R4, #(fm3_FLASH_IF-&gt;FASZ)                      */
++	0x24, 0x68,                 /*        LDR      R4, [R4]                                       */
++	0x1C, 0x60,                 /*        STR      R4, [R3]                                       */
++	                            /*    u32FlashResult = FLASH_WRITE_NO_RESULT                      */
++	0x2A, 0x4B,                 /*        LDR.N    R3, ??u32FlashResult                           */
++	0x00, 0x24,                 /*        MOVS     R4, #0                                         */
++	0x1C, 0x60,                 /*        STR      R4, [R3]                                       */
++	                            /*    while ((u32Count &gt; 0 ) &amp;&amp; (u32FlashResult                   */
++	                            /*      == FLASH_WRITE_NO_RESULT))                                */
++	0x01, 0x2A,                 /* L0:    CMP      R2, #1                                         */
++	0x32, 0xDB,                 /*        BLT.N    L1                                             */
++	0x27, 0x4B,                 /*        LDR.N    R3, ??u32FlashResult                           */
++	0x1B, 0x68,                 /*        LDR      R3, [R3]                                       */
++	0x00, 0x2B,                 /*        CMP      R3, #0                                         */
++	0x2E, 0xD1,                 /*        BNE.N    L1                                             */
++	                            /*    *(FLASH_SEQ_1550) = FLASH_WRITE_1;                          */
++	0x41, 0xF2, 0x50, 0x53,     /*        MOVW     R3, #0x1550                                    */
++	0xAA, 0x24,                 /*        MOVS     R4. #0xAA                                      */
++	0x1C, 0x80,                 /*        STRH     R4, [R3]                                       */
++	                            /*    *(FLASH_SEQ_0AA8) = FLASH_WRITE_2;                          */
++	0x40, 0xF6, 0xA8, 0x23,     /*        MOVW     R3, #0x0AA8                                    */
++	0x55, 0x24,                 /*        MOVS     R4. #0x55                                      */
++	0x1C, 0x80,                 /*        STRH     R4, [R3]                                       */
++	                            /*    *(FLASH_SEQ_1550) = FLASH_WRITE_3;                          */
++	0x41, 0xF2, 0x50, 0x53,     /*        MOVW     R3, #0x1550                                    */
++	0xA0, 0x24,                 /*        MOVS     R4. #0xA0                                      */
++	0x1C, 0x80,                 /*        STRH     R4, [R3]                                       */
++	                            /*    *(volatile uint16_t*)u32Target                              */
++	                            /*      = *(volatile uint16_t*)u32Source;                         */
++	0x03, 0x88,                 /*        LDRH     R3, [R0]                                       */
++	0x0B, 0x80,                 /*        STRH     R3, [R1]                                       */
++	                            /*    while (u32FlashResult == FLASH_WRITE_NO_RESTULT)            */
++	0x1E, 0x4B,                 /* L2:    LDR.N    R3, ??u32FlashResult                           */
++	0x1B, 0x68,                 /*        LDR      R3, [R3]                                       */
++	0x00, 0x2B,                 /*        CMP      R3, #0                                         */
++	0x11, 0xD1,                 /*        BNE.N    L3                                             */
++	                            /*    if ((*(volatile uint16_t*)u32Target &amp; FLASH_DQ5)             */
++	                            /*      == FLASH_DQ5)                                             */
++	0x0B, 0x88,                 /*        LDRH     R3, [R1]                                       */
++	0x9B, 0x06,                 /*        LSLS     R3, R3, #0x1A                                  */
++	0x02, 0xD5,                 /*        BPL.N    L4                                             */
++	                            /*    u32FlashResult = FLASH_WRITE_TIMEOUT                        */
++	0x1B, 0x4B,                 /*        LDR.N    R3, ??u32FlashResult                           */
++	0x02, 0x24,                 /*        MOVS     R4, #2                                         */
++	0x1C, 0x60,                 /*        STR      R4, [R3]                                       */
++	                            /*    if ((*(volatile uint16_t *)u32Target &amp; FLASH_DQ7)            */
++	                            /*      == (*(volatile uint16_t*)u32Source &amp; FLASH_DQ7))          */
++	0x0B, 0x88,                 /* L4:    LDRH     R3, [R1]                                       */
++	0x13, 0xF0, 0x80, 0x03,     /*        ANDS.W   R3, R3, #0x80                                  */
++	0x04, 0x88,                 /*        LDRH     R4, [R0]                                       */
++	0x14, 0xF0, 0x80, 0x04,     /*        ANDS.W   R4, R4, #0x80                                  */
++	0xA3, 0x42,                 /*        CMP      R3, R4                                         */
++	0xED, 0xD1,                 /*        BNE.N    L2                                             */
++	                            /*    u32FlashResult = FLASH_WRITE_OKAY                           */
++	0x15, 0x4B,                 /*        LDR.N    R3, ??u32FlashResult                           */
++	0x01, 0x24,                 /*        MOVS     R4, #1                                         */
++	0x1C, 0x60,                 /*        STR      R4, [R3]                                       */
++	0xE9, 0xE7,                 /*        B.N      L2                                             */
++	                            /*    if (u32FlashResult != FLASH_WRITE_TIMEOUT)                   */
++	0x13, 0x4B,                 /*        LDR.N    R3, ??u32FlashResult                           */
++	0x1B, 0x68,                 /*        LDR      R3, [R3]                                       */
++	0x02, 0x2B,                 /*        CMP      R3, #2                                         */
++	0x02, 0xD0,                 /*        BEQ.N    L5                                             */
++	                            /*    u32FlashResult = FLASH_WRITE_NO_RESULT                      */
++	0x11, 0x4B,                 /*        LDR.N    R3, ??u32FlashResult                           */
++	0x00, 0x24,                 /*        MOVS     R4, #0                                         */
++	0x1C, 0x60,                 /*        STR      R4, [R3]                                       */
++	                            /*    u32Count--;                                                 */
++	0x52, 0x1E,                 /* L5:    SUBS     R2, R2, #1                                     */
++	                            /*    u32Source += 2;                                             */
++	0x80, 0x1C,                 /*        ADDS     R0, R0, #2                                     */
++	                            /*    u32Target += 2;                                             */
++	0x89, 0x1C,                 /*        ADDS     R1, R1, #2                                     */
++	0xCA, 0xE7,                 /*        B.N      L0                                             */
++	                            /*    fm3_FLASH_IF-&gt;FASZ &amp;= 0xFFFE;                               */
++	0x5F, 0xF0, 0x80, 0x43,     /* L1:    MOVS.W   R3, #(fm3_FLASH_IF-&gt;FASZ)                      */
++	0x1B, 0x68,                 /*        LDR      R3, [R3]                                       */
++	0x4F, 0xF6, 0xFE, 0x74,     /*        MOVW     R4, #0xFFFE                                    */
++	0x23, 0x40,                 /*        ANDS     R3, R3, R4                                     */
++	0x5F, 0xF0, 0x80, 0x44,     /*        MOVS.W   R4, #(fm3_FLASH_IF-&gt;FASZ)                      */
++	0x23, 0x60,                 /*        STR      R3, [R4]                                       */
++	                            /*    fm3_FLASH_IF-&gt;FASZ |= 2;                                    */
++	0x5F, 0xF0, 0x80, 0x43,     /*        MOVS.W   R3, #(fm3_FLASH_IF-&gt;FASZ)                      */
++	0x1B, 0x68,                 /*        LDR      R3, [R3]                                       */
++	0x53, 0xF0, 0x02, 0x03,     /*        ORRS.W   R3, R3, #2                                     */
++	0x5F, 0xF0, 0x80, 0x44,     /*        MOVS.W   R4, #(fm3_FLASH_IF-&gt;FASZ)                      */
++	0x23, 0x60,                 /*        STR      R4, [R3]                                       */
++	                            /*    u32DummyRead = fm3_FLASH_IF-&gt;FASZ;                          */
++	0x04, 0x4B,                 /*        LDR.N    R3, ??u32DummyRead                             */
++	0x5F, 0xF0, 0x80, 0x44,     /*        MOVS.W   R4, #(fm3_FLASH_IF-&gt;FASZ)                      */
++	0x24, 0x68,                 /*        LDR      R4, [R4]                                       */
++	0x1C, 0x60,                 /*        STR      R4, [R3]                                       */
++	                            /*    copy u32FlashResult to R3 for return value                  */
++	0xDF, 0xF8, 0x0C, 0x30,     /*        LDR.W    R3, ??u32FlashResult                           */
++	0x1B, 0x68,                 /*        LDR      R3, [R3]                                       */
++	                            /*    Breakpoint here                                             */
++	0x00, 0xBE,                 /* Breakpoint #0                                                  */
++	0x00, 0x00,                 /*    alignment padding bytes                                     */
++	0x00, 0x80, 0xFF, 0x1F,     /* u32DummyRead address in RAM (0x1FFF8000)                       */
++	0x04, 0x80, 0xFF, 0x1F      /* u32FlashResult address in RAM (0x1FFF8004)                     */
++	};
++
++	LOG_INFO(&quot;Fujitsu MB9B500: FLASH Write ...&quot;);
++
++	/* disable HW watchdog */
++	target_write_u32(target, 0x40011C00, 0x1ACCE551);
++	target_write_u32(target, 0x40011C00, 0xE5331AAE);
++	target_write_u32(target, 0x40011008, 0x00000000);
++
++	count = count / 2;		/* number bytes -&gt; number halfwords */
++
++	/* check code alignment */
++	if (offset &amp; 0x1)
++	{
++		LOG_WARNING(&quot;offset 0x%&quot; PRIx32 &quot; breaks required 2-byte alignment&quot;, offset);
++		return ERROR_FLASH_DST_BREAKS_ALIGNMENT;
++	}
++
++	/* allocate working area with flash programming code */
++	if (target_alloc_working_area(target, sizeof(fm3_flash_write_code),
++			&amp;fm3_info-&gt;write_algorithm) != ERROR_OK)
++	{
++		LOG_WARNING(&quot;no working area available, can't do block memory writes&quot;);
++		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	}
++
++	retval = target_write_buffer(target, fm3_info-&gt;write_algorithm-&gt;address,
++		sizeof(fm3_flash_write_code), fm3_flash_write_code);
++	if (retval != ERROR_OK)
++		return retval;
++
++	/* memory buffer */
++	while (target_alloc_working_area(target, buffer_size, &amp;source) != ERROR_OK)
++	{
++		buffer_size /= 2;
++		if (buffer_size &lt;= 256)
++		{
++			/* free working area, if write algorithm already allocated */
++			if (fm3_info-&gt;write_algorithm)
++			{
++				target_free_working_area(target, fm3_info-&gt;write_algorithm);
++			}
++
++			LOG_WARNING(&quot;no large enough working area available, can't do block memory writes&quot;);
++			return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++		}
++	}
++
++	armv7m_info.common_magic = ARMV7M_COMMON_MAGIC;
++	armv7m_info.core_mode = ARMV7M_MODE_ANY;
++
++	init_reg_param(&amp;reg_params[0], &quot;r0&quot;, 32, PARAM_OUT); // source start address
++	init_reg_param(&amp;reg_params[1], &quot;r1&quot;, 32, PARAM_OUT); // target start address
++	init_reg_param(&amp;reg_params[2], &quot;r2&quot;, 32, PARAM_OUT); // number of halfwords to program
++	init_reg_param(&amp;reg_params[3], &quot;r3&quot;, 32, PARAM_IN);  // result
++
++	/* write code buffer and use Flash programming code within fm3           */
++	/* Set breakpoint to 0 with time-out of 1000 ms                          */
++	while (count &gt; 0)
++	{
++		uint32_t thisrun_count = (count &gt; (buffer_size / 2)) ? (buffer_size / 2) : count;
++
++		/* for some reason the first 8 byte of code are corrupt when target_run_algorithm() returns */
++		/* need some more investigation on this                                                     */
++		retval = target_write_buffer(target,
++				fm3_info-&gt;write_algorithm-&gt;address, 8, fm3_flash_write_code);
++		if (retval != ERROR_OK)
++			return retval;
++
++
++		retval = target_write_buffer(target,
++				source-&gt;address, thisrun_count * 2, buffer);
++		if (retval != ERROR_OK)
++			break;
++
++		buf_set_u32(reg_params[0].value, 0, 32, source-&gt;address);
++		buf_set_u32(reg_params[1].value, 0, 32, address);
++		buf_set_u32(reg_params[2].value, 0, 32, thisrun_count);
++
++
++		retval = target_run_algorithm(target, 0, NULL, 4, reg_params,
++				fm3_info-&gt;write_algorithm-&gt;address, 0, 1000, &amp;armv7m_info);
++		if (retval != ERROR_OK)
++		{
++			LOG_ERROR(&quot;error executing fm3 Flash programming algorithm&quot;);
++			retval = ERROR_FLASH_OPERATION_FAILED;
++			break;
++		}
++
++#if 0
++		/* debug the corrupted 8 bytes */
++		unsigned char buf[256];
++		retval = target_read_buffer(target, fm3_info-&gt;write_algorithm-&gt;address, 256, buf);
++		if (retval != ERROR_OK)
++			printf(&quot;cannot read buffer\n&quot;);
++		unsigned int i;
++		for ( i = 0; i &lt; sizeof(fm3_flash_write_code); i++)
++			if (buf[i] != fm3_flash_write_code[i])
++				printf(&quot;broken: %d %02x != %02x\n&quot;, i, buf[i], fm3_flash_write_code[i]);
++#endif
++
++		if (buf_get_u32(reg_params[3].value, 0, 32) != ERROR_OK)
++		{
++			LOG_ERROR(&quot;Fujitsu MB9B500: FLASH programming ERROR (Timeout) -&gt; Reg R3: %x&quot;,
++					buf_get_u32(reg_params[3].value, 0, 32));
++			retval = ERROR_FLASH_OPERATION_FAILED;
++			break;
++		}
++
++		buffer  += thisrun_count * 2;
++		address += thisrun_count * 2;
++		count   -= thisrun_count;
++	}
++
++	target_free_working_area(target, source);
++	target_free_working_area(target, fm3_info-&gt;write_algorithm);
++
++	destroy_reg_param(&amp;reg_params[0]);
++	destroy_reg_param(&amp;reg_params[1]);
++	destroy_reg_param(&amp;reg_params[2]);
++	destroy_reg_param(&amp;reg_params[3]);
++
++	return retval;
++}
++
++static int fm3_probe(struct flash_bank *bank)
++{
++	struct fm3_flash_bank *fm3_info = bank-&gt;driver_priv;
++	uint16_t num_pages;
++
++	if (bank-&gt;target-&gt;state != TARGET_HALTED)
++	{
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	num_pages = 6;				/* max number of Flash pages for malloc */
++	fm3_info-&gt;probed = 0;
++
++	bank-&gt;sectors = malloc(sizeof(struct flash_sector) * num_pages);
++	bank-&gt;base = 0x00000000;
++	num_pages = 2;				/* start with smallest Flash pages number */
++	bank-&gt;size = 32 * 1024;		/* bytes */
++
++	bank-&gt;sectors[0].offset = 0;
++	bank-&gt;sectors[0].size = 16 * 1024;
++	bank-&gt;sectors[0].is_erased = -1;
++	bank-&gt;sectors[0].is_protected = -1;
++
++	bank-&gt;sectors[1].offset = 0x4000;
++	bank-&gt;sectors[1].size = 16 * 1024;
++	bank-&gt;sectors[1].is_erased = -1;
++	bank-&gt;sectors[1].is_protected = -1;
++
++	if (fm3_info-&gt;variant == mb9bfxx1)
++	{
++		num_pages = 3;
++		bank-&gt;size = 64 * 1024; /* bytes */
++		bank-&gt;num_sectors = num_pages;
++
++		bank-&gt;sectors[2].offset = 0x8000;
++		bank-&gt;sectors[2].size = 32 * 1024;
++		bank-&gt;sectors[2].is_erased = -1;
++		bank-&gt;sectors[2].is_protected = -1;
++	}
++
++	if (  (fm3_info-&gt;variant == mb9bfxx2)
++		|| (fm3_info-&gt;variant == mb9bfxx4)
++		|| (fm3_info-&gt;variant == mb9bfxx5)
++		|| (fm3_info-&gt;variant == mb9bfxx6))
++	{
++		num_pages = 3;
++		bank-&gt;size = 128 * 1024; // bytes
++		bank-&gt;num_sectors = num_pages;
++
++		bank-&gt;sectors[2].offset = 0x8000;
++		bank-&gt;sectors[2].size = 96 * 1024;
++		bank-&gt;sectors[2].is_erased = -1;
++		bank-&gt;sectors[2].is_protected = -1;
++	}
++
++	if ( (fm3_info-&gt;variant == mb9bfxx4)
++		|| (fm3_info-&gt;variant == mb9bfxx5)
++		|| (fm3_info-&gt;variant == mb9bfxx6))
++	{
++		num_pages = 4;
++		bank-&gt;size = 256 * 1024; // bytes
++		bank-&gt;num_sectors = num_pages;
++
++		bank-&gt;sectors[3].offset = 0x20000;
++		bank-&gt;sectors[3].size = 128 * 1024;
++		bank-&gt;sectors[3].is_erased = -1;
++		bank-&gt;sectors[3].is_protected = -1;
++	}
++
++	if ( (fm3_info-&gt;variant == mb9bfxx5)
++		|| (fm3_info-&gt;variant == mb9bfxx6))
++	{
++		num_pages = 5;
++		bank-&gt;size = 384 * 1024; // bytes
++		bank-&gt;num_sectors = num_pages;
++
++		bank-&gt;sectors[4].offset = 0x40000;
++		bank-&gt;sectors[4].size = 128 * 1024;
++		bank-&gt;sectors[4].is_erased = -1;
++		bank-&gt;sectors[4].is_protected = -1;
++	}
++
++	if (fm3_info-&gt;variant == mb9bfxx6)
++	{
++		num_pages = 6;
++		bank-&gt;size = 512 * 1024; // bytes
++		bank-&gt;num_sectors = num_pages;
++
++		bank-&gt;sectors[5].offset = 0x60000;
++		bank-&gt;sectors[5].size = 128 * 1024;
++		bank-&gt;sectors[5].is_erased = -1;
++		bank-&gt;sectors[5].is_protected = -1;
++	}
++
++	fm3_info-&gt;probed = 1;
++
++	return ERROR_OK;
++}
++
++static int fm3_auto_probe(struct flash_bank *bank)
++{
++	struct fm3_flash_bank *fm3_info = bank-&gt;driver_priv;
++	if (fm3_info-&gt;probed)
++		return ERROR_OK;
++	return fm3_probe(bank);
++}
++
++static int fm3_info(struct flash_bank *bank, char *buf, int buf_size)
++{
++	snprintf(buf, buf_size, &quot;Fujitsu fm3 Device does not support Chip-ID (Type unknown)&quot;);
++	return ERROR_OK;
++}
++
++static int fm3_chip_erase(struct flash_bank *bank)
++{
++	struct target *target = bank-&gt;target;
++	int retval = ERROR_OK;
++	uint32_t u32DummyRead;
++
++	if (target-&gt;state != TARGET_HALTED)
++	{
++		LOG_ERROR(&quot;Target not halted&quot;);
++		return ERROR_TARGET_NOT_HALTED;
++	}
++
++	LOG_INFO(&quot;Fujitsu MB9Bxxx: Chip Erase ... (may take several seconds)&quot;);
++
++	/* Implement Flash chip erase (mass erase) completely on host */
++	target_write_u32(target, 0x40000000, 0x0001);		/* FASZR = 0x01, Enables CPU Programming Mode (16-bit Flash access) */
++	target_read_u32(target, 0x40000000, &amp;u32DummyRead); /* dummy read of FASZR */
++
++	target_write_u16(target, 0x00001550, 0x00AA); 		/* Flash unlock sequence */
++	target_write_u16(target, 0x00000AA8, 0x0055);
++	target_write_u16(target, 0x00001550, 0x0080);
++	target_write_u16(target, 0x00001550, 0x00AA);
++	target_write_u16(target, 0x00000AA8, 0x0055);
++	target_write_u16(target, 0x00001550, 0x0010); 		/* Chip Erase command */
++
++	retval = fm3_busy_wait(target, 0xAA8, 20000);
++
++	target_write_u32(target, 0x40000000, 0x0002);
++	target_read_u32(target, 0x40000000, &amp;u32DummyRead); /* dummy read of FASZR */
++
++	return retval;
++}
++
++COMMAND_HANDLER(fm3_handle_chip_erase_command)
++{
++	int i;
++
++	if (CMD_ARGC &lt; 1)
++	{
++		command_print(CMD_CTX, &quot;fm3 chip_erase &lt;bank&gt;&quot;);
++		return ERROR_OK;
++	}
++
++	struct flash_bank *bank;
++	int retval = CALL_COMMAND_HANDLER(flash_command_get_bank, 0, &amp;bank);
++	if (ERROR_OK != retval)
++		return retval;
++
++	if (fm3_chip_erase(bank) == ERROR_OK)
++	{
++		/* set all sectors as erased */
++		for (i = 0; i &lt; bank-&gt;num_sectors; i++)
++			bank-&gt;sectors[i].is_erased = 1;
++
++		command_print(CMD_CTX, &quot;fm3 chip erase complete&quot;);
++	}
++	else
++	{
++		command_print(CMD_CTX, &quot;fm3 chip erase failed&quot;);
++	}
++
++	return ERROR_OK;
++}
++
++static const struct command_registration fm3_exec_command_handlers[] = {
++	{
++		.name = &quot;chip_erase&quot;,
++		.handler = fm3_handle_chip_erase_command,
++		.mode = COMMAND_EXEC,
++		.usage = &quot;bank_id&quot;,
++		.help = &quot;Erase entire Flash device.&quot;,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++static const struct command_registration fm3_command_handlers[] = {
++	{
++		.name = &quot;fm3&quot;,
++		.mode = COMMAND_ANY,
++		.help = &quot;fm3 Flash command group&quot;,
++		.chain = fm3_exec_command_handlers,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
++struct flash_driver fm3_flash = {
++	.name = &quot;fm3&quot;,
++	.commands = fm3_command_handlers,
++	.flash_bank_command = fm3_flash_bank_command,
++	.erase = fm3_erase,
++	.write = fm3_write_block,
++	.probe = fm3_probe,
++	.auto_probe = fm3_auto_probe,
++	.erase_check = default_flash_mem_blank_check,
++	.info = fm3_info,
++};
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/Makefile.am |    3 +-
+ src/flash/nor/drivers.c   |    2 +
+ src/flash/nor/fm3.c       |  654 +++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 658 insertions(+), 1 deletions(-)
+ create mode 100644 src/flash/nor/fm3.c
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002645.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-959-gd6c42bf
+</A></li>
+	<LI>Next message: <A HREF="002647.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-962-gba4b8af
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2646">[ date ]</a>
+              <a href="thread.html#2646">[ thread ]</a>
+              <a href="subject.html#2646">[ subject ]</a>
+              <a href="author.html#2646">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

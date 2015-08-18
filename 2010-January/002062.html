@@ -1,0 +1,188 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-144-gb7fa16e
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-144-gb7fa16e&In-Reply-To=%3CE1NYZcb-0004hH-Js%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002061.html">
+   <LINK REL="Next"  HREF="002063.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-144-gb7fa16e</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-144-gb7fa16e&In-Reply-To=%3CE1NYZcb-0004hH-Js%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-144-gb7fa16e">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Sat Jan 23 07:37:24 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002061.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-143-g4960c90
+</A></li>
+        <LI>Next message: <A HREF="002063.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-145-g82c3c47
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2062">[ date ]</a>
+              <a href="thread.html#2062">[ thread ]</a>
+              <a href="subject.html#2062">[ subject ]</a>
+              <a href="author.html#2062">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  b7fa16eeacb368dca8862168088bc6c491f0ffb1 (commit)
+      from  4960c9018f2560b11ede91cde8a68dc56c690159 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit b7fa16eeacb368dca8862168088bc6c491f0ffb1
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Jan 22 22:37:15 2010 -0800
+
+    ARM11: fix breakpoints with GDB
+    
+    This fixes a bug whereby GDB's breakpoints weren't activated.
+    The root cause is a confused interface to resume().  Fix by
+    almost ignoring the &quot;handle breakpoints&quot; parameter; it only
+    seems related to the case of skipping breakpoint-at-PC.
+    
+    Update a few coments to clarify what's happening.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 082930a..8b7b69c 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -498,12 +498,9 @@ static int arm11_resume(struct target *target, int current,
+ 	if (!debug_execution)
+ 		target_free_all_working_areas(target);
+ 
+-	/* Set up breakpoints */
+-	if (handle_breakpoints)
+-	{
+-		/* check if one matches PC and step over it if necessary */
+-
+-		struct breakpoint *	bp;
++	/* Should we skip over breakpoints matching the PC? */
++	if (handle_breakpoints) {
++		struct breakpoint *bp;
+ 
+ 		for (bp = target-&gt;breakpoints; bp; bp = bp-&gt;next)
+ 		{
+@@ -514,9 +511,11 @@ static int arm11_resume(struct target *target, int current,
+ 				break;
+ 			}
+ 		}
++	}
+ 
+-		/* set all breakpoints */
+-
++	/* activate all breakpoints */
++	if (true) {
++		struct breakpoint *bp;
+ 		unsigned brp_num = 0;
+ 
+ 		for (bp = target-&gt;breakpoints; bp; bp = bp-&gt;next)
+@@ -542,7 +541,8 @@ static int arm11_resume(struct target *target, int current,
+ 			arm11_sc7_set_vcr(arm11, arm11_vcr);
+ 	}
+ 
+-	arm11_leave_debug_state(arm11, handle_breakpoints);
++	/* activate all watchpoints and breakpoints */
++	arm11_leave_debug_state(arm11, true);
+ 
+ 	arm11_add_IR(arm11, ARM11_RESTART, TAP_IDLE);
+ 
+@@ -953,6 +953,7 @@ static int arm11_write_memory_inner(struct target *target,
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
++	/* load r0 with buffer address */
+ 	/* MRC p14,0,r0,c0,c5,0 */
+ 	retval = arm11_run_instr_data_to_core1(arm11, 0xee100e15, address);
+ 	if (retval != ERROR_OK)
+@@ -975,11 +976,13 @@ static int arm11_write_memory_inner(struct target *target,
+ 
+ 			for (size_t i = 0; i &lt; count; i++)
+ 			{
++				/* load r1 from DCC with byte data */
+ 				/* MRC p14,0,r1,c0,c5,0 */
+ 				retval = arm11_run_instr_data_to_core1(arm11, 0xee101e15, *buffer++);
+ 				if (retval != ERROR_OK)
+ 					return retval;
+ 
++				/* write r1 to memory */
+ 				/* strb    r1, [r0], #1 */
+ 				/* strb    r1, [r0] */
+ 				retval = arm11_run_instr_no_data1(arm11,
+@@ -1002,11 +1005,13 @@ static int arm11_write_memory_inner(struct target *target,
+ 				uint16_t value;
+ 				memcpy(&amp;value, buffer + i * sizeof(uint16_t), sizeof(uint16_t));
+ 
++				/* load r1 from DCC with halfword data */
+ 				/* MRC p14,0,r1,c0,c5,0 */
+ 				retval = arm11_run_instr_data_to_core1(arm11, 0xee101e15, value);
+ 				if (retval != ERROR_OK)
+ 					return retval;
+ 
++				/* write r1 to memory */
+ 				/* strh    r1, [r0], #2 */
+ 				/* strh    r1, [r0] */
+ 				retval = arm11_run_instr_no_data1(arm11,
+@@ -1021,6 +1026,7 @@ static int arm11_write_memory_inner(struct target *target,
+ 		}
+ 
+ 	case 4: {
++		/* stream word data through DCC directly to memory */
+ 		/* increment:		STC p14,c5,[R0],#4 */
+ 		/* no increment:	STC p14,c5,[R0]*/
+ 		uint32_t instr = !no_increment ? 0xeca05e01 : 0xed805e00;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm11.c |   24 +++++++++++++++---------
+ 1 files changed, 15 insertions(+), 9 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002061.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-143-g4960c90
+</A></li>
+	<LI>Next message: <A HREF="002063.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-145-g82c3c47
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2062">[ date ]</a>
+              <a href="thread.html#2062">[ thread ]</a>
+              <a href="subject.html#2062">[ subject ]</a>
+              <a href="author.html#2062">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

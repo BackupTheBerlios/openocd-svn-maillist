@@ -1,0 +1,751 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-446-gf478865
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-446-gf478865&In-Reply-To=%3CE1NARW3-0004Vg-Dv%40fxgxhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001808.html">
+   <LINK REL="Next"  HREF="001810.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-446-gf478865</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-446-gf478865&In-Reply-To=%3CE1NARW3-0004Vg-Dv%40fxgxhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-446-gf478865">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Tue Nov 17 18:06:54 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001808.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-445-g959b373
+</A></li>
+        <LI>Next message: <A HREF="001810.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-454-g789d47c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1809">[ date ]</a>
+              <a href="thread.html#1809">[ thread ]</a>
+              <a href="subject.html#1809">[ subject ]</a>
+              <a href="author.html#1809">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  f4788652e45662d1e43933dc0620561bc4cddae0 (commit)
+      from  959b373f8cdc2c1ad11c67c6916f88f48769438f (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit f4788652e45662d1e43933dc0620561bc4cddae0
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Nov 17 09:06:45 2009 -0800
+
+    target: simplify register get/set ops
+    
+    No need to indirect from registered integers to pointers.
+    Just stash the pointers directly in the register struct,
+    and don't even bother registering.
+    
+    This is a small code shrink, speeds register access just
+    a smidgeon, and gets rid of another rude exit() path.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index 55ec7d4..9581ea6 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -1004,14 +1004,10 @@ int gdb_set_registers_packet(struct connection *connection, struct target *targe
+ 			LOG_ERROR(&quot;BUG: register packet is too small for registers&quot;);
+ 		}
+ 
+-		struct reg_arch_type *arch_type;
+ 		bin_buf = malloc(DIV_ROUND_UP(reg_list[i]-&gt;size, 8));
+ 		gdb_target_to_reg(target, packet_p, chars, bin_buf);
+ 
+-		/* get register arch_type, and call set method */
+-		arch_type = register_get_arch_type(reg_list[i]-&gt;arch_type);
+-
+-		arch_type-&gt;set(reg_list[i], bin_buf);
++		reg_list[i]-&gt;type-&gt;set(reg_list[i], bin_buf);
+ 
+ 		/* advance packet pointer */
+ 		packet_p += chars;
+@@ -1071,7 +1067,6 @@ int gdb_set_register_packet(struct connection *connection, struct target *target
+ 	struct reg **reg_list;
+ 	int reg_list_size;
+ 	int retval;
+-	struct reg_arch_type *arch_type;
+ 
+ 	LOG_DEBUG(&quot;-&quot;);
+ 
+@@ -1100,9 +1095,7 @@ int gdb_set_register_packet(struct connection *connection, struct target *target
+ 
+ 	gdb_target_to_reg(target, separator + 1, chars, bin_buf);
+ 
+-		/* get register arch_type, and call set method */
+-	arch_type = register_get_arch_type(reg_list[reg_num]-&gt;arch_type);
+-	arch_type-&gt;set(reg_list[reg_num], bin_buf);
++	reg_list[reg_num]-&gt;type-&gt;set(reg_list[reg_num], bin_buf);
+ 
+ 	gdb_put_packet(connection, &quot;OK&quot;, 2);
+ 
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 31135e4..936edd8 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -58,8 +58,6 @@ static uint32_t arm11_vcr = 0;
+ static bool arm11_config_step_irq_enable = false;
+ static bool arm11_config_hardware_step = false;
+ 
+-static int arm11_regs_arch_type = -1;
+-
+ enum arm11_regtype
+ {
+ 	ARM11_REGISTER_CORE,
+@@ -263,7 +261,6 @@ static struct reg arm11_gdb_dummy_fp_reg =
+ 	.valid = 1,
+ 	.size = 96,
+ 	.arch_info = NULL,
+-	.arch_type = 0,
+ };
+ 
+ static uint8_t arm11_gdb_dummy_fps_value[4];
+@@ -276,7 +273,6 @@ static struct reg arm11_gdb_dummy_fps_reg =
+ 	.valid = 1,
+ 	.size = 32,
+ 	.arch_info = NULL,
+-	.arch_type = 0,
+ };
+ 
+ 
+@@ -1945,6 +1941,11 @@ static int arm11_set_reg(struct reg *reg, uint8_t *buf)
+ 	return ERROR_OK;
+ }
+ 
++static const struct reg_arch_type arm11_reg_type = {
++	.get = arm11_get_reg,
++	.set = arm11_set_reg,
++};
++
+ static int arm11_build_reg_cache(struct target *target)
+ {
+ 	struct arm11_common *arm11 = target_to_arm11(target);
+@@ -1953,9 +1954,6 @@ static int arm11_build_reg_cache(struct target *target)
+ 	NEW(struct reg,				reg_list,			ARM11_REGCACHE_COUNT);
+ 	NEW(struct arm11_reg_state,	arm11_reg_states,	ARM11_REGCACHE_COUNT);
+ 
+-	if (arm11_regs_arch_type == -1)
+-		arm11_regs_arch_type = register_reg_arch_type(arm11_get_reg, arm11_set_reg);
+-
+ 	register_init_dummy(&amp;arm11_gdb_dummy_fp_reg);
+ 	register_init_dummy(&amp;arm11_gdb_dummy_fps_reg);
+ 
+@@ -1995,7 +1993,7 @@ static int arm11_build_reg_cache(struct target *target)
+ 		r-&gt;value			= (uint8_t *)(arm11-&gt;reg_values + i);
+ 		r-&gt;dirty			= 0;
+ 		r-&gt;valid			= 0;
+-		r-&gt;arch_type		= arm11_regs_arch_type;
++		r-&gt;type = &amp;arm11_reg_type;
+ 		r-&gt;arch_info		= rs;
+ 
+ 		rs-&gt;def_index		= i;
+diff --git a/src/target/armv4_5.c b/src/target/armv4_5.c
+index 717c826..413061f 100644
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -116,8 +116,6 @@ char* armv4_5_state_strings[] =
+ 	&quot;ARM&quot;, &quot;Thumb&quot;, &quot;Jazelle&quot;
+ };
+ 
+-int armv4_5_core_reg_arch_type = -1;
+-
+ struct armv4_5_core_reg armv4_5_core_reg_list_arch_info[] =
+ {
+ 	{0, ARMV4_5_MODE_ANY, NULL, NULL},
+@@ -201,7 +199,6 @@ struct reg armv4_5_gdb_dummy_fp_reg =
+ 	.valid = 1,
+ 	.size = 96,
+ 	.arch_info = NULL,
+-	.arch_type = 0,
+ };
+ 
+ uint8_t armv4_5_gdb_dummy_fps_value[] = {0, 0, 0, 0};
+@@ -214,7 +211,6 @@ struct reg armv4_5_gdb_dummy_fps_reg =
+ 	.valid = 1,
+ 	.size = 32,
+ 	.arch_info = NULL,
+-	.arch_type = 0,
+ };
+ 
+ int armv4_5_get_core_reg(struct reg *reg)
+@@ -285,6 +281,11 @@ int armv4_5_set_core_reg(struct reg *reg, uint8_t *buf)
+ 	return ERROR_OK;
+ }
+ 
++static const struct reg_arch_type arm_reg_type = {
++	.get = armv4_5_get_core_reg,
++	.set = armv4_5_set_core_reg,
++};
++
+ int armv4_5_invalidate_core_regs(struct target *target)
+ {
+ 	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
+@@ -312,9 +313,6 @@ struct reg_cache* armv4_5_build_reg_cache(struct target *target, struct arm *arm
+ 	cache-&gt;reg_list = reg_list;
+ 	cache-&gt;num_regs = num_regs;
+ 
+-	if (armv4_5_core_reg_arch_type == -1)
+-		armv4_5_core_reg_arch_type = register_reg_arch_type(armv4_5_get_core_reg, armv4_5_set_core_reg);
+-
+ 	register_init_dummy(&amp;armv4_5_gdb_dummy_fp_reg);
+ 	register_init_dummy(&amp;armv4_5_gdb_dummy_fps_reg);
+ 
+@@ -328,7 +326,7 @@ struct reg_cache* armv4_5_build_reg_cache(struct target *target, struct arm *arm
+ 		reg_list[i].value = calloc(1, 4);
+ 		reg_list[i].dirty = 0;
+ 		reg_list[i].valid = 0;
+-		reg_list[i].arch_type = armv4_5_core_reg_arch_type;
++		reg_list[i].type = &amp;arm_reg_type;
+ 		reg_list[i].arch_info = &amp;arch_info[i];
+ 	}
+ 
+diff --git a/src/target/armv7a.c b/src/target/armv7a.c
+index fdaca31..5193b2a 100644
+--- a/src/target/armv7a.c
++++ b/src/target/armv7a.c
+@@ -157,7 +157,6 @@ struct reg armv7a_gdb_dummy_fp_reg =
+ 	.valid = 1,
+ 	.size = 96,
+ 	.arch_info = NULL,
+-	.arch_type = 0,
+ };
+ 
+ void armv7a_show_fault_registers(struct target *target)
+diff --git a/src/target/armv7m.c b/src/target/armv7m.c
+index 3b01fa9..8c1de32 100644
+--- a/src/target/armv7m.c
++++ b/src/target/armv7m.c
+@@ -72,7 +72,6 @@ static struct reg armv7m_gdb_dummy_fp_reg =
+ 	.valid = 1,
+ 	.size = 96,
+ 	.arch_info = NULL,
+-	.arch_type = 0,
+ };
+ 
+ static uint8_t armv7m_gdb_dummy_fps_value[4];
+@@ -85,7 +84,6 @@ static struct reg armv7m_gdb_dummy_fps_reg =
+ 	.valid = 1,
+ 	.size = 32,
+ 	.arch_info = NULL,
+-	.arch_type = 0,
+ };
+ 
+ #ifdef ARMV7_GDB_HACKS
+@@ -99,7 +97,6 @@ struct reg armv7m_gdb_dummy_cpsr_reg =
+ 	.valid = 1,
+ 	.size = 32,
+ 	.arch_info = NULL,
+-	.arch_type = 0,
+ };
+ #endif
+ 
+@@ -148,8 +145,6 @@ static const struct {
+ 
+ #define ARMV7M_NUM_REGS	ARRAY_SIZE(armv7m_regs)
+ 
+-static int armv7m_core_reg_arch_type = -1;
+-
+ /**
+  * Restores target context using the cache of core registers set up
+  * by armv7m_build_reg_cache(), calling optional core-specific hooks.
+@@ -542,6 +537,10 @@ int armv7m_arch_state(struct target *target)
+ 
+ 	return ERROR_OK;
+ }
++static const struct reg_arch_type armv7m_reg_type = {
++	.get = armv7m_get_core_reg,
++	.set = armv7m_set_core_reg,
++};
+ 
+ /** Builds cache of architecturally defined registers.  */
+ struct reg_cache *armv7m_build_reg_cache(struct target *target)
+@@ -554,11 +553,6 @@ struct reg_cache *armv7m_build_reg_cache(struct target *target)
+ 	struct armv7m_core_reg *arch_info = calloc(num_regs, sizeof(struct armv7m_core_reg));
+ 	int i;
+ 
+-	if (armv7m_core_reg_arch_type == -1)
+-	{
+-		armv7m_core_reg_arch_type = register_reg_arch_type(armv7m_get_core_reg, armv7m_set_core_reg);
+-	}
+-
+ 	register_init_dummy(&amp;armv7m_gdb_dummy_fps_reg);
+ #ifdef ARMV7_GDB_HACKS
+ 	register_init_dummy(&amp;armv7m_gdb_dummy_cpsr_reg);
+@@ -583,7 +577,7 @@ struct reg_cache *armv7m_build_reg_cache(struct target *target)
+ 		reg_list[i].value = calloc(1, 4);
+ 		reg_list[i].dirty = 0;
+ 		reg_list[i].valid = 0;
+-		reg_list[i].arch_type = armv7m_core_reg_arch_type;
++		reg_list[i].type = &amp;armv7m_reg_type;
+ 		reg_list[i].arch_info = &amp;arch_info[i];
+ 	}
+ 
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index 7e48dae..c7b978b 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -1478,7 +1478,10 @@ static struct dwt_reg dwt_comp[] = {
+ #undef DWT_COMPARATOR
+ };
+ 
+-static int dwt_reg_type = -1;
++static const struct reg_arch_type dwt_reg_type = {
++	.get = cortex_m3_dwt_get_reg,
++	.set = cortex_m3_dwt_set_reg,
++};
+ 
+ static void
+ cortex_m3_dwt_addreg(struct target *t, struct reg *r, struct dwt_reg *d)
+@@ -1495,7 +1498,7 @@ cortex_m3_dwt_addreg(struct target *t, struct reg *r, struct dwt_reg *d)
+ 	r-&gt;size = d-&gt;size;
+ 	r-&gt;value = &amp;state-&gt;value;
+ 	r-&gt;arch_info = state;
+-	r-&gt;arch_type = dwt_reg_type;
++	r-&gt;type = &amp;dwt_reg_type;
+ }
+ 
+ static void
+@@ -1512,10 +1515,6 @@ cortex_m3_dwt_setup(struct cortex_m3_common *cm3, struct target *target)
+ 		return;
+ 	}
+ 
+-	if (dwt_reg_type &lt; 0)
+-		dwt_reg_type = register_reg_arch_type(cortex_m3_dwt_get_reg,
+-				cortex_m3_dwt_set_reg);
+-
+ 	cm3-&gt;dwt_num_comp = (dwtcr &gt;&gt; 28) &amp; 0xF;
+ 	cm3-&gt;dwt_comp_available = cm3-&gt;dwt_num_comp;
+ 	cm3-&gt;dwt_comparator_list = calloc(cm3-&gt;dwt_num_comp,
+diff --git a/src/target/embeddedice.c b/src/target/embeddedice.c
+index 2e9f1c0..e375475 100644
+--- a/src/target/embeddedice.c
++++ b/src/target/embeddedice.c
+@@ -143,8 +143,6 @@ static const struct {
+ };
+ 
+ 
+-static int embeddedice_reg_arch_type = -1;
+-
+ static int embeddedice_get_reg(struct reg *reg)
+ {
+ 	int retval;
+@@ -157,6 +155,11 @@ static int embeddedice_get_reg(struct reg *reg)
+ 	return retval;
+ }
+ 
++static const struct reg_arch_type eice_reg_type = {
++	.get = embeddedice_get_reg,
++	.set = embeddedice_set_reg_w_exec,
++};
++
+ /**
+  * Probe EmbeddedICE module and set up local records of its registers.
+  * Different versions of the modules have different capabilities, such as
+@@ -174,11 +177,6 @@ embeddedice_build_reg_cache(struct target *target, struct arm7_9_common *arm7_9)
+ 	int i;
+ 	int eice_version = 0;
+ 
+-	/* register arch-type for EmbeddedICE registers only once */
+-	if (embeddedice_reg_arch_type == -1)
+-		embeddedice_reg_arch_type = register_reg_arch_type(
+-				embeddedice_get_reg, embeddedice_set_reg_w_exec);
+-
+ 	/* vector_catch isn't always present */
+ 	if (!arm7_9-&gt;has_vector_catch)
+ 		num_regs--;
+@@ -202,7 +200,7 @@ embeddedice_build_reg_cache(struct target *target, struct arm7_9_common *arm7_9)
+ 		reg_list[i].valid = 0;
+ 		reg_list[i].value = calloc(1, 4);
+ 		reg_list[i].arch_info = &amp;arch_info[i];
+-		reg_list[i].arch_type = embeddedice_reg_arch_type;
++		reg_list[i].type = &amp;eice_reg_type;
+ 		arch_info[i].addr = eice_regs[i].addr;
+ 		arch_info[i].jtag_info = jtag_info;
+ 	}
+diff --git a/src/target/etb.c b/src/target/etb.c
+index 196df6c..859ebaf 100644
+--- a/src/target/etb.c
++++ b/src/target/etb.c
+@@ -40,8 +40,6 @@ static char* etb_reg_list[] =
+ 	&quot;ETB_control&quot;,
+ };
+ 
+-static int etb_reg_arch_type = -1;
+-
+ static int etb_get_reg(struct reg *reg);
+ 
+ static int etb_set_instr(struct etb *etb, uint32_t new_instr)
+@@ -123,6 +121,11 @@ static int etb_get_reg(struct reg *reg)
+ 	return ERROR_OK;
+ }
+ 
++static const struct reg_arch_type etb_reg_type = {
++	.get = etb_get_reg,
++	.set = etb_set_reg_w_exec,
++};
++
+ struct reg_cache* etb_build_reg_cache(struct etb *etb)
+ {
+ 	struct reg_cache *reg_cache = malloc(sizeof(struct reg_cache));
+@@ -131,10 +134,6 @@ struct reg_cache* etb_build_reg_cache(struct etb *etb)
+ 	int num_regs = 9;
+ 	int i;
+ 
+-	/* register a register arch-type for etm registers only once */
+-	if (etb_reg_arch_type == -1)
+-		etb_reg_arch_type = register_reg_arch_type(etb_get_reg, etb_set_reg_w_exec);
+-
+ 	/* the actual registers are kept in two arrays */
+ 	reg_list = calloc(num_regs, sizeof(struct reg));
+ 	arch_info = calloc(num_regs, sizeof(struct etb_reg));
+@@ -154,7 +153,7 @@ struct reg_cache* etb_build_reg_cache(struct etb *etb)
+ 		reg_list[i].valid = 0;
+ 		reg_list[i].value = calloc(1, 4);
+ 		reg_list[i].arch_info = &amp;arch_info[i];
+-		reg_list[i].arch_type = etb_reg_arch_type;
++		reg_list[i].type = &amp;etb_reg_type;
+ 		reg_list[i].size = 32;
+ 		arch_info[i].addr = i;
+ 		arch_info[i].etb = etb;
+diff --git a/src/target/etm.c b/src/target/etm.c
+index fa7a71b..31b8bb2 100644
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -214,8 +214,6 @@ static const struct etm_reg_info etm_outputs[] = {
+ 	{ 0x6f, 32, RO, 0x20, &quot;ETM_contextid_comparator_mask&quot;, }
+ #endif
+ 
+-static int etm_reg_arch_type = -1;
+-
+ static int etm_get_reg(struct reg *reg);
+ static int etm_read_reg_w_check(struct reg *reg,
+ 		uint8_t* check_value, uint8_t* check_mask);
+@@ -225,6 +223,10 @@ static int etm_write_reg(struct reg *reg, uint32_t value);
+ 
+ static struct command *etm_cmd;
+ 
++static const struct reg_arch_type etm_scan6_type = {
++	.get = etm_get_reg,
++	.set = etm_set_reg_w_exec,
++};
+ 
+ /* Look up register by ID ... most ETM instances only
+  * support a subset of the possible registers.
+@@ -269,7 +271,7 @@ static void etm_reg_add(unsigned bcd_vers, struct arm_jtag *jtag_info,
+ 		reg-&gt;size = r-&gt;size;
+ 		reg-&gt;value = &amp;ereg-&gt;value;
+ 		reg-&gt;arch_info = ereg;
+-		reg-&gt;arch_type = etm_reg_arch_type;
++		reg-&gt;type = &amp;etm_scan6_type;
+ 		reg++;
+ 		cache-&gt;num_regs++;
+ 
+@@ -287,11 +289,6 @@ struct reg_cache *etm_build_reg_cache(struct target *target,
+ 	struct etm_reg *arch_info = NULL;
+ 	unsigned bcd_vers, config;
+ 
+-	/* register a register arch-type for etm registers only once */
+-	if (etm_reg_arch_type == -1)
+-		etm_reg_arch_type = register_reg_arch_type(etm_get_reg,
+-				etm_set_reg_w_exec);
+-
+ 	/* the actual registers are kept in two arrays */
+ 	reg_list = calloc(128, sizeof(struct reg));
+ 	arch_info = calloc(128, sizeof(struct etm_reg));
+diff --git a/src/target/mips32.c b/src/target/mips32.c
+index 1315744..f986079 100644
+--- a/src/target/mips32.c
++++ b/src/target/mips32.c
+@@ -97,11 +97,8 @@ struct reg mips32_gdb_dummy_fp_reg =
+ 	.valid = 1,
+ 	.size = 32,
+ 	.arch_info = NULL,
+-	.arch_type = 0,
+ };
+ 
+-int mips32_core_reg_arch_type = -1;
+-
+ int mips32_get_core_reg(struct reg *reg)
+ {
+ 	int retval;
+@@ -278,6 +275,11 @@ int mips32_arch_state(struct target *target)
+ 	return ERROR_OK;
+ }
+ 
++static const struct reg_arch_type mips32_reg_type = {
++	.get = mips32_get_core_reg,
++	.set = mips32_set_core_reg,
++};
++
+ struct reg_cache *mips32_build_reg_cache(struct target *target)
+ {
+ 	/* get pointers to arch-specific information */
+@@ -290,9 +292,6 @@ struct reg_cache *mips32_build_reg_cache(struct target *target)
+ 	struct mips32_core_reg *arch_info = malloc(sizeof(struct mips32_core_reg) * num_regs);
+ 	int i;
+ 
+-	if (mips32_core_reg_arch_type == -1)
+-		mips32_core_reg_arch_type = register_reg_arch_type(mips32_get_core_reg, mips32_set_core_reg);
+-
+ 	register_init_dummy(&amp;mips32_gdb_dummy_fp_reg);
+ 
+ 	/* Build the process context cache */
+@@ -313,7 +312,7 @@ struct reg_cache *mips32_build_reg_cache(struct target *target)
+ 		reg_list[i].value = calloc(1, 4);
+ 		reg_list[i].dirty = 0;
+ 		reg_list[i].valid = 0;
+-		reg_list[i].arch_type = mips32_core_reg_arch_type;
++		reg_list[i].type = &amp;mips32_reg_type;
+ 		reg_list[i].arch_info = &amp;arch_info[i];
+ 	}
+ 
+diff --git a/src/target/register.c b/src/target/register.c
+index bb046a1..d9ef53e 100644
+--- a/src/target/register.c
++++ b/src/target/register.c
+@@ -29,8 +29,6 @@
+ #include &quot;log.h&quot;
+ 
+ 
+-struct reg_arch_type *reg_arch_types = NULL;
+-
+ struct reg* register_get_by_name(struct reg_cache *first,
+ 		const char *name, bool search_all)
+ {
+@@ -67,44 +65,6 @@ struct reg_cache** register_get_last_cache_p(struct reg_cache **first)
+ 	return cache_p;
+ }
+ 
+-int register_reg_arch_type(int (*get)(struct reg *reg), int (*set)(struct reg *reg, uint8_t *buf))
+-{
+-	struct reg_arch_type** arch_type_p = &amp;reg_arch_types;
+-	int id = 0;
+-
+-	if (*arch_type_p)
+-	{
+-		while (*arch_type_p)
+-		{
+-			id = (*arch_type_p)-&gt;id;
+-			arch_type_p = &amp;((*arch_type_p)-&gt;next);
+-		}
+-	}
+-
+-	(*arch_type_p) = malloc(sizeof(struct reg_arch_type));
+-	(*arch_type_p)-&gt;id = id + 1;
+-	(*arch_type_p)-&gt;set = set;
+-	(*arch_type_p)-&gt;get = get;
+-	(*arch_type_p)-&gt;next = NULL;
+-
+-	return id + 1;
+-}
+-
+-struct reg_arch_type* register_get_arch_type(int id)
+-{
+-	struct reg_arch_type *arch_type = reg_arch_types;
+-
+-	while (arch_type)
+-	{
+-		if (arch_type-&gt;id == id)
+-			return arch_type;
+-		arch_type = arch_type-&gt;next;
+-	}
+-	LOG_ERROR(&quot;BUG: encountered unregistered arch type 0x%08x&quot;, id);
+-	exit(-1);
+-	return NULL;
+-}
+-
+ static int register_get_dummy_core_reg(struct reg *reg)
+ {
+ 	return ERROR_OK;
+@@ -118,11 +78,12 @@ static int register_set_dummy_core_reg(struct reg *reg, uint8_t *buf)
+ 	return ERROR_OK;
+ }
+ 
++static const struct reg_arch_type dummy_type = {
++	.get = register_get_dummy_core_reg,
++	.set = register_set_dummy_core_reg,
++};
++
+ void register_init_dummy(struct reg *reg)
+ {
+-	static int dummy_arch_type = -1;
+-	if (dummy_arch_type == -1)
+-		dummy_arch_type = register_reg_arch_type(register_get_dummy_core_reg, register_set_dummy_core_reg);
+-
+-	reg-&gt;arch_type = dummy_arch_type;
++	reg-&gt;type = &amp;dummy_type;
+ }
+diff --git a/src/target/register.h b/src/target/register.h
+index 84d2aaa..c14dfd4 100644
+--- a/src/target/register.h
++++ b/src/target/register.h
+@@ -33,7 +33,7 @@ struct reg
+ 	int valid;
+ 	uint32_t size;
+ 	void *arch_info;
+-	int arch_type;
++	const struct reg_arch_type *type;
+ };
+ 
+ struct reg_cache
+@@ -46,20 +46,14 @@ struct reg_cache
+ 
+ struct reg_arch_type
+ {
+-	int id;
+ 	int (*get)(struct reg *reg);
+ 	int (*set)(struct reg *reg, uint8_t *buf);
+-	struct reg_arch_type *next;
+ };
+ 
+ struct reg* register_get_by_name(struct reg_cache *first,
+ 		const char *name, bool search_all);
+ struct reg_cache** register_get_last_cache_p(struct reg_cache **first);
+ 
+-int register_reg_arch_type(int (*get)(struct reg *reg),
+-		int (*set)(struct reg *reg, uint8_t *buf));
+-struct reg_arch_type* register_get_arch_type(int id);
+-
+ void register_init_dummy(struct reg *reg);
+ 
+ #endif /* REGISTER_H */
+diff --git a/src/target/target.c b/src/target/target.c
+index c00c2ed..0b2438c 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -1955,8 +1955,7 @@ COMMAND_HANDLER(handle_reg_command)
+ 
+ 		if (reg-&gt;valid == 0)
+ 		{
+-			struct reg_arch_type *arch_type = register_get_arch_type(reg-&gt;arch_type);
+-			arch_type-&gt;get(reg);
++			reg-&gt;type-&gt;get(reg);
+ 		}
+ 		value = buf_to_str(reg-&gt;value, reg-&gt;size, 16);
+ 		command_print(cmd_ctx, &quot;%s (/%i): 0x%s&quot;, reg-&gt;name, (int)(reg-&gt;size), value);
+@@ -1970,8 +1969,7 @@ COMMAND_HANDLER(handle_reg_command)
+ 		uint8_t *buf = malloc(DIV_ROUND_UP(reg-&gt;size, 8));
+ 		str_to_buf(args[1], strlen(args[1]), buf, reg-&gt;size, 0);
+ 
+-		struct reg_arch_type *arch_type = register_get_arch_type(reg-&gt;arch_type);
+-		arch_type-&gt;set(reg, buf);
++		reg-&gt;type-&gt;set(reg, buf);
+ 
+ 		value = buf_to_str(reg-&gt;value, reg-&gt;size, 16);
+ 		command_print(cmd_ctx, &quot;%s (/%i): 0x%s&quot;, reg-&gt;name, (int)(reg-&gt;size), value);
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 742dd25..4c3945c 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -134,8 +134,6 @@ static const struct xscale_reg xscale_reg_arch_info[] =
+ 	{-1, NULL}, /* TXRXCTRL implicit access via JTAG */
+ };
+ 
+-static int xscale_reg_arch_type = -1;
+-
+ /* convenience wrapper to access XScale specific registers */
+ static int xscale_set_reg_u32(struct reg *reg, uint32_t value)
+ {
+@@ -2819,6 +2817,11 @@ static int xscale_analyze_trace(struct target *target, struct command_context *c
+ 	return ERROR_OK;
+ }
+ 
++static const struct reg_arch_type xscale_reg_type = {
++	.get = xscale_get_reg,
++	.set = xscale_set_reg,
++};
++
+ static void xscale_build_reg_cache(struct target *target)
+ {
+ 	struct xscale_common *xscale = target_to_xscale(target);
+@@ -2831,10 +2834,6 @@ static void xscale_build_reg_cache(struct target *target)
+ 	(*cache_p) = armv4_5_build_reg_cache(target, armv4_5);
+ 	armv4_5-&gt;core_cache = (*cache_p);
+ 
+-	/* register a register arch-type for XScale dbg registers only once */
+-	if (xscale_reg_arch_type == -1)
+-		xscale_reg_arch_type = register_reg_arch_type(xscale_get_reg, xscale_set_reg);
+-
+ 	(*cache_p)-&gt;next = malloc(sizeof(struct reg_cache));
+ 	cache_p = &amp;(*cache_p)-&gt;next;
+ 
+@@ -2852,7 +2851,7 @@ static void xscale_build_reg_cache(struct target *target)
+ 		(*cache_p)-&gt;reg_list[i].valid = 0;
+ 		(*cache_p)-&gt;reg_list[i].size = 32;
+ 		(*cache_p)-&gt;reg_list[i].arch_info = &amp;arch_info[i];
+-		(*cache_p)-&gt;reg_list[i].arch_type = xscale_reg_arch_type;
++		(*cache_p)-&gt;reg_list[i].type = &amp;xscale_reg_type;
+ 		arch_info[i] = xscale_reg_arch_info[i];
+ 		arch_info[i].target = target;
+ 	}
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/server/gdb_server.c  |   11 +--------
+ src/target/arm11.c       |   14 +++++-------
+ src/target/armv4_5.c     |   14 +++++-------
+ src/target/armv7a.c      |    1 -
+ src/target/armv7m.c      |   16 ++++----------
+ src/target/cortex_m3.c   |   11 ++++-----
+ src/target/embeddedice.c |   14 +++++-------
+ src/target/etb.c         |   13 +++++------
+ src/target/etm.c         |   13 ++++-------
+ src/target/mips32.c      |   13 +++++------
+ src/target/register.c    |   51 +++++----------------------------------------
+ src/target/register.h    |    8 +------
+ src/target/target.c      |    6 +---
+ src/target/xscale.c      |   13 +++++------
+ 14 files changed, 62 insertions(+), 136 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001808.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-445-g959b373
+</A></li>
+	<LI>Next message: <A HREF="001810.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-454-g789d47c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1809">[ date ]</a>
+              <a href="thread.html#1809">[ thread ]</a>
+              <a href="subject.html#1809">[ subject ]</a>
+              <a href="author.html#1809">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

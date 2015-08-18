@@ -1,0 +1,341 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-728-g892604b
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-728-g892604b&In-Reply-To=%3CE1NFJCB-0005V1-1c%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001891.html">
+   <LINK REL="Next"  HREF="001893.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-728-g892604b</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-728-g892604b&In-Reply-To=%3CE1NFJCB-0005V1-1c%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-728-g892604b">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Tue Dec  1 04:14:29 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001891.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-726-g8fc5a9a
+</A></li>
+        <LI>Next message: <A HREF="001893.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-729-g330733e
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1892">[ date ]</a>
+              <a href="thread.html#1892">[ thread ]</a>
+              <a href="subject.html#1892">[ subject ]</a>
+              <a href="author.html#1892">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  892604bc7e6b332cf3b0bf6c2586cbd0f54ec8ef (commit)
+       via  da7c202b5751c1420be6725c6eb456a2f723ba74 (commit)
+      from  8fc5a9a5e90ba1c7580e9d883aed0d790e594c8e (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 892604bc7e6b332cf3b0bf6c2586cbd0f54ec8ef
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Nov 30 19:14:19 2009 -0800
+
+    XScale: restore_context() cleanup
+    
+    Clean up two aspects to this routine:  bad naming, since it
+    doesn't restore the context, just the banked registers; and
+    excess indentation for the bulk of the code.
+    
+    Also make some of its call sites stash the function's return
+    code; someday they should use it for error checking.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 0680c52..ccb1de5 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -62,7 +62,7 @@
+ static int xscale_resume(struct target *, int current,
+ 	uint32_t address, int handle_breakpoints, int debug_execution);
+ static int xscale_debug_entry(struct target *);
+-static int xscale_restore_context(struct target *);
++static int xscale_restore_banked(struct target *);
+ static int xscale_get_reg(struct reg *reg);
+ static int xscale_set_reg(struct reg *reg, uint8_t *buf);
+ static int xscale_set_breakpoint(struct target *, struct breakpoint *);
+@@ -1251,7 +1251,7 @@ static int xscale_resume(struct target *target, int current,
+ 			xscale_enable_single_step(target, next_pc);
+ 
+ 			/* restore banked registers */
+-			xscale_restore_context(target);
++			retval = xscale_restore_banked(target);
+ 
+ 			/* send resume request (command 0x30 or 0x31)
+ 			 * clean the trace buffer if it is to be enabled (0x62) */
+@@ -1296,7 +1296,7 @@ static int xscale_resume(struct target *target, int current,
+ 	xscale_enable_watchpoints(target);
+ 
+ 	/* restore banked registers */
+-	xscale_restore_context(target);
++	retval = xscale_restore_banked(target);
+ 
+ 	/* send resume request (command 0x30 or 0x31)
+ 	 * clean the trace buffer if it is to be enabled (0x62) */
+@@ -1371,7 +1371,7 @@ static int xscale_step_inner(struct target *target, int current,
+ 		return retval;
+ 
+ 	/* restore banked registers */
+-	if ((retval = xscale_restore_context(target)) != ERROR_OK)
++	if ((retval = xscale_restore_banked(target)) != ERROR_OK)
+ 		return retval;
+ 
+ 	/* send resume request (command 0x30 or 0x31)
+@@ -1755,7 +1755,7 @@ static int xscale_full_context(struct target *target)
+ 	return ERROR_OK;
+ }
+ 
+-static int xscale_restore_context(struct target *target)
++static int xscale_restore_banked(struct target *target)
+ {
+ 	struct arm *armv4_5 = target_to_armv4_5(target);
+ 
+@@ -1774,8 +1774,8 @@ static int xscale_restore_context(struct target *target)
+ 	 */
+ 	for (i = 1; i &lt; 7; i++)
+ 	{
+-		int dirty = 0;
+ 		enum armv4_5_mode mode = armv4_5_number_to_mode(i);
++		struct reg *r;
+ 
+ 		if (mode == ARMV4_5_MODE_USR)
+ 			continue;
+@@ -1785,7 +1785,7 @@ static int xscale_restore_context(struct target *target)
+ 		{
+ 			if (ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 					mode, j).dirty)
+-				dirty = 1;
++				goto dirty;
+ 		}
+ 
+ 		/* if not USR/SYS, check if the SPSR needs to be written */
+@@ -1793,43 +1793,35 @@ static int xscale_restore_context(struct target *target)
+ 		{
+ 			if (ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+ 					mode, 16).dirty)
+-				dirty = 1;
++				goto dirty;
+ 		}
+ 
+-		/* is there anything to flush for this mode? */
+-		if (dirty)
+-		{
+-			uint32_t tmp_cpsr;
+-			struct reg *r;
+-
+-			/* command 0x1:  &quot;send banked registers&quot; */
+-			xscale_send_u32(target, 0x1);
++		/* there's nothing to flush for this mode */
++		continue;
+ 
+-			tmp_cpsr = 0x0;
+-			tmp_cpsr |= mode;
+-			tmp_cpsr |= 0xc0; /* I/F bits */
++dirty:
++		/* command 0x1:  &quot;send banked registers&quot; */
++		xscale_send_u32(target, 0x1);
+ 
+-			/* send CPSR for desired mode */
+-			xscale_send_u32(target, tmp_cpsr);
++		/* send CPSR for desired mode */
++		xscale_send_u32(target, mode | 0xc0 /* I/F bits */);
+ 
+-			/* send banked registers, r8 to r14, and spsr if not in USR/SYS mode */
+-			for (j = 8; j &lt;= 14; j++)
+-			{
+-				r = &amp;ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+-						mode, j);
+-				xscale_send_u32(target,
+-						buf_get_u32(r-&gt;value, 0, 32));
+-				r-&gt;dirty = false;
+-			}
++		/* send r8 to r14/lr ... only FIQ needs more than r13..r14,
++		 * but this protocol doesn't understand that nuance.
++		 */
++		for (j = 8; j &lt;= 14; j++) {
++			r = &amp;ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
++					mode, j);
++			xscale_send_u32(target, buf_get_u32(r-&gt;value, 0, 32));
++			r-&gt;dirty = false;
++		}
+ 
+-			if (mode != ARMV4_5_MODE_SYS)
+-			{
+-				r = &amp;ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+-						mode, 16);
+-				xscale_send_u32(target,
+-						buf_get_u32(r-&gt;value, 0, 32));
+-				r-&gt;dirty = false;
+-			}
++		/* send spsr if not in USR/SYS mode */
++		if (mode != ARMV4_5_MODE_SYS) {
++			r = &amp;ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
++					mode, 16);
++			xscale_send_u32(target, buf_get_u32(r-&gt;value, 0, 32));
++			r-&gt;dirty = false;
+ 		}
+ 	}
+ 
+
+commit da7c202b5751c1420be6725c6eb456a2f723ba74
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Nov 30 19:14:19 2009 -0800
+
+    XScale: context restore, cleanup/bugfix
+    
+    This &quot;loop over all registers&quot; routine shared the same mess as
+    full_context() in terms of dozens of needless number_to_mode()
+    calls.  Fix that, and comments, with related cleanup.
+    
+    The misnamed xscale_restore_context() had a related bug.  It
+    was restoring the *WRONG REGISTERS* ... always from whatever
+    the current mode was, instead of using the copy from whichever
+    register bank it was trying to restore.  (But it marked the
+    intended register as having been restored...)  Fixed that.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index bf5d0af..0680c52 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -1768,37 +1768,45 @@ static int xscale_restore_context(struct target *target)
+ 	}
+ 
+ 	/* iterate through processor modes (FIQ, IRQ, SVC, ABT, UND and SYS)
+-	* we can't enter User mode on an XScale (unpredictable),
+-	* but User shares registers with SYS
+-	*/
++	 * and check if any banked registers need to be written.  Ignore
++	 * USR mode (number 0) in favor of SYS; we can't enter User mode on
++	 * an XScale (unpredictable), but they share all registers.
++	 */
+ 	for (i = 1; i &lt; 7; i++)
+ 	{
+ 		int dirty = 0;
++		enum armv4_5_mode mode = armv4_5_number_to_mode(i);
+ 
+-		/* check if there are invalid registers in the current mode
+-		*/
++		if (mode == ARMV4_5_MODE_USR)
++			continue;
++
++		/* check if there are dirty registers in this mode */
+ 		for (j = 8; j &lt;= 14; j++)
+ 		{
+-			if (ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5_number_to_mode(i), j).dirty == 1)
++			if (ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
++					mode, j).dirty)
+ 				dirty = 1;
+ 		}
+ 
+ 		/* if not USR/SYS, check if the SPSR needs to be written */
+-		if ((armv4_5_number_to_mode(i) != ARMV4_5_MODE_USR) &amp;&amp; (armv4_5_number_to_mode(i) != ARMV4_5_MODE_SYS))
++		if (mode != ARMV4_5_MODE_SYS)
+ 		{
+-			if (ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5_number_to_mode(i), 16).dirty == 1)
++			if (ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
++					mode, 16).dirty)
+ 				dirty = 1;
+ 		}
+ 
++		/* is there anything to flush for this mode? */
+ 		if (dirty)
+ 		{
+ 			uint32_t tmp_cpsr;
++			struct reg *r;
+ 
+-			/* send banked registers */
++			/* command 0x1:  &quot;send banked registers&quot; */
+ 			xscale_send_u32(target, 0x1);
+ 
+ 			tmp_cpsr = 0x0;
+-			tmp_cpsr |= armv4_5_number_to_mode(i);
++			tmp_cpsr |= mode;
+ 			tmp_cpsr |= 0xc0; /* I/F bits */
+ 
+ 			/* send CPSR for desired mode */
+@@ -1807,14 +1815,20 @@ static int xscale_restore_context(struct target *target)
+ 			/* send banked registers, r8 to r14, and spsr if not in USR/SYS mode */
+ 			for (j = 8; j &lt;= 14; j++)
+ 			{
+-				xscale_send_u32(target, buf_get_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, j).value, 0, 32));
+-				ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5_number_to_mode(i), j).dirty = 0;
++				r = &amp;ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
++						mode, j);
++				xscale_send_u32(target,
++						buf_get_u32(r-&gt;value, 0, 32));
++				r-&gt;dirty = false;
+ 			}
+ 
+-			if ((armv4_5_number_to_mode(i) != ARMV4_5_MODE_USR) &amp;&amp; (armv4_5_number_to_mode(i) != ARMV4_5_MODE_SYS))
++			if (mode != ARMV4_5_MODE_SYS)
+ 			{
+-				xscale_send_u32(target, buf_get_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 16).value, 0, 32));
+-				ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5_number_to_mode(i), 16).dirty = 0;
++				r = &amp;ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
++						mode, 16);
++				xscale_send_u32(target,
++						buf_get_u32(r-&gt;value, 0, 32));
++				r-&gt;dirty = false;
+ 			}
+ 		}
+ 	}
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/xscale.c |   82 +++++++++++++++++++++++++++-----------------------
+ 1 files changed, 44 insertions(+), 38 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001891.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-726-g8fc5a9a
+</A></li>
+	<LI>Next message: <A HREF="001893.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-729-g330733e
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1892">[ date ]</a>
+              <a href="thread.html#1892">[ thread ]</a>
+              <a href="subject.html#1892">[ subject ]</a>
+              <a href="author.html#1892">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

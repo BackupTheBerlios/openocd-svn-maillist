@@ -1,0 +1,344 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1945 - in trunk: doc src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1945%20-%20in%20trunk%3A%20doc%20src/target&In-Reply-To=%3C200905300143.n4U1hQN5006877%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000728.html">
+   <LINK REL="Next"  HREF="000730.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1945 - in trunk: doc src/target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1945%20-%20in%20trunk%3A%20doc%20src/target&In-Reply-To=%3C200905300143.n4U1hQN5006877%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1945 - in trunk: doc src/target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Sat May 30 03:43:26 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000728.html">[Openocd-svn] r1944 - in trunk: doc src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000730.html">[Openocd-svn] r1946 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#729">[ date ]</a>
+              <a href="thread.html#729">[ thread ]</a>
+              <a href="subject.html#729">[ subject ]</a>
+              <a href="author.html#729">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-30 03:43:21 +0200 (Sat, 30 May 2009)
+New Revision: 1945
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/target/etm.c
+   trunk/src/target/oocd_trace.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Provide basic documentation on the ARM ETM and ETB trace commands.
+
+Fix minor goofs in registration of the ETM commands; and whitespace
+issues in the proof-of-concept oocd_trace code.  (Plus include a
+ref to Dominic's email saying that it's just proof-of-concept code.)
+
+Note that I'm still not sure whether the ETM support works.  But
+documenting how it's expected to work should help sort out which
+behaviors are bugs, which will help get bugs patched.
+
+ZW: whitespace changes were split out of this patch but will follow.
+
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-05-30 01:32:19 UTC (rev 1944)
++++ trunk/doc/openocd.texi	2009-05-30 01:43:21 UTC (rev 1945)
+@@ -1094,17 +1094,11 @@
+ examination of the instruction and data bus activity.  Trace
+ activity is controlled through an ``Embedded Trace Module'' (ETM)
+ on one of the core's scan chains.  The ETM emits voluminous data
+-through a ``trace port''.  The trace port is accessed in one
+-of two ways.  When its signals are pinned out from the chip,
+-boards may provide a special high speed debugging connector;
+-software support for this is not configured by default, use
+-the ``--enable-oocd_trace'' option.  Alternatively, trace data
+-may be stored an on-chip SRAM which is packaged as an ``Embedded
+-Trace Buffer'' (ETB).  An ETB has its own TAP, usually right after
+-its associated ARM core.  OpenOCD supports the ETM, and your
+-target configuration should set it up with the relevant trace
+-port:  ``etb'' for chips which use that, else the board-specific
+-option will be either ``oocd_trace'' or ``dummy''.
++through a ``trace port''.  (@xref{ARM Tracing}.)
++If you are using an external trace port,
++configure it in your board config file.
++If you are using an on-chip ``Embedded Trace Buffer'' (ETB),
++configure it in your target config file.
+ 
+ @example
+ etm config $_TARGETNAME 16 normal full etb
+@@ -3586,6 +3580,181 @@
+ Some of those operations don't fit well in that framework, so they are
+ exposed here using architecture or implementation specific commands.
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at anchor</A>{ARM Tracing}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at subsection</A> ARM Tracing
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at cindex</A> ETM
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at cindex</A> ETB
++
++CPUs based on ARM cores may include standard tracing interfaces,
++based on an ``Embedded Trace Module'' (ETM) which sends voluminous
++address and data bus trace records to a ``Trace Port''.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at itemize</A>
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A>
++Development-oriented boards will sometimes provide a high speed
++trace connector for collecting that data, when the particular CPU
++supports such an interface.
++(The standard connector is a 38-pin Mictor, with both JTAG
++and trace port support.)
++Those trace connectors are supported by higher end JTAG adapters
++and some logic analyzer modules; frequently those modules can
++buffer several megabytes of trace data.
++Configuring an ETM coupled to such an external trace port belongs
++in the board-specific configuration file.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A>
++If the CPU doesn't provide an external interface, it probably
++has an ``Embedded Trace Buffer'' (ETB) on the chip, which is a
++dedicated SRAM.  4KBytes is one common ETB size.
++Configuring an ETM coupled only to an ETB belongs in the CPU-specific
++(target) configuration file, since it works the same on all boards.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> itemize
++
++ETM support in OpenOCD doesn't seem to be widely used yet.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at quotation</A> Issues
++ETM support may be buggy, and at least some @command{etm config}
++parameters should be detected by asking the ETM for them.
++It seems like a GDB hookup should be possible,
++as well as triggering trace on specific events
++(perhaps @emph{handling IRQ 23} or @emph{calls foo()}).
++There should be GUI tools to manipulate saved trace data and help
++analyse it in conjunction with the source code.
++It's unclear how much of a common interface is shared
++with the current XScale trace support, or should be
++shared with eventual Nexus-style trace module support.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> quotation
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at subsubsection</A> ETM Configuration
++ETM setup is coupled with the trace port driver configuration.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> {Config Command} {etm config} target width mode clocking driver
++Declares the ETM associated with @var{target}, and associates it
++with a given trace port @var{driver}.  @xref{Trace Port Drivers}.
++
++Several of the parameters must reflect the trace port configuration.
++The @var{width} must be either 4, 8, or 16.
++The @var{mode} must be @option{normal}, @option{multiplexted},
++or @option{demultiplexted}.
++The @var{clocking} must be @option{half} or @option{full}.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at quotation</A> Note
++You can see the ETM registers using the @command{reg} command, although
++not all of those possible registers are present in every ETM.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> quotation
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {etm info}
++Displays information about the current target's ETM.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {etm status}
++Displays status of the current target's ETM:
++is the ETM idle, or is it collecting data?
++Did trace data overflow?
++Was it triggered?
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {etm tracemode} [type context_id_bits cycle_accurate branch_output]
++Displays what data that ETM will collect.
++If arguments are provided, first configures that data.
++When the configuration changes, tracing is stopped
++and any buffered trace data is invalidated.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at itemize</A>
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{type} ... one of
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{none} (save nothing),
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{data} (save data),
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{address} (save addresses),
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{all} (save data and addresses)
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{context_id_bits} ... 0, 8, 16, or 32
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{cycle_accurate} ...  @option{enable} or @option{disable}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @var{branch_output} ...  @option{enable} or @option{disable}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> itemize
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {etm trigger_percent} percent
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at emph</A>{Buggy and effectively a NOP ... @var{percent} from 2..100}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at subsubsection</A> ETM Trace Operation
++
++After setting up the ETM, you can use it to collect data.
++That data can be exported to files for later analysis.
++It can also be parsed with OpenOCD, for basic sanity checking.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {etm analyze}
++Reads trace data into memory, if it wasn't already present.
++Decodes and prints the data that was collected.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {etm dump} filename
++Stores the captured trace data in @file{filename}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {etm image} filename [base_address] [type]
++Opens an image file.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {etm load} filename
++Loads captured trace data from @file{filename}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {etm start}
++Starts trace data collection.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {etm stop}
++Stops trace data collection.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at anchor</A>{Trace Port Drivers}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at subsubsection</A> Trace Port Drivers
++
++To use an ETM trace port it must be associated with a driver.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> {Trace Port Driver} etb
++Use the @option{etb} driver if you are configuring an ETM
++to use on-chip ETB memory.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> {Config Command} {etb config} target etb_tap
++Associates the ETM for @var{target} with the ETB at @var{etb_tap}.
++You can see the ETB registers using the @command{reg} command.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> {Trace Port Driver} etm_dummy
++Use the @option{etm_dummy} driver if you are configuring an ETM that's
++not connected to anything (on-chip ETB or off-chip trace connector).
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at emph</A>{This driver lets OpenOCD talk to the ETM, but it does not expose
++any trace data collection.}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> {Config Command} {etm_dummy config} target
++Associates the ETM for @var{target} with a dummy driver.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> {Trace Port Driver} oocd_trace
++This driver isn't available unless OpenOCD was explicitly configured
++with the @option{--enable-oocd_trace} option.  You probably don't want
++to configure it unless you've built the appropriate prototype hardware;
++it's @emph{proof-of-concept} software.
++
++Use the @option{oocd_trace} driver if you are configuring an ETM that's
++connected to an off-chip trace connector.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> {Config Command} {oocd_trace config} target tty
++Associates the ETM for @var{target} with a trace driver which
++collects data through the serial port @var{tty}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {oocd_trace resync}
++Re-synchronizes with the capture clock.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {oocd_trace status}
++Reports whether the capture clock is locked or not.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
++
+ @subsection ARMv4 and ARMv5 Architecture
+ @cindex ARMv4 specific commands
+ @cindex ARMv5 specific commands
+
+Modified: trunk/src/target/etm.c
+===================================================================
+--- trunk/src/target/etm.c	2009-05-30 01:32:19 UTC (rev 1944)
++++ trunk/src/target/etm.c	2009-05-30 01:43:21 UTC (rev 1945)
+@@ -1815,7 +1815,8 @@
+ {
+ 	etm_cmd = register_command(cmd_ctx, NULL, &quot;etm&quot;, NULL, COMMAND_ANY, &quot;Embedded Trace Macrocell&quot;);
+ 
+-	register_command(cmd_ctx, etm_cmd, &quot;config&quot;, handle_etm_config_command, COMMAND_CONFIG, &quot;etm config &lt;target&gt; &lt;port_width&gt; &lt;port_mode&gt; &lt;clocking&gt; &lt;capture_driver&gt;&quot;);
++	register_command(cmd_ctx, etm_cmd, &quot;config&quot;, handle_etm_config_command,
++		COMMAND_CONFIG, &quot;etm config &lt;target&gt; &lt;port_width&gt; &lt;port_mode&gt; &lt;clocking&gt; &lt;capture_driver&gt;&quot;);
+ 
+ 	return ERROR_OK;
+ }
+@@ -1823,12 +1824,13 @@
+ int etm_register_user_commands(struct command_context_s *cmd_ctx)
+ {
+ 	register_command(cmd_ctx, etm_cmd, &quot;tracemode&quot;, handle_etm_tracemode_command,
+-		COMMAND_EXEC, &quot;configure trace mode &lt;none|data|address|all&gt; &lt;context id bits&gt; &lt;cycle accurate&gt; &lt;branch output&quot;);
++		COMMAND_EXEC, &quot;configure trace mode &lt;none|data|address|all&gt; &quot;
++			&quot;&lt;context_id_bits&gt; &lt;cycle_accurate&gt; &lt;branch_output&gt;&quot;);
+ 
+ 	register_command(cmd_ctx, etm_cmd, &quot;info&quot;, handle_etm_info_command,
+ 		COMMAND_EXEC, &quot;display info about the current target's ETM&quot;);
+ 
+-	register_command(cmd_ctx, etm_cmd, &quot;trigger_percent &lt;percent&gt;&quot;, handle_etm_trigger_percent_command,
++	register_command(cmd_ctx, etm_cmd, &quot;trigger_percent&quot;, handle_etm_trigger_percent_command,
+ 		COMMAND_EXEC, &quot;amount (&lt;percent&gt;) of trace buffer to be filled after the trigger occured&quot;);
+ 	register_command(cmd_ctx, etm_cmd, &quot;status&quot;, handle_etm_status_command,
+ 		COMMAND_EXEC, &quot;display current target's ETM status&quot;);
+
+Modified: trunk/src/target/oocd_trace.c
+===================================================================
+--- trunk/src/target/oocd_trace.c	2009-05-30 01:32:19 UTC (rev 1944)
++++ trunk/src/target/oocd_trace.c	2009-05-30 01:43:21 UTC (rev 1945)
+@@ -24,7 +24,12 @@
+ #include &quot;oocd_trace.h&quot;
+ #include &quot;arm7_9_common.h&quot;
+ 
++/*
++ * This is &quot;proof of concept&quot; code, for prototype hardware:
++ * <A HREF="https://lists.berlios.de/pipermail/openocd-development/2007-September/000336.html">https://lists.berlios.de/pipermail/openocd-development/2007-September/000336.html</A>
++ */
+ 
++
+ static int oocd_trace_register_commands(struct command_context_s *cmd_ctx);
+ 
+ static int oocd_trace_read_reg(oocd_trace_t *oocd_trace, int reg, u32 *value)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000728.html">[Openocd-svn] r1944 - in trunk: doc src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000730.html">[Openocd-svn] r1946 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#729">[ date ]</a>
+              <a href="thread.html#729">[ thread ]</a>
+              <a href="subject.html#729">[ subject ]</a>
+              <a href="author.html#729">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

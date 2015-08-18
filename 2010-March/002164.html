@@ -1,0 +1,250 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-95-g051e2c9
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-95-g051e2c9&In-Reply-To=%3CE1NrmxL-0000lz-M1%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002163.html">
+   <LINK REL="Next"  HREF="002165.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-95-g051e2c9</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-95-g051e2c9&In-Reply-To=%3CE1NrmxL-0000lz-M1%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-95-g051e2c9">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Wed Mar 17 07:42:14 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002163.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-93-g1d9fba8
+</A></li>
+        <LI>Next message: <A HREF="002165.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-98-g3ad171c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2164">[ date ]</a>
+              <a href="thread.html#2164">[ thread ]</a>
+              <a href="subject.html#2164">[ subject ]</a>
+              <a href="author.html#2164">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  051e2c99ab8111f6bffdb412b40ceef333530ae6 (commit)
+       via  7e447043cd7967bd9b8976d829d5cb79bf359d3c (commit)
+      from  1d9fba8c1488c3774c8bde737c2d658b1f525d09 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 051e2c99ab8111f6bffdb412b40ceef333530ae6
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Tue Mar 16 14:45:07 2010 +0100
+
+    gdb_server: improved gdb load performance
+    
+    by ack'ing memory writes immediately and reporting either
+    at next memory write or stepi/continue time. GDB will then
+    send off a new packet that is ready by the time the previous
+    packet has been written to target memory.
+    
+    On faster adapters this can be as much as 10% improvement.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index 17ca439..f46980e 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -2,7 +2,7 @@
+  *   Copyright (C) 2005 by Dominic Rath                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
+  *                                                                         *
+- *   Copyright (C) 2007-2009 &#195;&#152;yvind Harboe                                 *
++ *   Copyright (C) 2007-2010 &#195;&#152;yvind Harboe                                 *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
+  *                                                                         *
+  *   Copyright (C) 2008 by Spencer Oliver                                  *
+@@ -61,7 +61,12 @@ struct gdb_connection
+ 	bool sync; 	/* set flag to true if you want the next stepi to return immediately.
+ 	               allowing GDB to pick up a fresh set of register values from the target
+ 	               without modifying the target state. */
+-
++	/* We delay reporting memory write errors until next step/continue or memory
++	 * write. This improves performance of gdb load significantly as the GDB packet
++	 * can be replied immediately and a new GDB packet will be ready without delay
++	 * (ca. 10% or so...).
++	 */
++	bool mem_write_error;
+ };
+ 
+ 
+@@ -821,6 +826,7 @@ static int gdb_new_connection(struct connection *connection)
+ 	gdb_connection-&gt;busy = 0;
+ 	gdb_connection-&gt;noack_mode = 0;
+ 	gdb_connection-&gt;sync = true;
++	gdb_connection-&gt;mem_write_error = false;
+ 
+ 	/* send ACK to GDB for debug request */
+ 	gdb_write(connection, &quot;+&quot;, 1);
+@@ -1361,7 +1367,7 @@ static int gdb_write_memory_binary_packet(struct connection *connection,
+ 	uint32_t addr = 0;
+ 	uint32_t len = 0;
+ 
+-	int retval;
++	int retval = ERROR_OK;
+ 
+ 	/* skip command character */
+ 	packet++;
+@@ -1382,14 +1388,18 @@ static int gdb_write_memory_binary_packet(struct connection *connection,
+ 		return ERROR_SERVER_REMOTE_CLOSED;
+ 	}
+ 
+-	retval = ERROR_OK;
+-	if (len)
+-	{
+-		LOG_DEBUG(&quot;addr: 0x%8.8&quot; PRIx32 &quot;, len: 0x%8.8&quot; PRIx32 &quot;&quot;, addr, len);
++	struct gdb_connection *gdb_connection = connection-&gt;priv;
+ 
+-		retval = target_write_buffer(target, addr, len, (uint8_t*)separator);
++	if (gdb_connection-&gt;mem_write_error)
++	{
++		retval = ERROR_FAIL;
++		/* now that we have reported the memory write error, we can clear the condition */
++		gdb_connection-&gt;mem_write_error = false;
+ 	}
+ 
++	/* By replying the packet *immediately* GDB will send us a new packet
++	 * while we write the last one to the target.
++	 */
+ 	if (retval == ERROR_OK)
+ 	{
+ 		gdb_put_packet(connection, &quot;OK&quot;, 2);
+@@ -1400,6 +1410,17 @@ static int gdb_write_memory_binary_packet(struct connection *connection,
+ 			return retval;
+ 	}
+ 
++	if (len)
++	{
++		LOG_DEBUG(&quot;addr: 0x%8.8&quot; PRIx32 &quot;, len: 0x%8.8&quot; PRIx32 &quot;&quot;, addr, len);
++
++		retval = target_write_buffer(target, addr, len, (uint8_t*)separator);
++		if (retval != ERROR_OK)
++		{
++			gdb_connection-&gt;mem_write_error = true;
++		}
++	}
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -2211,6 +2232,14 @@ static int gdb_input_inner(struct connection *connection)
+ 						struct gdb_connection *gdb_con = connection-&gt;priv;
+ 						log_add_callback(gdb_log_callback, connection);
+ 
++						if (gdb_con-&gt;mem_write_error)
++						{
++							LOG_ERROR(&quot;Memory write failure!&quot;);
++
++							/* now that we have reported the memory write error, we can clear the condition */
++							gdb_con-&gt;mem_write_error = false;
++						}
++
+ 						bool nostep = false;
+ 						bool already_running = false;
+ 						if (target-&gt;state == TARGET_RUNNING)
+
+commit 7e447043cd7967bd9b8976d829d5cb79bf359d3c
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Tue Mar 16 11:40:52 2010 +0100
+
+    zy1000: tweak the DCC inner loop a tiny bit
+    
+    Uses FIFO a bit more efficiently now.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index 005a4e0..177d286 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -839,7 +839,7 @@ void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, uint8_t *buffer,
+ 	int post_bits;
+ 	jtag_pre_post_bits(tap, &amp;pre_bits, &amp;post_bits);
+ 
+-	if ((pre_bits &gt; 32) || (post_bits &gt; 32))
++	if (pre_bits + post_bits + 6 &gt; 32)
+ 	{
+ 		int i;
+ 		for (i = 0; i &lt; count; i++)
+@@ -854,15 +854,18 @@ void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, uint8_t *buffer,
+ 		if (post_bits == 0)
+ 			shift_end_state = end_state;
+ 
++		shiftValueInner(TAP_DRSHIFT, TAP_DRSHIFT, pre_bits, 0);
+ 		int i;
+-		for (i = 0; i &lt; count; i++)
++		for (i = 0; i &lt; count - 1; i++)
+ 		{
+-			shiftValueInner(TAP_DRSHIFT, TAP_DRSHIFT, pre_bits, 0);
++			/* Fewer pokes means we get to use the FIFO more efficiently */
+ 			shiftValueInner(TAP_DRSHIFT, TAP_DRSHIFT, 32, fast_target_buffer_get_u32(buffer, little));
+-			shiftValueInner(TAP_DRSHIFT, shift_end_state, 6, reg_addr | (1 &lt;&lt; 5));
+-			shiftValueInner(shift_end_state, end_state, post_bits, 0);
++			shiftValueInner(TAP_DRSHIFT, shift_end_state, 6 + post_bits + pre_bits, (reg_addr | (1 &lt;&lt; 5)));
+ 			buffer += 4;
+ 		}
++		shiftValueInner(TAP_DRSHIFT, TAP_DRSHIFT, 32, fast_target_buffer_get_u32(buffer, little));
++		shiftValueInner(TAP_DRSHIFT, shift_end_state, 6, reg_addr | (1 &lt;&lt; 5));
++		shiftValueInner(shift_end_state, end_state, post_bits, 0);
+ 	}
+ }
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/zy1000/zy1000.c |   13 ++++++++-----
+ src/server/gdb_server.c  |   45 +++++++++++++++++++++++++++++++++++++--------
+ 2 files changed, 45 insertions(+), 13 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002163.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-93-g1d9fba8
+</A></li>
+	<LI>Next message: <A HREF="002165.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-98-g3ad171c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2164">[ date ]</a>
+              <a href="thread.html#2164">[ thread ]</a>
+              <a href="subject.html#2164">[ subject ]</a>
+              <a href="author.html#2164">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,243 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-411-g01b2a30
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-411-g01b2a30&In-Reply-To=%3CE1OZi25-0001O1-OS%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002322.html">
+   <LINK REL="Next"  HREF="002324.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-411-g01b2a30</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-411-g01b2a30&In-Reply-To=%3CE1OZi25-0001O1-OS%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-411-g01b2a30">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Jul 16 12:20:39 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002322.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-409-g0672a64
+</A></li>
+        <LI>Next message: <A HREF="002324.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-413-gd16f925
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2323">[ date ]</a>
+              <a href="thread.html#2323">[ thread ]</a>
+              <a href="subject.html#2323">[ subject ]</a>
+              <a href="author.html#2323">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  01b2a3091a4ef5df1a18d1142d6c63477cf9d08f (commit)
+       via  bb588bdaec2acb6898c1f86f674b829ee2098642 (commit)
+      from  0672a6497ec1ea59905487c01a65ffad79449538 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 01b2a3091a4ef5df1a18d1142d6c63477cf9d08f
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Fri Jul 16 10:57:28 2010 +0200
+
+    debug feature: jtagtcpip, improve performance
+    
+    waiting for ZY1000 fifo to idle is now queued as
+    an asynchronous command. This radically improves
+    performance when waitIdle() is interspersed with
+    writes as no readback is required over TCP/IP.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/zy1000/jtag_minidriver.h b/src/jtag/zy1000/jtag_minidriver.h
+index d556699..f3fe5a6 100644
+--- a/src/jtag/zy1000/jtag_minidriver.h
++++ b/src/jtag/zy1000/jtag_minidriver.h
+@@ -48,6 +48,7 @@ extern uint32_t zy1000_tcpin(uint32_t address);
+ 
+ 
+ 
++#if BUILD_ECOSBOARD
+ // FIFO empty?
+ static __inline__ void waitIdle(void)
+ {
+@@ -57,6 +58,9 @@ static __inline__ void waitIdle(void)
+ 		ZY1000_PEEK(ZY1000_JTAG_BASE + 0x10, empty);
+ 	} while ((empty &amp; 0x100) == 0);
+ }
++#else
++extern void waitIdle(void);
++#endif
+ 
+ static __inline__ void waitQueue(void)
+ {
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index a1104ef..97c94f7 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -1107,6 +1107,7 @@ enum ZY1000_CMD
+ 	ZY1000_CMD_POKE = 0x0,
+ 	ZY1000_CMD_PEEK = 0x8,
+ 	ZY1000_CMD_SLEEP = 0x1,
++	ZY1000_CMD_WAITIDLE = 2
+ };
+ 
+ 
+@@ -1167,6 +1168,22 @@ void zy1000_tcpout(uint32_t address, uint32_t data)
+ 	}
+ }
+ 
++/* By sending the wait to the server, we avoid a readback
++ * of status. Radically improves performance for this operation
++ * with long ping times.
++ */
++void waitIdle(void)
++{
++	tcpip_open();
++	if (!writeLong((ZY1000_CMD_WAITIDLE &lt;&lt; 24)))
++	{
++		fprintf(stderr, &quot;Could not write to zy1000 server\n&quot;);
++		exit(-1);
++	}
++}
++
++
++
+ uint32_t zy1000_tcpin(uint32_t address)
+ {
+ 	tcpip_open();
+@@ -1241,6 +1258,11 @@ static void tcpipserver(void)
+ 				jtag_sleep(data);
+ 				break;
+ 			}
++			case ZY1000_CMD_WAITIDLE:
++			{
++				waitIdle();
++				break;
++			}
+ 			default:
+ 				return;
+ 		}
+
+commit bb588bdaec2acb6898c1f86f674b829ee2098642
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Fri Jul 16 10:51:14 2010 +0200
+
+    debug feature: jtagtcpip, improved performance
+    
+    only check error flag when rclk is actually enabled.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index 013d865..a1104ef 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -72,6 +72,10 @@
+ 
+ #endif
+ 
++
++/* The software needs to check if it's in RCLK mode or not */
++static bool zy1000_rclk = false;
++
+ static int zy1000_khz(int khz, int *jtag_speed)
+ {
+ 	if (khz == 0)
+@@ -222,11 +226,13 @@ int zy1000_speed(int speed)
+ 	/* flush JTAG master FIFO before setting speed */
+ 	waitIdle();
+ 
++	zy1000_rclk = false;
++
+ 	if (speed == 0)
+ 	{
+ 		/*0 means RCLK*/
+-		speed = 0;
+ 		ZY1000_POKE(ZY1000_JTAG_BASE + 0x10, 0x100);
++		zy1000_rclk = true;
+ 		LOG_DEBUG(&quot;jtag_speed using RCLK&quot;);
+ 	}
+ 	else
+@@ -456,17 +462,24 @@ int interface_jtag_execute_queue(void)
+ 	uint32_t empty;
+ 
+ 	waitIdle();
+-	ZY1000_PEEK(ZY1000_JTAG_BASE + 0x10, empty);
+-	/* clear JTAG error register */
+-	ZY1000_POKE(ZY1000_JTAG_BASE + 0x14, 0x400);
+ 
+-	if ((empty&amp;0x400) != 0)
++	if (zy1000_rclk)
+ 	{
+-		LOG_WARNING(&quot;RCLK timeout&quot;);
+-		/* the error is informative only as we don't want to break the firmware if there
+-		 * is a false positive.
++		/* Only check for errors when using RCLK to speed up
++		 * jtag over TCP/IP
+ 		 */
+-//		return ERROR_FAIL;
++		ZY1000_PEEK(ZY1000_JTAG_BASE + 0x10, empty);
++		/* clear JTAG error register */
++		ZY1000_POKE(ZY1000_JTAG_BASE + 0x14, 0x400);
++
++		if ((empty&amp;0x400) != 0)
++		{
++			LOG_WARNING(&quot;RCLK timeout&quot;);
++			/* the error is informative only as we don't want to break the firmware if there
++			 * is a false positive.
++			 */
++	//		return ERROR_FAIL;
++		}
+ 	}
+ 	return ERROR_OK;
+ }
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/zy1000/jtag_minidriver.h |    4 +++
+ src/jtag/zy1000/zy1000.c          |   53 ++++++++++++++++++++++++++++++------
+ 2 files changed, 48 insertions(+), 9 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002322.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-409-g0672a64
+</A></li>
+	<LI>Next message: <A HREF="002324.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-413-gd16f925
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2323">[ date ]</a>
+              <a href="thread.html#2323">[ thread ]</a>
+              <a href="subject.html#2323">[ subject ]</a>
+              <a href="author.html#2323">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,261 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-802-ga343570
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-802-ga343570&In-Reply-To=%3Cmailman.31.1331736153.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002545.html">
+   <LINK REL="Next"  HREF="002547.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-802-ga343570</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-802-ga343570&In-Reply-To=%3Cmailman.31.1331736153.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-802-ga343570">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Mon Mar 21 08:41:52 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002545.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-801-g17201b5
+</A></li>
+        <LI>Next message: <A HREF="002547.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-803-gec2b8d7
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2546">[ date ]</a>
+              <a href="thread.html#2546">[ thread ]</a>
+              <a href="subject.html#2546">[ subject ]</a>
+              <a href="author.html#2546">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  a34357019545b1b449cbc52de99e52e68c3dbcb1 (commit)
+      from  17201b584776704c80ac5089874f244757b3744e (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit a34357019545b1b449cbc52de99e52e68c3dbcb1
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Fri Mar 18 13:47:17 2011 +0100
+
+    zy1000: removed JTAG master TCP/IP server
+    
+    Move ZY1000 OpenOCD driver more in the direction of being
+    a client to simplify code.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index f2db47b..ee61003 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -1036,6 +1036,8 @@ static const struct command_registration zy1000_commands[] = {
+ };
+ 
+ 
++#if !BUILD_ZY1000_MASTER
++
+ static int tcp_ip = -1;
+ 
+ /* Write large packets if we can */
+@@ -1116,9 +1118,6 @@ enum ZY1000_CMD
+ 	ZY1000_CMD_WAITIDLE = 2
+ };
+ 
+-
+-#if !BUILD_ZY1000_MASTER
+-
+ #include &lt;sys/socket.h&gt; /* for socket(), connect(), send(), and recv() */
+ #include &lt;arpa/inet.h&gt;  /* for sockaddr_in and inet_addr() */
+ 
+@@ -1363,132 +1362,12 @@ static void writeShiftValue(uint8_t *data, int bits)
+ 
+ #if BUILD_ZY1000_MASTER
+ 
+-pthread_t thread;
+-
+ #if BUILD_ECOSBOARD
+ static char watchdog_stack[2048];
+ static cyg_thread watchdog_thread_object;
+ static cyg_handle_t watchdog_thread_handle;
+ #endif
+ 
+-/* Infinite loop peeking &amp; poking */
+-static void tcpipserver(void)
+-{
+-	for (;;)
+-	{
+-		uint32_t address;
+-		if (!readLong(&amp;address))
+-			return;
+-		enum ZY1000_CMD c = (address &gt;&gt; 24) &amp; 0xff;
+-		address &amp;= 0xffffff;
+-		switch (c)
+-		{
+-			case ZY1000_CMD_POKE:
+-			{
+-				uint32_t data;
+-				if (!readLong(&amp;data))
+-					return;
+-				address &amp;= ~0x80000000;
+-				ZY1000_POKE(address + ZY1000_JTAG_BASE, data);
+-				break;
+-			}
+-			case ZY1000_CMD_PEEK:
+-			{
+-				uint32_t data;
+-				ZY1000_PEEK(address + ZY1000_JTAG_BASE, data);
+-				if (!writeLong(data))
+-					return;
+-				break;
+-			}
+-			case ZY1000_CMD_SLEEP:
+-			{
+-				uint32_t data;
+-				if (!readLong(&amp;data))
+-					return;
+-				/* Wait for some us */
+-				usleep(data);
+-				break;
+-			}
+-			case ZY1000_CMD_WAITIDLE:
+-			{
+-				waitIdle();
+-				break;
+-			}
+-			default:
+-				return;
+-		}
+-	}
+-}
+-
+-
+-static void *tcpip_server(void *data)
+-{
+-	int so_reuseaddr_option = 1;
+-
+-	int fd;
+-	if ((fd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+-	{
+-		LOG_ERROR(&quot;error creating socket: %s&quot;, strerror(errno));
+-		exit(-1);
+-	}
+-
+-	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (void*) &amp;so_reuseaddr_option,
+-			sizeof(int));
+-
+-	struct sockaddr_in sin;
+-	unsigned int address_size;
+-	address_size = sizeof(sin);
+-	memset(&amp;sin, 0, sizeof(sin));
+-	sin.sin_family = AF_INET;
+-	sin.sin_addr.s_addr = INADDR_ANY;
+-	sin.sin_port = htons(7777);
+-
+-	if (bind(fd, (struct sockaddr *) &amp;sin, sizeof(sin)) == -1)
+-	{
+-		LOG_ERROR(&quot;couldn't bind to socket: %s&quot;, strerror(errno));
+-		exit(-1);
+-	}
+-
+-	if (listen(fd, 1) == -1)
+-	{
+-		LOG_ERROR(&quot;couldn't listen on socket: %s&quot;, strerror(errno));
+-		exit(-1);
+-	}
+-
+-
+-	for (;;)
+-	{
+-		tcp_ip = accept(fd, (struct sockaddr *) &amp;sin, &amp;address_size);
+-		if (tcp_ip &lt; 0)
+-		{
+-			continue;
+-		}
+-
+-		int flag = 1;
+-		setsockopt(tcp_ip,	/* socket affected */
+-				IPPROTO_TCP,		/* set option at TCP level */
+-				TCP_NODELAY,		/* name of option */
+-				(char *)&amp;flag,		/* the cast is historical cruft */
+-				sizeof(int));		/* length of option value */
+-
+-		bool save_poll = jtag_poll_get_enabled();
+-
+-		/* polling will screw up the &quot;connection&quot; */
+-		jtag_poll_set_enabled(false);
+-
+-		tcpipserver();
+-
+-		jtag_poll_set_enabled(save_poll);
+-
+-		close(tcp_ip);
+-
+-	}
+-	/* Never reached actually */
+-	close(fd);
+-
+-	return NULL;
+-}
+-
+ #ifdef WATCHDOG_BASE
+ /* If we connect to port 8888 we must send a char every 10s or the board resets itself */
+ static void watchdog_server(cyg_addrword_t data)
+@@ -1628,8 +1507,6 @@ int zy1000_init(void)
+ 	zy1000_speed(jtag_speed_var);
+ 
+ #if BUILD_ZY1000_MASTER
+-	pthread_create(&amp;thread, NULL, tcpip_server, NULL);
+-
+ #if BUILD_ECOSBOARD
+ #ifdef WATCHDOG_BASE
+ 	cyg_thread_create(1, watchdog_server, (cyg_addrword_t) 0, &quot;watchdog tcip/ip server&quot;,
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/zy1000/zy1000.c |  127 +---------------------------------------------
+ 1 files changed, 2 insertions(+), 125 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002545.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-801-g17201b5
+</A></li>
+	<LI>Next message: <A HREF="002547.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-803-gec2b8d7
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2546">[ date ]</a>
+              <a href="thread.html#2546">[ thread ]</a>
+              <a href="subject.html#2546">[ subject ]</a>
+              <a href="author.html#2546">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

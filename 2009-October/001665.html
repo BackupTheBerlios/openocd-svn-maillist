@@ -1,0 +1,591 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-403-g85bf162
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.2.0-403-g85bf162&In-Reply-To=%3CE1N0aaT-0005qJ-2J%40fxgxhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001664.html">
+   <LINK REL="Next"  HREF="001666.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-403-g85bf162</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.2.0-403-g85bf162&In-Reply-To=%3CE1N0aaT-0005qJ-2J%40fxgxhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-403-g85bf162">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Wed Oct 21 14:46:44 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001664.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-399-ge895246
+</A></li>
+        <LI>Next message: <A HREF="001666.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-404-g2d45a10
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1665">[ date ]</a>
+              <a href="thread.html#1665">[ thread ]</a>
+              <a href="subject.html#1665">[ subject ]</a>
+              <a href="author.html#1665">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  85bf1627cd15e56b1382aa9fe887a3e246999758 (commit)
+       via  2783cba8106a86bd81635b509ccb5edb0ebd3d29 (commit)
+       via  818cedaff315d4ca44541012d5e4a8882cda1c85 (commit)
+       via  69a6037ce6e76dca4117689208358231dffa0929 (commit)
+      from  e895246966e3aa6e78f9d0816c72c6fbb9160122 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 85bf1627cd15e56b1382aa9fe887a3e246999758
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Wed Oct 21 14:46:12 2009 +0200
+
+    add support for target_read/write_phys_memory callbacks.
+
+diff --git a/src/target/arm926ejs.c b/src/target/arm926ejs.c
+index c3c5097..d5ea082 100644
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -47,7 +47,9 @@ int arm926ejs_handle_read_mmu_command(struct command_context_s *cmd_ctx, char *c
+ int arm926ejs_target_create(struct target_s *target, Jim_Interp *interp);
+ int arm926ejs_init_target(struct command_context_s *cmd_ctx, struct target_s *target);
+ int arm926ejs_quit(void);
+-int arm926ejs_read_memory(struct target_s *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++
++int arm926ejs_read_phys_memory(struct target_s *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++int arm926ejs_write_phys_memory(struct target_s *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+ 
+ static int arm926ejs_virt2phys(struct target_s *target, uint32_t virtual, uint32_t *physical);
+ static int arm926ejs_mmu(struct target_s *target, int *enabled);
+@@ -90,7 +92,10 @@ target_type_t arm926ejs_target =
+ 	.examine = arm9tdmi_examine,
+ 	.quit = arm926ejs_quit,
+ 	.virt2phys = arm926ejs_virt2phys,
+-	.mmu = arm926ejs_mmu
++	.mmu = arm926ejs_mmu,
++
++	.read_phys_memory = arm926ejs_read_phys_memory,
++	.write_phys_memory = arm926ejs_write_phys_memory,
+ };
+ 
+ int arm926ejs_catch_broken_irscan(uint8_t *captured, void *priv, scan_field_t *field)
+@@ -738,6 +743,26 @@ int arm926ejs_write_memory(struct target_s *target, uint32_t address, uint32_t s
+ 	return retval;
+ }
+ 
++int arm926ejs_write_phys_memory(struct target_s *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++{
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
++	arm9tdmi_common_t *arm9tdmi = arm7_9-&gt;arch_info;
++	arm926ejs_common_t *arm926ejs = arm9tdmi-&gt;arch_info;
++
++	return armv4_5_mmu_write_physical(target, &amp;arm926ejs-&gt;armv4_5_mmu, address, size, count, buffer);
++}
++
++int arm926ejs_read_phys_memory(struct target_s *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++{
++	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
++	arm7_9_common_t *arm7_9 = armv4_5-&gt;arch_info;
++	arm9tdmi_common_t *arm9tdmi = arm7_9-&gt;arch_info;
++	arm926ejs_common_t *arm926ejs = arm9tdmi-&gt;arch_info;
++
++	return armv4_5_mmu_read_physical(target, &amp;arm926ejs-&gt;armv4_5_mmu, address, size, count, buffer);
++}
++
+ int arm926ejs_init_target(struct command_context_s *cmd_ctx, struct target_s *target)
+ {
+ 	arm9tdmi_init_target(cmd_ctx, target);
+
+commit 2783cba8106a86bd81635b509ccb5edb0ebd3d29
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Wed Oct 21 14:45:39 2009 +0200
+
+    Added target_read/write_phys_memory() fn's. mdX/mwX commands updated to support phys flag to specify bypassing of MMU.
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index 500faf9..4f22832 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -4938,23 +4938,27 @@ Please use their TARGET object siblings to avoid making assumptions
+ about what TAP is the current target, or about MMU configuration.
+ @end enumerate
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffn</A> Command mdw addr [count]
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffnx</A> Command mdh addr [count]
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffnx</A> Command mdb addr [count]
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command mdw [phys] addr [count]
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffnx</A> Command mdh [phys] addr [count]
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffnx</A> Command mdb [phys] addr [count]
+ Display contents of address @var{addr}, as
+ 32-bit words (@command{mdw}), 16-bit halfwords (@command{mdh}),
+ or 8-bit bytes (@command{mdb}).
+ If @var{count} is specified, displays that many units.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at var</A>{phys} is an optional flag to indicate to use
++physical address and bypass MMU
+ (If you want to manipulate the data instead of displaying it,
+ see the @code{mem2array} primitives.)
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffn</A> Command mww addr word
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffnx</A> Command mwh addr halfword
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at deffnx</A> Command mwb addr byte
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command mww [phys] addr word
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffnx</A> Command mwh [phys] addr halfword
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffnx</A> Command mwb [phys] addr byte
+ Writes the specified @var{word} (32 bits),
+ @var{halfword} (16 bits), or @var{byte} (8-bit) pattern,
+ at the specified address @var{addr}.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at var</A>{phys} is an optional flag to indicate to use
++physical address and bypass MMU
+ @end deffn
+ 
+ 
+diff --git a/src/target/target.c b/src/target/target.c
+index 7763b95..4516207 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -601,11 +601,24 @@ int target_read_memory(struct target_s *target,
+ 	return target-&gt;type-&gt;read_memory(target, address, size, count, buffer);
+ }
+ 
++int target_read_phys_memory(struct target_s *target,
++		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++{
++	return target-&gt;type-&gt;read_phys_memory(target, address, size, count, buffer);
++}
++
+ int target_write_memory(struct target_s *target,
+ 		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+ 	return target-&gt;type-&gt;write_memory(target, address, size, count, buffer);
+ }
++
++int target_write_phys_memory(struct target_s *target,
++		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++{
++	return target-&gt;type-&gt;write_phys_memory(target, address, size, count, buffer);
++}
++
+ int target_bulk_write_memory(struct target_s *target,
+ 		uint32_t address, uint32_t count, uint8_t *buffer)
+ {
+@@ -698,6 +711,17 @@ int target_init(struct command_context_s *cmd_ctx)
+ 		{
+ 			target-&gt;type-&gt;virt2phys = default_virt2phys;
+ 		}
++
++		if (target-&gt;type-&gt;read_phys_memory == NULL)
++		{
++			target-&gt;type-&gt;read_phys_memory = target-&gt;type-&gt;read_memory;
++		}
++
++		if (target-&gt;type-&gt;write_phys_memory == NULL)
++		{
++			target-&gt;type-&gt;write_phys_memory = target-&gt;type-&gt;write_memory;
++		}
++
+ 		/* a non-invasive way(in terms of patches) to add some code that
+ 		 * runs before the type-&gt;write/read_memory implementation
+ 		 */
+@@ -1531,13 +1555,13 @@ int target_register_user_commands(struct command_context_s *cmd_ctx)
+ 	register_command(cmd_ctx,  NULL, &quot;reset&quot;, handle_reset_command, COMMAND_EXEC, &quot;reset target [run | halt | init] - default is run&quot;);
+ 	register_command(cmd_ctx,  NULL, &quot;soft_reset_halt&quot;, handle_soft_reset_halt_command, COMMAND_EXEC, &quot;halt the target and do a soft reset&quot;);
+ 
+-	register_command(cmd_ctx,  NULL, &quot;mdw&quot;, handle_md_command, COMMAND_EXEC, &quot;display memory words &lt;addr&gt; [count]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;mdh&quot;, handle_md_command, COMMAND_EXEC, &quot;display memory half-words &lt;addr&gt; [count]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;mdb&quot;, handle_md_command, COMMAND_EXEC, &quot;display memory bytes &lt;addr&gt; [count]&quot;);
++	register_command(cmd_ctx,  NULL, &quot;mdw&quot;, handle_md_command, COMMAND_EXEC, &quot;display memory words [phys] &lt;addr&gt; [count]&quot;);
++	register_command(cmd_ctx,  NULL, &quot;mdh&quot;, handle_md_command, COMMAND_EXEC, &quot;display memory half-words [phys] &lt;addr&gt; [count]&quot;);
++	register_command(cmd_ctx,  NULL, &quot;mdb&quot;, handle_md_command, COMMAND_EXEC, &quot;display memory bytes [phys] &lt;addr&gt; [count]&quot;);
+ 
+-	register_command(cmd_ctx,  NULL, &quot;mww&quot;, handle_mw_command, COMMAND_EXEC, &quot;write memory word &lt;addr&gt; &lt;value&gt; [count]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;mwh&quot;, handle_mw_command, COMMAND_EXEC, &quot;write memory half-word &lt;addr&gt; &lt;value&gt; [count]&quot;);
+-	register_command(cmd_ctx,  NULL, &quot;mwb&quot;, handle_mw_command, COMMAND_EXEC, &quot;write memory byte &lt;addr&gt; &lt;value&gt; [count]&quot;);
++	register_command(cmd_ctx,  NULL, &quot;mww&quot;, handle_mw_command, COMMAND_EXEC, &quot;write memory word [phys]  &lt;addr&gt; &lt;value&gt; [count]&quot;);
++	register_command(cmd_ctx,  NULL, &quot;mwh&quot;, handle_mw_command, COMMAND_EXEC, &quot;write memory half-word [phys]  &lt;addr&gt; &lt;value&gt; [count]&quot;);
++	register_command(cmd_ctx,  NULL, &quot;mwb&quot;, handle_mw_command, COMMAND_EXEC, &quot;write memory byte [phys] &lt;addr&gt; &lt;value&gt; [count]&quot;);
+ 
+ 	register_command(cmd_ctx,  NULL, &quot;bp&quot;,
+ 			handle_bp_command, COMMAND_EXEC,
+@@ -2183,6 +2207,22 @@ static int handle_md_command(struct command_context_s *cmd_ctx, char *cmd, char
+ 	default: return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
++	bool physical=strcmp(args[0], &quot;phys&quot;)==0;
++	int (*fn)(struct target_s *target,
++			uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++	if (physical)
++	{
++		argc--;
++		args++;
++		fn=target_read_phys_memory;
++	} else
++	{
++		fn=target_read_memory;
++	}
++	if ((argc &lt; 1) || (argc &gt; 2))
++	{
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
+ 	uint32_t address;
+ 	int retval = parse_u32(args[0], &amp;address);
+ 	if (ERROR_OK != retval)
+@@ -2199,8 +2239,7 @@ static int handle_md_command(struct command_context_s *cmd_ctx, char *cmd, char
+ 	uint8_t *buffer = calloc(count, size);
+ 
+ 	target_t *target = get_current_target(cmd_ctx);
+-	retval = target_read_memory(target,
+-				address, size, count, buffer);
++	retval = fn(target, address, size, count, buffer);
+ 	if (ERROR_OK == retval)
+ 		handle_md_output(cmd_ctx, target, address, size, count, buffer);
+ 
+@@ -2211,7 +2250,23 @@ static int handle_md_command(struct command_context_s *cmd_ctx, char *cmd, char
+ 
+ static int handle_mw_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
+-	 if ((argc &lt; 2) || (argc &gt; 3))
++	if (argc &lt; 2)
++	{
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++	bool physical=strcmp(args[0], &quot;phys&quot;)==0;
++	int (*fn)(struct target_s *target,
++			uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++	if (physical)
++	{
++		argc--;
++		args++;
++		fn=target_write_phys_memory;
++	} else
++	{
++		fn=target_write_memory;
++	}
++	if ((argc &lt; 2) || (argc &gt; 3))
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 
+ 	uint32_t address;
+@@ -2254,7 +2309,7 @@ static int handle_mw_command(struct command_context_s *cmd_ctx, char *cmd, char
+ 	}
+ 	for (unsigned i = 0; i &lt; count; i++)
+ 	{
+-		retval = target_write_memory(target,
++		retval = fn(target,
+ 				address + i * wordsize, wordsize, 1, value_buf);
+ 		if (ERROR_OK != retval)
+ 			return retval;
+diff --git a/src/target/target_type.h b/src/target/target_type.h
+index d28608f..aab4321 100644
+--- a/src/target/target_type.h
++++ b/src/target/target_type.h
+@@ -180,7 +180,26 @@ struct target_type_s
+ 	int (*init_target)(struct command_context_s *cmd_ctx, struct target_s *target);
+ 	int (*quit)(void);
+ 
++	/* translate from virtual to physical address. Default implementation is successful
++	 * no-op(i.e. virtual==physical).
++	 */
+ 	int (*virt2phys)(struct target_s *target, uint32_t address, uint32_t *physical);
++
++	/* read directly from physical memory. caches are bypassed and untouched.
++	 *
++	 * If the target does not support disabling caches, leaving them untouched,
++	 * then minimally the actual physical memory location will be read even
++	 * if cache states are unchanged, flushed, etc.
++	 *
++	 * Default implementation is to call read_memory.
++	 */
++	int (*read_phys_memory)(struct target_s *target, uint32_t phys_address, uint32_t size, uint32_t count, uint8_t *buffer);
++
++	/*
++	 * same as read_phys_memory, except that it writes...
++	 */
++	int (*write_phys_memory)(struct target_s *target, uint32_t phys_address, uint32_t size, uint32_t count, uint8_t *buffer);
++
+ 	int (*mmu)(struct target_s *target, int *enabled);
+ 
+ };
+
+commit 818cedaff315d4ca44541012d5e4a8882cda1c85
+Merge: 69a6037 e895246
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Wed Oct 21 13:20:29 2009 +0200
+
+    Merge branch 'master' of <A HREF="ssh://gowinex@openocd.git.sourceforge.net/gitroot/openocd/openocd">ssh://gowinex@openocd.git.sourceforge.net/gitroot/openocd/openocd</A> into HEAD
+
+
+commit 69a6037ce6e76dca4117689208358231dffa0929
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Wed Oct 21 13:10:32 2009 +0200
+
+    Retire obsolete and superfluous implementations of virt2phys in each target. This is done in a polymorphic implementation in target.c
+
+diff --git a/src/target/arm720t.c b/src/target/arm720t.c
+index a5916aa..2ebd83a 100644
+--- a/src/target/arm720t.c
++++ b/src/target/arm720t.c
+@@ -34,7 +34,6 @@
+ int arm720t_register_commands(struct command_context_s *cmd_ctx);
+ 
+ int arm720t_handle_cp15_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-int arm720t_handle_virt2phys_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int arm720t_handle_md_phys_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int arm720t_handle_mw_phys_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ 
+@@ -487,7 +486,6 @@ int arm720t_register_commands(struct command_context_s *cmd_ctx)
+ 	arm720t_cmd = register_command(cmd_ctx, NULL, &quot;arm720t&quot;, NULL, COMMAND_ANY, &quot;arm720t specific commands&quot;);
+ 
+ 	register_command(cmd_ctx, arm720t_cmd, &quot;cp15&quot;, arm720t_handle_cp15_command, COMMAND_EXEC, &quot;display/modify cp15 register &lt;opcode&gt; [value]&quot;);
+-	register_command(cmd_ctx, arm720t_cmd, &quot;virt2phys&quot;, arm720t_handle_virt2phys_command, COMMAND_EXEC, &quot;translate va to pa &lt;va&gt;&quot;);
+ 
+ 	register_command(cmd_ctx, arm720t_cmd, &quot;mdw_phys&quot;, arm720t_handle_md_phys_command, COMMAND_EXEC, &quot;display memory words &lt;physical addr&gt; [count]&quot;);
+ 	register_command(cmd_ctx, arm720t_cmd, &quot;mdh_phys&quot;, arm720t_handle_md_phys_command, COMMAND_EXEC, &quot;display memory half-words &lt;physical addr&gt; [count]&quot;);
+@@ -560,32 +558,6 @@ int arm720t_handle_cp15_command(struct command_context_s *cmd_ctx, char *cmd, ch
+ 	return ERROR_OK;
+ }
+ 
+-int arm720t_handle_virt2phys_command(command_context_t *cmd_ctx, char *cmd, char **args, int argc)
+-{
+-	target_t *target = get_current_target(cmd_ctx);
+-	armv4_5_common_t *armv4_5;
+-	arm7_9_common_t *arm7_9;
+-	arm7tdmi_common_t *arm7tdmi;
+-	arm720t_common_t *arm720t;
+-	arm_jtag_t *jtag_info;
+-
+-	if (arm720t_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9, &amp;arm7tdmi, &amp;arm720t) != ERROR_OK)
+-	{
+-		command_print(cmd_ctx, &quot;current target isn't an ARM720t target&quot;);
+-		return ERROR_OK;
+-	}
+-
+-	jtag_info = &amp;arm7_9-&gt;jtag_info;
+-
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		command_print(cmd_ctx, &quot;target must be stopped for \&quot;%s\&quot; command&quot;, cmd);
+-		return ERROR_OK;
+-	}
+-
+-	return armv4_5_mmu_handle_virt2phys_command(cmd_ctx, cmd, args, argc, target, &amp;arm720t-&gt;armv4_5_mmu);
+-}
+-
+ int arm720t_handle_md_phys_command(command_context_t *cmd_ctx, char *cmd, char **args, int argc)
+ {
+ 	target_t *target = get_current_target(cmd_ctx);
+diff --git a/src/target/arm920t.c b/src/target/arm920t.c
+index 3d119bd..5ade82b 100644
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -33,7 +33,6 @@
+ /* cli handling */
+ int arm920t_handle_cp15_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int arm920t_handle_cp15i_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-int arm920t_handle_virt2phys_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int arm920t_handle_cache_info_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int arm920t_handle_md_phys_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int arm920t_handle_mw_phys_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+@@ -700,7 +699,6 @@ int arm920t_register_commands(struct command_context_s *cmd_ctx)
+ 	register_command(cmd_ctx, arm920t_cmd, &quot;cp15&quot;, arm920t_handle_cp15_command, COMMAND_EXEC, &quot;display/modify cp15 register &lt;num&gt; [value]&quot;);
+ 	register_command(cmd_ctx, arm920t_cmd, &quot;cp15i&quot;, arm920t_handle_cp15i_command, COMMAND_EXEC, &quot;display/modify cp15 (interpreted access) &lt;opcode&gt; [value] [address]&quot;);
+ 	register_command(cmd_ctx, arm920t_cmd, &quot;cache_info&quot;, arm920t_handle_cache_info_command, COMMAND_EXEC, &quot;display information about target caches&quot;);
+-	register_command(cmd_ctx, arm920t_cmd, &quot;virt2phys&quot;, arm920t_handle_virt2phys_command, COMMAND_EXEC, &quot;translate va to pa &lt;va&gt;&quot;);
+ 
+ 	register_command(cmd_ctx, arm920t_cmd, &quot;mdw_phys&quot;, arm920t_handle_md_phys_command, COMMAND_EXEC, &quot;display memory words &lt;physical addr&gt; [count]&quot;);
+ 	register_command(cmd_ctx, arm920t_cmd, &quot;mdh_phys&quot;, arm920t_handle_md_phys_command, COMMAND_EXEC, &quot;display memory half-words &lt;physical addr&gt; [count]&quot;);
+@@ -1402,32 +1400,6 @@ int arm920t_handle_cache_info_command(struct command_context_s *cmd_ctx, char *c
+ 	return armv4_5_handle_cache_info_command(cmd_ctx, &amp;arm920t-&gt;armv4_5_mmu.armv4_5_cache);
+ }
+ 
+-int arm920t_handle_virt2phys_command(command_context_t *cmd_ctx, char *cmd, char **args, int argc)
+-{
+-	target_t *target = get_current_target(cmd_ctx);
+-	armv4_5_common_t *armv4_5;
+-	arm7_9_common_t *arm7_9;
+-	arm9tdmi_common_t *arm9tdmi;
+-	arm920t_common_t *arm920t;
+-	arm_jtag_t *jtag_info;
+-
+-	if (arm920t_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9, &amp;arm9tdmi, &amp;arm920t) != ERROR_OK)
+-	{
+-		command_print(cmd_ctx, &quot;current target isn't an ARM920t target&quot;);
+-		return ERROR_OK;
+-	}
+-
+-	jtag_info = &amp;arm7_9-&gt;jtag_info;
+-
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		command_print(cmd_ctx, &quot;target must be stopped for \&quot;%s\&quot; command&quot;, cmd);
+-		return ERROR_OK;
+-	}
+-
+-	return armv4_5_mmu_handle_virt2phys_command(cmd_ctx, cmd, args, argc, target, &amp;arm920t-&gt;armv4_5_mmu);
+-}
+-
+ int arm920t_handle_md_phys_command(command_context_t *cmd_ctx, char *cmd, char **args, int argc)
+ {
+ 	target_t *target = get_current_target(cmd_ctx);
+diff --git a/src/target/arm926ejs.c b/src/target/arm926ejs.c
+index 3c80802..9d2404e 100644
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -33,7 +33,6 @@
+ /* cli handling */
+ int arm926ejs_handle_cp15_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int arm926ejs_handle_cp15i_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+-int arm926ejs_handle_virt2phys_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int arm926ejs_handle_cache_info_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int arm926ejs_handle_md_phys_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int arm926ejs_handle_mw_phys_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+@@ -775,7 +774,6 @@ int arm926ejs_register_commands(struct command_context_s *cmd_ctx)
+ 	register_command(cmd_ctx, arm926ejs_cmd, &quot;cp15&quot;, arm926ejs_handle_cp15_command, COMMAND_EXEC, &quot;display/modify cp15 register &lt;opcode_1&gt; &lt;opcode_2&gt; &lt;CRn&gt; &lt;CRm&gt; [value]&quot;);
+ 
+ 	register_command(cmd_ctx, arm926ejs_cmd, &quot;cache_info&quot;, arm926ejs_handle_cache_info_command, COMMAND_EXEC, &quot;display information about target caches&quot;);
+-	register_command(cmd_ctx, arm926ejs_cmd, &quot;virt2phys&quot;, arm926ejs_handle_virt2phys_command, COMMAND_EXEC, &quot;translate va to pa &lt;va&gt;&quot;);
+ 
+ 	register_command(cmd_ctx, arm926ejs_cmd, &quot;mdw_phys&quot;, arm926ejs_handle_md_phys_command, COMMAND_EXEC, &quot;display memory words &lt;physical addr&gt; [count]&quot;);
+ 	register_command(cmd_ctx, arm926ejs_cmd, &quot;mdh_phys&quot;, arm926ejs_handle_md_phys_command, COMMAND_EXEC, &quot;display memory half-words &lt;physical addr&gt; [count]&quot;);
+@@ -870,32 +868,6 @@ int arm926ejs_handle_cache_info_command(struct command_context_s *cmd_ctx, char
+ 	return armv4_5_handle_cache_info_command(cmd_ctx, &amp;arm926ejs-&gt;armv4_5_mmu.armv4_5_cache);
+ }
+ 
+-int arm926ejs_handle_virt2phys_command(command_context_t *cmd_ctx, char *cmd, char **args, int argc)
+-{
+-	target_t *target = get_current_target(cmd_ctx);
+-	armv4_5_common_t *armv4_5;
+-	arm7_9_common_t *arm7_9;
+-	arm9tdmi_common_t *arm9tdmi;
+-	arm926ejs_common_t *arm926ejs;
+-	arm_jtag_t *jtag_info;
+-
+-	if (arm926ejs_get_arch_pointers(target, &amp;armv4_5, &amp;arm7_9, &amp;arm9tdmi, &amp;arm926ejs) != ERROR_OK)
+-	{
+-		command_print(cmd_ctx, &quot;current target isn't an ARM926EJ-S target&quot;);
+-		return ERROR_OK;
+-	}
+-
+-	jtag_info = &amp;arm7_9-&gt;jtag_info;
+-
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		command_print(cmd_ctx, &quot;target must be stopped for \&quot;%s\&quot; command&quot;, cmd);
+-		return ERROR_OK;
+-	}
+-
+-	return armv4_5_mmu_handle_virt2phys_command(cmd_ctx, cmd, args, argc, target, &amp;arm926ejs-&gt;armv4_5_mmu);
+-}
+-
+ int arm926ejs_handle_md_phys_command(command_context_t *cmd_ctx, char *cmd, char **args, int argc)
+ {
+ 	target_t *target = get_current_target(cmd_ctx);
+diff --git a/src/target/armv4_5_mmu.c b/src/target/armv4_5_mmu.c
+index e64021e..3380012 100644
+--- a/src/target/armv4_5_mmu.c
++++ b/src/target/armv4_5_mmu.c
+@@ -170,51 +170,6 @@ int armv4_5_mmu_write_physical(target_t *target, armv4_5_mmu_common_t *armv4_5_m
+ 	return retval;
+ }
+ 
+-int armv4_5_mmu_handle_virt2phys_command(command_context_t *cmd_ctx, char *cmd, char **args, int argc, target_t *target, armv4_5_mmu_common_t *armv4_5_mmu)
+-{
+-	uint32_t va;
+-	uint32_t pa;
+-	int type;
+-	uint32_t cb;
+-	int domain;
+-	uint32_t ap;
+-
+-	if (target-&gt;state != TARGET_HALTED)
+-	{
+-		command_print(cmd_ctx, &quot;target must be stopped for \&quot;virt2phys\&quot; command&quot;);
+-		return ERROR_OK;
+-	}
+-
+-	if (argc == 0)
+-	{
+-		command_print(cmd_ctx, &quot;usage: virt2phys &lt;virtual address&gt;&quot;);
+-		return ERROR_OK;
+-	}
+-
+-	if (argc == 1)
+-	{
+-		va = strtoul(args[0], NULL, 0);
+-		pa = armv4_5_mmu_translate_va(target, armv4_5_mmu, va, &amp;type, &amp;cb, &amp;domain, &amp;ap);
+-		if (type == -1)
+-		{
+-			switch (pa)
+-			{
+-				case ERROR_TARGET_TRANSLATION_FAULT:
+-					command_print(cmd_ctx, &quot;no valid translation for 0x%8.8&quot; PRIx32 &quot;&quot;, va);
+-					break;
+-				default:
+-					command_print(cmd_ctx, &quot;unknown translation error&quot;);
+-			}
+-			return ERROR_OK;
+-		}
+-
+-		command_print(cmd_ctx, &quot;0x%8.8&quot; PRIx32 &quot; -&gt; 0x%8.8&quot; PRIx32 &quot;, type: %s, cb: %i, domain: %d, ap: %2.2x&quot;,
+-			      va, pa, armv4_5_mmu_page_type_names[type], (int)cb, domain, (int)ap);
+-	}
+-
+-	return ERROR_OK;
+-}
+-
+ int armv4_5_mmu_handle_md_phys_command(command_context_t *cmd_ctx, char *cmd, char **args, int argc, target_t *target, armv4_5_mmu_common_t *armv4_5_mmu)
+ {
+ 	int count = 1;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ doc/openocd.texi         |   16 ++++++----
+ src/target/arm926ejs.c   |   29 ++++++++++++++++-
+ src/target/target.c      |   75 +++++++++++++++++++++++++++++++++++++++------
+ src/target/target_type.h |   19 +++++++++++
+ 4 files changed, 121 insertions(+), 18 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001664.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-399-ge895246
+</A></li>
+	<LI>Next message: <A HREF="001666.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-404-g2d45a10
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1665">[ date ]</a>
+              <a href="thread.html#1665">[ thread ]</a>
+              <a href="subject.html#1665">[ subject ]</a>
+              <a href="author.html#1665">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,241 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1396 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1396%20-%20trunk/src/target&In-Reply-To=%3C200903031205.n23C5oSS028447%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000179.html">
+   <LINK REL="Next"  HREF="000181.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1396 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1396%20-%20trunk/src/target&In-Reply-To=%3C200903031205.n23C5oSS028447%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1396 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Tue Mar  3 13:05:50 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000179.html">[Openocd-svn] r1395 - in trunk/src: flash target/board	target/interface target/target target/test
+</A></li>
+        <LI>Next message: <A HREF="000181.html">[Openocd-svn] r1397 - trunk/src/target/board
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#180">[ date ]</a>
+              <a href="thread.html#180">[ thread ]</a>
+              <a href="subject.html#180">[ subject ]</a>
+              <a href="author.html#180">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-03-03 13:05:49 +0100 (Tue, 03 Mar 2009)
+New Revision: 1396
+
+Modified:
+   trunk/src/target/target.c
+Log:
+test code for elf parsing.
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-03-02 12:51:42 UTC (rev 1395)
++++ trunk/src/target/target.c	2009-03-03 12:05:49 UTC (rev 1396)
+@@ -76,6 +76,7 @@
+ int handle_load_image_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int handle_dump_image_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int handle_verify_image_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
++int handle_test_image_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int handle_bp_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int handle_rbp_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ int handle_wp_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+@@ -1329,6 +1330,7 @@
+ 	register_command(cmd_ctx,  NULL, &quot;load_image&quot;, handle_load_image_command, COMMAND_EXEC, &quot;load_image &lt;file&gt; &lt;address&gt; ['bin'|'ihex'|'elf'|'s19'] [min_address] [max_length]&quot;);
+ 	register_command(cmd_ctx,  NULL, &quot;dump_image&quot;, handle_dump_image_command, COMMAND_EXEC, &quot;dump_image &lt;file&gt; &lt;address&gt; &lt;size&gt;&quot;);
+ 	register_command(cmd_ctx,  NULL, &quot;verify_image&quot;, handle_verify_image_command, COMMAND_EXEC, &quot;verify_image &lt;file&gt; [offset] [type]&quot;);
++	register_command(cmd_ctx,  NULL, &quot;test_image&quot;, handle_test_image_command, COMMAND_EXEC, &quot;test_image &lt;file&gt; [offset] [type]&quot;);
+ 
+ 	if((retval = target_request_register_commands(cmd_ctx)) != ERROR_OK)
+ 		return retval;
+@@ -2161,7 +2163,7 @@
+ 	return ERROR_OK;
+ }
+ 
+-int handle_verify_image_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++int handle_verify_image_command_internal(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc, int verify)
+ {
+ 	u8 *buffer;
+ 	u32 buf_cnt;
+@@ -2225,55 +2227,61 @@
+ 			break;
+ 		}
+ 
+-		/* calculate checksum of image */
+-		image_calculate_checksum( buffer, buf_cnt, &amp;checksum );
+-
+-		retval = target_checksum_memory(target, image.sections[i].base_address, buf_cnt, &amp;mem_checksum);
+-		if( retval != ERROR_OK )
++		if (verify)
+ 		{
+-			free(buffer);
+-			break;
+-		}
++			/* calculate checksum of image */
++			image_calculate_checksum( buffer, buf_cnt, &amp;checksum );
+ 
+-		if( checksum != mem_checksum )
+-		{
+-			/* failed crc checksum, fall back to a binary compare */
+-			u8 *data;
++			retval = target_checksum_memory(target, image.sections[i].base_address, buf_cnt, &amp;mem_checksum);
++			if( retval != ERROR_OK )
++			{
++				free(buffer);
++				break;
++			}
+ 
+-			command_print(cmd_ctx, &quot;checksum mismatch - attempting binary compare&quot;);
++			if( checksum != mem_checksum )
++			{
++				/* failed crc checksum, fall back to a binary compare */
++				u8 *data;
+ 
+-			data = (u8*)malloc(buf_cnt);
++				command_print(cmd_ctx, &quot;checksum mismatch - attempting binary compare&quot;);
+ 
+-			/* Can we use 32bit word accesses? */
+-			int size = 1;
+-			int count = buf_cnt;
+-			if ((count % 4) == 0)
+-			{
+-				size *= 4;
+-				count /= 4;
+-			}
+-			retval = target-&gt;type-&gt;read_memory(target, image.sections[i].base_address, size, count, data);
+-			if (retval == ERROR_OK)
+-			{
+-				int t;
+-				for (t = 0; t &lt; buf_cnt; t++)
++				data = (u8*)malloc(buf_cnt);
++
++				/* Can we use 32bit word accesses? */
++				int size = 1;
++				int count = buf_cnt;
++				if ((count % 4) == 0)
+ 				{
+-					if (data[t] != buffer[t])
++					size *= 4;
++					count /= 4;
++				}
++				retval = target-&gt;type-&gt;read_memory(target, image.sections[i].base_address, size, count, data);
++				if (retval == ERROR_OK)
++				{
++					int t;
++					for (t = 0; t &lt; buf_cnt; t++)
+ 					{
+-						command_print(cmd_ctx, &quot;Verify operation failed address 0x%08x. Was 0x%02x instead of 0x%02x\n&quot;, t + image.sections[i].base_address, data[t], buffer[t]);
+-						free(data);
+-						free(buffer);
+-						retval=ERROR_FAIL;
+-						goto done;
++						if (data[t] != buffer[t])
++						{
++							command_print(cmd_ctx, &quot;Verify operation failed address 0x%08x. Was 0x%02x instead of 0x%02x\n&quot;, t + image.sections[i].base_address, data[t], buffer[t]);
++							free(data);
++							free(buffer);
++							retval=ERROR_FAIL;
++							goto done;
++						}
++						if ((t%16384)==0)
++						{
++							keep_alive();
++						}
+ 					}
+-					if ((t%16384)==0)
+-					{
+-						keep_alive();
+-					}
+ 				}
++
++				free(data);
+ 			}
+-
+-			free(data);
++		} else
++		{
++			command_print(cmd_ctx, &quot;address 0x%08x length 0x%08x&quot;, image.sections[i].base_address, buf_cnt);
+ 		}
+ 
+ 		free(buffer);
+@@ -2298,6 +2306,16 @@
+ 	return retval;
+ }
+ 
++int handle_verify_image_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	return handle_verify_image_command_internal(cmd_ctx, cmd, args, argc, 1);
++}
++
++int handle_test_image_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	return handle_verify_image_command_internal(cmd_ctx, cmd, args, argc, 0);
++}
++
+ int handle_bp_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
+ 	int retval;
+@@ -4198,17 +4216,18 @@
+ 	int i;
+ 	int ms=timeval_ms();
+ 	int size=0;
++	int retval=ERROR_OK;
+ 	for (i=0; i&lt;fastload_num;i++)
+ 	{
+-		int retval;
+ 		target_t *target = get_current_target(cmd_ctx);
+-		if ((retval = target_write_buffer(target, fastload[i].address, fastload[i].length, fastload[i].data)) != ERROR_OK)
++		command_print(cmd_ctx, &quot;Write to 0x%08x, length 0x%08x&quot;, fastload[i].address, fastload[i].length);
++		if (retval==ERROR_OK)
+ 		{
+-			return retval;
++			retval = target_write_buffer(target, fastload[i].address, fastload[i].length, fastload[i].data);
+ 		}
+ 		size+=fastload[i].length;
+ 	}
+ 	int after=timeval_ms();
+ 	command_print(cmd_ctx, &quot;Loaded image %f kBytes/s&quot;, (float)(size/1024.0)/((float)(after-ms)/1000.0));
+-	return ERROR_OK;
++	return retval;
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000179.html">[Openocd-svn] r1395 - in trunk/src: flash target/board	target/interface target/target target/test
+</A></li>
+	<LI>Next message: <A HREF="000181.html">[Openocd-svn] r1397 - trunk/src/target/board
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#180">[ date ]</a>
+              <a href="thread.html#180">[ thread ]</a>
+              <a href="subject.html#180">[ subject ]</a>
+              <a href="author.html#180">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

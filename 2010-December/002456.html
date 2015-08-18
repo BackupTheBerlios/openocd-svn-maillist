@@ -1,0 +1,625 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-640-g5cd931e
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-640-g5cd931e&In-Reply-To=%3CE1PPrnz-0006vI-BT%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002455.html">
+   <LINK REL="Next"  HREF="002457.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-640-g5cd931e</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-640-g5cd931e&In-Reply-To=%3CE1PPrnz-0006vI-BT%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-640-g5cd931e">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Tue Dec  7 08:17:40 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002455.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-639-g6ef4e97
+</A></li>
+        <LI>Next message: <A HREF="002457.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-641-g740b9e2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2456">[ date ]</a>
+              <a href="thread.html#2456">[ thread ]</a>
+              <a href="subject.html#2456">[ subject ]</a>
+              <a href="author.html#2456">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  5cd931ed1ccc75bdbaab821686ceff04c3cb002b (commit)
+      from  6ef4e9777916d0e0977117182eeebf4596455dc7 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 5cd931ed1ccc75bdbaab821686ceff04c3cb002b
+Author: Andrew Leech &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">coronasensei at gmail.com</A>&gt;
+Date:   Tue Dec 7 08:05:56 2010 +1100
+
+    svf: various improvements
+    
+    * added support for targeting particular tap
+    * improved file reading
+    * improved command line parsing
+    * added progress meter
+    * more readable time measurement output
+
+diff --git a/src/svf/svf.c b/src/svf/svf.c
+index 62e2324..a015e3c 100644
+--- a/src/svf/svf.c
++++ b/src/svf/svf.c
+@@ -206,21 +206,33 @@ struct svf_check_tdo_para
+ static struct svf_check_tdo_para *svf_check_tdo_para = NULL;
+ static int svf_check_tdo_para_index = 0;
+ 
+-static int svf_read_command_from_file(int fd);
++static int svf_read_command_from_file(FILE * fd);
+ static int svf_check_tdo(void);
+ static int svf_add_check_para(uint8_t enabled, int buffer_offset, int bit_len);
+ static int svf_run_command(struct command_context *cmd_ctx, char *cmd_str);
+ 
+-static int svf_fd = 0;
++static FILE * svf_fd = NULL;
++static char * svf_read_line = NULL;
++static size_t svf_read_line_size = 0;
+ static char *svf_command_buffer = NULL;
+-static int svf_command_buffer_size = 0;
++static size_t svf_command_buffer_size = 0;
+ static int svf_line_number = 1;
++static int svf_getline (char **lineptr, size_t *n, FILE *stream);
+ 
+ #define SVF_MAX_BUFFER_SIZE_TO_COMMIT	(4 * 1024)
+ static uint8_t *svf_tdi_buffer = NULL, *svf_tdo_buffer = NULL, *svf_mask_buffer = NULL;
+ static int svf_buffer_index = 0, svf_buffer_size = 0;
+ static int svf_quiet = 0;
+ 
++// Targetting particular tap
++static int svf_tap_is_specified = 0;
++static int svf_set_padding(struct svf_xxr_para *para, int len, unsigned char tdi);
++
++// Progress Indicator
++static int svf_progress_enabled = 0;
++static long svf_total_lines = 0;
++static int svf_percentage = 0;
++static int svf_last_printed_percentage = -1;
+ 
+ static void svf_free_xxd_para(struct svf_xxr_para *para)
+ {
+@@ -301,46 +313,71 @@ int svf_add_statemove(tap_state_t state_to)
+ 
+ COMMAND_HANDLER(handle_svf_command)
+ {
+-#define SVF_NUM_OF_OPTIONS			1
++#define SVF_MIN_NUM_OF_OPTIONS			1
++#define SVF_MAX_NUM_OF_OPTIONS			5
++#define USAGE [-tap device.tap] &lt;file&gt; [quiet] [progress]
++#define PRINT_USAGE	command_print(CMD_CTX, &quot;svf USAGE&quot;)
+ 	int command_num = 0;
+ 	int ret = ERROR_OK;
+-	long long time_ago;
++	long long time_measure_ms;
++	int time_measure_s, time_measure_m;
++
++	/* use NULL to indicate a &quot;plain&quot; svf file which accounts for
++	   any additional devices in the scan chain, otherwise the device
++	   that should be affected
++	*/
++	struct jtag_tap *tap = NULL;
+ 
+-	if ((CMD_ARGC &lt; 1) || (CMD_ARGC &gt; (1 + SVF_NUM_OF_OPTIONS)))
++	if ((CMD_ARGC &lt; SVF_MIN_NUM_OF_OPTIONS) || (CMD_ARGC &gt; SVF_MAX_NUM_OF_OPTIONS))
+ 	{
+-		command_print(CMD_CTX, &quot;usage: svf &lt;file&gt; [quiet]&quot;);
++		PRINT_USAGE;
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	// parse variant
++	// parse command line
+ 	svf_quiet = 0;
+-	for (unsigned i = 1; i &lt; CMD_ARGC; i++)
++	for (unsigned int i = 0; i &lt; CMD_ARGC; i++)
+ 	{
+-		if (!strcmp(CMD_ARGV[i], &quot;quiet&quot;))
++		if (strcmp(CMD_ARGV[i], &quot;-tap&quot;) == 0)
++		{
++			tap = jtag_tap_by_string(CMD_ARGV[i+1]);
++			if (!tap)
++			{
++				command_print(CMD_CTX, &quot;Tap: %s unknown&quot;, CMD_ARGV[i+1]);
++				return ERROR_FAIL;
++			}
++			i++;
++		}
++		else if ((strcmp(CMD_ARGV[i], &quot;quiet&quot;) == 0) || (strcmp(CMD_ARGV[i], &quot;-quiet&quot;) == 0))
+ 		{
+ 			svf_quiet = 1;
+ 		}
+-		else
++		else if ((strcmp(CMD_ARGV[i], &quot;progress&quot;) == 0) || (strcmp(CMD_ARGV[i], &quot;-progress&quot;) == 0))
+ 		{
+-			LOG_ERROR(&quot;unknown variant for svf: %s&quot;, CMD_ARGV[i]);
+-
++			svf_progress_enabled = 1;
++		}
++		else if ((svf_fd = fopen(CMD_ARGV[i], &quot;r&quot;)) == NULL)
++		{
++			int err = errno;
++			PRINT_USAGE;
++			command_print(CMD_CTX, &quot;open(\&quot;%s\&quot;): %s&quot;, CMD_ARGV[i], strerror(err));
+ 			// no need to free anything now
+ 			return ERROR_FAIL;
+ 		}
++		else
++		{
++			LOG_USER(&quot;svf processing file: \&quot;%s\&quot;&quot;, CMD_ARGV[i]);
++		}
+ 	}
+ 
+-	if ((svf_fd = open(CMD_ARGV[0], O_RDONLY)) &lt; 0)
++	if (svf_fd == NULL)
+ 	{
+-		command_print(CMD_CTX, &quot;file \&quot;%s\&quot; not found&quot;, CMD_ARGV[0]);
+-
+-		// no need to free anything now
++		PRINT_USAGE;
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	LOG_USER(&quot;svf processing file: \&quot;%s\&quot;&quot;, CMD_ARGV[0]);
+-
+ 	// get time
+-	time_ago = timeval_ms();
++	time_measure_ms = timeval_ms();
+ 
+ 	// init
+ 	svf_line_number = 1;
+@@ -388,8 +425,97 @@ COMMAND_HANDLER(handle_svf_command)
+ 	// TAP_RESET
+ 	jtag_add_tlr();
+ 
++	if (tap)
++	{
++		/* Tap is specified, set header/trailer paddings */
++		int header_ir_len = 0, header_dr_len = 0, trailer_ir_len = 0, trailer_dr_len = 0;
++		struct jtag_tap *check_tap;
++
++		svf_tap_is_specified = 1;
++
++		for (check_tap = jtag_all_taps(); check_tap; check_tap = check_tap-&gt;next_tap) {
++			if (check_tap-&gt;abs_chain_position &lt; tap-&gt;abs_chain_position)
++			{
++				//Header
++				header_ir_len += check_tap-&gt;ir_length;
++				header_dr_len ++;
++			}
++			else if (check_tap-&gt;abs_chain_position &gt; tap-&gt;abs_chain_position)
++			{
++				//Trailer
++				trailer_ir_len += check_tap-&gt;ir_length;
++				trailer_dr_len ++;
++			}
++		}
++
++		// HDR %d TDI (0)
++		if (ERROR_OK != svf_set_padding(&amp;svf_para.hdr_para, header_dr_len, 0))
++		{
++			LOG_ERROR(&quot;failed to set data header&quot;);
++			return ERROR_FAIL;
++		}
++
++		// HIR %d TDI (0xFF)
++		if (ERROR_OK != svf_set_padding(&amp;svf_para.hir_para, header_ir_len, 0xFF))
++		{
++			LOG_ERROR(&quot;failed to set instruction header&quot;);
++			return ERROR_FAIL;
++		}
++
++		// TDR %d TDI (0)
++		if (ERROR_OK != svf_set_padding(&amp;svf_para.tdr_para, trailer_dr_len, 0))
++		{
++			LOG_ERROR(&quot;failed to set data trailer&quot;);
++			return ERROR_FAIL;
++		}
++
++		// TIR %d TDI (0xFF)
++		if (ERROR_OK != svf_set_padding(&amp;svf_para.tir_para, trailer_ir_len, 0xFF))
++		{
++			LOG_ERROR(&quot;failed to set instruction trailer&quot;);
++			return ERROR_FAIL;
++		}
++
++	}
++
++	if (svf_progress_enabled)
++	{
++		// Count total lines in file.
++		while ( ! feof (svf_fd) )
++		 {
++		   svf_getline (&amp;svf_command_buffer, &amp;svf_command_buffer_size, svf_fd);
++		   svf_total_lines++;
++		 }
++		rewind(svf_fd);
++	}
+ 	while (ERROR_OK == svf_read_command_from_file(svf_fd))
+ 	{
++		// Log Output
++		if (svf_quiet)
++		{
++			if (svf_progress_enabled)
++			{
++				svf_percentage = ((svf_line_number * 20) / svf_total_lines) * 5;
++				if (svf_last_printed_percentage != svf_percentage)
++				{
++					LOG_USER_N(&quot;\r%d%%    &quot;, svf_percentage);
++					svf_last_printed_percentage = svf_percentage;
++				}
++			}
++		}
++		else
++		{
++			if (svf_progress_enabled)
++			{
++				svf_percentage = ((svf_line_number * 20) / svf_total_lines) * 5;
++				LOG_USER_N(&quot;%3d%%  %s&quot;, svf_percentage, svf_read_line);
++			}
++			else
++			{
++				LOG_USER_N(&quot;%s&quot;,svf_read_line);
++			}
++		}
++			// Run Command
+ 		if (ERROR_OK != svf_run_command(CMD_CTX, svf_command_buffer))
+ 		{
+ 			LOG_ERROR(&quot;fail to run command at line %d&quot;, svf_line_number);
+@@ -408,11 +534,19 @@ COMMAND_HANDLER(handle_svf_command)
+ 	}
+ 
+ 	// print time
+-	command_print(CMD_CTX, &quot;%lld ms used&quot;, timeval_ms() - time_ago);
++	time_measure_ms = timeval_ms() - time_measure_ms;
++	time_measure_s = time_measure_ms / 1000;
++	time_measure_ms %= 1000;
++	time_measure_m = time_measure_s / 60;
++	time_measure_s %= 60;
++	if (time_measure_ms &lt; 1000)
++	{
++		command_print(CMD_CTX, &quot;\r\nTime used: %dm%ds%lldms &quot;, time_measure_m, time_measure_s, time_measure_ms);
++	}
+ 
+ free_all:
+ 
+-	close(svf_fd);
++	fclose(svf_fd);
+ 	svf_fd = 0;
+ 
+ 	// free buffers
+@@ -465,36 +599,92 @@ free_all:
+ 	return ret;
+ }
+ 
++static int svf_getline (char **lineptr, size_t *n, FILE *stream)
++{
++#define MIN_CHUNK 16	//Buffer is increased by this size each time as required
++  size_t i = 0;
++
++  if (*lineptr == NULL)
++    {
++      *n = MIN_CHUNK;
++      *lineptr = (char *)malloc (*n);
++      if (!*lineptr)
++        {
++		  return -1;
++        }
++    }
++
++	(*lineptr)[0] = fgetc(stream);
++	while ((*lineptr)[i] != '\n')
++	{
++		(*lineptr)[++i] = fgetc(stream);
++		if (feof(stream))
++		{
++			(*lineptr)[0] = 0;
++			return -1;
++		}
++		if ((i + 2) &gt; *n)
++		{
++			*n += MIN_CHUNK;
++			*lineptr = realloc(*lineptr, *n);
++		}
++	}
++
++	(*lineptr)[++i] = 0;
++
++	return sizeof(*lineptr);
++}
++
+ #define SVFP_CMD_INC_CNT			1024
+-static int svf_read_command_from_file(int fd)
++static int svf_read_command_from_file(FILE * fd)
+ {
+ 	unsigned char ch;
+-	char *tmp_buffer = NULL;
+-	int cmd_pos = 0, cmd_ok = 0, slash = 0, comment = 0;
++	int i = 0;
++	size_t cmd_pos = 0;
++	int cmd_ok = 0, slash = 0, comment = 0;
+ 
+-	while (!cmd_ok &amp;&amp; (read(fd, &amp;ch, 1) &gt; 0))
++	if (svf_getline (&amp;svf_read_line, &amp;svf_read_line_size, svf_fd) &lt;= 0)
++	{
++		return ERROR_FAIL;
++	}
++	svf_line_number++;
++	ch = svf_read_line[0];
++	while (!cmd_ok &amp;&amp; (ch != 0))
+ 	{
+ 		switch (ch)
+ 		{
+ 		case '!':
+ 			slash = 0;
+-			comment = 1;
++			if (svf_getline (&amp;svf_read_line, &amp;svf_read_line_size, svf_fd) &lt;= 0)
++			{
++				return ERROR_FAIL;
++			}
++			svf_line_number++;
++			i = -1;
+ 			break;
+ 		case '/':
+ 			if (++slash == 2)
+ 			{
+-				comment = 1;
++				slash = 0;
++				if (svf_getline (&amp;svf_read_line, &amp;svf_read_line_size, svf_fd) &lt;= 0)
++				{
++					return ERROR_FAIL;
++				}
++				svf_line_number++;
++				i = -1;
+ 			}
+ 			break;
+ 		case ';':
+ 			slash = 0;
+-			if (!comment)
+-			{
+-				cmd_ok = 1;
+-			}
++			cmd_ok = 1;
+ 			break;
+ 		case '\n':
+ 			svf_line_number++;
++			if (svf_getline (&amp;svf_read_line, &amp;svf_read_line_size, svf_fd) &lt;= 0)
++			{
++				return ERROR_FAIL;
++			}
++			i = -1;
+ 		case '\r':
+ 			slash = 0;
+ 			comment = 0;
+@@ -502,54 +692,40 @@ static int svf_read_command_from_file(int fd)
+ 			if (!cmd_pos)
+ 				break;
+ 		default:
+-			if (!comment)
++			/* The parsing code currently expects a space
++			 * before parentheses -- &quot;TDI (123)&quot;.  Also a
++			 * space afterwards -- &quot;TDI (123) TDO(456)&quot;.
++			 * But such spaces are optional... instead of
++			 * parser updates, cope with that by adding the
++			 * spaces as needed.
++			 *
++			 * Ensure there are 3 bytes available, for:
++			 *  - current character
++			 *  - added space.
++			 *  - terminating NUL ('\0')
++			 */
++			if ((cmd_pos + 2) &gt;= svf_command_buffer_size)
+ 			{
+-				/* The parsing code currently expects a space
+-				 * before parentheses -- &quot;TDI (123)&quot;.  Also a
+-				 * space afterwards -- &quot;TDI (123) TDO(456)&quot;.
+-				 * But such spaces are optional... instead of
+-				 * parser updates, cope with that by adding the
+-				 * spaces as needed.
+-				 *
+-				 * Ensure there are 3 bytes available, for:
+-				 *  - current character
+-				 *  - added space.
+-				 *  - terminating NUL ('\0')
+-				 */
+-				if ((cmd_pos + 2) &gt;= svf_command_buffer_size)
++				svf_command_buffer = realloc(svf_command_buffer, (cmd_pos + 2));
++				if (svf_command_buffer == NULL)
+ 				{
+-					/* REVISIT use realloc(); simpler */
+-					tmp_buffer = malloc(
+-							svf_command_buffer_size
+-							+ SVFP_CMD_INC_CNT);
+-					if (NULL == tmp_buffer)
+-					{
+-						LOG_ERROR(&quot;not enough memory&quot;);
+-						return ERROR_FAIL;
+-					}
+-					if (svf_command_buffer_size &gt; 0)
+-						memcpy(tmp_buffer,
+-							svf_command_buffer,
+-							svf_command_buffer_size);
+-					if (svf_command_buffer != NULL)
+-						free(svf_command_buffer);
+-					svf_command_buffer = tmp_buffer;
+-					svf_command_buffer_size += SVFP_CMD_INC_CNT;
+-					tmp_buffer = NULL;
++					LOG_ERROR(&quot;not enough memory&quot;);
++					return ERROR_FAIL;
+ 				}
++			}
+ 
+-				/* insert a space before '(' */
+-				if ('(' == ch)
+-					svf_command_buffer[cmd_pos++] = ' ';
++			/* insert a space before '(' */
++			if ('(' == ch)
++				svf_command_buffer[cmd_pos++] = ' ';
+ 
+-				svf_command_buffer[cmd_pos++] = (char)toupper(ch);
++			svf_command_buffer[cmd_pos++] = (char)toupper(ch);
+ 
+-				/* insert a space after ')' */
+-				if (')' == ch)
+-					svf_command_buffer[cmd_pos++] = ' ';
+-			}
++			/* insert a space after ')' */
++			if (')' == ch)
++				svf_command_buffer[cmd_pos++] = ' ';
+ 			break;
+ 		}
++		ch = svf_read_line[++i];
+ 	}
+ 
+ 	if (cmd_ok)
+@@ -645,6 +821,19 @@ static int svf_adjust_array_length(uint8_t **arr, int orig_bit_len, int new_bit_
+ 	return ERROR_OK;
+ }
+ 
++static int svf_set_padding(struct svf_xxr_para *para, int len, unsigned char tdi)
++{
++	int error = ERROR_OK;
++	error |= svf_adjust_array_length(&amp;para-&gt;tdi, para-&gt;len, len);
++	memset(para-&gt;tdi, tdi, (len + 7) &gt;&gt; 3);
++	error |= svf_adjust_array_length(&amp;para-&gt;tdo, para-&gt;len, len);
++	error |= svf_adjust_array_length(&amp;para-&gt;mask, para-&gt;len, len);
++	para-&gt;len = len;
++	para-&gt;data_mask = XXR_TDI;
++
++	return error;
++}
++
+ static int svf_copy_hexstring_to_binary(char *str, uint8_t **bin, int orig_bit_len, int bit_len)
+ {
+ 	int i, str_len = strlen(str), str_hbyte_len = (bit_len + 3) &gt;&gt; 2;
+@@ -803,11 +992,8 @@ static int svf_run_command(struct command_context *cmd_ctx, char *cmd_str)
+ 	struct scan_field field;
+ 	// for STATE
+ 	tap_state_t *path = NULL, state;
+-
+-	if (!svf_quiet)
+-	{
+-		LOG_USER(&quot;%s&quot;, svf_command_buffer);
+-	}
++	// flag padding commands skipped due to -tap command
++	int padding_command_skipped = 0;
+ 
+ 	if (ERROR_OK != svf_parse_cmd_string(cmd_str, strlen(cmd_str), argus, &amp;num_of_argu))
+ 	{
+@@ -886,15 +1072,35 @@ static int svf_run_command(struct command_context *cmd_ctx, char *cmd_str)
+ 		}
+ 		break;
+ 	case HDR:
++		if (svf_tap_is_specified)
++		{
++			padding_command_skipped = 1;
++			break;
++		}
+ 		xxr_para_tmp = &amp;svf_para.hdr_para;
+ 		goto XXR_common;
+ 	case HIR:
++		if (svf_tap_is_specified)
++		{
++			padding_command_skipped = 1;
++			break;
++		}
+ 		xxr_para_tmp = &amp;svf_para.hir_para;
+ 		goto XXR_common;
+ 	case TDR:
++		if (svf_tap_is_specified)
++		{
++			padding_command_skipped = 1;
++			break;
++		}
+ 		xxr_para_tmp = &amp;svf_para.tdr_para;
+ 		goto XXR_common;
+ 	case TIR:
++		if (svf_tap_is_specified)
++		{
++			padding_command_skipped = 1;
++			break;
++		}
+ 		xxr_para_tmp = &amp;svf_para.tir_para;
+ 		goto XXR_common;
+ 	case SDR:
+@@ -1454,6 +1660,14 @@ static int svf_run_command(struct command_context *cmd_ctx, char *cmd_str)
+ 		break;
+ 	}
+ 
++	if (!svf_quiet)
++	{
++		if (padding_command_skipped)
++		{
++			LOG_USER(&quot;(Above Padding command skipped, as per -tap argument)&quot;);
++		}
++	}
++
+ 	if (debug_level &gt;= LOG_LVL_DEBUG)
+ 	{
+ 		// for convenient debugging, execute tap if possible
+@@ -1498,7 +1712,7 @@ static const struct command_registration svf_command_handlers[] = {
+ 		.handler = handle_svf_command,
+ 		.mode = COMMAND_EXEC,
+ 		.help = &quot;Runs a SVF file.&quot;,
+-		.usage = &quot;filename ['quiet']&quot;,
++		.usage = &quot;USAGE&quot;,
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/svf/svf.c |  370 +++++++++++++++++++++++++++++++++++++++++++++------------
+ 1 files changed, 292 insertions(+), 78 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002455.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-639-g6ef4e97
+</A></li>
+	<LI>Next message: <A HREF="002457.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-641-g740b9e2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2456">[ date ]</a>
+              <a href="thread.html#2456">[ thread ]</a>
+              <a href="subject.html#2456">[ subject ]</a>
+              <a href="author.html#2456">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

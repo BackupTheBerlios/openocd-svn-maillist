@@ -1,0 +1,115 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2472 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2472%20-%20trunk/src/jtag&In-Reply-To=%3C200907061034.n66AYsuf011368%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001255.html">
+   <LINK REL="Next"  HREF="001257.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2472 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2472%20-%20trunk/src/jtag&In-Reply-To=%3C200907061034.n66AYsuf011368%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2472 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Mon Jul  6 12:34:54 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001255.html">[Openocd-svn] r2471 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="001257.html">[Openocd-svn] r2473 - trunk/tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1256">[ date ]</a>
+              <a href="thread.html#1256">[ thread ]</a>
+              <a href="subject.html#1256">[ subject ]</a>
+              <a href="author.html#1256">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-07-06 12:34:49 +0200 (Mon, 06 Jul 2009)
+New Revision: 2472
+
+Modified:
+   trunk/src/jtag/amt_jtagaccel.c
+Log:
+Ferdinand Postema &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ferdinand at postema.eu</A>&gt;:
+
+Updates to private TAP state tables in amtjtagaccel interface driver.
+
+The first change is the neccesary one to correct a long-standing bug that
+caused the IDCODE to be shifted by one bit too many.  This was caused by
+an incorrect path from state RESET to state DRSHIFT.
+
+The value of those 2 bytes were 0x8a and 0x04. This means that the
+bitstream to do this transition is 0b 00100 01010 (send LSB first). This
+will bring you from the reset state to the shift state; however, you
+enter the shift-state twice, which explains why the ID-CODE that will be
+read next will be shifted 1 bit.  The fix changes these to 0x05 and 0x00.
+This will send the bitstream 0b 00101 (send LSB first).  This will bring
+the TAP controller from the RESET state to the DRSHIFT state directly,
+without entering the DRSHIFT state twice.
+
+After checking the whole table, two other transitions were found that
+could be optimized (5 bits in stead of 10 bits).
+
+Summary off all changes:
+  From   To       Old values  Old Bitstream  New values  New Bitstream  Remarks
+  ----   -------  ----------  -------------  ----------  -------------  -------
+  RESET  DRSHIFT  0x8a 0x04   0b00100 01010  0x05 0x00   0b00101        1,2
+  IDLE   DRSHIFT  0x85 0x08   0b01000 00101  0x04 0x00   0b00100        2
+  IDLE   IRSHIFT  0x8b 0x08   0b01000 01011  0x06 0x00   0b00110        2
+
+[1] Fixes the IDCODE bug
+[2] Optimization
+
+
+Modified: trunk/src/jtag/amt_jtagaccel.c
+===================================================================
+--- trunk/src/jtag/amt_jtagaccel.c	2009-07-06 10:34:33 UTC (rev 2471)
++++ trunk/src/jtag/amt_jtagaccel.c	2009-07-06 10:34:49 UTC (rev 2472)
+@@ -92,8 +92,8 @@
+ static uint8_t amt_jtagaccel_tap_move[6][6][2] =
+ {
+ 	/*	   RESET         IDLE        DRSHIFT       DRPAUSE       IRSHIFT       IRPAUSE             */
+-	{{0x1f, 0x00}, {0x0f, 0x00}, {0x8a, 0x04}, {0x0a, 0x00}, {0x06, 0x00}, {0x96, 0x00}},	/* RESET */
+-	{{0x1f, 0x00}, {0x00, 0x00}, {0x85, 0x08}, {0x05, 0x00}, {0x8b, 0x08}, {0x0b, 0x00}},	/* IDLE */
++	{{0x1f, 0x00}, {0x0f, 0x00}, {0x05, 0x00}, {0x0a, 0x00}, {0x06, 0x00}, {0x96, 0x00}},	/* RESET */
++	{{0x1f, 0x00}, {0x00, 0x00}, {0x04, 0x00}, {0x05, 0x00}, {0x06, 0x00}, {0x0b, 0x00}},	/* IDLE */
+ 	{{0x1f, 0x00}, {0x0d, 0x00}, {0x00, 0x00}, {0x01, 0x00}, {0x8f, 0x09}, {0x8f, 0x01}},	/* DRSHIFT  */
+ 	{{0x1f, 0x00}, {0x0c, 0x00}, {0x08, 0x00}, {0x00, 0x00}, {0x8f, 0x09}, {0x8f, 0x01}},	/* DRPAUSE  */
+ 	{{0x1f, 0x00}, {0x0d, 0x00}, {0x07, 0x00}, {0x97, 0x00}, {0x00, 0x00}, {0x01, 0x00}},	/* IRSHIFT  */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001255.html">[Openocd-svn] r2471 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="001257.html">[Openocd-svn] r2473 - trunk/tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1256">[ date ]</a>
+              <a href="thread.html#1256">[ thread ]</a>
+              <a href="subject.html#1256">[ subject ]</a>
+              <a href="author.html#1256">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

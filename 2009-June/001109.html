@@ -1,0 +1,520 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2325 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2325%20-%20trunk/src/target&In-Reply-To=%3C200906210317.n5L3HagW015378%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001108.html">
+   <LINK REL="Next"  HREF="001110.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2325 - trunk/src/target</H1>
+    <B>duane at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2325%20-%20trunk/src/target&In-Reply-To=%3C200906210317.n5L3HagW015378%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2325 - trunk/src/target">duane at mail.berlios.de
+       </A><BR>
+    <I>Sun Jun 21 05:17:36 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001108.html">[Openocd-svn] r2324 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001110.html">[Openocd-svn] r2326 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1109">[ date ]</a>
+              <a href="thread.html#1109">[ thread ]</a>
+              <a href="subject.html#1109">[ subject ]</a>
+              <a href="author.html#1109">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: duane
+Date: 2009-06-21 05:17:33 +0200 (Sun, 21 Jun 2009)
+New Revision: 2325
+
+Modified:
+   trunk/src/target/target.c
+Log:
+C99 printf() -Werror fixes
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-06-21 03:17:28 UTC (rev 2324)
++++ trunk/src/target/target.c	2009-06-21 03:17:33 UTC (rev 2325)
+@@ -934,8 +934,8 @@
+ 	/* only allocate multiples of 4 byte */
+ 	if (size % 4)
+ 	{
+-		LOG_ERROR(&quot;BUG: code tried to allocate unaligned number of bytes, padding&quot;);
+-		size = CEIL(size, 4);
++		LOG_ERROR(&quot;BUG: code tried to allocate unaligned number of bytes (0x%08x), padding&quot;, ((unsigned)(size)));
++		size = (size + 3) &amp; (~3);
+ 	}
+ 
+ 	/* see if there's already a matching working area */
+@@ -969,7 +969,8 @@
+ 
+ 		if (free_size &lt; size)
+ 		{
+-			LOG_WARNING(&quot;not enough working area available(requested %d, free %d)&quot;, size, free_size);
++			LOG_WARNING(&quot;not enough working area available(requested %u, free %u)&quot;, 
++				    (unsigned)(size), (unsigned)(free_size));
+ 			return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+ 		}
+ 
+@@ -1101,7 +1102,8 @@
+ int target_write_buffer(struct target_s *target, uint32_t address, uint32_t size, uint8_t *buffer)
+ {
+ 	int retval;
+-	LOG_DEBUG(&quot;writing buffer of %i byte at 0x%8.8x&quot;, size, address);
++	LOG_DEBUG(&quot;writing buffer of %i byte at 0x%8.8x&quot;, 
++		  (int)size, (unsigned)address);
+ 
+ 	if (!target_was_examined(target))
+ 	{
+@@ -1116,7 +1118,9 @@
+ 	if ((address + size - 1) &lt; address)
+ 	{
+ 		/* GDB can request this when e.g. PC is 0xfffffffc*/
+-		LOG_ERROR(&quot;address+size wrapped(0x%08x, 0x%08x)&quot;, address, size);
++		LOG_ERROR(&quot;address+size wrapped(0x%08x, 0x%08x)&quot;, 
++				  (unsigned)address, 
++				  (unsigned)size);
+ 		return ERROR_FAIL;
+ 	}
+ 
+@@ -1180,7 +1184,8 @@
+ int target_read_buffer(struct target_s *target, uint32_t address, uint32_t size, uint8_t *buffer)
+ {
+ 	int retval;
+-	LOG_DEBUG(&quot;reading buffer of %i byte at 0x%8.8x&quot;, size, address);
++	LOG_DEBUG(&quot;reading buffer of %i byte at 0x%8.8x&quot;, 
++			  (int)size, (unsigned)address);
+ 
+ 	if (!target_was_examined(target))
+ 	{
+@@ -1195,7 +1200,9 @@
+ 	if ((address + size - 1) &lt; address)
+ 	{
+ 		/* GDB can request this when e.g. PC is 0xfffffffc*/
+-		LOG_ERROR(&quot;address+size wrapped(0x%08x, 0x%08x)&quot;, address, size);
++		LOG_ERROR(&quot;address+size wrapped(0x%08&quot; PRIx32 &quot;, 0x%08&quot; PRIx32 &quot;)&quot;, 
++				  address, 
++				  size);
+ 		return ERROR_FAIL;
+ 	}
+ 
+@@ -1261,7 +1268,7 @@
+ 		buffer = malloc(size);
+ 		if (buffer == NULL)
+ 		{
+-			LOG_ERROR(&quot;error allocating buffer for section (%d bytes)&quot;, size);
++			LOG_ERROR(&quot;error allocating buffer for section (%d bytes)&quot;, (int)size);
+ 			return ERROR_INVALID_ARGUMENTS;
+ 		}
+ 		retval = target_read_buffer(target, address, size, buffer);
+@@ -1319,12 +1326,15 @@
+ 	if (retval == ERROR_OK)
+ 	{
+ 		*value = target_buffer_get_u32(target, value_buf);
+-		LOG_DEBUG(&quot;address: 0x%8.8x, value: 0x%8.8x&quot;, address, *value);
++		LOG_DEBUG(&quot;address: 0x%8.8&quot; PRIx32 &quot;, value: 0x%8.8&quot; PRIx32 &quot;&quot;, 
++				  address, 
++				  *value);
+ 	}
+ 	else
+ 	{
+ 		*value = 0x0;
+-		LOG_DEBUG(&quot;address: 0x%8.8x failed&quot;, address);
++		LOG_DEBUG(&quot;address: 0x%8.8&quot; PRIx32 &quot; failed&quot;, 
++				  address);
+ 	}
+ 
+ 	return retval;
+@@ -1344,12 +1354,15 @@
+ 	if (retval == ERROR_OK)
+ 	{
+ 		*value = target_buffer_get_u16(target, value_buf);
+-		LOG_DEBUG(&quot;address: 0x%8.8x, value: 0x%4.4x&quot;, address, *value);
++		LOG_DEBUG(&quot;address: 0x%8.8&quot; PRIx32 &quot;, value: 0x%4.4x&quot;, 
++				  address, 
++				  *value);
+ 	}
+ 	else
+ 	{
+ 		*value = 0x0;
+-		LOG_DEBUG(&quot;address: 0x%8.8x failed&quot;, address);
++		LOG_DEBUG(&quot;address: 0x%8.8&quot; PRIx32 &quot; failed&quot;, 
++				  address);
+ 	}
+ 
+ 	return retval;
+@@ -1366,12 +1379,15 @@
+ 
+ 	if (retval == ERROR_OK)
+ 	{
+-		LOG_DEBUG(&quot;address: 0x%8.8x, value: 0x%2.2x&quot;, address, *value);
++		LOG_DEBUG(&quot;address: 0x%8.8&quot; PRIx32 &quot;, value: 0x%2.2x&quot;, 
++				  address, 
++				  *value);
+ 	}
+ 	else
+ 	{
+ 		*value = 0x0;
+-		LOG_DEBUG(&quot;address: 0x%8.8x failed&quot;, address);
++		LOG_DEBUG(&quot;address: 0x%8.8&quot; PRIx32 &quot; failed&quot;, 
++				  address);
+ 	}
+ 
+ 	return retval;
+@@ -1387,7 +1403,9 @@
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	LOG_DEBUG(&quot;address: 0x%8.8x, value: 0x%8.8x&quot;, address, value);
++	LOG_DEBUG(&quot;address: 0x%8.8&quot; PRIx32 &quot;, value: 0x%8.8&quot; PRIx32 &quot;&quot;, 
++			  address, 
++			  value);
+ 
+ 	target_buffer_set_u32(target, value_buf, value);
+ 	if ((retval = target_write_memory(target, address, 4, 1, value_buf)) != ERROR_OK)
+@@ -1408,7 +1426,9 @@
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	LOG_DEBUG(&quot;address: 0x%8.8x, value: 0x%8.8x&quot;, address, value);
++	LOG_DEBUG(&quot;address: 0x%8.8&quot; PRIx32 &quot;, value: 0x%8.8x&quot;, 
++			  address, 
++			  value);
+ 
+ 	target_buffer_set_u16(target, value_buf, value);
+ 	if ((retval = target_write_memory(target, address, 2, 1, value_buf)) != ERROR_OK)
+@@ -1428,7 +1448,8 @@
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	LOG_DEBUG(&quot;address: 0x%8.8x, value: 0x%2.2x&quot;, address, value);
++	LOG_DEBUG(&quot;address: 0x%8.8&quot; PRIx32 &quot;, value: 0x%2.2x&quot;, 
++			  address, value);
+ 
+ 	if ((retval = target_write_memory(target, address, 1, 1, &amp;value)) != ERROR_OK)
+ 	{
+@@ -1713,7 +1734,13 @@
+ 			for (i = 0; i &lt; cache-&gt;num_regs; i++)
+ 			{
+ 				value = buf_to_str(cache-&gt;reg_list[i].value, cache-&gt;reg_list[i].size, 16);
+-				command_print(cmd_ctx, &quot;(%i) %s (/%i): 0x%s (dirty: %i, valid: %i)&quot;, count++, cache-&gt;reg_list[i].name, cache-&gt;reg_list[i].size, value, cache-&gt;reg_list[i].dirty, cache-&gt;reg_list[i].valid);
++				command_print(cmd_ctx, &quot;(%i) %s (/%i): 0x%s (dirty: %i, valid: %i)&quot;, 
++							  count++, 
++							  cache-&gt;reg_list[i].name, 
++							  (int)(cache-&gt;reg_list[i].size),
++							  value, 
++							  cache-&gt;reg_list[i].dirty, 
++							  cache-&gt;reg_list[i].valid);
+ 				free(value);
+ 			}
+ 			cache = cache-&gt;next;
+@@ -1776,7 +1803,7 @@
+ 			arch_type-&gt;get(reg);
+ 		}
+ 		value = buf_to_str(reg-&gt;value, reg-&gt;size, 16);
+-		command_print(cmd_ctx, &quot;%s (/%i): 0x%s&quot;, reg-&gt;name, reg-&gt;size, value);
++		command_print(cmd_ctx, &quot;%s (/%i): 0x%s&quot;, reg-&gt;name, (int)(reg-&gt;size), value);
+ 		free(value);
+ 		return ERROR_OK;
+ 	}
+@@ -1791,7 +1818,7 @@
+ 		arch_type-&gt;set(reg, buf);
+ 
+ 		value = buf_to_str(reg-&gt;value, reg-&gt;size, 16);
+-		command_print(cmd_ctx, &quot;%s (/%i): 0x%s&quot;, reg-&gt;name, reg-&gt;size, value);
++		command_print(cmd_ctx, &quot;%s (/%i): 0x%s&quot;, reg-&gt;name, (int)(reg-&gt;size), value);
+ 		free(value);
+ 
+ 		free(buf);
+@@ -2037,7 +2064,8 @@
+ 		{
+ 			output_len += snprintf(output + output_len,
+ 					sizeof(output) - output_len,
+-					&quot;0x%8.8x: &quot;, address + (i*size));
++					&quot;0x%8.8x: &quot;, 
++					(unsigned)(address + (i*size)));
+ 		}
+ 
+ 		uint32_t value=0;
+@@ -2232,7 +2260,9 @@
+ 		buffer = malloc(image.sections[i].size);
+ 		if (buffer == NULL)
+ 		{
+-			command_print(cmd_ctx, &quot;error allocating buffer for section (%d bytes)&quot;, image.sections[i].size);
++			command_print(cmd_ctx, 
++						  &quot;error allocating buffer for section (%d bytes)&quot;, 
++						  (int)(image.sections[i].size));
+ 			break;
+ 		}
+ 
+@@ -2268,7 +2298,9 @@
+ 				break;
+ 			}
+ 			image_size += length;
+-			command_print(cmd_ctx, &quot;%u byte written at address 0x%8.8x&quot;, length, image.sections[i].base_address+offset);
++			command_print(cmd_ctx, &quot;%u byte written at address 0x%8.8&quot; PRIx32 &quot;&quot;, 
++						  (unsigned int)length, 
++						  image.sections[i].base_address+offset);
+ 		}
+ 
+ 		free(buffer);
+@@ -2282,7 +2314,9 @@
+ 
+ 	if (retval==ERROR_OK)
+ 	{
+-		command_print(cmd_ctx, &quot;downloaded %u byte in %s&quot;, image_size, duration_text);
++		command_print(cmd_ctx, &quot;downloaded %u byte in %s&quot;, 
++					  (unsigned int)image_size, 
++					  duration_text);
+ 	}
+ 	free(duration_text);
+ 
+@@ -2423,7 +2457,9 @@
+ 		buffer = malloc(image.sections[i].size);
+ 		if (buffer == NULL)
+ 		{
+-			command_print(cmd_ctx, &quot;error allocating buffer for section (%d bytes)&quot;, image.sections[i].size);
++			command_print(cmd_ctx, 
++						  &quot;error allocating buffer for section (%d bytes)&quot;, 
++						  (int)(image.sections[i].size));
+ 			break;
+ 		}
+ 		if ((retval = image_read_section(&amp;image, i, 0x0, image.sections[i].size, buffer, &amp;buf_cnt)) != ERROR_OK)
+@@ -2469,7 +2505,11 @@
+ 					{
+ 						if (data[t] != buffer[t])
+ 						{
+-							command_print(cmd_ctx, &quot;Verify operation failed address 0x%08x. Was 0x%02x instead of 0x%02x\n&quot;, t + image.sections[i].base_address, data[t], buffer[t]);
++							command_print(cmd_ctx, 
++										  &quot;Verify operation failed address 0x%08x. Was 0x%02x instead of 0x%02x\n&quot;, 
++										  (unsigned)(t + image.sections[i].base_address), 
++										  data[t], 
++										  buffer[t]);
+ 							free(data);
+ 							free(buffer);
+ 							retval=ERROR_FAIL;
+@@ -2486,7 +2526,9 @@
+ 			}
+ 		} else
+ 		{
+-			command_print(cmd_ctx, &quot;address 0x%08x length 0x%08x&quot;, image.sections[i].base_address, buf_cnt);
++			command_print(cmd_ctx, &quot;address 0x%08&quot; PRIx32 &quot; length 0x%08&quot; PRIx32 &quot;&quot;, 
++						  image.sections[i].base_address, 
++						  buf_cnt);
+ 		}
+ 
+ 		free(buffer);
+@@ -2502,7 +2544,9 @@
+ 
+ 	if (retval==ERROR_OK)
+ 	{
+-		command_print(cmd_ctx, &quot;verified %u bytes in %s&quot;, image_size, duration_text);
++		command_print(cmd_ctx, &quot;verified %u bytes in %s&quot;, 
++					  (unsigned int)image_size, 
++					  duration_text);
+ 	}
+ 	free(duration_text);
+ 
+@@ -2531,15 +2575,17 @@
+ 		{
+ 			char* buf = buf_to_str(breakpoint-&gt;orig_instr,
+ 					breakpoint-&gt;length, 16);
+-			command_print(cmd_ctx, &quot;0x%8.8x, 0x%x, %i, 0x%s&quot;,
+-					breakpoint-&gt;address, breakpoint-&gt;length,
++			command_print(cmd_ctx, &quot;0x%8.8&quot; PRIx32 &quot;, 0x%x, %i, 0x%s&quot;,
++					breakpoint-&gt;address, 
++					breakpoint-&gt;length,
+ 					breakpoint-&gt;set, buf);
+ 			free(buf);
+ 		}
+ 		else
+ 		{
+-			command_print(cmd_ctx, &quot;0x%8.8x, 0x%x, %i&quot;,
+-					breakpoint-&gt;address, breakpoint-&gt;length, breakpoint-&gt;set);
++			command_print(cmd_ctx, &quot;0x%8.8&quot; PRIx32 &quot;, 0x%x, %i&quot;,
++						  breakpoint-&gt;address, 
++						  breakpoint-&gt;length, breakpoint-&gt;set);
+ 		}
+ 
+ 		breakpoint = breakpoint-&gt;next;
+@@ -2553,7 +2599,7 @@
+ 	target_t *target = get_current_target(cmd_ctx);
+ 	int retval = breakpoint_add(target, addr, length, hw);
+ 	if (ERROR_OK == retval)
+-		command_print(cmd_ctx, &quot;breakpoint set at 0x%8.8x&quot;, addr);
++		command_print(cmd_ctx, &quot;breakpoint set at 0x%8.8&quot; PRIx32 &quot;&quot;, addr);
+ 	else
+ 		LOG_ERROR(&quot;Failure setting breakpoint&quot;);
+ 	return retval;
+@@ -2619,7 +2665,13 @@
+ 
+ 		while (watchpoint)
+ 		{
+-			command_print(cmd_ctx, &quot;address: 0x%8.8x, len: 0x%8.8x, r/w/a: %i, value: 0x%8.8x, mask: 0x%8.8x&quot;, watchpoint-&gt;address, watchpoint-&gt;length, watchpoint-&gt;rw, watchpoint-&gt;value, watchpoint-&gt;mask);
++			command_print(cmd_ctx, 
++						  &quot;address: 0x%8.8&quot; PRIx32 &quot;, len: 0x%8.8x, r/w/a: %i, value: 0x%8.8&quot; PRIx32 &quot;, mask: 0x%8.8&quot; PRIx32 &quot;&quot;, 
++						  watchpoint-&gt;address, 
++						  watchpoint-&gt;length,
++						  (int)(watchpoint-&gt;rw),
++						  watchpoint-&gt;value,
++						  watchpoint-&gt;mask);
+ 			watchpoint = watchpoint-&gt;next;
+ 		}
+ 		return ERROR_OK;
+@@ -2721,7 +2773,7 @@
+ 	target_t *target = get_current_target(cmd_ctx);
+ 	retval = target-&gt;type-&gt;virt2phys(target, va, &amp;pa);
+ 	if (retval == ERROR_OK)
+-		command_print(cmd_ctx, &quot;Physical address 0x%08x&quot;, pa);
++		command_print(cmd_ctx, &quot;Physical address 0x%08&quot; PRIx32 &quot;&quot;, pa);
+ 
+ 	return retval;
+ }
+@@ -3057,7 +3109,9 @@
+ 	} else {
+ 		char buf[100];
+ 		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
+-		sprintf(buf, &quot;mem2array address: 0x%08x is not aligned for %d byte reads&quot;, addr, width);
++		sprintf(buf, &quot;mem2array address: 0x%08&quot; PRIx32 &quot; is not aligned for %&quot; PRId32 &quot; byte reads&quot;, 
++				addr, 
++				width);
+ 		Jim_AppendStrings(interp, Jim_GetResult(interp), buf , NULL);
+ 		return JIM_ERR;
+ 	}
+@@ -3079,7 +3133,10 @@
+ 		retval = target_read_memory( target, addr, width, count, buffer );
+ 		if (retval != ERROR_OK) {
+ 			/* BOO !*/
+-			LOG_ERROR(&quot;mem2array: Read @ 0x%08x, w=%d, cnt=%d, failed&quot;, addr, width, count);
++			LOG_ERROR(&quot;mem2array: Read @ 0x%08x, w=%d, cnt=%d, failed&quot;, 
++					  (unsigned int)addr, 
++					  (int)width, 
++					  (int)count);
+ 			Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
+ 			Jim_AppendStrings(interp, Jim_GetResult(interp), &quot;mem2array: cannot read memory&quot;, NULL);
+ 			e = JIM_ERR;
+@@ -3239,7 +3296,9 @@
+ 	} else {
+ 		char buf[100];
+ 		Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
+-		sprintf(buf, &quot;array2mem address: 0x%08x is not aligned for %d byte reads&quot;, addr, width);
++		sprintf(buf, &quot;array2mem address: 0x%08x is not aligned for %d byte reads&quot;, 
++				(unsigned int)addr, 
++				(int)width);
+ 		Jim_AppendStrings(interp, Jim_GetResult(interp), buf , NULL);
+ 		return JIM_ERR;
+ 	}
+@@ -3278,7 +3337,10 @@
+ 		retval = target_write_memory(target, addr, width, count, buffer);
+ 		if (retval != ERROR_OK) {
+ 			/* BOO !*/
+-			LOG_ERROR(&quot;array2mem: Write @ 0x%08x, w=%d, cnt=%d, failed&quot;, addr, width, count);
++			LOG_ERROR(&quot;array2mem: Write @ 0x%08x, w=%d, cnt=%d, failed&quot;, 
++					  (unsigned int)addr, 
++					  (int)width, 
++					  (int)count);
+ 			Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
+ 			Jim_AppendStrings(interp, Jim_GetResult(interp), &quot;array2mem: cannot read memory&quot;, NULL);
+ 			e = JIM_ERR;
+@@ -3296,8 +3358,8 @@
+ 	target_t *target;
+ 
+ 	LOG_DEBUG( &quot;**all*targets: event: %d, %s&quot;,
+-			e,
+-			Jim_Nvp_value2name_simple( nvp_target_event, e )-&gt;name );
++			   (int)e,
++			   Jim_Nvp_value2name_simple( nvp_target_event, e )-&gt;name );
+ 
+ 	target = all_targets;
+ 	while (target){
+@@ -4379,7 +4441,8 @@
+ 		buffer = malloc(image.sections[i].size);
+ 		if (buffer == NULL)
+ 		{
+-			command_print(cmd_ctx, &quot;error allocating buffer for section (%d bytes)&quot;, image.sections[i].size);
++			command_print(cmd_ctx, &quot;error allocating buffer for section (%d bytes)&quot;, 
++						  (int)(image.sections[i].size));
+ 			break;
+ 		}
+ 
+@@ -4421,7 +4484,9 @@
+ 			fastload[i].length=length;
+ 
+ 			image_size += length;
+-			command_print(cmd_ctx, &quot;%u byte written at address 0x%8.8x&quot;, length, image.sections[i].base_address+offset);
++			command_print(cmd_ctx, &quot;%u byte written at address 0x%8.8x&quot;, 
++						  (unsigned int)length, 
++						  ((unsigned int)(image.sections[i].base_address+offset)));
+ 		}
+ 
+ 		free(buffer);
+@@ -4430,7 +4495,7 @@
+ 	duration_stop_measure(&amp;duration, &amp;duration_text);
+ 	if (retval==ERROR_OK)
+ 	{
+-		command_print(cmd_ctx, &quot;Loaded %u bytes in %s&quot;, image_size, duration_text);
++		command_print(cmd_ctx, &quot;Loaded %u bytes in %s&quot;, (unsigned int)image_size, duration_text);
+ 		command_print(cmd_ctx, &quot;NB!!! image has not been loaded to target, issue a subsequent 'fast_load' to do so.&quot;);
+ 	}
+ 	free(duration_text);
+@@ -4461,7 +4526,9 @@
+ 	for (i=0; i&lt;fastload_num;i++)
+ 	{
+ 		target_t *target = get_current_target(cmd_ctx);
+-		command_print(cmd_ctx, &quot;Write to 0x%08x, length 0x%08x&quot;, fastload[i].address, fastload[i].length);
++		command_print(cmd_ctx, &quot;Write to 0x%08x, length 0x%08x&quot;, 
++					  (unsigned int)(fastload[i].address), 
++					  (unsigned int)(fastload[i].length));
+ 		if (retval==ERROR_OK)
+ 		{
+ 			retval = target_write_buffer(target, fastload[i].address, fastload[i].length, fastload[i].data);
+@@ -4472,3 +4539,11 @@
+ 	command_print(cmd_ctx, &quot;Loaded image %f kBytes/s&quot;, (float)(size/1024.0)/((float)(after-ms)/1000.0));
+ 	return retval;
+ }
++
++
++/*
++ * Local Variables: 
++ * c-basic-offset: 4
++ * tab-width: 4
++ * End:
++ */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001108.html">[Openocd-svn] r2324 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001110.html">[Openocd-svn] r2326 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1109">[ date ]</a>
+              <a href="thread.html#1109">[ thread ]</a>
+              <a href="subject.html#1109">[ subject ]</a>
+              <a href="author.html#1109">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

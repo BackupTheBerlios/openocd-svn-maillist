@@ -1,0 +1,1199 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-824-g378567d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-824-g378567d&In-Reply-To=%3Cmailman.44.1331736153.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002560.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-824-g378567d</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-824-g378567d&In-Reply-To=%3Cmailman.44.1331736153.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-824-g378567d">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Apr  1 09:00:49 CEST 2011</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002560.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-825-g364cfaa
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2559">[ date ]</a>
+              <a href="thread.html#2559">[ thread ]</a>
+              <a href="subject.html#2559">[ subject ]</a>
+              <a href="author.html#2559">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  378567da4e40a31efed349fbe68deebd14079b94 (commit)
+       via  2615bf4398f393ee1e387128064093dcd44749c8 (commit)
+       via  d76fd2aac798b4b052a50883ac148cbc19080d4a (commit)
+       via  1b9e80f7e6359d59b68a7741c046722bb235a311 (commit)
+      from  0c1ebf2673ef02c5fef7677cbf09d4ad4fa3c533 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 378567da4e40a31efed349fbe68deebd14079b94
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Fri Apr 1 00:00:39 2011 +0200
+
+    mips: illustrates how to improve performance
+    
+    Do not require unecessary roundtrips for clocking out
+    data.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/flash/nor/pic32mx.c b/src/flash/nor/pic32mx.c
+index 89fe9b0..b3c6da3 100644
+--- a/src/flash/nor/pic32mx.c
++++ b/src/flash/nor/pic32mx.c
+@@ -774,11 +774,9 @@ COMMAND_HANDLER(pic32mx_handle_unlock_command)
+ 	}
+ 
+ 	/* unlock/erase device */
+-	mchip_cmd = MCHP_ASERT_RST;
+-	mips_ejtag_drscan_8(ejtag_info, &amp;mchip_cmd);
++	mips_ejtag_drscan_8_out(ejtag_info, MCHP_ASERT_RST);
+ 
+-	mchip_cmd = MCHP_ERASE;
+-	mips_ejtag_drscan_8(ejtag_info, &amp;mchip_cmd);
++	mips_ejtag_drscan_8_out(ejtag_info, MCHP_ERASE);
+ 
+ 	do {
+ 		mchip_cmd = MCHP_STATUS;
+@@ -791,8 +789,7 @@ COMMAND_HANDLER(pic32mx_handle_unlock_command)
+ 		alive_sleep(1);
+ 	} while ((mchip_cmd &amp; (1 &lt;&lt; 2)) || (!(mchip_cmd &amp; (1 &lt;&lt; 3))));
+ 
+-	mchip_cmd = MCHP_DE_ASSERT_RST;
+-	mips_ejtag_drscan_8(ejtag_info, &amp;mchip_cmd);
++	mips_ejtag_drscan_8_out(ejtag_info, MCHP_DE_ASSERT_RST);
+ 
+ 	/* select ejtag tap */
+ 	mips_ejtag_set_instr(ejtag_info, MTAP_SW_ETAP);
+diff --git a/src/target/mips_ejtag.c b/src/target/mips_ejtag.c
+index 9df8a02..087be07 100644
+--- a/src/target/mips_ejtag.c
++++ b/src/target/mips_ejtag.c
+@@ -146,11 +146,24 @@ int mips_ejtag_drscan_8(struct mips_ejtag *ejtag_info, uint32_t *data)
+ 
+ 	*data = buf_get_u32(field.in_value, 0, 32);
+ 
+-	keep_alive();
+-
+ 	return ERROR_OK;
+ }
+ 
++void mips_ejtag_drscan_8_out(struct mips_ejtag *ejtag_info, uint8_t data)
++{
++	struct jtag_tap *tap;
++	tap  = ejtag_info-&gt;tap;
++	assert(tap != NULL);
++
++	struct scan_field field;
++
++	field.num_bits = 8;
++	field.out_value = &data;
++	field.in_value = NULL;
++
++	jtag_add_dr_scan(tap, 1, &amp;field, TAP_IDLE);
++}
++
+ static int mips_ejtag_step_enable(struct mips_ejtag *ejtag_info)
+ {
+ 	static const uint32_t code[] = {
+diff --git a/src/target/mips_ejtag.h b/src/target/mips_ejtag.h
+index 63b6093..aa890d2 100644
+--- a/src/target/mips_ejtag.h
++++ b/src/target/mips_ejtag.h
+@@ -137,6 +137,7 @@ int mips_ejtag_enter_debug(struct mips_ejtag *ejtag_info);
+ int mips_ejtag_exit_debug(struct mips_ejtag *ejtag_info);
+ int mips_ejtag_get_idcode(struct mips_ejtag *ejtag_info, uint32_t *idcode);
+ int mips_ejtag_drscan_32(struct mips_ejtag *ejtag_info, uint32_t *data);
++void mips_ejtag_drscan_8_out(struct mips_ejtag *ejtag_info, uint8_t data);
+ int mips_ejtag_drscan_8(struct mips_ejtag *ejtag_info, uint32_t *data);
+ int mips_ejtag_fastdata_scan(struct mips_ejtag *ejtag_info, int write_t, uint32_t *data);
+ 
+diff --git a/src/target/mips_m4k.c b/src/target/mips_m4k.c
+index 10d3c7d..7530cbd 100644
+--- a/src/target/mips_m4k.c
++++ b/src/target/mips_m4k.c
+@@ -254,18 +254,14 @@ static int mips_m4k_assert_reset(struct target *target)
+ 	{
+ 		if (mips_m4k-&gt;is_pic32mx)
+ 		{
+-			uint32_t mchip_cmd;
+-
+ 			LOG_DEBUG(&quot;Using MTAP reset to reset processor...&quot;);
+ 
+ 			/* use microchip specific MTAP reset */
+ 			mips_ejtag_set_instr(ejtag_info, MTAP_SW_MTAP);
+ 			mips_ejtag_set_instr(ejtag_info, MTAP_COMMAND);
+ 
+-			mchip_cmd = MCHP_ASERT_RST;
+-			mips_ejtag_drscan_8(ejtag_info, &amp;mchip_cmd);
+-			mchip_cmd = MCHP_DE_ASSERT_RST;
+-			mips_ejtag_drscan_8(ejtag_info, &amp;mchip_cmd);
++			mips_ejtag_drscan_8_out(ejtag_info, MCHP_ASERT_RST);
++			mips_ejtag_drscan_8_out(ejtag_info, MCHP_DE_ASSERT_RST);
+ 			mips_ejtag_set_instr(ejtag_info, MTAP_SW_ETAP);
+ 		}
+ 		else
+
+commit 2615bf4398f393ee1e387128064093dcd44749c8
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Thu Mar 31 18:37:19 2011 +0200
+
+    types: write memory now uses const
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/minidummy/minidummy.c b/src/jtag/minidummy/minidummy.c
+index 46ec9c3..4dbcff6 100644
+--- a/src/jtag/minidummy/minidummy.c
++++ b/src/jtag/minidummy/minidummy.c
+@@ -154,7 +154,7 @@ int interface_add_tms_seq(unsigned num_bits, const uint8_t *seq, enum tap_state
+ 	return ERROR_OK;
+ }
+ 
+-void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, uint8_t *buffer, int little, int count)
++void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, const uint8_t *buffer, int little, int count)
+ {
+ 	int i;
+ 	for (i = 0; i &lt; count; i++)
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index 5416c6b..8c37666 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -853,7 +853,7 @@ static void jtag_pre_post_bits(struct jtag_tap *tap, int *pre, int *post)
+ 			TAP_IDLE);
+ */
+ 
+-void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, uint8_t *buffer, int little, int count)
++void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, const uint8_t *buffer, int little, int count)
+ {
+ #if 0
+ 	int i;
+@@ -895,7 +895,7 @@ void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, uint8_t *buffer,
+ 
+ 
+ 
+-int arm11_run_instr_data_to_core_noack_inner(struct jtag_tap * tap, uint32_t opcode, uint32_t * data, size_t count)
++int arm11_run_instr_data_to_core_noack_inner(struct jtag_tap * tap, uint32_t opcode, const uint32_t * data, size_t count)
+ {
+ 	/* bypass bits before and after */
+ 	int pre_bits;
+@@ -905,7 +905,7 @@ int arm11_run_instr_data_to_core_noack_inner(struct jtag_tap * tap, uint32_t opc
+ 
+ 	if ((pre_bits &gt; 32) || (post_bits &gt; 32))
+ 	{
+-		int arm11_run_instr_data_to_core_noack_inner_default(struct jtag_tap *, uint32_t, uint32_t *, size_t);
++		int arm11_run_instr_data_to_core_noack_inner_default(struct jtag_tap *, uint32_t, const uint32_t *, size_t);
+ 		return arm11_run_instr_data_to_core_noack_inner_default(tap, opcode, data, count);
+ 	} else
+ 	{
+diff --git a/src/svf/svf.c b/src/svf/svf.c
+index 0cca768..64be127 100644
+--- a/src/svf/svf.c
++++ b/src/svf/svf.c
+@@ -219,7 +219,7 @@ static size_t svf_command_buffer_size = 0;
+ static int svf_line_number = 1;
+ static int svf_getline (char **lineptr, size_t *n, FILE *stream);
+ 
+-#define SVF_MAX_BUFFER_SIZE_TO_COMMIT	(4 * 1024)
++#define SVF_MAX_BUFFER_SIZE_TO_COMMIT	(1024 * 1024)
+ static uint8_t *svf_tdi_buffer = NULL, *svf_tdo_buffer = NULL, *svf_mask_buffer = NULL;
+ static int svf_buffer_index = 0, svf_buffer_size = 0;
+ static int svf_quiet = 0;
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 2d978e6..2d65835 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -925,7 +925,7 @@ static int arm11_read_memory(struct target *target, uint32_t address, uint32_t s
+ */
+ static int arm11_write_memory_inner(struct target *target,
+ 		uint32_t address, uint32_t size,
+-		uint32_t count, uint8_t *buffer,
++		uint32_t count, const uint8_t *buffer,
+ 		bool no_increment)
+ {
+ 	int retval;
+@@ -1072,7 +1072,7 @@ static int arm11_write_memory_inner(struct target *target,
+ 
+ static int arm11_write_memory(struct target *target,
+ 		uint32_t address, uint32_t size,
+-		uint32_t count, uint8_t *buffer)
++		uint32_t count, const uint8_t *buffer)
+ {
+ 	/* pointer increment matters only for multi-unit writes ...
+ 	 * not e.g. to a &quot;reset the chip&quot; controller.
+@@ -1083,7 +1083,7 @@ static int arm11_write_memory(struct target *target,
+ 
+ /* write target memory in multiples of 4 byte, optimized for writing large quantities of data */
+ static int arm11_bulk_write_memory(struct target *target,
+-		uint32_t address, uint32_t count, uint8_t *buffer)
++		uint32_t address, uint32_t count, const uint8_t *buffer)
+ {
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+diff --git a/src/target/arm720t.c b/src/target/arm720t.c
+index 96e0baa..76862ed 100644
+--- a/src/target/arm720t.c
++++ b/src/target/arm720t.c
+@@ -330,7 +330,7 @@ static int arm720t_read_phys_memory(struct target *target,
+ }
+ 
+ static int arm720t_write_phys_memory(struct target *target,
+-		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++		uint32_t address, uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+ 	struct arm720t_common *arm720t = target_to_arm720(target);
+ 
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index 778e606..611d5d4 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -2431,7 +2431,7 @@ int arm7_9_read_memory(struct target *target, uint32_t address, uint32_t size, u
+ 	return ERROR_OK;
+ }
+ 
+-int arm7_9_write_memory(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++int arm7_9_write_memory(struct target *target, uint32_t address, uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 	struct arm *armv4_5 = &amp;arm7_9-&gt;armv4_5_common;
+@@ -2655,7 +2655,7 @@ int arm7_9_write_memory(struct target *target, uint32_t address, uint32_t size,
+ }
+ 
+ static int dcc_count;
+-static uint8_t *dcc_buffer;
++static const uint8_t *dcc_buffer;
+ 
+ static int arm7_9_dcc_completion(struct target *target, uint32_t exit_point, int timeout_ms, void *arch_info)
+ {
+@@ -2667,7 +2667,7 @@ static int arm7_9_dcc_completion(struct target *target, uint32_t exit_point, int
+ 
+ 	int little = target-&gt;endianness == TARGET_LITTLE_ENDIAN;
+ 	int count = dcc_count;
+-	uint8_t *buffer = dcc_buffer;
++	const uint8_t *buffer = dcc_buffer;
+ 	if (count &gt; 2)
+ 	{
+ 		/* Handle first &amp; last using standard embeddedice_write_reg and the middle ones w/the
+@@ -2720,7 +2720,7 @@ static const uint32_t dcc_code[] =
+ 	0xeafffff9	/*    b   w                   */
+ };
+ 
+-int arm7_9_bulk_write_memory(struct target *target, uint32_t address, uint32_t count, uint8_t *buffer)
++int arm7_9_bulk_write_memory(struct target *target, uint32_t address, uint32_t count, const uint8_t *buffer)
+ {
+ 	int retval;
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+diff --git a/src/target/arm7_9_common.h b/src/target/arm7_9_common.h
+index 69ea221..780d6c9 100644
+--- a/src/target/arm7_9_common.h
++++ b/src/target/arm7_9_common.h
+@@ -134,8 +134,8 @@ int arm7_9_halt(struct target *target);
+ int arm7_9_resume(struct target *target, int current, uint32_t address, int handle_breakpoints, int debug_execution);
+ int arm7_9_step(struct target *target, int current, uint32_t address, int handle_breakpoints);
+ int arm7_9_read_memory(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+-int arm7_9_write_memory(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+-int arm7_9_bulk_write_memory(struct target *target, uint32_t address, uint32_t count, uint8_t *buffer);
++int arm7_9_write_memory(struct target *target, uint32_t address, uint32_t size, uint32_t count, const uint8_t *buffer);
++int arm7_9_bulk_write_memory(struct target *target, uint32_t address, uint32_t count, const uint8_t *buffer);
+ 
+ int arm7_9_run_algorithm(struct target *target, int num_mem_params, struct mem_param *mem_params, int num_reg_prams, struct reg_param *reg_param, uint32_t entry_point, void *arch_info);
+ 
+diff --git a/src/target/arm920t.c b/src/target/arm920t.c
+index a3a5adf..210c253 100644
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -602,7 +602,7 @@ static int arm920t_read_phys_memory(struct target *target,
+ 
+ static int arm920t_write_phys_memory(struct target *target,
+ 		uint32_t address, uint32_t size,
+-		uint32_t count, uint8_t *buffer)
++		uint32_t count, const uint8_t *buffer)
+ {
+ 	struct arm920t_common *arm920t = target_to_arm920(target);
+ 
+@@ -613,7 +613,7 @@ static int arm920t_write_phys_memory(struct target *target,
+ 
+ /** Writes a buffer, in the specified word size, with current MMU settings. */
+ int arm920t_write_memory(struct target *target, uint32_t address,
+-		uint32_t size, uint32_t count, uint8_t *buffer)
++		uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+ 	int retval;
+ 	const uint32_t cache_mask = ~0x1f; /* cache line size : 32 byte */
+diff --git a/src/target/arm920t.h b/src/target/arm920t.h
+index 02d7f83..f4c852b 100644
+--- a/src/target/arm920t.h
++++ b/src/target/arm920t.h
+@@ -63,7 +63,7 @@ int arm920t_soft_reset_halt(struct target *target);
+ int arm920t_read_memory(struct target *target,
+ 	uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+ int arm920t_write_memory(struct target *target,
+-	uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++	uint32_t address, uint32_t size, uint32_t count, const uint8_t *buffer);
+ int arm920t_post_debug_entry(struct target *target);
+ void arm920t_pre_restore_context(struct target *target);
+ int arm920t_get_ttb(struct target *target, uint32_t *result);
+diff --git a/src/target/arm926ejs.c b/src/target/arm926ejs.c
+index 3765f23..c72fe10 100644
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -626,7 +626,7 @@ int arm926ejs_soft_reset_halt(struct target *target)
+ 
+ /** Writes a buffer, in the specified word size, with current MMU settings. */
+ int arm926ejs_write_memory(struct target *target, uint32_t address,
+-		uint32_t size, uint32_t count, uint8_t *buffer)
++		uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+ 	int retval;
+ 	struct arm926ejs_common *arm926ejs = target_to_arm926(target);
+@@ -693,7 +693,7 @@ int arm926ejs_write_memory(struct target *target, uint32_t address,
+ 
+ static int arm926ejs_write_phys_memory(struct target *target,
+ 		uint32_t address, uint32_t size,
+-		uint32_t count, uint8_t *buffer)
++		uint32_t count, const uint8_t *buffer)
+ {
+ 	struct arm926ejs_common *arm926ejs = target_to_arm926(target);
+ 
+diff --git a/src/target/arm926ejs.h b/src/target/arm926ejs.h
+index 274733b..76cc24a 100644
+--- a/src/target/arm926ejs.h
++++ b/src/target/arm926ejs.h
+@@ -50,7 +50,7 @@ int arm926ejs_init_arch_info(struct target *target,
+ 		struct arm926ejs_common *arm926ejs, struct jtag_tap *tap);
+ int arm926ejs_arch_state(struct target *target);
+ int arm926ejs_write_memory(struct target *target,
+-		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++		uint32_t address, uint32_t size, uint32_t count, const uint8_t *buffer);
+ int arm926ejs_soft_reset_halt(struct target *target);
+ 
+ extern const struct command_registration arm926ejs_command_handlers[];
+diff --git a/src/target/arm946e.c b/src/target/arm946e.c
+index ea9226e..0922718 100644
+--- a/src/target/arm946e.c
++++ b/src/target/arm946e.c
+@@ -512,7 +512,7 @@ uint32_t arm946e_invalidate_icache(struct target *target, uint32_t address,
+ 
+ /** Writes a buffer, in the specified word size, with current MMU settings. */
+ int arm946e_write_memory(struct target *target, uint32_t address,
+-		uint32_t size, uint32_t count, uint8_t *buffer)
++		uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+ 	int retval;
+ 
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index 53cf615..b3c491b 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -270,11 +270,11 @@ int mem_ap_write_atomic_u32(struct adiv5_dap *dap, uint32_t address,
+ * Write a buffer in target order (little endian)                             *
+ *                                                                            *
+ *****************************************************************************/
+-int mem_ap_write_buf_u32(struct adiv5_dap *dap, uint8_t *buffer, int count, uint32_t address)
++int mem_ap_write_buf_u32(struct adiv5_dap *dap, const uint8_t *buffer, int count, uint32_t address)
+ {
+ 	int wcount, blocksize, writecount, errorcount = 0, retval = ERROR_OK;
+ 	uint32_t adr = address;
+-	uint8_t* pBuffer = buffer;
++	const uint8_t* pBuffer = buffer;
+ 
+ 	count &gt;&gt;= 2;
+ 	wcount = count;
+@@ -343,7 +343,7 @@ int mem_ap_write_buf_u32(struct adiv5_dap *dap, uint8_t *buffer, int count, uint
+ }
+ 
+ static int mem_ap_write_buf_packed_u16(struct adiv5_dap *dap,
+-		uint8_t *buffer, int count, uint32_t address)
++		const uint8_t *buffer, int count, uint32_t address)
+ {
+ 	int retval = ERROR_OK;
+ 	int wcount, blocksize, writecount, i;
+@@ -424,7 +424,7 @@ static int mem_ap_write_buf_packed_u16(struct adiv5_dap *dap,
+ 	return retval;
+ }
+ 
+-int mem_ap_write_buf_u16(struct adiv5_dap *dap, uint8_t *buffer, int count, uint32_t address)
++int mem_ap_write_buf_u16(struct adiv5_dap *dap, const uint8_t *buffer, int count, uint32_t address)
+ {
+ 	int retval = ERROR_OK;
+ 
+@@ -456,7 +456,7 @@ int mem_ap_write_buf_u16(struct adiv5_dap *dap, uint8_t *buffer, int count, uint
+ }
+ 
+ static int mem_ap_write_buf_packed_u8(struct adiv5_dap *dap,
+-		uint8_t *buffer, int count, uint32_t address)
++		const uint8_t *buffer, int count, uint32_t address)
+ {
+ 	int retval = ERROR_OK;
+ 	int wcount, blocksize, writecount, i;
+@@ -532,7 +532,7 @@ static int mem_ap_write_buf_packed_u8(struct adiv5_dap *dap,
+ 	return retval;
+ }
+ 
+-int mem_ap_write_buf_u8(struct adiv5_dap *dap, uint8_t *buffer, int count, uint32_t address)
++int mem_ap_write_buf_u8(struct adiv5_dap *dap, const uint8_t *buffer, int count, uint32_t address)
+ {
+ 	int retval = ERROR_OK;
+ 
+@@ -935,21 +935,21 @@ int mem_ap_sel_read_buf_u32(struct adiv5_dap *swjdp, uint8_t ap,
+ }
+ 
+ int mem_ap_sel_write_buf_u8(struct adiv5_dap *swjdp, uint8_t ap,
+-		uint8_t *buffer, int count, uint32_t address)
++		const uint8_t *buffer, int count, uint32_t address)
+ {
+ 	dap_ap_select(swjdp, ap);
+ 	return mem_ap_write_buf_u8(swjdp, buffer, count, address);
+ }
+ 
+ int mem_ap_sel_write_buf_u16(struct adiv5_dap *swjdp, uint8_t ap,
+-		uint8_t *buffer, int count, uint32_t address)
++		const uint8_t *buffer, int count, uint32_t address)
+ {
+ 	dap_ap_select(swjdp, ap);
+ 	return mem_ap_write_buf_u16(swjdp, buffer, count, address);
+ }
+ 
+ int mem_ap_sel_write_buf_u32(struct adiv5_dap *swjdp, uint8_t ap,
+-		uint8_t *buffer, int count, uint32_t address)
++		const uint8_t *buffer, int count, uint32_t address)
+ {
+ 	dap_ap_select(swjdp, ap);
+ 	return mem_ap_write_buf_u32(swjdp, buffer, count, address);
+diff --git a/src/target/arm_adi_v5.h b/src/target/arm_adi_v5.h
+index 03a75f4..1c08547 100644
+--- a/src/target/arm_adi_v5.h
++++ b/src/target/arm_adi_v5.h
+@@ -376,11 +376,11 @@ int mem_ap_read_buf_u32(struct adiv5_dap *swjdp,
+ 		uint8_t *buffer, int count, uint32_t address);
+ 
+ int mem_ap_write_buf_u8(struct adiv5_dap *swjdp,
+-		uint8_t *buffer, int count, uint32_t address);
++		const uint8_t *buffer, int count, uint32_t address);
+ int mem_ap_write_buf_u16(struct adiv5_dap *swjdp,
+-		uint8_t *buffer, int count, uint32_t address);
++		const uint8_t *buffer, int count, uint32_t address);
+ int mem_ap_write_buf_u32(struct adiv5_dap *swjdp,
+-		uint8_t *buffer, int count, uint32_t address);
++		const uint8_t *buffer, int count, uint32_t address);
+ 
+ 
+ 
+@@ -405,11 +405,11 @@ int mem_ap_sel_read_buf_u32(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint8_t *buffer, int count, uint32_t address);
+ 
+ int mem_ap_sel_write_buf_u8(struct adiv5_dap *swjdp, uint8_t ap,
+-		uint8_t *buffer, int count, uint32_t address);
++		const uint8_t *buffer, int count, uint32_t address);
+ int mem_ap_sel_write_buf_u16(struct adiv5_dap *swjdp, uint8_t ap,
+-		uint8_t *buffer, int count, uint32_t address);
++		const uint8_t *buffer, int count, uint32_t address);
+ int mem_ap_sel_write_buf_u32(struct adiv5_dap *swjdp, uint8_t ap,
+-		uint8_t *buffer, int count, uint32_t address);
++		const uint8_t *buffer, int count, uint32_t address);
+ 
+ 
+ 
+diff --git a/src/target/armv4_5_mmu.c b/src/target/armv4_5_mmu.c
+index 8978f35..5415e83 100644
+--- a/src/target/armv4_5_mmu.c
++++ b/src/target/armv4_5_mmu.c
+@@ -149,7 +149,7 @@ int armv4_5_mmu_read_physical(struct target *target, struct armv4_5_mmu_common *
+ 	return retval;
+ }
+ 
+-int armv4_5_mmu_write_physical(struct target *target, struct armv4_5_mmu_common *armv4_5_mmu, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++int armv4_5_mmu_write_physical(struct target *target, struct armv4_5_mmu_common *armv4_5_mmu, uint32_t address, uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+ 	int retval;
+ 
+diff --git a/src/target/armv4_5_mmu.h b/src/target/armv4_5_mmu.h
+index f39834e..937a90e 100644
+--- a/src/target/armv4_5_mmu.h
++++ b/src/target/armv4_5_mmu.h
+@@ -28,7 +28,7 @@ struct armv4_5_mmu_common
+ {
+ 	int (*get_ttb)(struct target *target, uint32_t *result);
+ 	int (*read_memory)(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+-	int (*write_memory)(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++	int (*write_memory)(struct target *target, uint32_t address, uint32_t size, uint32_t count, const uint8_t *buffer);
+ 	int (*disable_mmu_caches)(struct target *target, int mmu, int d_u_cache, int i_cache);
+ 	int (*enable_mmu_caches)(struct target *target, int mmu, int d_u_cache, int i_cache);
+ 	struct armv4_5_cache_common armv4_5_cache;
+@@ -46,7 +46,7 @@ int armv4_5_mmu_read_physical(struct target *target,
+ 
+ int armv4_5_mmu_write_physical(struct target *target,
+ 		struct armv4_5_mmu_common *armv4_5_mmu,
+-		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++		uint32_t address, uint32_t size, uint32_t count, const uint8_t *buffer);
+ 
+ enum
+ {
+diff --git a/src/target/avr32_ap7k.c b/src/target/avr32_ap7k.c
+index ed10847..70e5129 100644
+--- a/src/target/avr32_ap7k.c
++++ b/src/target/avr32_ap7k.c
+@@ -515,7 +515,7 @@ static int avr32_ap7k_read_memory(struct target *target, uint32_t address,
+ }
+ 
+ static int avr32_ap7k_write_memory(struct target *target, uint32_t address,
+-		uint32_t size, uint32_t count, uint8_t *buffer)
++		uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+ 	struct avr32_ap7k_common *ap7k = target_to_ap7k(target);
+ 
+@@ -600,7 +600,7 @@ static int avr32_ap7k_examine(struct target *target)
+ }
+ 
+ static int avr32_ap7k_bulk_write_memory(struct target *target, uint32_t address,
+-		uint32_t count, uint8_t *buffer)
++		uint32_t count, const uint8_t *buffer)
+ {
+ 	LOG_ERROR(&quot;%s: implement me&quot;, __func__);
+ 
+diff --git a/src/target/avr32_mem.c b/src/target/avr32_mem.c
+index fe6b8f0..9c78c10 100644
+--- a/src/target/avr32_mem.c
++++ b/src/target/avr32_mem.c
+@@ -152,7 +152,7 @@ int avr32_jtag_read_memory8(struct avr32_jtag *jtag_info,
+ }
+ 
+ int avr32_jtag_write_memory32(struct avr32_jtag *jtag_info, 
+-		uint32_t addr, int count, uint32_t *buffer)
++		uint32_t addr, int count, const uint32_t *buffer)
+ {
+ 	int i, retval;
+ 	uint32_t data;
+@@ -173,7 +173,7 @@ int avr32_jtag_write_memory32(struct avr32_jtag *jtag_info,
+ }
+ 
+ int avr32_jtag_write_memory16(struct avr32_jtag *jtag_info, 
+-		uint32_t addr, int count, uint16_t *buffer)
++		uint32_t addr, int count, const uint16_t *buffer)
+ {
+ 	int i, retval;
+ 	uint32_t data;
+@@ -248,7 +248,7 @@ int avr32_jtag_write_memory16(struct avr32_jtag *jtag_info,
+ }
+ 
+ int avr32_jtag_write_memory8(struct avr32_jtag *jtag_info, 
+-		uint32_t addr, int count, uint8_t *buffer)
++		uint32_t addr, int count, const uint8_t *buffer)
+ {
+ 	int i, j, retval;
+ 	uint32_t data;
+diff --git a/src/target/avr32_mem.h b/src/target/avr32_mem.h
+index 2a6f606..58d51bb 100644
+--- a/src/target/avr32_mem.h
++++ b/src/target/avr32_mem.h
+@@ -27,11 +27,11 @@ int avr32_jtag_read_memory8(struct avr32_jtag *jtag_info,
+ 		uint32_t addr, int count, uint8_t *buffer);
+ 
+ int avr32_jtag_write_memory32(struct avr32_jtag *jtag_info, 
+-		uint32_t addr, int count, uint32_t *buffer);
++		uint32_t addr, int count, const uint32_t *buffer);
+ int avr32_jtag_write_memory16(struct avr32_jtag *jtag_info, 
+-		uint32_t addr, int count, uint16_t *buffer);
++		uint32_t addr, int count, const uint16_t *buffer);
+ int avr32_jtag_write_memory8(struct avr32_jtag *jtag_info, 
+-		uint32_t addr, int count, uint8_t *buffer);
++		uint32_t addr, int count, const uint8_t *buffer);
+ 
+ #endif /* AVR32_MEM */
+ 
+diff --git a/src/target/cortex_a.c b/src/target/cortex_a.c
+index 5ff6bac..c04804f 100644
+--- a/src/target/cortex_a.c
++++ b/src/target/cortex_a.c
+@@ -1587,7 +1587,7 @@ static int cortex_a8_read_memory(struct target *target, uint32_t address,
+ 
+ static int cortex_a8_write_phys_memory(struct target *target,
+                 uint32_t address, uint32_t size,
+-                uint32_t count, uint8_t *buffer)
++                uint32_t count, const uint8_t *buffer)
+ {
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+@@ -1748,7 +1748,7 @@ static int cortex_a8_write_phys_memory(struct target *target,
+ }
+ 
+ static int cortex_a8_write_memory(struct target *target, uint32_t address,
+-                uint32_t size, uint32_t count, uint8_t *buffer)
++                uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+         int enabled = 0;
+         uint32_t virt, phys;
+@@ -1774,7 +1774,7 @@ static int cortex_a8_write_memory(struct target *target, uint32_t address,
+ }
+ 
+ static int cortex_a8_bulk_write_memory(struct target *target, uint32_t address,
+-		uint32_t count, uint8_t *buffer)
++		uint32_t count, const uint8_t *buffer)
+ {
+ 	return cortex_a8_write_memory(target, address, 4, count, buffer);
+ }
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index 5fd56e4..269d2a6 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -1618,7 +1618,7 @@ static int cortex_m3_read_memory(struct target *target, uint32_t address,
+ }
+ 
+ static int cortex_m3_write_memory(struct target *target, uint32_t address,
+-		uint32_t size, uint32_t count, uint8_t *buffer)
++		uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+ 	struct adiv5_dap *swjdp = &amp;armv7m-&gt;dap;
+@@ -1642,7 +1642,7 @@ static int cortex_m3_write_memory(struct target *target, uint32_t address,
+ }
+ 
+ static int cortex_m3_bulk_write_memory(struct target *target, uint32_t address,
+-		uint32_t count, uint8_t *buffer)
++		uint32_t count, const uint8_t *buffer)
+ {
+ 	return cortex_m3_write_memory(target, address, 4, count, buffer);
+ }
+diff --git a/src/target/dsp563xx.c b/src/target/dsp563xx.c
+index 6cde152..82cd8be 100644
+--- a/src/target/dsp563xx.c
++++ b/src/target/dsp563xx.c
+@@ -1482,13 +1482,13 @@ static int dsp563xx_read_memory_default(struct target *target, uint32_t address,
+ 	return dsp563xx_read_memory(target, dsp563xx_get_default_memory(), address, size, count, buffer);
+ }
+ 
+-static int dsp563xx_write_memory_core(struct target *target, int mem_type, uint32_t address, uint32_t size, uint32_t count, uint8_t * buffer)
++static int dsp563xx_write_memory_core(struct target *target, int mem_type, uint32_t address, uint32_t size, uint32_t count, const uint8_t * buffer)
+ {
+ 	int err;
+ 	struct dsp563xx_common *dsp563xx = target_to_dsp563xx(target);
+ 	uint32_t i, x;
+ 	uint32_t data, move_cmd = 0;
+-	uint8_t *b;
++	const uint8_t *b;
+ 
+ 	LOG_DEBUG(&quot;memtype: %d address: 0x%8.8&quot; PRIx32 &quot;, size: 0x%8.8&quot; PRIx32 &quot;, count: 0x%8.8&quot; PRIx32 &quot;&quot;, mem_type,address, size, count);
+ 
+@@ -1557,7 +1557,7 @@ static int dsp563xx_write_memory_core(struct target *target, int mem_type, uint3
+ 	return ERROR_OK;
+ }
+ 
+-static int dsp563xx_write_memory(struct target *target, int mem_type, uint32_t address, uint32_t size, uint32_t count, uint8_t * buffer)
++static int dsp563xx_write_memory(struct target *target, int mem_type, uint32_t address, uint32_t size, uint32_t count, const uint8_t * buffer)
+ {
+ 	int err;
+ 	uint32_t i,i1;
+@@ -1615,12 +1615,12 @@ static int dsp563xx_write_memory(struct target *target, int mem_type, uint32_t a
+ 	return ERROR_OK;
+ }
+ 
+-static int dsp563xx_write_memory_default(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t * buffer)
++static int dsp563xx_write_memory_default(struct target *target, uint32_t address, uint32_t size, uint32_t count, const uint8_t * buffer)
+ {
+ 	return dsp563xx_write_memory(target, dsp563xx_get_default_memory(), address, size, count, buffer);
+ }
+ 
+-static int dsp563xx_bulk_write_memory_default(struct target *target, uint32_t address, uint32_t count, uint8_t *buffer)
++static int dsp563xx_bulk_write_memory_default(struct target *target, uint32_t address, uint32_t count, const uint8_t *buffer)
+ {
+ 	return dsp563xx_write_memory(target, dsp563xx_get_default_memory(), address, 4, count, buffer);
+ }
+diff --git a/src/target/embeddedice.c b/src/target/embeddedice.c
+index 5502ad8..b171dcf 100644
+--- a/src/target/embeddedice.c
++++ b/src/target/embeddedice.c
+@@ -637,7 +637,7 @@ int embeddedice_handshake(struct arm_jtag *jtag_info, int hsbit, uint32_t timeou
+  * This is an inner loop of the open loop DCC write of data to target
+  */
+ void embeddedice_write_dcc(struct jtag_tap *tap,
+-		int reg_addr, uint8_t *buffer, int little, int count)
++		int reg_addr, const uint8_t *buffer, int little, int count)
+ {
+ 	int i;
+ 
+diff --git a/src/target/embeddedice.h b/src/target/embeddedice.h
+index 42df8d0..66fef0a 100644
+--- a/src/target/embeddedice.h
++++ b/src/target/embeddedice.h
+@@ -130,6 +130,6 @@ static __inline__ void embeddedice_write_reg_inner(struct jtag_tap *tap, int reg
+ 			TAP_IDLE);
+ }
+ 
+-void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, uint8_t *buffer, int little, int count);
++void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, const uint8_t *buffer, int little, int count);
+ 
+ #endif /* EMBEDDED_ICE_H */
+diff --git a/src/target/feroceon.c b/src/target/feroceon.c
+index 2152a26..9bd45be 100644
+--- a/src/target/feroceon.c
++++ b/src/target/feroceon.c
+@@ -460,7 +460,7 @@ static int feroceon_examine_debug_reason(struct target *target)
+ }
+ 
+ static int feroceon_bulk_write_memory(struct target *target,
+-		uint32_t address, uint32_t count, uint8_t *buffer)
++		uint32_t address, uint32_t count, const uint8_t *buffer)
+ {
+ 	int retval;
+ 	struct arm *armv4_5 = target-&gt;arch_info;
+diff --git a/src/target/mips_m4k.c b/src/target/mips_m4k.c
+index 589ba7a..10d3c7d 100644
+--- a/src/target/mips_m4k.c
++++ b/src/target/mips_m4k.c
+@@ -872,7 +872,7 @@ static int mips_m4k_read_memory(struct target *target, uint32_t address,
+ }
+ 
+ static int mips_m4k_write_memory(struct target *target, uint32_t address,
+-		uint32_t size, uint32_t count, uint8_t *buffer)
++		uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+ 	struct mips32_common *mips32 = target_to_mips32(target);
+ 	struct mips_ejtag *ejtag_info = &amp;mips32-&gt;ejtag_info;
+@@ -966,7 +966,7 @@ static int mips_m4k_examine(struct target *target)
+ }
+ 
+ static int mips_m4k_bulk_write_memory(struct target *target, uint32_t address,
+-		uint32_t count, uint8_t *buffer)
++		uint32_t count, const uint8_t *buffer)
+ {
+ 	struct mips32_common *mips32 = target_to_mips32(target);
+ 	struct mips_ejtag *ejtag_info = &amp;mips32-&gt;ejtag_info;
+diff --git a/src/target/target.c b/src/target/target.c
+index df38c83..026ca13 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -49,7 +49,7 @@
+ static int target_read_buffer_default(struct target *target, uint32_t address,
+ 		uint32_t size, uint8_t *buffer);
+ static int target_write_buffer_default(struct target *target, uint32_t address,
+-		uint32_t size, uint8_t *buffer);
++		uint32_t size, const uint8_t *buffer);
+ static int target_array2mem(Jim_Interp *interp, struct target *target,
+ 		int argc, Jim_Obj *const *argv);
+ static int target_mem2array(Jim_Interp *interp, struct target *target,
+@@ -615,7 +615,7 @@ const char *target_type_name(struct target *target)
+ 	return target-&gt;type-&gt;name;
+ }
+ 
+-static int target_write_memory_imp(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++static int target_write_memory_imp(struct target *target, uint32_t address, uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+ 	if (!target_was_examined(target))
+ 	{
+@@ -705,19 +705,19 @@ static int target_read_phys_memory(struct target *target,
+ }
+ 
+ int target_write_memory(struct target *target,
+-		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++		uint32_t address, uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+ 	return target-&gt;type-&gt;write_memory(target, address, size, count, buffer);
+ }
+ 
+ static int target_write_phys_memory(struct target *target,
+-		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++		uint32_t address, uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+ 	return target-&gt;type-&gt;write_phys_memory(target, address, size, count, buffer);
+ }
+ 
+ int target_bulk_write_memory(struct target *target,
+-		uint32_t address, uint32_t count, uint8_t *buffer)
++		uint32_t address, uint32_t count, const uint8_t *buffer)
+ {
+ 	return target-&gt;type-&gt;bulk_write_memory(target, address, count, buffer);
+ }
+@@ -783,7 +783,7 @@ err_read_phys_memory(struct target *target, uint32_t address,
+ 
+ static int
+ err_write_phys_memory(struct target *target, uint32_t address,
+-		uint32_t size, uint32_t count, uint8_t *buffer)
++		uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+ 	LOG_ERROR(&quot;Not implemented: %s&quot;, __func__);
+ 	return ERROR_FAIL;
+@@ -1340,7 +1340,7 @@ int target_arch_state(struct target *target)
+  * mode respectively, otherwise data is handled as quickly as
+  * possible
+  */
+-int target_write_buffer(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer)
++int target_write_buffer(struct target *target, uint32_t address, uint32_t size, const uint8_t *buffer)
+ {
+ 	LOG_DEBUG(&quot;writing buffer of %i byte at 0x%8.8x&quot;,
+ 		  (int)size, (unsigned)address);
+@@ -1367,7 +1367,7 @@ int target_write_buffer(struct target *target, uint32_t address, uint32_t size,
+ 	return target-&gt;type-&gt;write_buffer(target, address, size, buffer);
+ }
+ 
+-static int target_write_buffer_default(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer)
++static int target_write_buffer_default(struct target *target, uint32_t address, uint32_t size, const uint8_t *buffer)
+ {
+ 	int retval = ERROR_OK;
+ 
+@@ -2390,10 +2390,10 @@ COMMAND_HANDLER(handle_md_command)
+ }
+ 
+ typedef int (*target_write_fn)(struct target *target,
+-		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++		uint32_t address, uint32_t size, uint32_t count, const uint8_t *buffer);
+ 
+ static int target_write_memory_fast(struct target *target,
+-		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
++		uint32_t address, uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+ 	return target_write_buffer(target, address, size * count, buffer);
+ }
+diff --git a/src/target/target.h b/src/target/target.h
+index 32fa87a..fd7de56 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -408,7 +408,7 @@ int target_read_memory(struct target *target,
+  * This routine is wrapper for target-&gt;type-&gt;write_memory.
+  */
+ int target_write_memory(struct target *target,
+-		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++		uint32_t address, uint32_t size, uint32_t count, const uint8_t *buffer);
+ 
+ /**
+  * Write @a count items of 4 bytes to the memory of @a target at
+@@ -418,7 +418,7 @@ int target_write_memory(struct target *target,
+  * This routine is wrapper for target-&gt;type-&gt;bulk_write_memory.
+  */
+ int target_bulk_write_memory(struct target *target,
+-		uint32_t address, uint32_t count, uint8_t *buffer);
++		uint32_t address, uint32_t count, const uint8_t *buffer);
+ 
+ /*
+  * Write to target memory using the virtual address.
+@@ -445,7 +445,7 @@ int target_bulk_write_memory(struct target *target,
+  * peripheral registers which do not support byte operations.
+  */
+ int target_write_buffer(struct target *target,
+-		uint32_t address, uint32_t size, uint8_t *buffer);
++		uint32_t address, uint32_t size, const uint8_t *buffer);
+ int target_read_buffer(struct target *target,
+ 		uint32_t address, uint32_t size, uint8_t *buffer);
+ int target_checksum_memory(struct target *target,
+diff --git a/src/target/target_type.h b/src/target/target_type.h
+index 15598b2..6059c40 100644
+--- a/src/target/target_type.h
++++ b/src/target/target_type.h
+@@ -112,25 +112,25 @@ struct target_type
+ 	 * directly, use target_read_memory() instead.
+ 	 */
+ 	int (*read_memory)(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+-	int (*write_memory_imp)(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++	int (*write_memory_imp)(struct target *target, uint32_t address, uint32_t size, uint32_t count, const uint8_t *buffer);
+ 	/**
+ 	 * Target memory write callback.  Do @b not call this function
+ 	 * directly, use target_write_memory() instead.
+ 	 */
+-	int (*write_memory)(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
++	int (*write_memory)(struct target *target, uint32_t address, uint32_t size, uint32_t count, const uint8_t *buffer);
+ 
+ 	/* Default implementation will do some fancy alignment to improve performance, target can override */
+ 	int (*read_buffer)(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer);
+ 
+ 	/* Default implementation will do some fancy alignment to improve performance, target can override */
+-	int (*write_buffer)(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer);
++	int (*write_buffer)(struct target *target, uint32_t address, uint32_t size, const uint8_t *buffer);
+ 
+ 	/**
+ 	 * Write target memory in multiples of 4 bytes, optimized for
+ 	 * writing large quantities of data.  Do @b not call this
+ 	 * function directly, use target_bulk_write_memory() instead.
+ 	 */
+-	int (*bulk_write_memory)(struct target *target, uint32_t address, uint32_t count, uint8_t *buffer);
++	int (*bulk_write_memory)(struct target *target, uint32_t address, uint32_t count, const uint8_t *buffer);
+ 
+ 	int (*checksum_memory)(struct target *target, uint32_t address, uint32_t count, uint32_t* checksum);
+ 	int (*blank_check_memory)(struct target *target, uint32_t address, uint32_t count, uint32_t* blank);
+@@ -225,7 +225,7 @@ struct target_type
+ 	/*
+ 	 * same as read_phys_memory, except that it writes...
+ 	 */
+-	int (*write_phys_memory)(struct target *target, uint32_t phys_address, uint32_t size, uint32_t count, uint8_t *buffer);
++	int (*write_phys_memory)(struct target *target, uint32_t phys_address, uint32_t size, uint32_t count, const uint8_t *buffer);
+ 
+ 	int (*mmu)(struct target *target, int *enabled);
+ 
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index d1e33b7..3b56745 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -528,7 +528,7 @@ static int xscale_write_rx(struct target *target)
+ }
+ 
+ /* send count elements of size byte to the debug handler */
+-static int xscale_send(struct target *target, uint8_t *buffer, int count, int size)
++static int xscale_send(struct target *target, const uint8_t *buffer, int count, int size)
+ {
+ 	struct xscale_common *xscale = target_to_xscale(target);
+ 	uint32_t t[3];
+@@ -1937,7 +1937,7 @@ static int xscale_read_phys_memory(struct target *target, uint32_t address,
+ }
+ 
+ static int xscale_write_memory(struct target *target, uint32_t address,
+-		uint32_t size, uint32_t count, uint8_t *buffer)
++		uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+ 	struct xscale_common *xscale = target_to_xscale(target);
+ 	int retval;
+@@ -2016,7 +2016,7 @@ static int xscale_write_memory(struct target *target, uint32_t address,
+ }
+ 
+ static int xscale_write_phys_memory(struct target *target, uint32_t address,
+-		uint32_t size, uint32_t count, uint8_t *buffer)
++		uint32_t size, uint32_t count, const uint8_t *buffer)
+ {
+ 	struct xscale_common *xscale = target_to_xscale(target);
+ 
+@@ -2031,7 +2031,7 @@ static int xscale_write_phys_memory(struct target *target, uint32_t address,
+ }
+ 
+ static int xscale_bulk_write_memory(struct target *target, uint32_t address,
+-		uint32_t count, uint8_t *buffer)
++		uint32_t count, const uint8_t *buffer)
+ {
+ 	return xscale_write_memory(target, address, 4, count, buffer);
+ }
+
+commit d76fd2aac798b4b052a50883ac148cbc19080d4a
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Thu Mar 31 18:42:10 2011 +0200
+
+    mips: delete kludgy code that modifies data sent to write_memory()
+    
+    Could this cause confusion as data sent to write would be flipped
+    and then if the caller subsequently used the data, e.g. a
+    compare mismatch might happen?
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/mips_m4k.c b/src/target/mips_m4k.c
+index 0508c35..589ba7a 100644
+--- a/src/target/mips_m4k.c
++++ b/src/target/mips_m4k.c
+@@ -1004,19 +1004,34 @@ static int mips_m4k_bulk_write_memory(struct target *target, uint32_t address,
+ 		ejtag_info-&gt;fast_access_save = -1;
+ 	}
+ 
++	uint8_t * t = NULL;
++
+ 	/* TAP data register is loaded LSB first (little endian) */
+ 	if (target-&gt;endianness == TARGET_BIG_ENDIAN)
+ 	{
++		t = malloc(count * sizeof(uint32_t));
++		if (t == NULL)
++		{
++			LOG_ERROR(&quot;Out of memory&quot;);
++			return ERROR_FAIL;
++		}
++
+ 		uint32_t i, t32;
+ 		for(i = 0; i &lt; (count * 4); i += 4)
+ 		{
+ 			t32 = be_to_h_u32((uint8_t *) &amp;buffer[i]);
+-			h_u32_to_le(&amp;buffer[i], t32);
++			h_u32_to_le(&amp;t[i], t32);
+ 		}
++
++		buffer = t;
+ 	}
+ 
+ 	retval = mips32_pracc_fastdata_xfer(ejtag_info, mips32-&gt;fast_data_area, write_t, address,
+ 			count, (uint32_t*) (void *)buffer);
++
++	if (t != NULL)
++		free(t);
++
+ 	if (retval != ERROR_OK)
+ 	{
+ 		/* FASTDATA access failed, try normal memory write */
+
+commit 1b9e80f7e6359d59b68a7741c046722bb235a311
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Thu Mar 31 13:32:28 2011 +0200
+
+    startup: fix bugs in cleanup upon errors during startup
+    
+    Importantly adapter cleanup will now happen upon startup failure.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/openocd.c b/src/openocd.c
+index 62b2238..a5002d1 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -301,31 +301,10 @@ struct command_context *setup_command_handler(Jim_Interp *interp)
+ 	return cmd_ctx;
+ }
+ 
+-/* normally this is the main() function entry, but if OpenOCD is linked
+- * into application, then this fn will not be invoked, but rather that
+- * application will have it's own implementation of main(). */
+-int openocd_main(int argc, char *argv[])
++static int main2(int argc, char *argv[], struct command_context *cmd_ctx)
+ {
+ 	int ret;
+ 
+-	/* initialize commandline interface */
+-	struct command_context *cmd_ctx;
+-
+-	cmd_ctx = setup_command_handler(NULL);
+-
+-	if (util_init(cmd_ctx) != ERROR_OK)
+-		return EXIT_FAILURE;
+-
+-	if (ioutil_init(cmd_ctx) != ERROR_OK)
+-		return EXIT_FAILURE;
+-
+-	LOG_OUTPUT(&quot;For bug reports, read\n\t&quot;
+-		&quot;<A HREF="http://openocd.berlios.de/doc/doxygen/bugs.html">http://openocd.berlios.de/doc/doxygen/bugs.html</A>&quot;
+-		&quot;\n&quot;);
+-
+-	command_context_mode(cmd_ctx, COMMAND_CONFIG);
+-	command_set_output_handler(cmd_ctx, configuration_output_handler, NULL);
+-
+ 	if (parse_cmdline_args(cmd_ctx, argc, argv) != ERROR_OK)
+ 		return EXIT_FAILURE;
+ 
+@@ -348,15 +327,43 @@ int openocd_main(int argc, char *argv[])
+ 	{
+ 		ret = command_run_line(cmd_ctx, &quot;init&quot;);
+ 		if (ERROR_OK != ret)
+-			ret = EXIT_FAILURE;
++			return EXIT_FAILURE;
+ 	}
+ 
+-	/* handle network connections */
+-	if (ERROR_OK == ret)
+-		server_loop(cmd_ctx);
++	server_loop(cmd_ctx);
+ 
+ 	server_quit();
+ 
++	return ret;
++}
++
++/* normally this is the main() function entry, but if OpenOCD is linked
++ * into application, then this fn will not be invoked, but rather that
++ * application will have it's own implementation of main(). */
++int openocd_main(int argc, char *argv[])
++{
++	int ret;
++
++	/* initialize commandline interface */
++	struct command_context *cmd_ctx;
++
++	cmd_ctx = setup_command_handler(NULL);
++
++	if (util_init(cmd_ctx) != ERROR_OK)
++		return EXIT_FAILURE;
++
++	if (ioutil_init(cmd_ctx) != ERROR_OK)
++		return EXIT_FAILURE;
++
++	LOG_OUTPUT(&quot;For bug reports, read\n\t&quot;
++		&quot;<A HREF="http://openocd.berlios.de/doc/doxygen/bugs.html">http://openocd.berlios.de/doc/doxygen/bugs.html</A>&quot;
++		&quot;\n&quot;);
++
++	command_context_mode(cmd_ctx, COMMAND_CONFIG);
++	command_set_output_handler(cmd_ctx, configuration_output_handler, NULL);
++
++	ret = main2(argc, argv, cmd_ctx);
++
+ 	unregister_all_commands(cmd_ctx, NULL);
+ 
+ 	/* free commandline interface */
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/pic32mx.c        |    9 ++----
+ src/jtag/minidummy/minidummy.c |    2 +-
+ src/jtag/zy1000/zy1000.c       |    6 ++--
+ src/openocd.c                  |   59 ++++++++++++++++++++++-----------------
+ src/svf/svf.c                  |    2 +-
+ src/target/arm11.c             |    6 ++--
+ src/target/arm720t.c           |    2 +-
+ src/target/arm7_9_common.c     |    8 +++---
+ src/target/arm7_9_common.h     |    4 +-
+ src/target/arm920t.c           |    4 +-
+ src/target/arm920t.h           |    2 +-
+ src/target/arm926ejs.c         |    4 +-
+ src/target/arm926ejs.h         |    2 +-
+ src/target/arm946e.c           |    2 +-
+ src/target/arm_adi_v5.c        |   18 ++++++------
+ src/target/arm_adi_v5.h        |   12 ++++----
+ src/target/armv4_5_mmu.c       |    2 +-
+ src/target/armv4_5_mmu.h       |    4 +-
+ src/target/avr32_ap7k.c        |    4 +-
+ src/target/avr32_mem.c         |    6 ++--
+ src/target/avr32_mem.h         |    6 ++--
+ src/target/cortex_a.c          |    6 ++--
+ src/target/cortex_m3.c         |    4 +-
+ src/target/dsp563xx.c          |   10 +++---
+ src/target/embeddedice.c       |    2 +-
+ src/target/embeddedice.h       |    2 +-
+ src/target/feroceon.c          |    2 +-
+ src/target/mips_ejtag.c        |   17 ++++++++++-
+ src/target/mips_ejtag.h        |    1 +
+ src/target/mips_m4k.c          |   29 +++++++++++++------
+ src/target/target.c            |   20 +++++++-------
+ src/target/target.h            |    6 ++--
+ src/target/target_type.h       |   10 +++---
+ src/target/xscale.c            |    8 +++---
+ 34 files changed, 155 insertions(+), 126 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002560.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-825-g364cfaa
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2559">[ date ]</a>
+              <a href="thread.html#2559">[ thread ]</a>
+              <a href="subject.html#2559">[ subject ]</a>
+              <a href="author.html#2559">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

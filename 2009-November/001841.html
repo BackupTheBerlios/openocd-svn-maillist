@@ -1,0 +1,357 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-526-g5416c52
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-526-g5416c52&In-Reply-To=%3CE1NCGy0-0003QW-TM%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001840.html">
+   <LINK REL="Next"  HREF="001842.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-526-g5416c52</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-526-g5416c52&In-Reply-To=%3CE1NCGy0-0003QW-TM%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-526-g5416c52">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Sun Nov 22 19:15:19 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001840.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-524-g7daec5a
+</A></li>
+        <LI>Next message: <A HREF="001842.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-531-gdc22fd8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1841">[ date ]</a>
+              <a href="thread.html#1841">[ thread ]</a>
+              <a href="subject.html#1841">[ subject ]</a>
+              <a href="author.html#1841">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  5416c525d4e232161572fbbd1b200a7f3a7c2819 (commit)
+       via  aacc5b583c6415fe8d3e6fc99066d6ef819fa22c (commit)
+      from  7daec5a0ce109c04b117d42374a99b849fd8a89a (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 5416c525d4e232161572fbbd1b200a7f3a7c2819
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Sun Nov 22 19:06:44 2009 +0100
+
+    flash: dynamically allocate working storage
+    
+    Allocate working memory rather than using stack.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/flash/flash.c b/src/flash/flash.c
+index ef6c6da..e2136b7 100644
+--- a/src/flash/flash.c
++++ b/src/flash/flash.c
+@@ -728,24 +728,40 @@ COMMAND_HANDLER(handle_flash_fill_command)
+ 	uint32_t address;
+ 	uint32_t pattern;
+ 	uint32_t count;
+-	uint8_t chunk[1024];
+-	uint8_t readback[1024];
+ 	uint32_t wrote = 0;
+ 	uint32_t cur_size = 0;
+ 	uint32_t chunk_count;
+ 	struct target *target = get_current_target(CMD_CTX);
+ 	uint32_t i;
+ 	uint32_t wordsize;
++	int retval = ERROR_OK;
++
++	static size_t const chunksize = 1024;
++	uint8_t *chunk = malloc(chunksize);
++	if (chunk == NULL)
++		return ERROR_FAIL;
++
++	uint8_t *readback = malloc(chunksize);
++	if (readback == NULL)
++	{
++		free(chunk);
++		return ERROR_FAIL;
++	}
++
+ 
+ 	if (CMD_ARGC != 3)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
++	{
++		retval = ERROR_COMMAND_SYNTAX_ERROR;
++		goto done;
++	}
++
+ 
+ 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], address);
+ 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], pattern);
+ 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], count);
+ 
+ 	if (count == 0)
+-		return ERROR_OK;
++		goto done;
+ 
+ 	switch (CMD_NAME[4])
+ 	{
+@@ -759,10 +775,11 @@ COMMAND_HANDLER(handle_flash_fill_command)
+ 		wordsize = 1;
+ 		break;
+ 	default:
+-		return ERROR_COMMAND_SYNTAX_ERROR;
++		retval = ERROR_COMMAND_SYNTAX_ERROR;
++		goto done;
+ 	}
+ 
+-	chunk_count = MIN(count, (1024 / wordsize));
++	chunk_count = MIN(count, (chunksize / wordsize));
+ 	switch (wordsize)
+ 	{
+ 	case 4:
+@@ -795,15 +812,22 @@ COMMAND_HANDLER(handle_flash_fill_command)
+ 		bank = get_flash_bank_by_addr(target, address);
+ 		if (bank == NULL)
+ 		{
+-			return ERROR_FAIL;
++			retval = ERROR_FAIL;
++			goto done;
+ 		}
+ 		err = flash_driver_write(bank, chunk, address - bank-&gt;base + wrote, cur_size);
+ 		if (err != ERROR_OK)
+-			return err;
++		{
++			retval = err;
++			goto done;
++		}
+ 
+ 		err = target_read_buffer(target, address + wrote, cur_size, readback);
+ 		if (err != ERROR_OK)
+-			return err;
++		{
++			retval = err;
++			goto done;
++		}
+ 
+ 		unsigned i;
+ 		for (i = 0; i &lt; cur_size; i++)
+@@ -812,7 +836,8 @@ COMMAND_HANDLER(handle_flash_fill_command)
+ 			{
+ 				LOG_ERROR(&quot;Verfication error address 0x%08&quot; PRIx32 &quot;, read back 0x%02x, expected 0x%02x&quot;,
+ 						  address + wrote + i, readback[i], chunk[i]);
+-				return ERROR_FAIL;
++				retval = ERROR_FAIL;
++				goto done;
+ 			}
+ 		}
+ 	}
+@@ -823,7 +848,12 @@ COMMAND_HANDLER(handle_flash_fill_command)
+ 				&quot; in %fs (%0.3f kb/s)&quot;, wrote, address,
+ 				duration_elapsed(&amp;bench), duration_kbps(&amp;bench, wrote));
+ 	}
+-	return ERROR_OK;
++
++	done:
++	free(readback);
++	free(chunk);
++
++	return retval;
+ }
+ 
+ COMMAND_HANDLER(handle_flash_write_bank_command)
+@@ -1152,10 +1182,10 @@ int flash_write(struct target *target, struct image *image, uint32_t *written, i
+ int default_flash_mem_blank_check(struct flash_bank *bank)
+ {
+ 	struct target *target = bank-&gt;target;
+-	uint8_t buffer[1024];
+-	int buffer_size = sizeof(buffer);
++	const int buffer_size = 1024;
+ 	int i;
+ 	uint32_t nBytes;
++	int retval = ERROR_OK;
+ 
+ 	if (bank-&gt;target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -1163,6 +1193,8 @@ int default_flash_mem_blank_check(struct flash_bank *bank)
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
++	uint8_t *buffer = malloc(buffer_size);
++
+ 	for (i = 0; i &lt; bank-&gt;num_sectors; i++)
+ 	{
+ 		uint32_t j;
+@@ -1171,7 +1203,6 @@ int default_flash_mem_blank_check(struct flash_bank *bank)
+ 		for (j = 0; j &lt; bank-&gt;sectors[i].size; j += buffer_size)
+ 		{
+ 			uint32_t chunk;
+-			int retval;
+ 			chunk = buffer_size;
+ 			if (chunk &gt; (j - bank-&gt;sectors[i].size))
+ 			{
+@@ -1180,7 +1211,9 @@ int default_flash_mem_blank_check(struct flash_bank *bank)
+ 
+ 			retval = target_read_memory(target, bank-&gt;base + bank-&gt;sectors[i].offset + j, 4, chunk/4, buffer);
+ 			if (retval != ERROR_OK)
+-				return retval;
++			{
++				goto done;
++			}
+ 
+ 			for (nBytes = 0; nBytes &lt; chunk; nBytes++)
+ 			{
+@@ -1193,7 +1226,10 @@ int default_flash_mem_blank_check(struct flash_bank *bank)
+ 		}
+ 	}
+ 
+-	return ERROR_OK;
++	done:
++	free(buffer);
++
++	return retval;
+ }
+ 
+ int default_flash_blank_check(struct flash_bank *bank)
+
+commit aacc5b583c6415fe8d3e6fc99066d6ef819fa22c
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Sun Nov 22 18:58:42 2009 +0100
+
+    target: reduce stack usage
+    
+    4096 byte buffer allocated dynamically. Better
+    for embedded OS's.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/target.c b/src/target/target.c
+index 70fd8f2..55adcce 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -3145,7 +3145,6 @@ static int target_mem2array(Jim_Interp *interp, struct target *target, int argc,
+ 	uint32_t count;
+ 	uint32_t v;
+ 	const char *varname;
+-	uint8_t buffer[4096];
+ 	int  n, e, retval;
+ 	uint32_t i;
+ 
+@@ -3227,14 +3226,20 @@ static int target_mem2array(Jim_Interp *interp, struct target *target, int argc,
+ 
+ 	/* index counter */
+ 	n = 0;
++
++	size_t buffersize = 4096;
++	uint8_t *buffer = malloc(buffersize);
++	if (buffer == NULL)
++		return JIM_ERR;
++
+ 	/* assume ok */
+ 	e = JIM_OK;
+ 	while (len) {
+ 		/* Slurp... in buffer size chunks */
+ 
+ 		count = len; /* in objects.. */
+-		if (count &gt; (sizeof(buffer)/width)) {
+-			count = (sizeof(buffer)/width);
++		if (count &gt; (buffersize/width)) {
++			count = (buffersize/width);
+ 		}
+ 
+ 		retval = target_read_memory(target, addr, width, count, buffer);
+@@ -3268,6 +3273,8 @@ static int target_mem2array(Jim_Interp *interp, struct target *target, int argc,
+ 		}
+ 	}
+ 
++	free(buffer);
++
+ 	Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
+ 
+ 	return JIM_OK;
+@@ -3331,7 +3338,6 @@ static int target_array2mem(Jim_Interp *interp, struct target *target, int argc,
+ 	uint32_t count;
+ 	uint32_t v;
+ 	const char *varname;
+-	uint8_t buffer[4096];
+ 	int  n, e, retval;
+ 	uint32_t i;
+ 
+@@ -3415,12 +3421,18 @@ static int target_array2mem(Jim_Interp *interp, struct target *target, int argc,
+ 	n = 0;
+ 	/* assume ok */
+ 	e = JIM_OK;
++
++	size_t buffersize = 4096;
++	uint8_t *buffer = malloc(buffersize);
++	if (buffer == NULL)
++		return JIM_ERR;
++
+ 	while (len) {
+ 		/* Slurp... in buffer size chunks */
+ 
+ 		count = len; /* in objects.. */
+-		if (count &gt; (sizeof(buffer)/width)) {
+-			count = (sizeof(buffer)/width);
++		if (count &gt; (buffersize/width)) {
++			count = (buffersize/width);
+ 		}
+ 
+ 		v = 0; /* shut up gcc */
+@@ -3454,6 +3466,8 @@ static int target_array2mem(Jim_Interp *interp, struct target *target, int argc,
+ 		}
+ 	}
+ 
++	free(buffer);
++
+ 	Jim_SetResult(interp, Jim_NewEmptyStringObj(interp));
+ 
+ 	return JIM_OK;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/flash.c   |   68 +++++++++++++++++++++++++++++++++++++++------------
+ src/target/target.c |   26 +++++++++++++++----
+ 2 files changed, 72 insertions(+), 22 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001840.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-524-g7daec5a
+</A></li>
+	<LI>Next message: <A HREF="001842.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-531-gdc22fd8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1841">[ date ]</a>
+              <a href="thread.html#1841">[ thread ]</a>
+              <a href="subject.html#1841">[ subject ]</a>
+              <a href="author.html#1841">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

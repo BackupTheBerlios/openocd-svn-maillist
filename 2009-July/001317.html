@@ -1,0 +1,196 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2534 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2534%20-%20trunk/src/target&In-Reply-To=%3C200907152348.n6FNmOru021654%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001316.html">
+   <LINK REL="Next"  HREF="001318.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2534 - trunk/src/target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2534%20-%20trunk/src/target&In-Reply-To=%3C200907152348.n6FNmOru021654%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2534 - trunk/src/target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul 16 01:48:24 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001316.html">[Openocd-svn] r2533 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001318.html">[Openocd-svn] r2535 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1317">[ date ]</a>
+              <a href="thread.html#1317">[ thread ]</a>
+              <a href="subject.html#1317">[ subject ]</a>
+              <a href="author.html#1317">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-07-16 01:48:21 +0200 (Thu, 16 Jul 2009)
+New Revision: 2534
+
+Modified:
+   trunk/src/target/arm_disassembler.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Make the Thumb2 disassembler handle more 32-bit instructions:
+
+  A5.3.3 Data processing (plain binary immediate)
+
+These use mostly twelve bit literals, but there are also bitfield
+and saturated add primitives.
+
+
+Modified: trunk/src/target/arm_disassembler.c
+===================================================================
+--- trunk/src/target/arm_disassembler.c	2009-07-15 23:48:16 UTC (rev 2533)
++++ trunk/src/target/arm_disassembler.c	2009-07-15 23:48:21 UTC (rev 2534)
+@@ -2671,6 +2671,101 @@
+ 	return ERROR_OK;
+ }
+ 
++static int t2ev_data_immed(uint32_t opcode, uint32_t address,
++		arm_instruction_t *instruction, char *cp)
++{
++	char *mnemonic = NULL;
++	int rn = (opcode &gt;&gt; 16) &amp; 0xf;
++	int rd = (opcode &gt;&gt; 8) &amp; 0xf;
++	unsigned immed;
++	bool add = false;
++	bool is_signed = false;
++
++	immed = (opcode &amp; 0x0ff) | ((opcode &amp; 0x7000) &gt;&gt; 12);
++	if (opcode &amp; (1 &lt;&lt; 27))
++		immed |= (1 &lt;&lt; 11);
++
++	switch ((opcode &gt;&gt; 20) &amp; 0x1f) {
++	case 0:
++		if (rn == 0xf) {
++			add = true;
++			goto do_adr;
++		}
++		mnemonic = &quot;ADD.W&quot;;
++		break;
++	case 4:
++		mnemonic = &quot;MOV.W&quot;;
++		break;
++	case 0x0a:
++		if (rn == 0xf)
++			goto do_adr;
++		mnemonic = &quot;SUB.W&quot;;
++		break;
++	case 0x0c:
++		/* move constant to top 16 bits of register */
++		immed |= (opcode &gt;&gt; 4) &amp; 0xf000;
++		sprintf(cp, &quot;MOVT\tr%d, #%d\t; %#4.4x&quot;, rn, immed, immed);
++		return ERROR_OK;
++	case 0x10:
++	case 0x12:
++		is_signed = true;
++	case 0x18:
++	case 0x1a:
++		/* signed/unsigned saturated add */
++		immed = (opcode &gt;&gt; 6) &amp; 0x03;
++		immed |= (opcode &gt;&gt; 10) &amp; 0x1c;
++		sprintf(cp, &quot;%sSAT\tr%d, #%d, r%d, %s #%d\t&quot;,
++				is_signed ? &quot;S&quot; : &quot;U&quot;,
++				rd, (opcode &amp; 0x1f) + 1, rn,
++				(opcode &amp; (1 &lt;&lt; 21)) ? &quot;ASR&quot; : &quot;LSL&quot;,
++				immed ? immed : 32);
++		return ERROR_OK;
++	case 0x14:
++		is_signed = true;
++		/* FALLTHROUGH */
++	case 0x1c:
++		/* signed/unsigned bitfield extract */
++		immed = (opcode &gt;&gt; 6) &amp; 0x03;
++		immed |= (opcode &gt;&gt; 10) &amp; 0x1c;
++		sprintf(cp, &quot;%sBFX\tr%d, r%d, #%d, #%d\t&quot;,
++				is_signed ? &quot;S&quot; : &quot;U&quot;,
++				rd, rn, immed,
++				(opcode &amp; 0x1f) + 1);
++		return ERROR_OK;
++	case 0x16:
++		immed = (opcode &gt;&gt; 6) &amp; 0x03;
++		immed |= (opcode &gt;&gt; 10) &amp; 0x1c;
++		if (rn == 0xf)		/* bitfield clear */
++			sprintf(cp, &quot;BFC\tr%d, #%d, #%d\t&quot;,
++					rd, immed,
++					(opcode &amp; 0x1f) + 1 - immed);
++		else			/* bitfield insert */
++			sprintf(cp, &quot;BFI\tr%d, r%d, #%d, #%d\t&quot;,
++					rd, rn, immed,
++					(opcode &amp; 0x1f) + 1 - immed);
++		return ERROR_OK;
++	default:
++		return ERROR_INVALID_ARGUMENTS;
++	}
++
++	sprintf(cp, &quot;%s\tr%d, r%d, #%d\t; %#3.3x&quot;, mnemonic,
++			rd, rn, immed, immed);
++	return ERROR_OK;
++
++do_adr:
++	address &amp;= ~0x03;
++	address += 4;
++	if (add)
++		address += immed;
++	else
++		address -= immed;
++	/* REVISIT &quot;ADD/SUB Rd, PC, #const ; 0x...&quot; might be better;
++	 * not hiding the pc-relative stuff will sometimes be useful.
++	 */
++	sprintf(cp, &quot;ADR.W\tr%d, %#8.8&quot; PRIx32, rd, address);
++	return ERROR_OK;
++}
++
+ /*
+  * REVISIT for Thumb2 instructions, instruction-&gt;type and friends aren't
+  * always set.  That means eventual arm_simulate_step() support for Thumb2
+@@ -2722,6 +2817,10 @@
+ 	if ((opcode &amp; 0x1a008000) == 0x10000000)
+ 		retval = t2ev_data_mod_immed(opcode, address, instruction, cp);
+ 
++	/* ARMv7-M: A5.3.3 Data processing (plain binary immediate) */
++	else if ((opcode &amp; 0x1a008000) == 0x12000000)
++		retval = t2ev_data_immed(opcode, address, instruction, cp);
++
+ 	/* ARMv7-M: A5.3.4 Branches and miscellaneous control */
+ 	else if ((opcode &amp; 0x18008000) == 0x10008000)
+ 		retval = t2ev_b_misc(opcode, address, instruction, cp);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001316.html">[Openocd-svn] r2533 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001318.html">[Openocd-svn] r2535 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1317">[ date ]</a>
+              <a href="thread.html#1317">[ thread ]</a>
+              <a href="subject.html#1317">[ subject ]</a>
+              <a href="author.html#1317">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

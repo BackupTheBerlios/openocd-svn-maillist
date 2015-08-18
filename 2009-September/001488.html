@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2705 - trunk/src/flash
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2705%20-%20trunk/src/flash&In-Reply-To=%3C200909140748.n8E7mToe012244%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001487.html">
+   <LINK REL="Next"  HREF="001489.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2705 - trunk/src/flash</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2705%20-%20trunk/src/flash&In-Reply-To=%3C200909140748.n8E7mToe012244%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2705 - trunk/src/flash">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Mon Sep 14 09:48:29 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001487.html">[Openocd-svn] r2704 - trunk/src/flash
+</A></li>
+        <LI>Next message: <A HREF="001489.html">[Openocd-svn] r2706 - trunk/src/flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1488">[ date ]</a>
+              <a href="thread.html#1488">[ thread ]</a>
+              <a href="subject.html#1488">[ subject ]</a>
+              <a href="author.html#1488">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-09-14 09:48:28 +0200 (Mon, 14 Sep 2009)
+New Revision: 2705
+
+Modified:
+   trunk/src/flash/cfi.c
+Log:
+Rolf Meeser &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">rolfm_9dq at yahoo.de</A>&gt; warning fix in previous commit was wrong. target_code_size needs the real value later.
+
+Modified: trunk/src/flash/cfi.c
+===================================================================
+--- trunk/src/flash/cfi.c	2009-09-14 06:06:35 UTC (rev 2704)
++++ trunk/src/flash/cfi.c	2009-09-14 07:48:28 UTC (rev 2705)
+@@ -1125,12 +1125,12 @@
+ 	armv4_5_info.core_state = ARMV4_5_STATE_ARM;
+ 
+ 	/* If we are setting up the write_algorith, we need target_code_src */
+-	/* if not we only need target_code_size.														*/
+-	/* 																																	*/
+-	/* However, we don't want to create multiple code paths, so we			*/
+-	/* do the unecessary evaluation of target_code_src, which the 			*/
+-	/* compiler will probably nicely optimize away if not needed				*/
++	/* if not we only need target_code_size. */
+ 
++	/* However, we don't want to create multiple code paths, so we */
++	/* do the unecessary evaluation of target_code_src, which the */
++	/* compiler will probably nicely optimize away if not needed */
++
+ 	/* prepare algorithm code for target endian */
+ 	switch (bank-&gt;bus_width)
+ 	{
+@@ -1447,44 +1447,46 @@
+ 	armv4_5_info.core_mode = ARMV4_5_MODE_SVC;
+ 	armv4_5_info.core_state = ARMV4_5_STATE_ARM;
+ 
++	int target_code_size;
++	const uint32_t *target_code_src;
++
++	switch (bank-&gt;bus_width)
++	{
++	case 1 :
++		target_code_src = word_8_code;
++		target_code_size = sizeof(word_8_code);
++		break;
++	case 2 :
++		/* Check for DQ5 support */
++		if( cfi_info-&gt;status_poll_mask &amp; (1 &lt;&lt; 5) )
++		{
++			target_code_src = word_16_code;
++			target_code_size = sizeof(word_16_code);
++		}
++		else
++		{
++			/* No DQ5 support. Use DQ7 DATA# polling only. */
++			target_code_src = word_16_code_dq7only;
++			target_code_size = sizeof(word_16_code_dq7only);
++		}
++		break;
++	case 4 :
++		target_code_src = word_32_code;
++		target_code_size = sizeof(word_32_code);
++		break;
++	default:
++		LOG_ERROR(&quot;Unsupported bank buswidth %d, can't do block memory writes&quot;, bank-&gt;bus_width);
++		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	}
++
+ 	/* flash write code */
+-	int target_code_size = 0;
+ 	if (!cfi_info-&gt;write_algorithm)
+ 	{
+ 		uint8_t *target_code;
+-		const uint32_t *src;
+ 
+ 		/* convert bus-width dependent algorithm code to correct endiannes */
+-		switch (bank-&gt;bus_width)
+-		{
+-		case 1:
+-			src = word_8_code;
+-			target_code_size = sizeof(word_8_code);
+-			break;
+-		case 2:
+-			/* Check for DQ5 support */
+-			if( cfi_info-&gt;status_poll_mask &amp; (1 &lt;&lt; 5) )
+-			{
+-				src = word_16_code;
+-				target_code_size = sizeof(word_16_code);
+-			}
+-			else
+-			{
+-				/* No DQ5 support. Use DQ7 DATA# polling only. */
+-				src = word_16_code_dq7only;
+-				target_code_size = sizeof(word_16_code_dq7only);
+-			}
+-			break;
+-		case 4:
+-			src = word_32_code;
+-			target_code_size = sizeof(word_32_code);
+-			break;
+-		default:
+-			LOG_ERROR(&quot;Unsupported bank buswidth %d, can't do block memory writes&quot;, bank-&gt;bus_width);
+-			return ERROR_FLASH_OPERATION_FAILED;
+-		}
+ 		target_code = malloc(target_code_size);
+-		cfi_fix_code_endian(target, target_code, src, target_code_size / 4);
++		cfi_fix_code_endian(target, target_code, target_code_src, target_code_size / 4);
+ 
+ 		/* allocate working area */
+ 		retval = target_alloc_working_area(target, target_code_size,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001487.html">[Openocd-svn] r2704 - trunk/src/flash
+</A></li>
+	<LI>Next message: <A HREF="001489.html">[Openocd-svn] r2706 - trunk/src/flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1488">[ date ]</a>
+              <a href="thread.html#1488">[ thread ]</a>
+              <a href="subject.html#1488">[ subject ]</a>
+              <a href="author.html#1488">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

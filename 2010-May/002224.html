@@ -1,0 +1,265 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-215-g82ea640
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-215-g82ea640&In-Reply-To=%3CE1O9tpf-0005Bz-Q1%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002223.html">
+   <LINK REL="Next"  HREF="002225.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-215-g82ea640</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-215-g82ea640&In-Reply-To=%3CE1O9tpf-0005Bz-Q1%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-215-g82ea640">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Thu May  6 07:41:10 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002223.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-214-g812e21a
+</A></li>
+        <LI>Next message: <A HREF="002225.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-216-g2fba796
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2224">[ date ]</a>
+              <a href="thread.html#2224">[ thread ]</a>
+              <a href="subject.html#2224">[ subject ]</a>
+              <a href="author.html#2224">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  82ea640830fe13f9ab8ef33c65a76480b697f856 (commit)
+      from  812e21ac396247767da0144748b5f52ad11b3e17 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 82ea640830fe13f9ab8ef33c65a76480b697f856
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Tue May 4 13:26:52 2010 +0200
+
+    gdb: connect will now fail if flash autoprobe fails
+    
+    This stops GDB from launching with an empty memory map,
+    making gdb load w/flashing fail for no obvious reason.
+    
+    The error message points in the direction of the gdb-attach
+    event that can be set up to issue a halt or &quot;reset init&quot;
+    which will put GDB in a well defined stated upon attach
+    and thus have a robust flash autoprobe.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/flash/nor/core.c b/src/flash/nor/core.c
+index e6c0eeb..232d503 100644
+--- a/src/flash/nor/core.c
++++ b/src/flash/nor/core.c
+@@ -220,22 +220,25 @@ struct flash_bank *get_flash_bank_by_name(const char *name)
+ 	return NULL;
+ }
+ 
+-struct flash_bank *get_flash_bank_by_num(int num)
++int get_flash_bank_by_num(int num, struct flash_bank **bank)
+ {
+ 	struct flash_bank *p = get_flash_bank_by_num_noprobe(num);
+ 	int retval;
+ 
+ 	if (p == NULL)
+-		return NULL;
++	{
++		return ERROR_FAIL;
++	}
+ 
+ 	retval = p-&gt;driver-&gt;auto_probe(p);
+ 
+ 	if (retval != ERROR_OK)
+ 	{
+ 		LOG_ERROR(&quot;auto_probe failed %d\n&quot;, retval);
+-		return NULL;
++		return retval;
+ 	}
+-	return p;
++	*bank = p;
++	return ERROR_OK;
+ }
+ 
+ /* lookup flash bank by address */
+diff --git a/src/flash/nor/core.h b/src/flash/nor/core.h
+index 68220af..797cf68 100644
+--- a/src/flash/nor/core.h
++++ b/src/flash/nor/core.h
+@@ -157,9 +157,10 @@ struct flash_bank *get_flash_bank_by_name(const char *name);
+ /**
+  * Returns a flash bank by the specified flash_bank_s bank_number, @a num.
+  * @param num The flash bank number.
+- * @returns A struct flash_bank for flash bank @a num, or NULL
++ * @param bank returned bank if fn returns ERROR_OK
++ * @returns ERROR_OK if successful
+  */
+-struct flash_bank *get_flash_bank_by_num(int num);
++int get_flash_bank_by_num(int num, struct flash_bank **bank);
+ /**
+  * Retreives @a bank from a command argument, reporting errors parsing
+  * the bank identifier or retreiving the specified bank.  The bank
+diff --git a/src/flash/nor/tcl.c b/src/flash/nor/tcl.c
+index aed55c0..66b8ac3 100644
+--- a/src/flash/nor/tcl.c
++++ b/src/flash/nor/tcl.c
+@@ -42,13 +42,7 @@ COMMAND_HELPER(flash_command_get_bank, unsigned name_index,
+ 	unsigned bank_num;
+ 	COMMAND_PARSE_NUMBER(uint, name, bank_num);
+ 
+-	*bank = get_flash_bank_by_num(bank_num);
+-	if (!*bank)
+-	{
+-		command_print(CMD_CTX, &quot;flash bank '%s' not found&quot;, name);
+-		return ERROR_INVALID_ARGUMENTS;
+-	}
+-	return ERROR_OK;
++	return get_flash_bank_by_num(bank_num, bank);
+ }
+ 
+ 
+@@ -310,9 +304,12 @@ COMMAND_HANDLER(handle_flash_erase_command)
+ 	uint32_t last;
+ 
+ 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], bank_nr);
+-	struct flash_bank *p = get_flash_bank_by_num(bank_nr);
+-	if (!p)
+-		return ERROR_OK;
++
++	struct flash_bank *p;
++	int retval;
++	retval = get_flash_bank_by_num(bank_nr, &amp;p);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], first);
+ 	if (strcmp(CMD_ARGV[2], &quot;last&quot;) == 0)
+@@ -320,7 +317,6 @@ COMMAND_HANDLER(handle_flash_erase_command)
+ 	else
+ 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[2], last);
+ 
+-	int retval;
+ 	if ((retval = flash_check_sector_parameters(CMD_CTX,
+ 			first, last, p-&gt;num_sectors)) != ERROR_OK)
+ 		return retval;
+@@ -350,9 +346,10 @@ COMMAND_HANDLER(handle_flash_protect_command)
+ 	uint32_t last;
+ 
+ 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], bank_nr);
+-	struct flash_bank *p = get_flash_bank_by_num(bank_nr);
+-	if (!p)
+-		return ERROR_OK;
++	struct flash_bank *p;
++	int retval = get_flash_bank_by_num(bank_nr, &amp;p);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	COMMAND_PARSE_NUMBER(u32, CMD_ARGV[1], first);
+ 	if (strcmp(CMD_ARGV[2], &quot;last&quot;) == 0)
+@@ -363,7 +360,6 @@ COMMAND_HANDLER(handle_flash_protect_command)
+ 	bool set;
+ 	COMMAND_PARSE_ON_OFF(CMD_ARGV[3], set);
+ 
+-	int retval;
+ 	if ((retval = flash_check_sector_parameters(CMD_CTX,
+ 			first, last, p-&gt;num_sectors)) != ERROR_OK)
+ 		return retval;
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index f46980e..275d414 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -855,6 +855,26 @@ static int gdb_new_connection(struct connection *connection)
+ 		gdb_putback_char(connection, initial_ack);
+ 	target_call_event_callbacks(gdb_service-&gt;target, TARGET_EVENT_GDB_ATTACH);
+ 
++	if (gdb_use_memory_map)
++	{
++		/* Connect must fail if the memory map can't be set up correctly.
++		 *
++		 * This will cause an auto_probe to be invoked, which is either
++		 * a no-op or it will fail when the target isn't ready(e.g. not halted).
++		 */
++		int i;
++		for (i = 0; i &lt; flash_get_bank_count(); i++)
++		{
++			struct flash_bank *p;
++			retval = get_flash_bank_by_num(i, &amp;p);
++			if (retval != ERROR_OK)
++			{
++				LOG_ERROR(&quot;Connect failed. Consider setting up a gdb-attach event for the target to prepare target for GDB connect.&quot;);
++				return retval;
++			}
++		}
++	}
++
+ 	gdb_actual_connections++;
+ 	LOG_DEBUG(&quot;New GDB Connection: %d, Target %s, state: %s&quot;,
+ 		  gdb_actual_connections,
+@@ -1692,10 +1712,10 @@ static int gdb_memory_map(struct connection *connection,
+ 	banks = malloc(sizeof(struct flash_bank *)*flash_get_bank_count());
+ 
+ 	for (i = 0; i &lt; flash_get_bank_count(); i++) {
+-		p = get_flash_bank_by_num(i);
+-		if (p == NULL) {
++		retval = get_flash_bank_by_num(i, &amp;p);
++		if (retval != ERROR_OK)
++		{
+ 			free(banks);
+-			retval = ERROR_FAIL;
+ 			gdb_send_error(connection, retval);
+ 			return retval;
+ 		}
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/core.c    |   11 +++++++----
+ src/flash/nor/core.h    |    5 +++--
+ src/flash/nor/tcl.c     |   26 +++++++++++---------------
+ src/server/gdb_server.c |   26 +++++++++++++++++++++++---
+ 4 files changed, 44 insertions(+), 24 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002223.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-214-g812e21a
+</A></li>
+	<LI>Next message: <A HREF="002225.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-216-g2fba796
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2224">[ date ]</a>
+              <a href="thread.html#2224">[ thread ]</a>
+              <a href="subject.html#2224">[ subject ]</a>
+              <a href="author.html#2224">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

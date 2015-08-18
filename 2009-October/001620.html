@@ -1,0 +1,748 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-347-ga51e23c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%200.2.0-347-ga51e23c&In-Reply-To=%3CE1MxHOU-0004Rn-Tv%40fxgxhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001619.html">
+   <LINK REL="Next"  HREF="001621.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-347-ga51e23c</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%200.2.0-347-ga51e23c&In-Reply-To=%3CE1MxHOU-0004Rn-Tv%40fxgxhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-347-ga51e23c">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Mon Oct 12 11:40:41 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001619.html">[openocd-svn] branch, master, updated. 0.2.0-345-g3e6512f
+</A></li>
+        <LI>Next message: <A HREF="001621.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-348-g3fef242
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1620">[ date ]</a>
+              <a href="thread.html#1620">[ thread ]</a>
+              <a href="subject.html#1620">[ subject ]</a>
+              <a href="author.html#1620">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  a51e23c39f9d61dc4d999a4d4b23d1bbb364cd46 (commit)
+       via  43a241afe2c342437afe7cdbe9a20501dc4f1499 (commit)
+      from  3e6512fe5708d2b38e01dcab7246ac01b994d5a3 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit a51e23c39f9d61dc4d999a4d4b23d1bbb364cd46
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Oct 12 02:39:18 2009 -0700
+
+    simplify XScale debug handler installation
+    
+    Load the XScale debug handler from the read-only data section
+    instead of from a separate file that can get lost or garbaged.
+    This eliminates installation and versioning issues, and also
+    speeds up reset handling a bit.
+    
+    Plus some minor bits of cleanup related to loading that handler:
+    comments about just what this handler does, and check fault codes
+    while writing it into the mini-icache.
+    
+    The only behavioral changes should be cleaner failure modes after
+    errors during handler loading, and being a bit faster.
+    
+    NOTE:  presumes GNU assembly syntax, with &quot;.incbin&quot;; and ELF,
+    because of the syntax of the &quot;.size&quot; directive.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/TODO b/TODO
+index cf7778b..6521c60 100644
+--- a/TODO
++++ b/TODO
+@@ -125,9 +125,6 @@ Once the above are completed:
+ 
+ - general layer cleanup: @par
+   <A HREF="https://lists.berlios.de/pipermail/openocd-development/2009-May/006590.html">https://lists.berlios.de/pipermail/openocd-development/2009-May/006590.html</A>
+-- regression: xscale does not place debug_handler.bin into the right spot. workaround:
+-  use -s option on command line to place xscale/debug_handler.bin in search path @par
+-  <A HREF="https://lists.berlios.de/pipermail/openocd-development/2009-July/009338.html">https://lists.berlios.de/pipermail/openocd-development/2009-July/009338.html</A>
+ - bug: either USBprog is broken with new tms sequence or there is a general
+   problem with XScale and the new tms sequence. Workaround: use &quot;tms_sequence long&quot;
+   @par
+diff --git a/configure.in b/configure.in
+index 8e2881c..84574be 100644
+--- a/configure.in
++++ b/configure.in
+@@ -16,6 +16,7 @@ AC_LANG_C
+ AC_PROG_CC
+ AC_PROG_CC_C99
+ AM_PROG_CC_C_O
++AM_PROG_AS
+ AC_PROG_RANLIB
+ 
+ dnl disable checks for C++, Fortran and GNU Java Compiler
+diff --git a/src/target/Makefile.am b/src/target/Makefile.am
+index 9eee2f9..86716dc 100644
+--- a/src/target/Makefile.am
++++ b/src/target/Makefile.am
+@@ -35,6 +35,7 @@ libtarget_la_SOURCES = \
+ 	feroceon.c \
+ 	etb.c \
+ 	xscale.c \
++	xscale_debug.S \
+ 	arm_simulator.c \
+ 	image.c \
+ 	armv7m.c \
+@@ -98,7 +99,6 @@ noinst_HEADERS = \
+ 	avrt.h
+ 
+ nobase_dist_pkglib_DATA =
+-nobase_dist_pkglib_DATA += xscale/debug_handler.bin
+ nobase_dist_pkglib_DATA += ecos/at91eb40a.elf
+ 
+ MAINTAINERCLEANFILES = $(srcdir)/Makefile.in
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index fca578d..82a2c57 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -1559,15 +1559,6 @@ static int xscale_deassert_reset(target_t *target)
+ {
+ 	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+ 	xscale_common_t *xscale = armv4_5-&gt;arch_info;
+-
+-	fileio_t debug_handler;
+-	uint32_t address;
+-	uint32_t binary_size;
+-
+-	uint32_t buf_cnt;
+-	uint32_t i;
+-	int retval;
+-
+ 	breakpoint_t *breakpoint = target-&gt;breakpoints;
+ 
+ 	LOG_DEBUG(&quot;-&quot;);
+@@ -1592,6 +1583,11 @@ static int xscale_deassert_reset(target_t *target)
+ 
+ 	if (!xscale-&gt;handler_installed)
+ 	{
++		uint32_t address;
++		unsigned buf_cnt;
++		const uint8_t *buffer = xscale_debug_handler;
++		int retval;
++
+ 		/* release SRST */
+ 		jtag_add_reset(0, 0);
+ 
+@@ -1606,36 +1602,26 @@ static int xscale_deassert_reset(target_t *target)
+ 		buf_set_u32(xscale-&gt;reg_cache-&gt;reg_list[XSCALE_DCSR].value, 16, 1, 0x1);
+ 		xscale_write_dcsr(target, 1, 0);
+ 
+-		/* Load debug handler */
+-		if (fileio_open(&amp;debug_handler, &quot;xscale/debug_handler.bin&quot;, FILEIO_READ, FILEIO_BINARY) != ERROR_OK)
+-		{
+-			return ERROR_OK;
+-		}
+-
+-		if ((binary_size = debug_handler.size) % 4)
+-		{
+-			LOG_ERROR(&quot;debug_handler.bin: size not a multiple of 4&quot;);
+-			exit(-1);
+-		}
+-
+-		if (binary_size &gt; 0x800)
+-		{
+-			LOG_ERROR(&quot;debug_handler.bin: larger than 2kb&quot;);
+-			exit(-1);
+-		}
+-
+-		binary_size = CEIL(binary_size, 32) * 32;
+-
++		/* Load the debug handler into the mini-icache.  Since
++		 * it's using halt mode (not monitor mode), it runs in
++		 * &quot;Special Debug State&quot; for access to registers, memory,
++		 * coprocessors, trace data, etc.
++		 *
++		 * REVISIT:  *assumes* we've had a SRST+TRST reset so the
++		 * mini-icache contents have been invalidated.  Safest to
++		 * force that, so writing new contents is reliable...
++		 */
+ 		address = xscale-&gt;handler_address;
+-		while (binary_size &gt; 0)
++		for (unsigned binary_size = xscale_debug_handler_size;
++				binary_size &gt; 0;
++				binary_size -= buf_cnt, buffer += buf_cnt)
+ 		{
+ 			uint32_t cache_line[8];
+-			uint8_t buffer[32];
+-
+-			if ((retval = fileio_read(&amp;debug_handler, 32, buffer, &amp;buf_cnt)) != ERROR_OK)
+-			{
++			unsigned i;
+ 
+-			}
++			buf_cnt = binary_size;
++			if (buf_cnt &gt; 32)
++				buf_cnt = 32;
+ 
+ 			for (i = 0; i &lt; buf_cnt; i += 4)
+ 			{
+@@ -1651,15 +1637,23 @@ static int xscale_deassert_reset(target_t *target)
+ 			/* only load addresses other than the reset vectors */
+ 			if ((address % 0x400) != 0x0)
+ 			{
+-				xscale_load_ic(target, address, cache_line);
++				retval = xscale_load_ic(target, address,
++						cache_line);
++				if (retval != ERROR_OK)
++					return retval;
+ 			}
+ 
+ 			address += buf_cnt;
+-			binary_size -= buf_cnt;
+ 		};
+ 
+-		xscale_load_ic(target, 0x0, xscale-&gt;low_vectors);
+-		xscale_load_ic(target, 0xffff0000, xscale-&gt;high_vectors);
++		retval = xscale_load_ic(target, 0x0,
++					xscale-&gt;low_vectors);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = xscale_load_ic(target, 0xffff0000,
++					xscale-&gt;high_vectors);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		jtag_add_runtest(30, jtag_set_end_state(TAP_IDLE));
+ 
+@@ -1685,8 +1679,6 @@ static int xscale_deassert_reset(target_t *target)
+ 			/* resume the target */
+ 			xscale_resume(target, 1, 0x0, 1, 0);
+ 		}
+-
+-		fileio_close(&amp;debug_handler);
+ 	}
+ 	else
+ 	{
+@@ -3056,6 +3048,11 @@ static int xscale_target_create(struct target_s *target, Jim_Interp *interp)
+ {
+ 	xscale_common_t *xscale;
+ 
++	if (xscale_debug_handler_size &gt; 0x800) {
++		LOG_ERROR(&quot;debug_handler.bin: larger than 2kb&quot;);
++		return ERROR_FAIL;
++	}
++
+ 	xscale = calloc(1, sizeof(*xscale));
+ 	if (!xscale)
+ 		return ERROR_FAIL;
+diff --git a/src/target/xscale.h b/src/target/xscale.h
+index a5d83ee..9d92550 100644
+--- a/src/target/xscale.h
++++ b/src/target/xscale.h
+@@ -170,4 +170,10 @@ enum
+ 
+ #define ERROR_XSCALE_NO_TRACE_DATA	(-1500)
+ 
++/* This XScale &quot;debug handler&quot; is loaded into the processor's
++ * mini-ICache, which is 2K of code writable only via JTAG.
++ */
++extern const uint8_t xscale_debug_handler[];
++extern const uint32_t xscale_debug_handler_size;
++
+ #endif /* XSCALE_H */
+diff --git a/src/target/xscale_debug.S b/src/target/xscale_debug.S
+new file mode 100644
+index 0000000..0a7b87d
+--- /dev/null
++++ b/src/target/xscale_debug.S
+@@ -0,0 +1,13 @@
++	.section	.rodata
++
++	.align		4
++	.global		 xscale_debug_handler
++xscale_debug_handler:
++	.incbin		&quot;xscale/debug_handler.bin&quot;
++	.size		xscale_debug_handler, . - xscale_debug_handler
++
++	.align		4
++	.global		 xscale_debug_handler_size
++xscale_debug_handler_size:
++	.word		. - xscale_debug_handler
++	.size		xscale_debug_handler_size, 4
+
+commit 43a241afe2c342437afe7cdbe9a20501dc4f1499
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Oct 12 02:39:01 2009 -0700
+
+    more xscale cleanup (mostly removing JTAG hooks)
+    
+    Streamline/shrink some needless JTAG stuff:
+    
+     - Use #defines for the JTAG instructions; they can't ever change
+     - Remove an unused (!) shadow of tap-&gt;ir_length
+     - Stop using a copy of target-&gt;tap
+     - Don't bother saving the variant after sanity checking ir_length
+    
+    Also, make target_create() work as on other targets:  build the
+    register cache later, making init_target() no longer be a NOP.
+    Handle malloc failure; remove a comment that was obsoleted by the
+    not-so-new target syntax.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index f245a20..fca578d 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -202,23 +202,23 @@ static int xscale_read_dcsr(target_t *target)
+ 	uint8_t field2_check_mask = 0x1;
+ 
+ 	jtag_set_end_state(TAP_DRPAUSE);
+-	xscale_jtag_set_instr(xscale-&gt;jtag_info.tap, xscale-&gt;jtag_info.dcsr);
++	xscale_jtag_set_instr(target-&gt;tap, XSCALE_SELDCSR);
+ 
+ 	buf_set_u32(&amp;field0, 1, 1, xscale-&gt;hold_rst);
+ 	buf_set_u32(&amp;field0, 2, 1, xscale-&gt;external_debug_break);
+ 
+-	fields[0].tap = xscale-&gt;jtag_info.tap;
++	fields[0].tap = target-&gt;tap;
+ 	fields[0].num_bits = 3;
+ 	fields[0].out_value = &amp;field0;
+ 	uint8_t tmp;
+ 	fields[0].in_value = &tmp;
+ 
+-	fields[1].tap = xscale-&gt;jtag_info.tap;
++	fields[1].tap = target-&gt;tap;
+ 	fields[1].num_bits = 32;
+ 	fields[1].out_value = NULL;
+ 	fields[1].in_value = xscale-&gt;reg_cache-&gt;reg_list[XSCALE_DCSR].value;
+ 
+-	fields[2].tap = xscale-&gt;jtag_info.tap;
++	fields[2].tap = target-&gt;tap;
+ 	fields[2].num_bits = 1;
+ 	fields[2].out_value = &amp;field2;
+ 	uint8_t tmp2;
+@@ -267,12 +267,8 @@ static int xscale_receive(target_t *target, uint32_t *buffer, int num_words)
+ 		return ERROR_INVALID_ARGUMENTS;
+ 
+ 	int retval = ERROR_OK;
+-	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+-	xscale_common_t *xscale = armv4_5-&gt;arch_info;
+-
+ 	tap_state_t path[3];
+ 	scan_field_t fields[3];
+-
+ 	uint8_t *field0 = malloc(num_words * 1);
+ 	uint8_t field0_check_value = 0x2;
+ 	uint8_t field0_check_mask = 0x6;
+@@ -288,20 +284,20 @@ static int xscale_receive(target_t *target, uint32_t *buffer, int num_words)
+ 	path[1] = TAP_DRCAPTURE;
+ 	path[2] = TAP_DRSHIFT;
+ 
+-	fields[0].tap = xscale-&gt;jtag_info.tap;
++	fields[0].tap = target-&gt;tap;
+ 	fields[0].num_bits = 3;
+ 	fields[0].out_value = NULL;
+ 	fields[0].in_value = NULL;
+ 	fields[0].check_value = &amp;field0_check_value;
+ 	fields[0].check_mask = &amp;field0_check_mask;
+ 
+-	fields[1].tap = xscale-&gt;jtag_info.tap;
++	fields[1].tap = target-&gt;tap;
+ 	fields[1].num_bits = 32;
+ 	fields[1].out_value = NULL;
+ 	fields[1].check_value = NULL;
+ 	fields[1].check_mask = NULL;
+ 
+-	fields[2].tap = xscale-&gt;jtag_info.tap;
++	fields[2].tap = target-&gt;tap;
+ 	fields[2].num_bits = 1;
+ 	fields[2].out_value = NULL;
+ 	fields[2].in_value = NULL;
+@@ -309,7 +305,7 @@ static int xscale_receive(target_t *target, uint32_t *buffer, int num_words)
+ 	fields[2].check_mask = &amp;field2_check_mask;
+ 
+ 	jtag_set_end_state(TAP_IDLE);
+-	xscale_jtag_set_instr(xscale-&gt;jtag_info.tap, xscale-&gt;jtag_info.dbgtx);
++	xscale_jtag_set_instr(target-&gt;tap, XSCALE_DBGTX);
+ 	jtag_add_runtest(1, jtag_get_end_state()); /* ensures that we're in the TAP_IDLE state as the above could be a no-op */
+ 
+ 	/* repeat until all words have been collected */
+@@ -394,7 +390,7 @@ static int xscale_read_tx(target_t *target, int consume)
+ 
+ 	jtag_set_end_state(TAP_IDLE);
+ 
+-	xscale_jtag_set_instr(xscale-&gt;jtag_info.tap, xscale-&gt;jtag_info.dbgtx);
++	xscale_jtag_set_instr(target-&gt;tap, XSCALE_DBGTX);
+ 
+ 	path[0] = TAP_DRSELECT;
+ 	path[1] = TAP_DRCAPTURE;
+@@ -407,17 +403,17 @@ static int xscale_read_tx(target_t *target, int consume)
+ 	noconsume_path[4] = TAP_DREXIT2;
+ 	noconsume_path[5] = TAP_DRSHIFT;
+ 
+-	fields[0].tap = xscale-&gt;jtag_info.tap;
++	fields[0].tap = target-&gt;tap;
+ 	fields[0].num_bits = 3;
+ 	fields[0].out_value = NULL;
+ 	fields[0].in_value = &amp;field0_in;
+ 
+-	fields[1].tap = xscale-&gt;jtag_info.tap;
++	fields[1].tap = target-&gt;tap;
+ 	fields[1].num_bits = 32;
+ 	fields[1].out_value = NULL;
+ 	fields[1].in_value = xscale-&gt;reg_cache-&gt;reg_list[XSCALE_TX].value;
+ 
+-	fields[2].tap = xscale-&gt;jtag_info.tap;
++	fields[2].tap = target-&gt;tap;
+ 	fields[2].num_bits = 1;
+ 	fields[2].out_value = NULL;
+ 	uint8_t tmp;
+@@ -496,19 +492,19 @@ static int xscale_write_rx(target_t *target)
+ 
+ 	jtag_set_end_state(TAP_IDLE);
+ 
+-	xscale_jtag_set_instr(xscale-&gt;jtag_info.tap, xscale-&gt;jtag_info.dbgrx);
++	xscale_jtag_set_instr(target-&gt;tap, XSCALE_DBGRX);
+ 
+-	fields[0].tap = xscale-&gt;jtag_info.tap;
++	fields[0].tap = target-&gt;tap;
+ 	fields[0].num_bits = 3;
+ 	fields[0].out_value = &amp;field0_out;
+ 	fields[0].in_value = &amp;field0_in;
+ 
+-	fields[1].tap = xscale-&gt;jtag_info.tap;
++	fields[1].tap = target-&gt;tap;
+ 	fields[1].num_bits = 32;
+ 	fields[1].out_value = xscale-&gt;reg_cache-&gt;reg_list[XSCALE_RX].value;
+ 	fields[1].in_value = NULL;
+ 
+-	fields[2].tap = xscale-&gt;jtag_info.tap;
++	fields[2].tap = target-&gt;tap;
+ 	fields[2].num_bits = 1;
+ 	fields[2].out_value = &amp;field2;
+ 	uint8_t tmp;
+@@ -567,18 +563,14 @@ static int xscale_write_rx(target_t *target)
+ /* send count elements of size byte to the debug handler */
+ static int xscale_send(target_t *target, uint8_t *buffer, int count, int size)
+ {
+-	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+-	xscale_common_t *xscale = armv4_5-&gt;arch_info;
+ 	uint32_t t[3];
+ 	int bits[3];
+-
+ 	int retval;
+-
+ 	int done_count = 0;
+ 
+ 	jtag_set_end_state(TAP_IDLE);
+ 
+-	xscale_jtag_set_instr(xscale-&gt;jtag_info.tap, xscale-&gt;jtag_info.dbgrx);
++	xscale_jtag_set_instr(target-&gt;tap, XSCALE_DBGRX);
+ 
+ 	bits[0]=3;
+ 	t[0]=0;
+@@ -615,7 +607,7 @@ static int xscale_send(target_t *target, uint8_t *buffer, int count, int size)
+ 			LOG_ERROR(&quot;BUG: size neither 4, 2 nor 1&quot;);
+ 			exit(-1);
+ 		}
+-		jtag_add_dr_out(xscale-&gt;jtag_info.tap,
++		jtag_add_dr_out(target-&gt;tap,
+ 				3,
+ 				bits,
+ 				t,
+@@ -663,23 +655,23 @@ static int xscale_write_dcsr(target_t *target, int hold_rst, int ext_dbg_brk)
+ 		xscale-&gt;external_debug_break = ext_dbg_brk;
+ 
+ 	jtag_set_end_state(TAP_IDLE);
+-	xscale_jtag_set_instr(xscale-&gt;jtag_info.tap, xscale-&gt;jtag_info.dcsr);
++	xscale_jtag_set_instr(target-&gt;tap, XSCALE_SELDCSR);
+ 
+ 	buf_set_u32(&amp;field0, 1, 1, xscale-&gt;hold_rst);
+ 	buf_set_u32(&amp;field0, 2, 1, xscale-&gt;external_debug_break);
+ 
+-	fields[0].tap = xscale-&gt;jtag_info.tap;
++	fields[0].tap = target-&gt;tap;
+ 	fields[0].num_bits = 3;
+ 	fields[0].out_value = &amp;field0;
+ 	uint8_t tmp;
+ 	fields[0].in_value = &tmp;
+ 
+-	fields[1].tap = xscale-&gt;jtag_info.tap;
++	fields[1].tap = target-&gt;tap;
+ 	fields[1].num_bits = 32;
+ 	fields[1].out_value = xscale-&gt;reg_cache-&gt;reg_list[XSCALE_DCSR].value;
+ 	fields[1].in_value = NULL;
+ 
+-	fields[2].tap = xscale-&gt;jtag_info.tap;
++	fields[2].tap = target-&gt;tap;
+ 	fields[2].num_bits = 1;
+ 	fields[2].out_value = &amp;field2;
+ 	uint8_t tmp2;
+@@ -716,19 +708,16 @@ static unsigned int parity (unsigned int v)
+ 
+ static int xscale_load_ic(target_t *target, uint32_t va, uint32_t buffer[8])
+ {
+-	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+-	xscale_common_t *xscale = armv4_5-&gt;arch_info;
+ 	uint8_t packet[4];
+ 	uint8_t cmd;
+ 	int word;
+-
+ 	scan_field_t fields[2];
+ 
+ 	LOG_DEBUG(&quot;loading miniIC at 0x%8.8&quot; PRIx32 &quot;&quot;, va);
+ 
+ 	/* LDIC into IR */
+ 	jtag_set_end_state(TAP_IDLE);
+-	xscale_jtag_set_instr(xscale-&gt;jtag_info.tap, xscale-&gt;jtag_info.ldic);
++	xscale_jtag_set_instr(target-&gt;tap, XSCALE_LDIC);
+ 
+ 	/* CMD is b011 to load a cacheline into the Mini ICache.
+ 	 * Loading into the main ICache is deprecated, and unused.
+@@ -739,12 +728,12 @@ static int xscale_load_ic(target_t *target, uint32_t va, uint32_t buffer[8])
+ 	/* virtual address of desired cache line */
+ 	buf_set_u32(packet, 0, 27, va &gt;&gt; 5);
+ 
+-	fields[0].tap = xscale-&gt;jtag_info.tap;
++	fields[0].tap = target-&gt;tap;
+ 	fields[0].num_bits = 6;
+ 	fields[0].out_value = &cmd;
+ 	fields[0].in_value = NULL;
+ 
+-	fields[1].tap = xscale-&gt;jtag_info.tap;
++	fields[1].tap = target-&gt;tap;
+ 	fields[1].num_bits = 27;
+ 	fields[1].out_value = packet;
+ 	fields[1].in_value = NULL;
+@@ -774,15 +763,12 @@ static int xscale_load_ic(target_t *target, uint32_t va, uint32_t buffer[8])
+ 
+ static int xscale_invalidate_ic_line(target_t *target, uint32_t va)
+ {
+-	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+-	xscale_common_t *xscale = armv4_5-&gt;arch_info;
+ 	uint8_t packet[4];
+ 	uint8_t cmd;
+-
+ 	scan_field_t fields[2];
+ 
+ 	jtag_set_end_state(TAP_IDLE);
+-	xscale_jtag_set_instr(xscale-&gt;jtag_info.tap, xscale-&gt;jtag_info.ldic); /* LDIC */
++	xscale_jtag_set_instr(target-&gt;tap, XSCALE_LDIC);
+ 
+ 	/* CMD for invalidate IC line b000, bits [6:4] b000 */
+ 	buf_set_u32(&amp;cmd, 0, 6, 0x0);
+@@ -790,12 +776,12 @@ static int xscale_invalidate_ic_line(target_t *target, uint32_t va)
+ 	/* virtual address of desired cache line */
+ 	buf_set_u32(packet, 0, 27, va &gt;&gt; 5);
+ 
+-	fields[0].tap = xscale-&gt;jtag_info.tap;
++	fields[0].tap = target-&gt;tap;
+ 	fields[0].num_bits = 6;
+ 	fields[0].out_value = &cmd;
+ 	fields[0].in_value = NULL;
+ 
+-	fields[1].tap = xscale-&gt;jtag_info.tap;
++	fields[1].tap = target-&gt;tap;
+ 	fields[1].num_bits = 27;
+ 	fields[1].out_value = packet;
+ 	fields[1].in_value = NULL;
+@@ -1539,7 +1525,7 @@ static int xscale_assert_reset(target_t *target)
+ 	 * end up in T-L-R, which would reset JTAG
+ 	 */
+ 	jtag_set_end_state(TAP_IDLE);
+-	xscale_jtag_set_instr(xscale-&gt;jtag_info.tap, xscale-&gt;jtag_info.dcsr);
++	xscale_jtag_set_instr(target-&gt;tap, XSCALE_SELDCSR);
+ 
+ 	/* set Hold reset, Halt mode and Trap Reset */
+ 	buf_set_u32(xscale-&gt;reg_cache-&gt;reg_list[XSCALE_DCSR].value, 30, 1, 0x1);
+@@ -1547,7 +1533,7 @@ static int xscale_assert_reset(target_t *target)
+ 	xscale_write_dcsr(target, 1, 0);
+ 
+ 	/* select BYPASS, because having DCSR selected caused problems on the PXA27x */
+-	xscale_jtag_set_instr(xscale-&gt;jtag_info.tap, 0x7f);
++	xscale_jtag_set_instr(target-&gt;tap, 0x7f);
+ 	jtag_execute_queue();
+ 
+ 	/* assert reset */
+@@ -2948,6 +2934,7 @@ static void xscale_build_reg_cache(target_t *target)
+ static int xscale_init_target(struct command_context_s *cmd_ctx,
+ 		struct target_s *target)
+ {
++	xscale_build_reg_cache(target);
+ 	return ERROR_OK;
+ }
+ 
+@@ -2970,29 +2957,28 @@ static int xscale_init_arch_info(target_t *target,
+ 	xscale-&gt;arch_info = NULL;
+ 	xscale-&gt;common_magic = XSCALE_COMMON_MAGIC;
+ 
+-	/* remember the variant (PXA25x, PXA27x, IXP42x, ...) */
+-	xscale-&gt;variant = strdup(variant);
+-
+-	/* prepare JTAG information for the new target */
+-	xscale-&gt;jtag_info.tap = tap;
+-
+-	xscale-&gt;jtag_info.dbgrx = 0x02;
+-	xscale-&gt;jtag_info.dbgtx = 0x10;
+-	xscale-&gt;jtag_info.dcsr = 0x09;
+-	xscale-&gt;jtag_info.ldic = 0x07;
++	/* we don't really *need* variant info ... */
++	if (variant) {
++		int ir_length = 0;
++
++		if (strcmp(variant, &quot;pxa250&quot;) == 0
++				|| strcmp(variant, &quot;pxa255&quot;) == 0
++				|| strcmp(variant, &quot;pxa26x&quot;) == 0)
++			ir_length = 5;
++		else if (strcmp(variant, &quot;pxa27x&quot;) == 0
++				|| strcmp(variant, &quot;ixp42x&quot;) == 0
++				|| strcmp(variant, &quot;ixp45x&quot;) == 0
++				|| strcmp(variant, &quot;ixp46x&quot;) == 0)
++			ir_length = 7;
++		else
++			LOG_WARNING(&quot;%s: unrecognized variant %s&quot;,
++				tap-&gt;dotted_name, variant);
+ 
+-	if ((strcmp(xscale-&gt;variant, &quot;pxa250&quot;) == 0) ||
+-		(strcmp(xscale-&gt;variant, &quot;pxa255&quot;) == 0) ||
+-		(strcmp(xscale-&gt;variant, &quot;pxa26x&quot;) == 0))
+-	{
+-		xscale-&gt;jtag_info.ir_length = 5;
+-	}
+-	else if ((strcmp(xscale-&gt;variant, &quot;pxa27x&quot;) == 0) ||
+-		(strcmp(xscale-&gt;variant, &quot;ixp42x&quot;) == 0) ||
+-		(strcmp(xscale-&gt;variant, &quot;ixp45x&quot;) == 0) ||
+-		(strcmp(xscale-&gt;variant, &quot;ixp46x&quot;) == 0))
+-	{
+-		xscale-&gt;jtag_info.ir_length = 7;
++		if (ir_length &amp;&amp; ir_length != tap-&gt;ir_length) {
++			LOG_WARNING(&quot;%s: IR length for %s is %d; fixing&quot;,
++				tap-&gt;dotted_name, variant, ir_length);
++			tap-&gt;ir_length = ir_length;
++		}
+ 	}
+ 
+ 	/* the debug handler isn't installed (and thus not running) at this time */
+@@ -3066,15 +3052,16 @@ static int xscale_init_arch_info(target_t *target,
+ 	return ERROR_OK;
+ }
+ 
+-/* target xscale &lt;endianess&gt; &lt;startup_mode&gt; &lt;chain_pos&gt; &lt;variant&gt; */
+ static int xscale_target_create(struct target_s *target, Jim_Interp *interp)
+ {
+-	xscale_common_t *xscale = calloc(1,sizeof(xscale_common_t));
++	xscale_common_t *xscale;
+ 
+-	xscale_init_arch_info(target, xscale, target-&gt;tap, target-&gt;variant);
+-	xscale_build_reg_cache(target);
++	xscale = calloc(1, sizeof(*xscale));
++	if (!xscale)
++		return ERROR_FAIL;
+ 
+-	return ERROR_OK;
++	return xscale_init_arch_info(target, xscale, target-&gt;tap,
++			target-&gt;variant);
+ }
+ 
+ static int
+diff --git a/src/target/xscale.h b/src/target/xscale.h
+index 6cfe76e..a5d83ee 100644
+--- a/src/target/xscale.h
++++ b/src/target/xscale.h
+@@ -29,18 +29,13 @@
+ 
+ #define	XSCALE_COMMON_MAGIC 0x58534341
+ 
+-typedef struct xscale_jtag_s
+-{
+-	/* position in JTAG scan chain */
+-	jtag_tap_t *tap;
+-
+-	/* IR length and instructions */
+-	int ir_length;
+-	uint32_t dbgrx;
+-	uint32_t dbgtx;
+-	uint32_t ldic;
+-	uint32_t dcsr;
+-} xscale_jtag_t;
++/* These four JTAG instructions are architecturally defined.
++ * Lengths are core-specific; originally 5 bits, later 7.
++ */
++#define XSCALE_DBGRX	0x02
++#define XSCALE_DBGTX	0x10
++#define XSCALE_LDIC	0x07
++#define XSCALE_SELDCSR	0x09
+ 
+ enum xscale_debug_reason
+ {
+@@ -90,11 +85,6 @@ typedef struct xscale_common_s
+ 	/* XScale registers (CP15, DBG) */
+ 	reg_cache_t *reg_cache;
+ 
+-	/* pxa250, pxa255, pxa27x, ixp42x, ... */
+-	char *variant;
+-
+-	xscale_jtag_t jtag_info;
+-
+ 	/* current state of the debug handler */
+ 	int handler_installed;
+ 	int handler_running;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ TODO                      |    3 -
+ configure.in              |    1 +
+ src/target/Makefile.am    |    2 +-
+ src/target/xscale.c       |  208 +++++++++++++++++++++------------------------
+ src/target/xscale.h       |   30 +++----
+ src/target/xscale_debug.S |   13 +++
+ 6 files changed, 124 insertions(+), 133 deletions(-)
+ create mode 100644 src/target/xscale_debug.S
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001619.html">[openocd-svn] branch, master, updated. 0.2.0-345-g3e6512f
+</A></li>
+	<LI>Next message: <A HREF="001621.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-348-g3fef242
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1620">[ date ]</a>
+              <a href="thread.html#1620">[ thread ]</a>
+              <a href="subject.html#1620">[ subject ]</a>
+              <a href="author.html#1620">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

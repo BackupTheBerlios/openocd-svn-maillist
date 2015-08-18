@@ -1,0 +1,160 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2222 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2222%20-%20trunk/src/jtag&In-Reply-To=%3C200906122143.n5CLhvEi016544%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001005.html">
+   <LINK REL="Next"  HREF="001007.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2222 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2222%20-%20trunk/src/jtag&In-Reply-To=%3C200906122143.n5CLhvEi016544%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2222 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Fri Jun 12 23:43:57 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001005.html">[Openocd-svn] r2221 - trunk/src/flash
+</A></li>
+        <LI>Next message: <A HREF="001007.html">[Openocd-svn] r2223 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1006">[ date ]</a>
+              <a href="thread.html#1006">[ thread ]</a>
+              <a href="subject.html#1006">[ subject ]</a>
+              <a href="author.html#1006">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-12 23:43:53 +0200 (Fri, 12 Jun 2009)
+New Revision: 2222
+
+Modified:
+   trunk/src/jtag/core.c
+   trunk/src/jtag/tcl.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Partial fix to the &quot;long IR length&quot; problems.
+
+ - Current code could handle up to 32 bit IR lengths with
+   full functionality, if it didn't just reject may of them
+   out of hand.  So only reject clear errors, where the IR
+   mask (or capture instruction) needs more than IrLen bits.
+
+ - Longer IR lengths can only be handled in BYPASS mode
+   for now.  Example:  TI's DSPs use 38-bit IR lengths.
+   So we can't issue their IDCODE instructions...
+
+A more complete fix would be able to issue longer instructions;
+or minimally, would fail cleanly for the non-BYPASS case.
+
+Note that this *could* make some currently broken scripts fail,
+since the previous code accepted garbage values so long as
+they didn't use more than 16 bits.
+
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-06-12 21:31:11 UTC (rev 2221)
++++ trunk/src/jtag/core.c	2009-06-12 21:43:53 UTC (rev 2222)
+@@ -1073,6 +1073,7 @@
+ 	tap-&gt;expected_mask = malloc(tap-&gt;ir_length);
+ 	tap-&gt;cur_instr = malloc(tap-&gt;ir_length);
+ 
++	/// @todo cope sanely with ir_length bigger than 32 bits
+ 	buf_set_u32(tap-&gt;expected, 0, tap-&gt;ir_length, tap-&gt;ir_capture_value);
+ 	buf_set_u32(tap-&gt;expected_mask, 0, tap-&gt;ir_length, tap-&gt;ir_capture_mask);
+ 	buf_set_ones(tap-&gt;cur_instr, tap-&gt;ir_length);
+
+Modified: trunk/src/jtag/tcl.c
+===================================================================
+--- trunk/src/jtag/tcl.c	2009-06-12 21:31:11 UTC (rev 2221)
++++ trunk/src/jtag/tcl.c	2009-06-12 21:43:53 UTC (rev 2222)
+@@ -296,7 +296,16 @@
+ 	return JIM_OK;
+ }
+ 
++static int is_bad_irval(int ir_length, jim_wide w)
++{
++	jim_wide v = 1;
+ 
++	v &lt;&lt;= ir_length;
++	v -= 1;
++	v = ~v;
++	return (w &amp; v) != 0;
++}
++
+ extern void jtag_tap_init(jtag_tap_t *tap);
+ extern void jtag_tap_free(jtag_tap_t *tap);
+ 
+@@ -411,22 +420,28 @@
+ 				Jim_SetResult_sprintf( goi-&gt;interp, &quot;option: %s bad parameter&quot;, n-&gt;name );
+ 				return e;
+ 			}
+-			if( (w &lt; 0) || (w &gt; 0xffff) ){
+-				/* wacky value */
+-				Jim_SetResult_sprintf( goi-&gt;interp, &quot;option: %s - wacky value: %d (0x%x)&quot;,
+-									   n-&gt;name, (int)(w), (int)(w));
+-				return JIM_ERR;
+-			}
+ 			switch(n-&gt;value){
+ 			case NTAP_OPT_IRLEN:
++				if (w &lt; (jim_wide) sizeof(pTap-&gt;ir_capture_value))
++					LOG_WARNING(&quot;huge IR length %d&quot;, (int) w);
+ 				pTap-&gt;ir_length = w;
+ 				reqbits &amp;= (~(NTREQ_IRLEN));
+ 				break;
+ 			case NTAP_OPT_IRMASK:
++				if (is_bad_irval(pTap-&gt;ir_length, w)) {
++					LOG_ERROR(&quot;IR mask %x too big&quot;,
++							(int) w);
++					return ERROR_FAIL;
++				}
+ 				pTap-&gt;ir_capture_mask = w;
+ 				reqbits &amp;= (~(NTREQ_IRMASK));
+ 				break;
+ 			case NTAP_OPT_IRCAPTURE:
++				if (is_bad_irval(pTap-&gt;ir_length, w)) {
++					LOG_ERROR(&quot;IR capture %x too big&quot;,
++							(int) w);
++					return ERROR_FAIL;
++				}
+ 				pTap-&gt;ir_capture_value = w;
+ 				reqbits &amp;= (~(NTREQ_IRCAPTURE));
+ 				break;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001005.html">[Openocd-svn] r2221 - trunk/src/flash
+</A></li>
+	<LI>Next message: <A HREF="001007.html">[Openocd-svn] r2223 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1006">[ date ]</a>
+              <a href="thread.html#1006">[ thread ]</a>
+              <a href="subject.html#1006">[ subject ]</a>
+              <a href="author.html#1006">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

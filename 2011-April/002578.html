@@ -1,0 +1,2321 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-853-gb691196
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-853-gb691196&In-Reply-To=%3Cmailman.63.1331736154.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002577.html">
+   <LINK REL="Next"  HREF="002579.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-853-gb691196</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-853-gb691196&In-Reply-To=%3Cmailman.63.1331736154.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-853-gb691196">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Apr 15 08:27:44 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002577.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-852-gf9feeac
+</A></li>
+        <LI>Next message: <A HREF="002579.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-854-ge984dc1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2578">[ date ]</a>
+              <a href="thread.html#2578">[ thread ]</a>
+              <a href="subject.html#2578">[ subject ]</a>
+              <a href="author.html#2578">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  b69119668ed8d9633280f8b596fe9af60f51644b (commit)
+      from  f9feeacb7fa9b1f60d803708b831bde2187f29b5 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit b69119668ed8d9633280f8b596fe9af60f51644b
+Author: Broadcom Corporation (Evan Hunter) &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ehunter at broadcom.com</A>&gt;
+Date:   Thu Apr 14 10:25:01 2011 +0200
+
+    RTOS Thread awareness support wip
+    
+    - works on Cortex-M3 with ThreadX and FreeRTOS
+    
+    Compared to original patch a few nits were fixed:
+    
+    - remove stricmp usage
+    - unsigned compare fix
+    - printf formatting fixes
+    - fixed a bug with overrunning a memory buffer allocated with malloc.
+
+diff --git a/configure.in b/configure.in
+index a73354f..8315a18 100644
+--- a/configure.in
++++ b/configure.in
+@@ -1170,6 +1170,7 @@ AC_OUTPUT(dnl
+     src/xsvf/Makefile dnl
+     src/svf/Makefile dnl
+     src/target/Makefile dnl
++    src/rtos/Makefile dnl
+     src/server/Makefile dnl
+     src/flash/Makefile dnl
+     src/flash/nor/Makefile dnl
+diff --git a/src/Makefile.am b/src/Makefile.am
+index 7744986..3d7b05f 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -8,7 +8,8 @@ SUBDIRS = \
+ 	svf \
+ 	xsvf \
+ 	pld \
+-	server
++	server \
++	rtos
+ 
+ lib_LTLIBRARIES = libopenocd.la
+ bin_PROGRAMS = openocd
+@@ -100,6 +101,7 @@ libopenocd_la_LIBADD = \
+ 	$(top_builddir)/src/flash/libflash.la \
+ 	$(top_builddir)/src/target/libtarget.la \
+ 	$(top_builddir)/src/server/libserver.la \
++	$(top_builddir)/src/rtos/librtos.la \
+ 	$(top_builddir)/src/helper/libhelper.la \
+ 	$(FTDI2232LIB) $(MINGWLDADD) $(LIBUSB)
+ 
+diff --git a/src/rtos/FreeRTOS.c b/src/rtos/FreeRTOS.c
+new file mode 100644
+index 0000000..0007416
+--- /dev/null
++++ b/src/rtos/FreeRTOS.c
+@@ -0,0 +1,481 @@
++/***************************************************************************
++ *   Copyright (C) 2011 by Broadcom Corporation                            *
++ *   Evan Hunter - <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ehunter at broadcom.com</A>                                    *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &lt;helper/time_support.h&gt;
++#include &lt;jtag/jtag.h&gt;
++#include &quot;target/target.h&quot;
++#include &quot;target/target_type.h&quot;
++#include &quot;rtos.h&quot;
++#include &quot;helper/log.h&quot;
++#include &quot;rtos_standard_stackings.h&quot;
++
++#define FreeRTOS_STRUCT( int_type, ptr_type, list_prev_offset )
++
++
++struct FreeRTOS_params
++{
++	const char *                         target_name;
++	const unsigned char                  thread_count_width;
++	const unsigned char                  pointer_width;
++	const unsigned char                  list_next_offset;
++	const unsigned char                  list_width;
++	const unsigned char                  list_elem_next_offset;
++	const unsigned char                  list_elem_content_offset;
++	const unsigned char                  thread_stack_offset;
++	const unsigned char                  thread_name_offset;
++	const struct rtos_register_stacking* stacking_info;
++};
++
++
++
++
++const struct FreeRTOS_params FreeRTOS_params_list[] =
++{
++		{ &quot;cortex_m3&quot;,                      // target_name
++          4,                                // thread_count_width;
++          4,                                // pointer_width;
++          16,                               // list_next_offset;
++          20,                               // list_width;
++          8,                                // list_elem_next_offset;
++          12,                               // list_elem_content_offset
++          0,                                // thread_stack_offset;
++          52,                               // thread_name_offset;
++          &amp;rtos_standard_Cortex_M3_stacking, // stacking_info
++		}
++
++};
++
++
++#define FREERTOS_NUM_PARAMS ((int)(sizeof(FreeRTOS_params_list)/sizeof(struct FreeRTOS_params)))
++
++static int FreeRTOS_detect_rtos( struct target* target );
++static int FreeRTOS_create( struct target* target );
++static int FreeRTOS_update_threads( struct rtos *rtos );
++static int FreeRTOS_get_thread_reg_list(struct rtos *rtos, long long thread_id, char ** hex_reg_list );
++static int FreeRTOS_get_symbol_list_to_lookup(symbol_table_elem_t * symbol_list[]);
++
++
++
++
++struct rtos_type FreeRTOS_rtos =
++{
++	.name                       = &quot;FreeRTOS&quot;,
++
++	.detect_rtos                = FreeRTOS_detect_rtos,
++	.create                     = FreeRTOS_create,
++	.update_threads            = FreeRTOS_update_threads,
++	.get_thread_reg_list        = FreeRTOS_get_thread_reg_list,
++	.get_symbol_list_to_lookup  = FreeRTOS_get_symbol_list_to_lookup,
++};
++
++enum FreeRTOS_symbol_values
++{
++	FreeRTOS_VAL_pxCurrentTCB              = 0,
++	FreeRTOS_VAL_pxReadyTasksLists         = 1,
++	FreeRTOS_VAL_xDelayedTaskList1         = 2,
++	FreeRTOS_VAL_xDelayedTaskList2         = 3,
++	FreeRTOS_VAL_pxDelayedTaskList         = 4,
++	FreeRTOS_VAL_pxOverflowDelayedTaskList = 5,
++	FreeRTOS_VAL_xPendingReadyList         = 6,
++	FreeRTOS_VAL_xTasksWaitingTermination  = 7,
++	FreeRTOS_VAL_xSuspendedTaskList        = 8,
++	FreeRTOS_VAL_uxCurrentNumberOfTasks    = 9,
++};
++
++static char* FreeRTOS_symbol_list[] =
++{
++		&quot;pxCurrentTCB&quot;,
++		&quot;pxReadyTasksLists&quot;,
++		&quot;xDelayedTaskList1&quot;,
++		&quot;xDelayedTaskList2&quot;,
++		&quot;pxDelayedTaskList&quot;,
++		&quot;pxOverflowDelayedTaskList&quot;,
++		&quot;xPendingReadyList&quot;,
++		&quot;xTasksWaitingTermination&quot;,
++		&quot;xSuspendedTaskList&quot;,
++		&quot;uxCurrentNumberOfTasks&quot;,
++		NULL
++};
++
++#define FREERTOS_NUM_SYMBOLS (sizeof(FreeRTOS_symbol_list)/sizeof(char*))
++
++// TODO:
++// this is not safe for little endian yet
++// may be problems reading if sizes are not 32 bit long integers.
++// test mallocs for failure
++
++static int FreeRTOS_update_threads( struct rtos *rtos )
++{
++	int i = 0;
++	int retval;
++	int tasks_found = 0;
++	const struct FreeRTOS_params* param;
++
++	if (rtos-&gt;rtos_specific_params == NULL )
++	{
++		return -1;
++	}
++
++	param = (const struct FreeRTOS_params*) rtos-&gt;rtos_specific_params;
++
++	if ( rtos-&gt;symbols == NULL )
++	{
++		LOG_OUTPUT(&quot;No symbols for FreeRTOS\r\n&quot;);
++		return -3;
++	}
++
++	if ( rtos-&gt;symbols[FreeRTOS_VAL_uxCurrentNumberOfTasks].address == 0 )
++	{
++		LOG_OUTPUT(&quot;Don't have the number of threads in FreeRTOS \r\n&quot;);
++		return -2;
++	}
++
++	int thread_list_size = 0;
++	retval = target_read_buffer( rtos-&gt;target, rtos-&gt;symbols[FreeRTOS_VAL_uxCurrentNumberOfTasks].address, param-&gt;thread_count_width, (uint8_t *)&amp;thread_list_size);
++
++	if ( retval != ERROR_OK )
++	{
++		LOG_OUTPUT(&quot;Could not read FreeRTOS thread count from target\r\n&quot;);
++		return retval;
++	}
++
++
++	// wipe out previous thread details if any
++	if ( rtos-&gt;thread_details != NULL )
++	{
++		int j;
++		for( j = 0; j &lt; rtos-&gt;thread_count; j++ )
++		{
++			if ( rtos-&gt;thread_details[j].display_str != NULL )
++			{
++				free( rtos-&gt;thread_details[j].display_str );
++				rtos-&gt;thread_details[j].display_str = NULL;
++			}
++			if ( rtos-&gt;thread_details[j].thread_name_str != NULL )
++			{
++				free( rtos-&gt;thread_details[j].thread_name_str );
++				rtos-&gt;thread_details[j].thread_name_str = NULL;
++			}
++			if ( rtos-&gt;thread_details[j].extra_info_str != NULL )
++			{
++				free( rtos-&gt;thread_details[j].extra_info_str );
++				rtos-&gt;thread_details[j].extra_info_str = NULL;
++			}
++		}
++		free( rtos-&gt;thread_details );
++		rtos-&gt;thread_details = NULL;
++	}
++
++
++	// read the current thread
++	retval = target_read_buffer( rtos-&gt;target, rtos-&gt;symbols[FreeRTOS_VAL_pxCurrentTCB].address, param-&gt;pointer_width, (uint8_t *)&amp;rtos-&gt;current_thread );
++	if ( retval != ERROR_OK )
++	{
++		LOG_OUTPUT(&quot;Error reading current thread in FreeRTOS thread list\r\n&quot;);
++		return retval;
++	}
++
++	if ( ( thread_list_size  == 0 ) || ( rtos-&gt;current_thread == 0 ) )
++	{
++		// Either : No RTOS threads - there is always at least the current execution though
++		// OR     : No current thread - all threads suspended - show the current execution of idling
++		char tmp_str[] = &quot;Current Execution&quot;;
++		thread_list_size++;
++		tasks_found++;
++		rtos-&gt;thread_details = (struct thread_detail*) malloc( sizeof( struct thread_detail ) * thread_list_size );
++		rtos-&gt;thread_details-&gt;threadid = 1;
++		rtos-&gt;thread_details-&gt;exists = true;
++		rtos-&gt;thread_details-&gt;display_str = NULL;
++		rtos-&gt;thread_details-&gt;extra_info_str = NULL;
++		rtos-&gt;thread_details-&gt;thread_name_str = (char*) malloc( sizeof(tmp_str) );
++		strcpy( rtos-&gt;thread_details-&gt;thread_name_str, tmp_str );
++
++
++		if ( thread_list_size == 1 )
++		{
++			rtos-&gt;thread_count = 1;
++			return ERROR_OK;
++		}
++	}
++	else
++	{
++		// create space for new thread details
++		rtos-&gt;thread_details = (struct thread_detail*) malloc( sizeof( struct thread_detail ) * thread_list_size );
++	}
++
++
++	// Unfortunately, we can't know how many lists there are for pxReadyTasksLists,
++	// So figure it out via other variables
++	int num_ready_task_lists = (rtos-&gt;symbols[FreeRTOS_VAL_xDelayedTaskList1].address - rtos-&gt;symbols[FreeRTOS_VAL_pxReadyTasksLists].address) / param-&gt;list_width;
++
++
++	symbol_address_t* list_of_lists = (symbol_address_t *)malloc( sizeof( symbol_address_t ) * ( num_ready_task_lists + 5 ) );
++
++	int num_lists;
++	for( num_lists = 0; num_lists &lt; num_ready_task_lists; num_lists++ )
++	{
++		list_of_lists[num_lists] =  rtos-&gt;symbols[FreeRTOS_VAL_pxReadyTasksLists].address + num_lists * param-&gt;list_width;
++	}
++
++	list_of_lists[num_lists++] =  rtos-&gt;symbols[FreeRTOS_VAL_xDelayedTaskList1].address;
++	list_of_lists[num_lists++] =  rtos-&gt;symbols[FreeRTOS_VAL_xDelayedTaskList2].address;
++	list_of_lists[num_lists++] =  rtos-&gt;symbols[FreeRTOS_VAL_xPendingReadyList].address;
++	list_of_lists[num_lists++] =  rtos-&gt;symbols[FreeRTOS_VAL_xTasksWaitingTermination].address;
++
++
++	for( i = 0; i &lt; num_lists; i++ )
++	{
++		if ( list_of_lists[i] == 0 )
++		{
++			continue;
++		}
++
++		// Read the number of threads in this list
++		long long list_thread_count = 0;
++		retval = target_read_buffer( rtos-&gt;target, list_of_lists[i], param-&gt;thread_count_width, (uint8_t *)&amp;list_thread_count);
++		if ( retval != ERROR_OK )
++		{
++			LOG_OUTPUT(&quot;Error reading number of threads in FreeRTOS thread list\r\n&quot;);
++			return retval;
++		}
++
++		if ( list_thread_count == 0 )
++		{
++			continue;
++		}
++
++		// Read the location of first list item
++		unsigned long long prev_list_elem_ptr = -1;
++		unsigned long long list_elem_ptr = 0;
++		retval = target_read_buffer( rtos-&gt;target, list_of_lists[i] + param-&gt;list_next_offset, param-&gt;pointer_width, (uint8_t *)&amp;list_elem_ptr);
++		if ( retval != ERROR_OK )
++		{
++			LOG_OUTPUT(&quot;Error reading first thread item location in FreeRTOS thread list\r\n&quot;);
++			return retval;
++		}
++
++
++		while ( (list_thread_count &gt; 0) &amp;&amp; ( list_elem_ptr != 0) &amp;&amp; ( list_elem_ptr != prev_list_elem_ptr ) &amp;&amp; ( tasks_found &lt; thread_list_size ) )
++		{
++			// Get the location of the thread structure.
++			rtos-&gt;thread_details[tasks_found].threadid = 0;
++			retval = target_read_buffer( rtos-&gt;target, list_elem_ptr + param-&gt;list_elem_content_offset, param-&gt;pointer_width, (uint8_t *)&amp;(rtos-&gt;thread_details[tasks_found].threadid));
++			if ( retval != ERROR_OK )
++			{
++				LOG_OUTPUT(&quot;Error reading thread list item object in FreeRTOS thread list\r\n&quot;);
++				return retval;
++			}
++
++
++			// get thread name
++
++			#define FREERTOS_THREAD_NAME_STR_SIZE (200)
++			char tmp_str[FREERTOS_THREAD_NAME_STR_SIZE];
++
++			// Read the thread name
++			retval = target_read_buffer( rtos-&gt;target, rtos-&gt;thread_details[tasks_found].threadid + param-&gt;thread_name_offset, FREERTOS_THREAD_NAME_STR_SIZE, (uint8_t *)&amp;tmp_str);
++			if ( retval != ERROR_OK )
++			{
++				LOG_OUTPUT(&quot;Error reading first thread item location in FreeRTOS thread list\r\n&quot;);
++				return retval;
++			}
++			tmp_str[FREERTOS_THREAD_NAME_STR_SIZE-1] = '\x00';
++
++			if ( tmp_str[0] == '\x00' )
++			{
++				strcpy(tmp_str,&quot;No Name&quot;);
++			}
++
++			rtos-&gt;thread_details[tasks_found].thread_name_str = (char*)malloc( strlen(tmp_str)+1 );
++			strcpy( rtos-&gt;thread_details[tasks_found].thread_name_str, tmp_str );
++			rtos-&gt;thread_details[tasks_found].display_str = NULL;
++			rtos-&gt;thread_details[tasks_found].exists = true;
++
++			if ( rtos-&gt;thread_details[tasks_found].threadid == rtos-&gt;current_thread )
++			{
++				char running_str[] = &quot;Running&quot;;
++				rtos-&gt;thread_details[tasks_found].extra_info_str = (char*) malloc( sizeof(running_str) );
++				strcpy( rtos-&gt;thread_details[tasks_found].extra_info_str, running_str );
++			}
++			else
++			{
++				rtos-&gt;thread_details[tasks_found].extra_info_str = NULL;
++			}
++
++
++			tasks_found++;
++			list_thread_count--;
++
++			prev_list_elem_ptr = list_elem_ptr;
++			list_elem_ptr = 0;
++			retval = target_read_buffer( rtos-&gt;target, prev_list_elem_ptr + param-&gt;list_elem_next_offset, param-&gt;pointer_width, (uint8_t *)&amp;list_elem_ptr);
++			if ( retval != ERROR_OK )
++			{
++				LOG_OUTPUT(&quot;Error reading next thread item location in FreeRTOS thread list\r\n&quot;);
++				return retval;
++			}
++		}
++
++
++	}
++	free( list_of_lists );
++	rtos-&gt;thread_count = tasks_found;
++	return 0;
++}
++
++static int FreeRTOS_get_thread_reg_list(struct rtos *rtos, long long thread_id, char ** hex_reg_list )
++{
++	int retval;
++	const struct FreeRTOS_params* param;
++	long long stack_ptr = 0;
++
++
++	*hex_reg_list = NULL;
++	if ( rtos == NULL )
++	{
++		return -1;
++	}
++
++	if ( thread_id == 0 )
++	{
++		return -2;
++	}
++
++	if (rtos-&gt;rtos_specific_params == NULL )
++	{
++		return -1;
++	}
++
++	param = (const struct FreeRTOS_params*) rtos-&gt;rtos_specific_params;
++
++	// Read the stack pointer
++	retval = target_read_buffer( rtos-&gt;target, thread_id + param-&gt;thread_stack_offset, param-&gt;pointer_width, (uint8_t*)&amp;stack_ptr);
++	if ( retval != ERROR_OK )
++	{
++		LOG_OUTPUT(&quot;Error reading stack frame from FreeRTOS thread\r\n&quot;);
++		return retval;
++	}
++
++	return rtos_generic_stack_read( rtos-&gt;target, param-&gt;stacking_info, stack_ptr, hex_reg_list );
++
++}
++
++static int FreeRTOS_get_symbol_list_to_lookup(symbol_table_elem_t * symbol_list[])
++{
++	unsigned int i;
++	*symbol_list = (symbol_table_elem_t *) malloc( sizeof( symbol_table_elem_t ) * FREERTOS_NUM_SYMBOLS );
++
++	for( i = 0; i &lt; FREERTOS_NUM_SYMBOLS; i++ )
++	{
++		(*symbol_list)[i].symbol_name = FreeRTOS_symbol_list[i];
++	}
++
++	return 0;
++}
++
++#if 0
++
++static int FreeRTOS_set_current_thread(struct rtos *rtos, threadid_t thread_id)
++{
++	return 0;
++}
++
++
++
++static int FreeRTOS_get_thread_ascii_info( struct rtos*   rtos, threadid_t   thread_id, char ** info )
++{
++	int retval;
++	const struct FreeRTOS_params* param;
++
++	if ( rtos == NULL )
++	{
++		return -1;
++	}
++
++	if ( thread_id == 0 )
++	{
++		return -2;
++	}
++
++	if (rtos-&gt;rtos_specific_params == NULL )
++	{
++		return -3;
++	}
++
++	param = (const struct FreeRTOS_params*) rtos-&gt;rtos_specific_params;
++
++#define FREERTOS_THREAD_NAME_STR_SIZE (200)
++	char tmp_str[FREERTOS_THREAD_NAME_STR_SIZE];
++
++	// Read the thread name
++	retval = target_read_buffer( rtos-&gt;target, thread_id + param-&gt;thread_name_offset, FREERTOS_THREAD_NAME_STR_SIZE, (uint8_t *)&amp;tmp_str);
++	if ( retval != ERROR_OK )
++	{
++		LOG_OUTPUT(&quot;Error reading first thread item location in FreeRTOS thread list\r\n&quot;);
++		return retval;
++	}
++	tmp_str[FREERTOS_THREAD_NAME_STR_SIZE-1] = '\x00';
++
++	if ( tmp_str[0] == '\x00' )
++	{
++		strcpy(tmp_str,&quot;No Name&quot;);
++	}
++
++	*info = (char*)malloc( strlen(tmp_str)+1 );
++	strcpy( *info, tmp_str );
++	return 0;
++}
++
++#endif
++
++static int FreeRTOS_detect_rtos( struct target* target )
++{
++	if ( ( target-&gt;rtos-&gt;symbols != NULL ) &amp;&amp;
++		 ( target-&gt;rtos-&gt;symbols[FreeRTOS_VAL_pxReadyTasksLists].address != 0 ) )
++	{
++		// looks like FreeRTOS
++		return 1;
++	}
++	return 0;
++	return 0;
++}
++
++
++static int FreeRTOS_create( struct target* target )
++{
++	int i = 0;
++	while ( ( i &lt; FREERTOS_NUM_PARAMS ) &amp;&amp; ( 0 != strcmp( FreeRTOS_params_list[i].target_name, target-&gt;type-&gt;name ) ) )
++	{
++		i++;
++	}
++	if ( i &gt;= FREERTOS_NUM_PARAMS )
++	{
++		LOG_OUTPUT(&quot;Could not find target in FreeRTOS compatability list\r\n&quot;);
++		return -1;
++	}
++
++	target-&gt;rtos-&gt;rtos_specific_params = (void*) &amp;FreeRTOS_params_list[i];
++	return 0;
++}
+diff --git a/src/rtos/Makefile.am b/src/rtos/Makefile.am
+new file mode 100644
+index 0000000..12368d2
+--- /dev/null
++++ b/src/rtos/Makefile.am
+@@ -0,0 +1,35 @@
++# ***************************************************************************
++# *   Copyright (C) 2011 by Broadcom Corporation                            *
++# *   Evan Hunter - <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ehunter at broadcom.com</A>                                    *
++# *                                                                         *
++# *   This program is free software; you can redistribute it and/or modify  *
++# *   it under the terms of the GNU General Public License as published by  *
++# *   the Free Software Foundation; either version 2 of the License, or     *
++# *   (at your option) any later version.                                   *
++# *                                                                         *
++# *   This program is distributed in the hope that it will be useful,       *
++# *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++# *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++# *   GNU General Public License for more details.                          *
++# *                                                                         *
++# *   You should have received a copy of the GNU General Public License     *
++# *   along with this program; if not, write to the                         *
++# *   Free Software Foundation, Inc.,                                       *
++# *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++# ***************************************************************************
++
++include $(top_srcdir)/common.mk
++
++METASOURCES = AUTO
++noinst_LTLIBRARIES = librtos.la
++noinst_HEADERS = rtos.h
++librtos_la_SOURCES = rtos.c rtos_standard_stackings.c FreeRTOS.c ThreadX.c
++
++
++librtos_la_CFLAGS =
++if IS_MINGW
++# FD_* macros are sloppy with their signs on MinGW32 platform
++librtos_la_CFLAGS += -Wno-sign-compare
++endif
++
++MAINTAINERCLEANFILES = $(srcdir)/Makefile.in
+diff --git a/src/rtos/ThreadX.c b/src/rtos/ThreadX.c
+new file mode 100644
+index 0000000..da84111
+--- /dev/null
++++ b/src/rtos/ThreadX.c
+@@ -0,0 +1,536 @@
++/***************************************************************************
++ *   Copyright (C) 2011 by Broadcom Corporation                            *
++ *   Evan Hunter - <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ehunter at broadcom.com</A>                                    *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &lt;helper/time_support.h&gt;
++#include &lt;jtag/jtag.h&gt;
++#include &quot;target/target.h&quot;
++#include &quot;target/target_type.h&quot;
++#include &quot;rtos.h&quot;
++#include &quot;helper/log.h&quot;
++#include &quot;rtos_standard_stackings.h&quot;
++
++
++static int ThreadX_detect_rtos( struct target* target );
++static int ThreadX_create( struct target* target );
++static int ThreadX_update_threads( struct rtos* rtos);
++static int ThreadX_get_thread_reg_list(struct rtos *rtos, long long thread_id, char ** hex_reg_list );
++static int ThreadX_get_symbol_list_to_lookup(symbol_table_elem_t * symbol_list[]);
++
++
++
++struct ThreadX_thread_state
++{
++	int value;
++	char * desc;
++};
++
++
++struct ThreadX_thread_state ThreadX_thread_states[] =
++{
++    { 0,  &quot;Ready&quot; },
++    { 1,  &quot;Completed&quot; },
++    { 2,  &quot;Terminated&quot; },
++    { 3,  &quot;Suspended&quot; },
++    { 4,  &quot;Sleeping&quot; },
++    { 5,  &quot;Waiting - Queue&quot; },
++    { 6,  &quot;Waiting - Semaphore&quot; },
++    { 7,  &quot;Waiting - Event flag&quot; },
++    { 8,  &quot;Waiting - Memory&quot; },
++    { 9,  &quot;Waiting - Memory&quot; },
++    { 10, &quot;Waiting - I/O&quot; },
++    { 11, &quot;Waiting - Filesystem&quot; },
++    { 12, &quot;Waiting - Network&quot; },
++    { 13, &quot;Waiting - Mutex&quot; },
++};
++
++
++#define THREADX_NUM_STATES (sizeof(ThreadX_thread_states)/sizeof(struct ThreadX_thread_state))
++
++
++struct ThreadX_params
++{
++	char *                               target_name;
++	unsigned char                        pointer_width;
++	unsigned char                        thread_stack_offset;
++	unsigned char                        thread_name_offset;
++	unsigned char                        thread_state_offset;
++	unsigned char                        thread_next_offset;
++	const struct rtos_register_stacking* stacking_info;
++};
++
++const struct ThreadX_params ThreadX_params_list[] =
++{
++		{ &quot;cortex_m3&quot;,                       // target_name
++          4,                                 // pointer_width;
++          8,                                 // thread_stack_offset;
++          40,                                // thread_name_offset;
++          48,                                // thread_state_offset;
++          136,                               // thread_next_offset
++          &amp;rtos_standard_Cortex_M3_stacking, // stacking_info
++		}
++
++};
++
++#define THREADX_NUM_PARAMS ((int)(sizeof(ThreadX_params_list)/sizeof(struct ThreadX_params)))
++
++enum ThreadX_symbol_values
++{
++	ThreadX_VAL_tx_thread_current_ptr     = 0,
++	ThreadX_VAL_tx_thread_created_ptr     = 1,
++	ThreadX_VAL_tx_thread_created_count   = 2,
++};
++
++static char* ThreadX_symbol_list[] =
++{
++		&quot;_tx_thread_current_ptr&quot;,
++		&quot;_tx_thread_created_ptr&quot;,
++		&quot;_tx_thread_created_count&quot;,
++		NULL
++};
++
++
++
++#define THREADX_NUM_SYMBOLS (sizeof(ThreadX_symbol_list)/sizeof(char*))
++
++
++const struct rtos_type ThreadX_rtos =
++{
++	.name                      = &quot;ThreadX&quot;,
++
++	.detect_rtos               = ThreadX_detect_rtos,
++	.create                    = ThreadX_create,
++	.update_threads            = ThreadX_update_threads,
++	.get_thread_reg_list       = ThreadX_get_thread_reg_list,
++	.get_symbol_list_to_lookup = ThreadX_get_symbol_list_to_lookup,
++
++};
++
++static int ThreadX_update_threads( struct rtos* rtos)
++{
++	int retval;
++	int tasks_found = 0;
++	int thread_list_size = 0;
++	const struct ThreadX_params* param;
++
++	if ( rtos == NULL )
++	{
++		return -1;
++	}
++
++	if (rtos-&gt;rtos_specific_params == NULL )
++	{
++		return -3;
++	}
++
++	param = (const struct ThreadX_params*) rtos-&gt;rtos_specific_params;
++
++	if ( rtos-&gt;symbols == NULL )
++	{
++		LOG_OUTPUT(&quot;No symbols for ThreadX\r\n&quot;);
++		return -4;
++	}
++
++	if ( rtos-&gt;symbols[ThreadX_VAL_tx_thread_created_count].address == 0 )
++	{
++		LOG_OUTPUT(&quot;Don't have the number of threads in ThreadX \r\n&quot;);
++		return -2;
++	}
++
++
++
++
++
++	// read the number of threads
++	retval = target_read_buffer( rtos-&gt;target, rtos-&gt;symbols[ThreadX_VAL_tx_thread_created_count].address, 4, (uint8_t *)&amp;thread_list_size);
++
++	if ( retval != ERROR_OK )
++	{
++		LOG_OUTPUT(&quot;Could not read ThreadX thread count from target\r\n&quot;);
++		return retval;
++	}
++
++
++	// wipe out previous thread details if any
++	if ( rtos-&gt;thread_details != NULL )
++	{
++		int j;
++		for( j = 0; j &lt; rtos-&gt;thread_count; j++ )
++		{
++			if ( rtos-&gt;thread_details[j].display_str != NULL )
++			{
++				free( rtos-&gt;thread_details[j].display_str );
++				rtos-&gt;thread_details[j].display_str = NULL;
++			}
++			if ( rtos-&gt;thread_details[j].thread_name_str != NULL )
++			{
++				free( rtos-&gt;thread_details[j].thread_name_str );
++				rtos-&gt;thread_details[j].thread_name_str = NULL;
++			}
++			if ( rtos-&gt;thread_details[j].extra_info_str != NULL )
++			{
++				free( rtos-&gt;thread_details[j].extra_info_str );
++				rtos-&gt;thread_details[j].extra_info_str = NULL;
++			}
++		}
++		free( rtos-&gt;thread_details );
++		rtos-&gt;thread_details = NULL;
++	}
++
++
++	// read the current thread id
++	retval = target_read_buffer( rtos-&gt;target, rtos-&gt;symbols[ThreadX_VAL_tx_thread_current_ptr].address, 4, (uint8_t *)&amp;rtos-&gt;current_thread);
++
++	if ( retval != ERROR_OK )
++	{
++		LOG_OUTPUT(&quot;Could not read ThreadX current thread from target\r\n&quot;);
++		return retval;
++	}
++
++	if ( ( thread_list_size  == 0 ) || ( rtos-&gt;current_thread == 0 ) )
++	{
++		// Either : No RTOS threads - there is always at least the current execution though
++		// OR     : No current thread - all threads suspended - show the current execution of idling
++		char tmp_str[] = &quot;Current Execution&quot;;
++		thread_list_size++;
++		tasks_found++;
++		rtos-&gt;thread_details = (struct thread_detail*) malloc( sizeof( struct thread_detail ) * thread_list_size );
++		rtos-&gt;thread_details-&gt;threadid = 1;
++		rtos-&gt;thread_details-&gt;exists = true;
++		rtos-&gt;thread_details-&gt;display_str = NULL;
++		rtos-&gt;thread_details-&gt;extra_info_str = NULL;
++		rtos-&gt;thread_details-&gt;thread_name_str = (char*) malloc( sizeof(tmp_str) );
++		strcpy( rtos-&gt;thread_details-&gt;thread_name_str, tmp_str );
++
++
++		if ( thread_list_size == 0 )
++		{
++			rtos-&gt;thread_count = 1;
++			return ERROR_OK;
++		}
++	}
++	else
++	{
++		// create space for new thread details
++		rtos-&gt;thread_details = (struct thread_detail*) malloc( sizeof( struct thread_detail ) * thread_list_size );
++	}
++
++
++
++	// Read the pointer to the first thread
++	long long thread_ptr = 0;
++	retval = target_read_buffer( rtos-&gt;target, rtos-&gt;symbols[ThreadX_VAL_tx_thread_created_ptr].address, param-&gt;pointer_width, (uint8_t *)&amp;thread_ptr);
++	if ( retval != ERROR_OK )
++	{
++		LOG_OUTPUT(&quot;Could not read ThreadX thread location from target\r\n&quot;);
++		return retval;
++	}
++
++
++	// loop over all threads
++	long long prev_thread_ptr = 0;
++	while ( ( thread_ptr != prev_thread_ptr ) &amp;&amp; ( tasks_found &lt; thread_list_size ) )
++	{
++
++		#define THREADX_THREAD_NAME_STR_SIZE (200)
++	    char tmp_str[THREADX_THREAD_NAME_STR_SIZE];
++		unsigned int i = 0;
++		long long name_ptr = 0;
++
++		// Save the thread pointer
++		rtos-&gt;thread_details[tasks_found].threadid = thread_ptr;
++
++
++		// read the name pointer
++		retval = target_read_buffer( rtos-&gt;target, thread_ptr + param-&gt;thread_name_offset, param-&gt;pointer_width, (uint8_t *)&amp;name_ptr);
++		if ( retval != ERROR_OK )
++		{
++			LOG_OUTPUT(&quot;Could not read ThreadX thread name pointer from target\r\n&quot;);
++			return retval;
++		}
++
++		// Read the thread name
++		retval = target_read_buffer( rtos-&gt;target, name_ptr, THREADX_THREAD_NAME_STR_SIZE, (uint8_t *)&amp;tmp_str);
++		if ( retval != ERROR_OK )
++		{
++			LOG_OUTPUT(&quot;Error reading thread name from ThreadX target\r\n&quot;);
++			return retval;
++		}
++		tmp_str[THREADX_THREAD_NAME_STR_SIZE-1] = '\x00';
++
++		if ( tmp_str[0] == '\x00' )
++		{
++			strcpy(tmp_str,&quot;No Name&quot;);
++		}
++
++
++		rtos-&gt;thread_details[tasks_found].thread_name_str = (char*)malloc( strlen(tmp_str)+1 );
++		strcpy( rtos-&gt;thread_details[tasks_found].thread_name_str, tmp_str );
++
++
++
++		// Read the thread status
++		long long thread_status = 0;
++		retval = target_read_buffer( rtos-&gt;target, thread_ptr + param-&gt;thread_state_offset, 4, (uint8_t *)&amp;thread_status);
++		if ( retval != ERROR_OK )
++		{
++			LOG_OUTPUT(&quot;Error reading thread state from ThreadX target\r\n&quot;);
++			return retval;
++		}
++
++		for( i = 0; (i &lt; THREADX_NUM_STATES) &amp;&amp; (ThreadX_thread_states[i].value!=thread_status); i++ )
++		{
++		}
++
++
++		char * state_desc;
++		if  (i &lt; THREADX_NUM_STATES)
++		{
++			state_desc = ThreadX_thread_states[i].desc;
++		}
++		else
++		{
++			state_desc = &quot;Unknown state&quot;;
++		}
++
++		rtos-&gt;thread_details[tasks_found].extra_info_str = (char*)malloc( strlen(state_desc)+1 );
++		strcpy( rtos-&gt;thread_details[tasks_found].extra_info_str, state_desc );
++
++		rtos-&gt;thread_details[tasks_found].exists = true;
++
++		rtos-&gt;thread_details[tasks_found].display_str = NULL;
++
++
++
++
++
++		tasks_found++;
++		prev_thread_ptr = thread_ptr;
++
++		// Get the location of the next thread structure.
++		thread_ptr = 0;
++		retval = target_read_buffer( rtos-&gt;target, prev_thread_ptr + param-&gt;thread_next_offset, param-&gt;pointer_width, (uint8_t *) &amp;thread_ptr );
++		if ( retval != ERROR_OK )
++		{
++			LOG_OUTPUT(&quot;Error reading next thread pointer in ThreadX thread list\r\n&quot;);
++			return retval;
++		}
++
++	}
++
++	rtos-&gt;thread_count = tasks_found;
++
++	return 0;
++}
++
++static int ThreadX_get_thread_reg_list(struct rtos *rtos, long long thread_id, char ** hex_reg_list )
++{
++
++	int retval;
++	const struct ThreadX_params* param;
++
++	*hex_reg_list = NULL;
++
++	if ( rtos == NULL )
++	{
++		return -1;
++	}
++
++	if ( thread_id == 0 )
++	{
++		return -2;
++	}
++
++	if (rtos-&gt;rtos_specific_params == NULL )
++	{
++		return -3;
++	}
++
++	param = (const struct ThreadX_params*) rtos-&gt;rtos_specific_params;
++
++	// Read the stack pointer
++	long long stack_ptr = 0;
++	retval = target_read_buffer( rtos-&gt;target, thread_id + param-&gt;thread_stack_offset, param-&gt;pointer_width, (uint8_t*)&amp;stack_ptr);
++	if ( retval != ERROR_OK )
++	{
++		LOG_OUTPUT(&quot;Error reading stack frame from ThreadX thread\r\n&quot;);
++		return retval;
++	}
++
++	return rtos_generic_stack_read( rtos-&gt;target, param-&gt;stacking_info, stack_ptr, hex_reg_list );
++}
++
++
++
++static int ThreadX_get_symbol_list_to_lookup(symbol_table_elem_t * symbol_list[])
++{
++	unsigned int i;
++	*symbol_list = (symbol_table_elem_t *) malloc( sizeof( symbol_table_elem_t ) * THREADX_NUM_SYMBOLS );
++
++	for( i = 0; i &lt; THREADX_NUM_SYMBOLS; i++ )
++	{
++		(*symbol_list)[i].symbol_name = ThreadX_symbol_list[i];
++	}
++
++	return 0;
++}
++
++static int ThreadX_detect_rtos( struct target* target )
++{
++	if ( ( target-&gt;rtos-&gt;symbols != NULL ) &amp;&amp;
++		 ( target-&gt;rtos-&gt;symbols[ThreadX_VAL_tx_thread_created_ptr].address != 0 ) )
++	{
++		// looks like ThreadX
++		return 1;
++	}
++	return 0;
++}
++
++
++
++#if 0
++
++static int ThreadX_set_current_thread(struct rtos *rtos, threadid_t thread_id)
++{
++	return 0;
++}
++
++
++
++static int ThreadX_get_thread_detail( struct rtos*   rtos, threadid_t   thread_id, struct thread_detail* detail )
++{
++	unsigned int i = 0;
++	int retval;
++
++#define THREADX_THREAD_NAME_STR_SIZE (200)
++	char tmp_str[THREADX_THREAD_NAME_STR_SIZE];
++
++	const struct ThreadX_params* param;
++
++	if ( rtos == NULL )
++	{
++		return -1;
++	}
++
++	if ( thread_id == 0 )
++	{
++		return -2;
++	}
++
++	if (rtos-&gt;rtos_specific_params == NULL )
++	{
++		return -3;
++	}
++
++	param = (const struct ThreadX_params*) rtos-&gt;rtos_specific_params;
++
++	if ( rtos-&gt;symbols == NULL )
++	{
++		LOG_OUTPUT(&quot;No symbols for ThreadX\r\n&quot;);
++		return -3;
++	}
++
++	detail-&gt;threadid = thread_id;
++
++	long long name_ptr = 0;
++	// read the name pointer
++	retval = target_read_buffer( rtos-&gt;target, thread_id + param-&gt;thread_name_offset, param-&gt;pointer_width, (uint8_t *)&amp;name_ptr);
++	if ( retval != ERROR_OK )
++	{
++		LOG_OUTPUT(&quot;Could not read ThreadX thread name pointer from target\r\n&quot;);
++		return retval;
++	}
++
++	// Read the thread name
++	retval = target_read_buffer( rtos-&gt;target, name_ptr, THREADX_THREAD_NAME_STR_SIZE, (uint8_t *)&amp;tmp_str);
++	if ( retval != ERROR_OK )
++	{
++		LOG_OUTPUT(&quot;Error reading thread name from ThreadX target\r\n&quot;);
++		return retval;
++	}
++	tmp_str[THREADX_THREAD_NAME_STR_SIZE-1] = '\x00';
++
++	if ( tmp_str[0] == '\x00' )
++	{
++		strcpy(tmp_str,&quot;No Name&quot;);
++	}
++
++	detail-&gt;thread_name_str = (char*)malloc( strlen(tmp_str)+1 );
++
++
++	// Read the thread status
++	long long thread_status = 0;
++	retval = target_read_buffer( rtos-&gt;target, thread_id + param-&gt;thread_state_offset, 4, (uint8_t *)&amp;thread_status);
++	if ( retval != ERROR_OK )
++	{
++		LOG_OUTPUT(&quot;Error reading thread state from ThreadX target\r\n&quot;);
++		return retval;
++	}
++
++	for( i = 0; (i &lt; THREADX_NUM_STATES) &amp;&amp; (ThreadX_thread_states[i].value!=thread_status); i++ )
++	{
++	}
++
++
++	char * state_desc;
++	if  (i &lt; THREADX_NUM_STATES)
++	{
++		state_desc = ThreadX_thread_states[i].desc;
++	}
++	else
++	{
++		state_desc = &quot;Unknown state&quot;;
++	}
++
++	detail-&gt;extra_info_str = (char*)malloc( strlen(state_desc)+1 );
++
++	detail-&gt;exists = true;
++
++	detail-&gt;display_str = NULL;
++
++
++
++
++	return 0;
++}
++
++#endif
++
++static int ThreadX_create( struct target* target )
++{
++	int i = 0;
++	while ( ( i &lt; THREADX_NUM_PARAMS ) &amp;&amp; ( 0 != strcmp( ThreadX_params_list[i].target_name, target-&gt;type-&gt;name ) ) )
++	{
++		i++;
++	}
++	if ( i &gt;= THREADX_NUM_PARAMS )
++	{
++		LOG_OUTPUT(&quot;Could not find target in ThreadX compatability list\r\n&quot;);
++		return -1;
++	}
++
++	target-&gt;rtos-&gt;rtos_specific_params = (void*) &amp;ThreadX_params_list[i];
++	target-&gt;rtos-&gt;current_thread = 0;
++	target-&gt;rtos-&gt;thread_details = NULL;
++	return 0;
++}
+diff --git a/src/rtos/rtos.c b/src/rtos/rtos.c
+new file mode 100644
+index 0000000..129770e
+--- /dev/null
++++ b/src/rtos/rtos.c
+@@ -0,0 +1,657 @@
++/***************************************************************************
++ *   Copyright (C) 2011 by Broadcom Corporation                            *
++ *   Evan Hunter - <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ehunter at broadcom.com</A>                                    *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++
++#include &quot;rtos.h&quot;
++#include &quot;target/target.h&quot;
++#include &quot;helper/log.h&quot;
++#include &quot;server/gdb_server.h&quot;
++
++
++static long long current_threadid = -1;
++
++static void hex_to_str( char* dst, char * hex_src );
++static int str_to_hex( char* hex_dst, char* src );
++
++
++/* RTOSs */
++extern struct rtos_type FreeRTOS_rtos;
++extern struct rtos_type ThreadX_rtos;
++
++static struct rtos_type *rtos_types[] =
++{
++	&amp;ThreadX_rtos,
++	&amp;FreeRTOS_rtos,
++	NULL
++};
++
++
++int rtos_create(Jim_GetOptInfo *goi, struct target * target)
++{
++	int x;
++	char *cp;
++
++	if (! goi-&gt;isconfigure) {
++		if (goi-&gt;argc != 0) {
++			if (goi-&gt;argc != 0) {
++				Jim_WrongNumArgs(goi-&gt;interp,
++						goi-&gt;argc, goi-&gt;argv,
++						&quot;NO PARAMS&quot;);
++				return JIM_ERR;
++			}
++
++			Jim_SetResultString(goi-&gt;interp,
++					target_type_name(target), -1);
++		}
++	}
++
++	if (target-&gt;rtos) {
++		free((void *)(target-&gt;rtos));
++	}
++//			e = Jim_GetOpt_String(goi, &amp;cp, NULL);
++//			target-&gt;rtos = strdup(cp);
++
++	Jim_GetOpt_String(goi, &amp;cp, NULL);
++	/* now does target type exist */
++
++	if ( 0 == strcmp( cp, &quot;auto&quot;) )
++	{
++		// auto detection of RTOS
++		target-&gt;rtos_auto_detect = true;
++		x = 0;
++	}
++	else
++	{
++
++		for (x = 0 ; rtos_types[x] ; x++) {
++			if (0 == strcmp(cp, rtos_types[x]-&gt;name)) {
++				/* found */
++				break;
++			}
++		}
++		if (rtos_types[x] == NULL) {
++			Jim_SetResultFormatted(goi-&gt;interp, &quot;Unknown rtos type %s, try one of &quot;, cp);
++			for (x = 0 ; rtos_types[x] ; x++) {
++				if (rtos_types[x + 1]) {
++					Jim_AppendStrings(goi-&gt;interp,
++									   Jim_GetResult(goi-&gt;interp),
++									   rtos_types[x]-&gt;name,
++									   &quot;, &quot;, NULL);
++				} else {
++					Jim_AppendStrings(goi-&gt;interp,
++									   Jim_GetResult(goi-&gt;interp),
++									   &quot; or &quot;,
++									   rtos_types[x]-&gt;name,NULL);
++				}
++			}
++			return JIM_ERR;
++		}
++	}
++	/* Create it */
++	target-&gt;rtos = calloc(1,sizeof(struct rtos));
++	target-&gt;rtos-&gt;type = rtos_types[x];
++	target-&gt;rtos-&gt;current_thread = 0;
++	target-&gt;rtos-&gt;symbols = NULL;
++	target-&gt;rtos-&gt;target = target;
++
++	if ( 0 != strcmp( cp, &quot;auto&quot;) )
++	{
++		target-&gt;rtos-&gt;type-&gt;create( target );
++	}
++
++	return JIM_OK;
++}
++
++
++
++
++int gdb_thread_packet(struct connection *connection, struct target *target, char *packet, int packet_size)
++{
++	if (strstr(packet, &quot;qP&quot;))
++	{
++		#define TAG_THREADID 1		/* Echo the thread identifier */
++		#define TAG_EXISTS 2		/* Is this process defined enough to
++						   fetch registers and its stack */
++		#define TAG_DISPLAY 4		/* A short thing maybe to put on a window */
++		#define TAG_THREADNAME 8	/* string, maps 1-to-1 with a thread is */
++		#define TAG_MOREDISPLAY 16	/* Whatever the kernel wants to say about */
++
++			// TODO: need to scanf the mode variable (or it with the tags), and the threadid
++
++		unsigned long mode;
++		threadid_t threadid = 0;
++		struct thread_detail* detail;
++		sscanf(packet, &quot;qP%8lx%16&quot; SCNx64, &amp;mode, &amp;threadid);
++
++
++		int found = -1;
++
++		if ((target-&gt;rtos != NULL) &amp;&amp; (target-&gt;rtos-&gt;thread_details
++				!= NULL)) {
++			int thread_num;
++			for (thread_num = 0; thread_num
++					&lt; target-&gt;rtos-&gt;thread_count; thread_num++) {
++				if (target-&gt;rtos-&gt;thread_details[thread_num].threadid
++						== threadid) {
++					if (target-&gt;rtos-&gt;thread_details[thread_num].exists) {
++						found = thread_num;
++					}
++				}
++			}
++		}
++		if (found == -1) {
++			gdb_put_packet(connection, &quot;E01&quot;, 3); // thread not found
++			return ERROR_OK;
++		}
++
++		detail = &amp;target-&gt;rtos-&gt;thread_details[found];
++
++		if ( detail-&gt;display_str != NULL )
++		{
++			mode &amp;= TAG_DISPLAY;
++		}
++		if ( detail-&gt;thread_name_str != NULL )
++		{
++			mode &amp;= TAG_THREADNAME;
++		}
++		if ( detail-&gt;extra_info_str != NULL )
++		{
++			mode &amp;= TAG_MOREDISPLAY;
++		}
++
++
++		mode &amp;= TAG_THREADID | TAG_EXISTS;
++
++		char thread_str[1000];
++
++		sprintf(thread_str, &quot;%08lx&quot;, mode);
++		sprintf(thread_str, &quot;%016&quot; PRIx64, threadid);
++
++
++		if (mode &amp; TAG_THREADID) {
++			sprintf(thread_str, &quot;%08&quot; PRIx32 &quot;10%016&quot; PRIx64, TAG_THREADID, threadid);
++		}
++		if (mode &amp; TAG_EXISTS) {
++			sprintf(thread_str, &quot;%08&quot; PRIx32 &quot;08%08&quot; PRIx32, TAG_EXISTS, (detail-&gt;exists==true)?1:0);
++		}
++		if (mode &amp; TAG_DISPLAY) {
++			sprintf(thread_str, &quot;%08&quot; PRIx32 &quot;%02x%s&quot;, TAG_DISPLAY, (unsigned char)strlen(detail-&gt;display_str), detail-&gt;display_str );
++		}
++		if (mode &amp; TAG_MOREDISPLAY) {
++			sprintf(thread_str, &quot;%08&quot; PRIx32 &quot;%02x%s&quot;, TAG_MOREDISPLAY, (unsigned char)strlen(detail-&gt;extra_info_str), detail-&gt;extra_info_str );
++		}
++		if (mode &amp; TAG_THREADNAME) {
++			sprintf(thread_str, &quot;%08&quot; PRIx32 &quot;%02x%s&quot;, TAG_THREADNAME, (unsigned char)strlen(detail-&gt;thread_name_str), detail-&gt;thread_name_str );
++		}
++
++		//gdb_put_packet(connection, tmpstr, sizeof(tmpstr)-1);
++		gdb_put_packet(connection, thread_str, strlen(thread_str));
++
++		//			gdb_put_packet(connection, &quot;&quot;, 0);
++		//		gdb_put_packet(connection, &quot;OK&quot;, 2); // all threads alive
++		return ERROR_OK;
++	}
++	else if (strstr(packet, &quot;qThreadExtraInfo,&quot;))
++	{
++		if ((target-&gt;rtos != NULL) &amp;&amp; (target-&gt;rtos-&gt;thread_details != NULL) &amp;&amp; (target-&gt;rtos-&gt;thread_count != 0))
++		{
++			threadid_t threadid = 0;
++			int found = -1;
++			sscanf(packet, &quot;qThreadExtraInfo,%&quot; SCNx64, &amp;threadid );
++
++			if ((target-&gt;rtos != NULL) &amp;&amp; (target-&gt;rtos-&gt;thread_details
++					!= NULL)) {
++				int thread_num;
++				for (thread_num = 0; thread_num
++						&lt; target-&gt;rtos-&gt;thread_count; thread_num++) {
++					if (target-&gt;rtos-&gt;thread_details[thread_num].threadid
++							== threadid) {
++						if (target-&gt;rtos-&gt;thread_details[thread_num].exists) {
++							found = thread_num;
++						}
++					}
++				}
++			}
++			if (found == -1) {
++				gdb_put_packet(connection, &quot;E01&quot;, 3); // thread not found
++				return ERROR_OK;
++			}
++
++			struct thread_detail* detail = &amp;target-&gt;rtos-&gt;thread_details[found];
++
++			int str_size = 0;
++			if ( detail-&gt;display_str != NULL )
++			{
++				str_size += strlen(detail-&gt;display_str);
++			}
++			if ( detail-&gt;thread_name_str != NULL )
++			{
++				str_size += strlen(detail-&gt;thread_name_str);
++			}
++			if ( detail-&gt;extra_info_str != NULL )
++			{
++				str_size += strlen(detail-&gt;extra_info_str);
++			}
++
++			char * tmp_str = (char*) malloc( str_size + 7 );
++			char*  tmp_str_ptr = tmp_str;
++
++			if ( detail-&gt;display_str != NULL )
++			{
++				tmp_str_ptr += sprintf( tmp_str_ptr, &quot;%s&quot;, detail-&gt;display_str );
++			}
++			if ( detail-&gt;thread_name_str != NULL )
++			{
++				if ( tmp_str_ptr != tmp_str )
++				{
++					tmp_str_ptr += sprintf( tmp_str_ptr, &quot; : &quot; );
++				}
++				tmp_str_ptr += sprintf( tmp_str_ptr, &quot;%s&quot;, detail-&gt;thread_name_str );
++			}
++			if ( detail-&gt;extra_info_str != NULL )
++			{
++				if ( tmp_str_ptr != tmp_str )
++				{
++					tmp_str_ptr += sprintf( tmp_str_ptr, &quot; : &quot; );
++				}
++				tmp_str_ptr += sprintf( tmp_str_ptr, &quot; : %s&quot;, detail-&gt;extra_info_str );
++			}
++
++			char * hex_str = (char*) malloc( strlen(tmp_str)*2 +1 );
++			str_to_hex( hex_str, tmp_str );
++
++			gdb_put_packet(connection, hex_str, strlen(hex_str));
++			free(hex_str);
++			free(tmp_str);
++			return ERROR_OK;
++
++		}
++		gdb_put_packet(connection, &quot;&quot;, 0);
++		return ERROR_OK;
++	}
++	else if (strstr(packet, &quot;qSymbol&quot;))
++	{
++		if ( target-&gt;rtos != NULL )
++		{
++			int next_symbol_num = -1;
++			if (target-&gt;rtos-&gt;symbols == NULL)
++			{
++				target-&gt;rtos-&gt;type-&gt;get_symbol_list_to_lookup( &amp;target-&gt;rtos-&gt;symbols );
++			}
++			if (0 == strcmp( &quot;qSymbol::&quot;, packet ) )
++			{
++				// first query -
++				next_symbol_num = 0;
++			}
++			else
++			{
++				long long value = 0;
++				char * hex_name_str = malloc( strlen(packet));
++				char * name_str;
++				int symbol_num;
++
++				char* found = strstr( packet, &quot;qSymbol::&quot; );
++				int numconv;
++				if (0 == found )
++				{
++					numconv =sscanf(packet, &quot;qSymbol:%&quot; SCNx64 &quot;:%s&quot;, &amp;value, hex_name_str);
++				}
++				else
++				{
++					// No value returned by GDB - symbol was not found
++					numconv =sscanf(packet, &quot;qSymbol::%s&quot;, hex_name_str);
++				}
++				name_str = (char*) malloc( 1+ strlen(hex_name_str) / 2 );
++
++				hex_to_str( name_str, hex_name_str );
++
++
++				symbol_num = 0;
++				while ( ( target-&gt;rtos-&gt;symbols[ symbol_num ].symbol_name != NULL ) &amp;&amp; ( 0 != strcmp( target-&gt;rtos-&gt;symbols[ symbol_num ].symbol_name, name_str ) ) )
++				{
++					symbol_num++;
++				}
++
++
++				if ( target-&gt;rtos-&gt;symbols[ symbol_num ].symbol_name == NULL )
++				{
++					LOG_OUTPUT(&quot;ERROR: unknown symbol\r\n&quot;);
++					gdb_put_packet(connection, &quot;OK&quot;, 2);
++					return ERROR_OK;
++				}
++
++				target-&gt;rtos-&gt;symbols[ symbol_num ].address = value;
++
++				next_symbol_num = symbol_num+1;
++				free( hex_name_str );
++				free( name_str );
++
++			}
++
++			int symbols_done = 0;
++			if ( target-&gt;rtos-&gt;symbols[ next_symbol_num ].symbol_name == NULL )
++			{
++				if ( ( target-&gt;rtos_auto_detect == false ) ||
++					 ( 1 == target-&gt;rtos-&gt;type-&gt;detect_rtos( target ) ) )
++				{
++					// Found correct RTOS or not autodetecting
++					if ( target-&gt;rtos_auto_detect == true )
++					{
++						LOG_OUTPUT( &quot;Auto-detected RTOS: %s\r\n&quot;,target-&gt;rtos-&gt;type-&gt;name );
++					}
++					symbols_done = 1;
++				}
++				else
++				{
++					// Auto detecting RTOS and currently not found
++					if( 1 != rtos_try_next( target ) )
++					{
++						// No more RTOS's to try
++						symbols_done = 1;
++					}
++					else
++					{
++						next_symbol_num = 0;
++						target-&gt;rtos-&gt;type-&gt;get_symbol_list_to_lookup( &amp;target-&gt;rtos-&gt;symbols );
++					}
++
++				}
++			}
++
++
++			if ( symbols_done == 1 )
++			{
++				target-&gt;rtos_auto_detect = false;
++				target-&gt;rtos-&gt;type-&gt;create( target );
++				target-&gt;rtos-&gt;type-&gt;update_threads(target-&gt;rtos);
++				// No more symbols needed
++				gdb_put_packet(connection, &quot;OK&quot;, 2);
++				return ERROR_OK;
++
++			}
++			else
++			{
++				char* symname = target-&gt;rtos-&gt;symbols[ next_symbol_num ].symbol_name;
++				char qsymstr[] = &quot;qSymbol:&quot;;
++				char * opstring = (char*)malloc(sizeof(qsymstr)+strlen(symname)*2+1);
++				char * posptr = opstring;
++				posptr += sprintf( posptr, &quot;%s&quot;, qsymstr );
++				str_to_hex( posptr, symname );
++				gdb_put_packet(connection, opstring, strlen(opstring));
++				free(opstring);
++				return ERROR_OK;
++			}
++
++		}
++		gdb_put_packet(connection, &quot;OK&quot;, 2);
++		return ERROR_OK;
++	}
++	else if (strstr(packet, &quot;qfThreadInfo&quot;))
++	{
++		int i;
++		if ( ( target-&gt;rtos != NULL ) &amp;&amp; ( target-&gt;rtos-&gt;thread_count != 0 ) )
++		{
++
++			char* out_str = (char*) malloc(17 * target-&gt;rtos-&gt;thread_count + 5);
++			char* tmp_str = out_str;
++			tmp_str += sprintf(tmp_str, &quot;m&quot;);
++			for (i = 0; i &lt; target-&gt;rtos-&gt;thread_count; i++) {
++				if (i != 0) {
++					tmp_str += sprintf(tmp_str, &quot;,&quot;);
++				}
++				tmp_str += sprintf(tmp_str, &quot;%016&quot; PRIx64,
++						target-&gt;rtos-&gt;thread_details[i].threadid);
++			}
++			tmp_str[0] = 0;
++			gdb_put_packet(connection, out_str, strlen(out_str));
++		}
++		else
++		{
++			gdb_put_packet(connection, &quot;&quot;, 0);
++		}
++
++		return ERROR_OK;
++	}
++	else if (strstr(packet, &quot;qsThreadInfo&quot;))
++	{
++		gdb_put_packet(connection, &quot;l&quot;, 1);
++		return ERROR_OK;
++	}
++	else if (strstr(packet, &quot;qAttached&quot;))
++	{
++		gdb_put_packet(connection, &quot;1&quot;, 1);
++		return ERROR_OK;
++	}
++	else if (strstr(packet, &quot;qOffsets&quot;))
++	{
++		char offsets[] = &quot;Text=0;Data=0;Bss=0&quot;;
++		gdb_put_packet(connection, offsets, sizeof(offsets)-1);
++		return ERROR_OK;
++	}
++	else if (strstr(packet, &quot;qC&quot;))
++	{
++		gdb_put_packet(connection, &quot;QC0&quot;, 3);
++		return ERROR_OK;
++	}
++	else if ( packet[0] == 'T' ) // Is thread alive?
++	{
++		threadid_t threadid;
++		int found = -1;
++		sscanf(packet, &quot;T%&quot; SCNx64, &amp;threadid);
++		if ((target-&gt;rtos != NULL) &amp;&amp; (target-&gt;rtos-&gt;thread_details
++				!= NULL)) {
++			int thread_num;
++			for (thread_num = 0; thread_num
++					&lt; target-&gt;rtos-&gt;thread_count; thread_num++) {
++				if (target-&gt;rtos-&gt;thread_details[thread_num].threadid
++						== threadid) {
++					if (target-&gt;rtos-&gt;thread_details[thread_num].exists) {
++						found = thread_num;
++					}
++				}
++			}
++		}
++		if (found != -1) {
++			gdb_put_packet(connection, &quot;OK&quot;, 2); // thread alive
++		} else {
++			gdb_put_packet(connection, &quot;E01&quot;, 3); // thread not found
++		}
++	}
++	else if ( packet[0] == 'H') // Set current thread ( 'c' for step and continue, 'g' for all other operations )
++	{
++		if (packet[1] == 'g')
++		{
++			sscanf(packet, &quot;Hg%16&quot; SCNx64, &amp;current_threadid);
++		}
++		gdb_put_packet(connection, &quot;OK&quot;, 2);
++	}
++
++	return GDB_THREAD_PACKET_NOT_CONSUMED;
++}
++
++int rtos_get_gdb_reg_list(struct connection *connection, struct target *target, struct reg **reg_list[], int *reg_list_size)
++{
++	if ( ( target-&gt;rtos != NULL ) &amp;&amp;
++		 ( current_threadid != 1 ) &amp;&amp;
++		 ( current_threadid != 0 ) &amp;&amp;
++		 ( current_threadid != target-&gt;rtos-&gt;current_thread ) )
++	{
++		char * hex_reg_list;
++		target-&gt;rtos-&gt;type-&gt;get_thread_reg_list( target-&gt;rtos, current_threadid, &amp;hex_reg_list );
++
++		if ( hex_reg_list != NULL )
++		{
++			gdb_put_packet(connection, hex_reg_list, strlen(hex_reg_list));
++			free(hex_reg_list);
++			return ERROR_OK;
++		}
++	}
++	return ERROR_FAIL;
++}
++
++
++
++int rtos_generic_stack_read( struct target * target, const struct rtos_register_stacking* stacking, long long stack_ptr, char ** hex_reg_list )
++{
++	int list_size = 0;
++	char * tmp_str_ptr;
++	long long new_stack_ptr;
++	int i;
++	int retval;
++
++	if ( stack_ptr == 0)
++	{
++		LOG_OUTPUT(&quot;Error: null stack pointer in thread\r\n&quot;);
++		return -5;
++	}
++	// Read the stack
++	uint8_t * stack_data = (uint8_t*) malloc( stacking-&gt;stack_registers_size );
++	uint32_t address = stack_ptr;
++
++	if ( stacking-&gt;stack_growth_direction == 1 )
++	{
++		address -=  stacking-&gt;stack_registers_size;
++	}
++	retval = target_read_buffer( target, stack_ptr, stacking-&gt;stack_registers_size, stack_data);
++	if ( retval != ERROR_OK )
++	{
++		LOG_OUTPUT(&quot;Error reading stack frame from FreeRTOS thread\r\n&quot;);
++		return retval;
++	}
++/*
++	LOG_OUTPUT(&quot;Stack Data :&quot;);
++	for(i = 0; i &lt; stacking-&gt;stack_registers_size; i++ )
++	{
++		LOG_OUTPUT(&quot;%02X&quot;,stack_data[i]);
++	}
++	LOG_OUTPUT(&quot;\r\n&quot;);
++*/
++	for( i = 0; i &lt; stacking-&gt;num_output_registers; i++ )
++	{
++		list_size += stacking-&gt;register_offsets[i].width_bits/8;
++	}
++	*hex_reg_list = (char*)malloc( list_size*2 +1 );
++	tmp_str_ptr = *hex_reg_list;
++	new_stack_ptr = stack_ptr + stacking-&gt;stack_growth_direction * stacking-&gt;stack_registers_size;
++	for( i = 0; i &lt; stacking-&gt;num_output_registers; i++ )
++	{
++		int j;
++		for ( j = 0; j &lt; stacking-&gt;register_offsets[i].width_bits/8; j++ )
++		{
++			if ( stacking-&gt;register_offsets[i].offset == -1 )
++			{
++				tmp_str_ptr += sprintf( tmp_str_ptr, &quot;%02x&quot;, 0 );
++			}
++			else if ( stacking-&gt;register_offsets[i].offset == -2 )
++			{
++				tmp_str_ptr += sprintf( tmp_str_ptr, &quot;%02x&quot;, ((uint8_t*)&amp;new_stack_ptr)[j] );
++			}
++			else
++			{
++				tmp_str_ptr += sprintf( tmp_str_ptr,&quot;%02x&quot;, stack_data[ stacking-&gt;register_offsets[i].offset + j ] );
++			}
++		}
++	}
++//	LOG_OUTPUT(&quot;Output register string: %s\r\n&quot;, *hex_reg_list);
++	return ERROR_OK;
++}
++
++int rtos_try_next( struct target * target )
++{
++	int x;
++
++	if ( target-&gt;rtos == NULL )
++	{
++		return -1;
++	}
++
++	for (x = 0 ; rtos_types[x] ; x++) {
++		if (target-&gt;rtos-&gt;type == rtos_types[x] ) {
++			/* found */
++			if ( rtos_types[x+1] != NULL )
++			{
++				target-&gt;rtos-&gt;type = rtos_types[x+1];
++				if ( target-&gt;rtos-&gt;symbols != NULL )
++				{
++					free( target-&gt;rtos-&gt;symbols );
++				}
++				return 1;
++			}
++			else
++			{
++				// No more rtos types
++				return 0;
++			}
++
++		}
++	}
++	return 0;
++
++}
++
++static void hex_to_str( char* dst, char * hex_src )
++{
++	int src_pos = 0;
++	int dst_pos = 0;
++
++	while ( hex_src[src_pos] != '\x00' )
++	{
++		char hex_char = hex_src[src_pos];
++		char hex_digit_val = (hex_char&gt;='a')?hex_char-'a'+10:(hex_char&gt;='A')?hex_char-'A'+10:hex_char-'0';
++		if ( 0 == (src_pos &amp; 0x01) )
++		{
++			dst[dst_pos] = hex_digit_val;
++			dst[dst_pos+1] = 0;
++		}
++		else
++		{
++			((unsigned char*)dst)[dst_pos] &lt;&lt;= 4;
++			((unsigned char*)dst)[dst_pos] += hex_digit_val;
++			dst_pos++;
++		}
++		src_pos++;
++	}
++
++}
++
++static int str_to_hex( char* hex_dst, char* src )
++{
++	char * posptr = hex_dst;
++	unsigned i;
++	for( i = 0; i &lt; strlen(src); i++)
++	{
++		posptr += sprintf( posptr, &quot;%02x&quot;, (unsigned char)src[i] );
++	}
++	return (posptr-hex_dst);
++}
++
++
++int rtos_update_threads( struct target* target )
++{
++	if ((target-&gt;rtos != NULL) &amp;&amp; (target-&gt;rtos-&gt;type != NULL))
++	{
++		target-&gt;rtos-&gt;type-&gt;update_threads(target-&gt;rtos);
++	}
++	return ERROR_OK;
++}
+diff --git a/src/rtos/rtos.h b/src/rtos/rtos.h
+new file mode 100644
+index 0000000..cd4bbb2
+--- /dev/null
++++ b/src/rtos/rtos.h
+@@ -0,0 +1,106 @@
++/***************************************************************************
++ *   Copyright (C) 2011 by Broadcom Corporation                            *
++ *   Evan Hunter - <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ehunter at broadcom.com</A>                                    *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifndef RTOS_H
++#define RTOS_H
++
++
++#include &quot;server/server.h&quot;
++#include &lt;helper/types.h&gt;
++#include &lt;jim-nvp.h&gt;
++
++typedef long long threadid_t;
++typedef long long symbol_address_t;
++
++struct reg;
++
++/**
++ * Table should be terminated by an element with NULL in symbol_name
++ */
++typedef struct symbol_table_elem_struct
++{
++	char * symbol_name;
++	symbol_address_t address;
++
++} symbol_table_elem_t;
++
++struct thread_detail
++{
++	threadid_t threadid;
++	bool exists;
++	char * display_str;
++	char * thread_name_str;
++	char * extra_info_str;
++};
++
++struct rtos
++{
++	const struct rtos_type *type;
++
++
++	symbol_table_elem_t * symbols;
++	struct target *target;
++
++	threadid_t current_thread;
++	struct thread_detail* thread_details;
++	int thread_count;
++
++	void * rtos_specific_params;
++
++};
++
++
++
++struct rtos_type
++{
++	char * name;
++	int (*detect_rtos)                 ( struct target* target );
++	int (*create)                      ( struct target* target );
++	int (*update_threads)              ( struct rtos*   rtos );
++	int (*get_thread_reg_list)         ( struct rtos *rtos, long long thread_id, char ** hex_reg_list );
++	int (*get_symbol_list_to_lookup)   (symbol_table_elem_t * symbol_list[] );
++};
++
++
++struct stack_register_offset
++{
++	signed short   offset;       // offset in bytes from stack head, or -1 to indicate register is not stacked, or -2 to indicate this is the stack pointer register
++	unsigned short width_bits;
++
++};
++
++struct rtos_register_stacking
++{
++	unsigned char                       stack_registers_size;
++	signed   char                       stack_growth_direction;
++	unsigned char                       num_output_registers;
++	const struct stack_register_offset* register_offsets;
++};
++
++#define GDB_THREAD_PACKET_NOT_CONSUMED (-40)
++
++int rtos_create(Jim_GetOptInfo *goi, struct target * target);
++int rtos_generic_stack_read( struct target * target, const struct rtos_register_stacking* stacking, long long stack_ptr, char ** hex_reg_list );
++int rtos_try_next( struct target * target );
++int gdb_thread_packet(struct connection *connection, struct target *target, char *packet, int packet_size);
++int rtos_get_gdb_reg_list(struct connection *connection, struct target *target, struct reg **reg_list[], int *reg_list_size);
++int rtos_update_threads( struct target *target );
++
++#endif // RTOS_H
+diff --git a/src/rtos/rtos_standard_stackings.c b/src/rtos/rtos_standard_stackings.c
+new file mode 100644
+index 0000000..e0ae065
+--- /dev/null
++++ b/src/rtos/rtos_standard_stackings.c
+@@ -0,0 +1,65 @@
++/***************************************************************************
++ *   Copyright (C) 2011 by Broadcom Corporation                            *
++ *   Evan Hunter - <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ehunter at broadcom.com</A>                                    *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;rtos.h&quot;
++
++static const struct stack_register_offset rtos_standard_Cortex_M3_stack_offsets [] =
++{ { 0x20, 32 },       // r0
++  { 0x24, 32 },       // r1
++  { 0x28, 32 },       // r2
++  { 0x2c, 32 },       // r3
++  { 0x00, 32 },       // r4
++  { 0x04, 32 },       // r5
++  { 0x08, 32 },       // r6
++  { 0x0c, 32 },       // r7
++  { 0x10, 32 },       // r8
++  { 0x14, 32 },       // r9
++  { 0x18, 32 },       // r10
++  { 0x1c, 32 },       // r11
++  { 0x30, 32 },       // r12
++  { -2,   32 },       // sp
++  { 0x34, 32 },       // lr
++  { 0x38, 32 },       // pc
++  { -1,   96 },       // FPA1
++  { -1,   96 },       // FPA2
++  { -1,   96 },       // FPA3
++  { -1,   96 },       // FPA4
++  { -1,   96 },       // FPA5
++  { -1,   96 },       // FPA6
++  { -1,   96 },       // FPA7
++  { -1,   96 },       // FPA8
++  { -1,   32 },       // FPS
++  { 0x3c, 32 },       // xPSR
++};
++
++
++const struct rtos_register_stacking rtos_standard_Cortex_M3_stacking =
++{
++          0x40,                                 // stack_registers_size
++          1,                                    // stack_growth_direction
++          26,                                   // num_output_registers
++          rtos_standard_Cortex_M3_stack_offsets // register_offsets
++};
++
++
+diff --git a/src/server/gdb_server.h b/src/rtos/rtos_standard_stackings.h
+similarity index 58%
+copy from src/server/gdb_server.h
+copy to src/rtos/rtos_standard_stackings.h
+index d7a6ad0..1e8568c 100644
+--- a/src/server/gdb_server.h
++++ b/src/rtos/rtos_standard_stackings.h
+@@ -1,12 +1,6 @@
+ /***************************************************************************
+- *   Copyright (C) 2005 by Dominic Rath                                    *
+- *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
+- *                                                                         *
+- *   Copyright (C) 2007-2009 &#195;&#152;yvind Harboe                                 *
+- *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
+- *                                                                         *
+- *   Copyright (C) 2008 by Spencer Oliver                                  *
+- *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">spen at spen-soft.co.uk</A>                                                  *
++ *   Copyright (C) 2011 by Broadcom Corporation                            *
++ *   Evan Hunter - <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ehunter at broadcom.com</A>                                    *
+  *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+@@ -23,23 +17,16 @@
+  *   Free Software Foundation, Inc.,                                       *
+  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+  ***************************************************************************/
+-#ifndef GDB_SERVER_H
+-#define GDB_SERVER_H
+-
+-struct image;
+-#include &lt;target/target.h&gt;
+ 
+-#define GDB_BUFFER_SIZE	16384
++#ifndef INCLUDED_RTOS_STANDARD_STACKINGS_H_
++#define INCLUDED_RTOS_STANDARD_STACKINGS_H_
+ 
+-struct gdb_service
+-{
+-	struct target *target;
+-};
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
+ 
+-int gdb_target_add_all(struct target *target);
+-int gdb_register_commands(struct command_context *command_context);
++#include &quot;rtos.h&quot;
+ 
+-#define ERROR_GDB_BUFFER_TOO_SMALL (-800)
+-#define ERROR_GDB_TIMEOUT (-801)
++extern const struct rtos_register_stacking rtos_standard_Cortex_M3_stacking;
+ 
+-#endif /* GDB_SERVER_H */
++#endif //ifndef INCLUDED_RTOS_STANDARD_STACKINGS_H_
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index 77142df..0b80858 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -8,6 +8,9 @@
+  *   Copyright (C) 2008 by Spencer Oliver                                  *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">spen at spen-soft.co.uk</A>                                                  *
+  *                                                                         *
++ *   Copyright (C) 2011 by Broadcom Corporation                            *
++ *   Evan Hunter - <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ehunter at broadcom.com</A>                                    *
++ *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -35,6 +38,7 @@
+ #include &quot;gdb_server.h&quot;
+ #include &lt;target/image.h&gt;
+ #include &lt;jtag/jtag.h&gt;
++#include &quot;rtos/rtos.h&quot;
+ 
+ 
+ /**
+@@ -479,7 +483,7 @@ static int gdb_put_packet_inner(struct connection *connection,
+ 	return ERROR_OK;
+ }
+ 
+-static int gdb_put_packet(struct connection *connection, char *buffer, int len)
++int gdb_put_packet(struct connection *connection, char *buffer, int len)
+ {
+ 	struct gdb_connection *gdb_con = connection-&gt;priv;
+ 	gdb_con-&gt;busy = 1;
+@@ -767,6 +771,7 @@ static void gdb_frontend_halted(struct target *target, struct connection *connec
+ 		snprintf(sig_reply, 4, &quot;T%2.2x&quot;, signal_var);
+ 		gdb_put_packet(connection, sig_reply, 3);
+ 		gdb_connection-&gt;frontend_state = TARGET_HALTED;
++		rtos_update_threads( target );
+ 	}
+ }
+ 
+@@ -1034,6 +1039,12 @@ static int gdb_get_registers_packet(struct connection *connection,
+ 	LOG_DEBUG(&quot;-&quot;);
+ #endif
+ 
++	if ( ( target-&gt;rtos != NULL ) &amp;&amp;
++		 ( ERROR_FAIL != rtos_get_gdb_reg_list( connection, target, &amp;reg_list, &amp;reg_list_size) ) )
++	{
++		return ERROR_OK;
++	}
++
+ 	if ((retval = target_get_gdb_reg_list(target, &amp;reg_list, &amp;reg_list_size)) != ERROR_OK)
+ 	{
+ 		return gdb_error(connection, retval);
+@@ -2187,16 +2198,23 @@ static int gdb_input_inner(struct connection *connection)
+ 			retval = ERROR_OK;
+ 			switch (packet[0])
+ 			{
+-				case 'H':
+-					/* Hct... -- set thread
+-					 * we don't have threads, send empty reply */
+-					gdb_put_packet(connection, NULL, 0);
+-					break;
++			    case 'T': // Is thread alive?
++			    	gdb_thread_packet(connection, target, packet, packet_size);
++			    	break;
++			    case 'H': // Set current thread ( 'c' for step and continue, 'g' for all other operations )
++			    	gdb_thread_packet(connection, target, packet, packet_size);
++			    	break;
+ 				case 'q':
+ 				case 'Q':
+-					retval = gdb_query_packet(connection,
+-							target, packet,
+-							packet_size);
++					retval = gdb_thread_packet(connection,
++												target, packet,
++												packet_size);
++					if ( retval == GDB_THREAD_PACKET_NOT_CONSUMED )
++					{
++						retval = gdb_query_packet(connection,
++								target, packet,
++								packet_size);
++					}
+ 					break;
+ 				case 'g':
+ 					retval = gdb_get_registers_packet(
+diff --git a/src/server/gdb_server.h b/src/server/gdb_server.h
+index d7a6ad0..cb3962f 100644
+--- a/src/server/gdb_server.h
++++ b/src/server/gdb_server.h
+@@ -8,6 +8,9 @@
+  *   Copyright (C) 2008 by Spencer Oliver                                  *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">spen at spen-soft.co.uk</A>                                                  *
+  *                                                                         *
++ *   Copyright (C) 2011 by Broadcom Corporation                            *
++ *   Evan Hunter - <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ehunter at broadcom.com</A>                                    *
++ *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -39,6 +42,8 @@ struct gdb_service
+ int gdb_target_add_all(struct target *target);
+ int gdb_register_commands(struct command_context *command_context);
+ 
++int gdb_put_packet(struct connection *connection, char *buffer, int len);
++
+ #define ERROR_GDB_BUFFER_TOO_SMALL (-800)
+ #define ERROR_GDB_TIMEOUT (-801)
+ 
+diff --git a/src/target/target.c b/src/target/target.c
+index 026ca13..abe1b43 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -14,6 +14,9 @@
+  *   Copyright (C) 2008 by Rick Altherr                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">kc8apf at kc8apf.net</A>&gt;                                                    *
+  *                                                                         *
++ *   Copyright (C) 2011 by Broadcom Corporation                            *
++ *   Evan Hunter - <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ehunter at broadcom.com</A>                                    *
++ *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -44,6 +47,7 @@
+ #include &quot;register.h&quot;
+ #include &quot;trace.h&quot;
+ #include &quot;image.h&quot;
++#include &quot;rtos/rtos.h&quot;
+ 
+ 
+ static int target_read_buffer_default(struct target *target, uint32_t address,
+@@ -3704,6 +3708,7 @@ enum target_cfg_param {
+ 	TCFG_COREID,
+ 	TCFG_CHAIN_POSITION,
+ 	TCFG_DBGBASE,
++	TCFG_RTOS,
+ };
+ 
+ static Jim_Nvp nvp_config_opts[] = {
+@@ -3718,6 +3723,7 @@ static Jim_Nvp nvp_config_opts[] = {
+ 	{ .name = &quot;-coreid&quot;,           .value = TCFG_COREID },
+ 	{ .name = &quot;-chain-position&quot;,   .value = TCFG_CHAIN_POSITION },
+ 	{ .name = &quot;-dbgbase&quot;,          .value = TCFG_DBGBASE },
++	{ .name = &quot;-rtos&quot;,             .value = TCFG_RTOS },
+ 	{ .name = NULL, .value = -1 }
+ };
+ 
+@@ -4024,6 +4030,18 @@ static int target_configure(Jim_GetOptInfo *goi, struct target *target)
+ 			Jim_SetResult(goi-&gt;interp, Jim_NewIntObj(goi-&gt;interp, target-&gt;dbgbase));
+ 			/* loop for more */
+ 			break;
++
++		case TCFG_RTOS:
++			/* RTOS */
++			{
++				int result = rtos_create( goi, target );
++				if ( result != JIM_OK )
++				{
++					return result;
++				}
++			}
++			/* loop for more */
++			break;
+ 		}
+ 	} /* while (goi-&gt;argc) */
+ 
+@@ -4746,6 +4764,9 @@ static int target_create(Jim_GetOptInfo *goi)
+ 
+ 	target-&gt;endianness = TARGET_ENDIAN_UNKNOWN;
+ 
++	target-&gt;rtos = NULL;
++	target-&gt;rtos_auto_detect = false;
++
+ 	/* Do the rest as &quot;configure&quot; options */
+ 	goi-&gt;isconfigure = 1;
+ 	e = target_configure(goi, target);
+diff --git a/src/target/target.h b/src/target/target.h
+index fd7de56..5b67bf3 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -8,6 +8,9 @@
+  *   Copyright (C) 2008 by Spencer Oliver                                  *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">spen at spen-soft.co.uk</A>                                                  *
+  *                                                                         *
++ *   Copyright (C) 2011 by Broadcom Corporation                            *
++ *   Evan Hunter - <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ehunter at broadcom.com</A>                                    *
++ *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -160,6 +163,9 @@ struct target
+ 	uint32_t dbgbase;					/* Really a Cortex-A specific option, but there is no
+ 	 	 	 	 	 	 	 	 	 	   system in place to support target specific options
+ 	 	 	 	 	 	 	 	 	 	   currently. */
++	struct rtos *rtos;					/* Instance of Real Time Operating System support */
++	bool rtos_auto_detect;				/* A flag that indicates that the RTOS has been specified as &quot;auto&quot; 
++	                                     * and must be detected when symbols are offered */
+ };
+ 
+ /** Returns the instance-specific name of the specified target. */
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ configure.in                                       |    1 +
+ src/Makefile.am                                    |    4 +-
+ src/rtos/FreeRTOS.c                                |  481 ++++++++++++++
+ src/rtos/Makefile.am                               |   35 +
+ src/rtos/ThreadX.c                                 |  536 ++++++++++++++++
+ src/rtos/rtos.c                                    |  657 ++++++++++++++++++++
+ src/rtos/rtos.h                                    |  106 ++++
+ .../algorithm.c =&gt; rtos/rtos_standard_stackings.c} |   65 ++-
+ .../rtos_standard_stackings.h}                     |   20 +-
+ src/server/gdb_server.c                            |   36 +-
+ src/server/gdb_server.h                            |    5 +
+ src/target/target.c                                |   21 +
+ src/target/target.h                                |    6 +
+ 13 files changed, 1927 insertions(+), 46 deletions(-)
+ create mode 100644 src/rtos/FreeRTOS.c
+ create mode 100644 src/rtos/Makefile.am
+ create mode 100644 src/rtos/ThreadX.c
+ create mode 100644 src/rtos/rtos.c
+ create mode 100644 src/rtos/rtos.h
+ copy src/{target/algorithm.c =&gt; rtos/rtos_standard_stackings.c} (50%)
+ copy src/{helper/ioutil_stubs.c =&gt; rtos/rtos_standard_stackings.h} (77%)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002577.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-852-gf9feeac
+</A></li>
+	<LI>Next message: <A HREF="002579.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-854-ge984dc1
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2578">[ date ]</a>
+              <a href="thread.html#2578">[ thread ]</a>
+              <a href="subject.html#2578">[ subject ]</a>
+              <a href="author.html#2578">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

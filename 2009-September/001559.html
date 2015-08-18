@@ -1,0 +1,208 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2776 - in trunk: doc src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2776%20-%20in%20trunk%3A%20doc%20src/target&In-Reply-To=%3C200909291830.n8TIU7Qv005367%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001558.html">
+   <LINK REL="Next"  HREF="001560.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2776 - in trunk: doc src/target</H1>
+    <B>dbrownell at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2776%20-%20in%20trunk%3A%20doc%20src/target&In-Reply-To=%3C200909291830.n8TIU7Qv005367%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2776 - in trunk: doc src/target">dbrownell at mail.berlios.de
+       </A><BR>
+    <I>Tue Sep 29 20:30:07 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001558.html">[Openocd-svn] r2775 - in trunk: doc src/jtag
+</A></li>
+        <LI>Next message: <A HREF="001560.html">[Openocd-svn] r2777 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1559">[ date ]</a>
+              <a href="thread.html#1559">[ thread ]</a>
+              <a href="subject.html#1559">[ subject ]</a>
+              <a href="author.html#1559">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: dbrownell
+Date: 2009-09-29 20:30:06 +0200 (Tue, 29 Sep 2009)
+New Revision: 2776
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/target/arm11.c
+Log:
+ARM11 command handling fixes
+
+ - Commands were supposed to have been &quot;arm11 memwrite ...&quot;
+   not &quot;memwrite ...&quot;
+ - Get rid of obfuscatory macros
+ - Re-alphabetize
+ - Add docs for &quot;arm11 vcr&quot;
+
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-09-29 18:26:18 UTC (rev 2775)
++++ trunk/doc/openocd.texi	2009-09-29 18:30:06 UTC (rev 2776)
+@@ -5496,10 +5496,23 @@
+ @deffn Command {arm11 step_irq_enable}  [value]
+ Displays the value of the flag controlling whether
+ IRQs are enabled during single stepping;
+-they is disabled by default.
++they are disabled by default.
+ If @var{value} is defined, first assigns that.
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {arm11 vcr} [value]
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at cindex</A> vector_catch
++Displays the value of the @emph{Vector Catch Register (VCR)},
++coprocessor 14 register 7.
++If @var{value} is defined, first assigns that.
++
++Vector Catch hardware provides dedicated breakpoints
++for certain hardware events.
++The specific bit values are core-specific (as in fact is using
++coprocessor 14 register 7 itself) but all current ARM11
++cores @emph{except the ARM1176} use the same six bits.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+ @section ARMv7 Architecture
+ @cindex ARMv7
+ 
+
+Modified: trunk/src/target/arm11.c
+===================================================================
+--- trunk/src/target/arm11.c	2009-09-29 18:26:18 UTC (rev 2775)
++++ trunk/src/target/arm11.c	2009-09-29 18:30:06 UTC (rev 2776)
+@@ -1905,19 +1905,6 @@
+ 	return arm11_handle_bool(cmd_ctx, cmd, args, argc, &amp;arm11_config_##name, print_name); \
+ }
+ 
+-#define RC_TOP(name, descr, more)  \
+-{ \
+-	command_t * new_cmd = register_command(cmd_ctx, top_cmd, name, NULL, COMMAND_ANY, descr);  \
+-	command_t * top_cmd = new_cmd; \
+-	more \
+-}
+-
+-#define RC_FINAL(name, descr, handler)	\
+-	register_command(cmd_ctx, top_cmd, name, handler, COMMAND_ANY, descr);
+-
+-#define RC_FINAL_BOOL(name, descr, var)  \
+-	register_command(cmd_ctx, top_cmd, name, arm11_handle_bool_##var, COMMAND_ANY, descr);
+-
+ BOOL_WRAPPER(memwrite_burst,			&quot;memory write burst mode&quot;)
+ BOOL_WRAPPER(memwrite_error_fatal,		&quot;fatal error mode for memory writes&quot;)
+ BOOL_WRAPPER(memrw_no_increment,		&quot;\&quot;no increment\&quot; mode for memory transfers&quot;)
+@@ -2069,36 +2056,49 @@
+ {
+ 	FNC_INFO;
+ 
+-	command_t * top_cmd = NULL;
++	command_t *top_cmd, *mw_cmd;
+ 
+-	RC_TOP(&quot;arm11&quot;,				&quot;arm11 specific commands&quot;,
++	top_cmd = register_command(cmd_ctx, NULL, &quot;arm11&quot;,
++			NULL, COMMAND_ANY, NULL);
+ 
+-	RC_TOP(&quot;memwrite&quot;,				&quot;Control memory write transfer mode&quot;,
++	/* &quot;hardware_step&quot; is only here to check if the default
++	 * simulate + breakpoint implementation is broken.
++	 * TEMPORARY! NOT DOCUMENTED!
++	 */
++	register_command(cmd_ctx, top_cmd, &quot;hardware_step&quot;,
++			arm11_handle_bool_hardware_step, COMMAND_ANY,
++			&quot;DEBUG ONLY - Hardware single stepping&quot;
++				&quot; (default: disabled)&quot;);
+ 
+-		RC_FINAL_BOOL(&quot;burst&quot;,				&quot;Enable/Disable non-standard but fast burst mode (default: enabled)&quot;,
+-						memwrite_burst)
++	register_command(cmd_ctx, top_cmd, &quot;mcr&quot;,
++			arm11_handle_mcr, COMMAND_ANY,
++			&quot;Write Coprocessor register&quot;);
+ 
+-		RC_FINAL_BOOL(&quot;error_fatal&quot;,			&quot;Terminate program if transfer error was found (default: enabled)&quot;,
+-						memwrite_error_fatal)
+-) /* memwrite */
++	mw_cmd = register_command(cmd_ctx, top_cmd, &quot;memwrite&quot;,
++			NULL, COMMAND_ANY, NULL);
++	register_command(cmd_ctx, mw_cmd, &quot;burst&quot;,
++			arm11_handle_bool_memwrite_burst, COMMAND_ANY,
++			&quot;Enable/Disable non-standard but fast burst mode&quot;
++				&quot; (default: enabled)&quot;);
++	register_command(cmd_ctx, mw_cmd, &quot;error_fatal&quot;,
++			arm11_handle_bool_memwrite_error_fatal, COMMAND_ANY,
++			&quot;Terminate program if transfer error was found&quot;
++				&quot; (default: enabled)&quot;);
+ 
+-	RC_FINAL_BOOL(&quot;no_increment&quot;,			&quot;Don't increment address on multi-read/-write (default: disabled)&quot;,
+-						memrw_no_increment)
++	register_command(cmd_ctx, top_cmd, &quot;mrc&quot;,
++			arm11_handle_mrc, COMMAND_ANY,
++			&quot;Read Coprocessor register&quot;);
++	register_command(cmd_ctx, top_cmd, &quot;no_increment&quot;,
++			arm11_handle_bool_memrw_no_increment, COMMAND_ANY,
++			&quot;Don't increment address on multi-read/-write&quot;
++				&quot; (default: disabled)&quot;);
++	register_command(cmd_ctx, top_cmd, &quot;step_irq_enable&quot;,
++			arm11_handle_bool_step_irq_enable, COMMAND_ANY,
++			&quot;Enable interrupts while stepping&quot;
++				&quot; (default: disabled)&quot;);
++	register_command(cmd_ctx, top_cmd, &quot;vcr&quot;,
++			arm11_handle_vcr, COMMAND_ANY,
++			&quot;Control (Interrupt) Vector Catch Register&quot;);
+ 
+-RC_FINAL_BOOL(&quot;step_irq_enable&quot;,		&quot;Enable interrupts while stepping (default: disabled)&quot;,
+-					step_irq_enable)
+-RC_FINAL_BOOL(&quot;hardware_step&quot;,		&quot;hardware single stepping. By default use simulate + breakpoint. This command is only here to check if simulate + breakpoint implementation is broken.&quot;,
+-					hardware_step)
+-
+-	RC_FINAL(&quot;vcr&quot;,					&quot;Control (Interrupt) Vector Catch Register&quot;,
+-						arm11_handle_vcr)
+-
+-	RC_FINAL(&quot;mrc&quot;,					&quot;Read Coprocessor register&quot;,
+-						arm11_handle_mrc)
+-
+-	RC_FINAL(&quot;mcr&quot;,					&quot;Write Coprocessor register&quot;,
+-						arm11_handle_mcr)
+-) /* arm11 */
+-
+ 	return ERROR_OK;
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001558.html">[Openocd-svn] r2775 - in trunk: doc src/jtag
+</A></li>
+	<LI>Next message: <A HREF="001560.html">[Openocd-svn] r2777 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1559">[ date ]</a>
+              <a href="thread.html#1559">[ thread ]</a>
+              <a href="subject.html#1559">[ subject ]</a>
+              <a href="author.html#1559">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

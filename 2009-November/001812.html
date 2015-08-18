@@ -1,0 +1,1048 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-459-g181d401
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-459-g181d401&In-Reply-To=%3CE1NAfJG-00040h-2c%40cxgxhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001811.html">
+   <LINK REL="Next"  HREF="001813.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-459-g181d401</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-459-g181d401&In-Reply-To=%3CE1NAfJG-00040h-2c%40cxgxhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-459-g181d401">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Wed Nov 18 08:50:36 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001811.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-456-g0091e59
+</A></li>
+        <LI>Next message: <A HREF="001813.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-460-g6e95f16
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1812">[ date ]</a>
+              <a href="thread.html#1812">[ thread ]</a>
+              <a href="subject.html#1812">[ subject ]</a>
+              <a href="author.html#1812">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  181d401d59419ec2f5a5d89e2600d9a6dbf8f9ed (commit)
+       via  ec93209f51afc09e273a4742dc0b5f2cefc15e76 (commit)
+       via  d6c8945662e6027f6ba12d73bac2473088672db5 (commit)
+      from  0091e59d2a18c293fd952a9d707e609afdd6b17f (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 181d401d59419ec2f5a5d89e2600d9a6dbf8f9ed
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Nov 17 23:50:26 2009 -0800
+
+    ARM: add is_arm_mode()
+    
+    Add a new is_arm_mode() predicate, and use it to replace almost
+    all calls to current armv4_5_mode_to_number().
+    
+    Eventually those internal mode numbers should vanish... along
+    with their siblings in the armv7a.c file.
+    
+    Remove a handful of superfluous checks ... e.g. the mode number
+    was just initialized, or (debug entry methods) already validated.
+    
+    Move one of the macros using internal mode numbers into the only
+    file which uses that macro.  Make the tables manipulated with
+    those numbers be read-only and, where possible, static so they're
+    not confused with part of the generic ARM interface.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 5e73275..3a23585 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -1603,7 +1603,7 @@ static int arm11_run_algorithm(struct target *target,
+ 	}
+ 
+ 	// FIXME
+-//	if (armv4_5_mode_to_number(arm11-&gt;core_mode)==-1)
++//	if (!is_arm_mode(arm11-&gt;core_mode))
+ //		return ERROR_FAIL;
+ 
+ 	// Save regs
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index ff95a0c..37aa066 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -1242,9 +1242,6 @@ int arm7_9_soft_reset_halt(struct target *target)
+ 	armv4_5-&gt;core_mode = ARMV4_5_MODE_SVC;
+ 	armv4_5-&gt;core_state = ARMV4_5_STATE_ARM;
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
+-		return ERROR_FAIL;
+-
+ 	/* reset registers */
+ 	for (i = 0; i &lt;= 14; i++)
+ 	{
+@@ -1413,7 +1410,7 @@ static int arm7_9_debug_entry(struct target *target)
+ 
+ 	armv4_5-&gt;core_mode = cpsr &amp; 0x1f;
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode) == -1)
++	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 	{
+ 		target-&gt;state = TARGET_UNKNOWN;
+ 		LOG_ERROR(&quot;cpsr contains invalid mode value - communication failure&quot;);
+@@ -1439,9 +1436,6 @@ static int arm7_9_debug_entry(struct target *target)
+ 	else
+ 		context[15] -= arm7_9-&gt;dbgreq_adjust_pc * ((armv4_5-&gt;core_state == ARMV4_5_STATE_ARM) ? 4 : 2);
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
+-		return ERROR_FAIL;
+-
+ 	for (i = 0; i &lt;= 15; i++)
+ 	{
+ 		LOG_DEBUG(&quot;r%i: 0x%8.8&quot; PRIx32 &quot;&quot;, i, context[i]);
+@@ -1452,9 +1446,6 @@ static int arm7_9_debug_entry(struct target *target)
+ 
+ 	LOG_DEBUG(&quot;entered debug state at PC 0x%&quot; PRIx32 &quot;&quot;, context[15]);
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
+-		return ERROR_FAIL;
+-
+ 	/* exceptions other than USR &amp; SYS have a saved program status register */
+ 	if ((armv4_5-&gt;core_mode != ARMV4_5_MODE_USR) &amp;&amp; (armv4_5-&gt;core_mode != ARMV4_5_MODE_SYS))
+ 	{
+@@ -1506,7 +1497,7 @@ int arm7_9_full_context(struct target *target)
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
++	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 		return ERROR_FAIL;
+ 
+ 	/* iterate through processor modes (User, FIQ, IRQ, SVC, ABT, UND)
+@@ -1606,7 +1597,7 @@ int arm7_9_restore_context(struct target *target)
+ 	if (arm7_9-&gt;pre_restore_context)
+ 		arm7_9-&gt;pre_restore_context(target);
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
++	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 		return ERROR_FAIL;
+ 
+ 	/* iterate through processor modes (User, FIQ, IRQ, SVC, ABT, UND)
+@@ -2104,7 +2095,7 @@ int arm7_9_read_core_reg(struct target *target, int num, enum armv4_5_mode mode)
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 	struct armv4_5_common_s *armv4_5 = &amp;arm7_9-&gt;armv4_5_common;
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
++	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 		return ERROR_FAIL;
+ 
+ 	enum armv4_5_mode reg_mode = ((struct armv4_5_core_reg*)ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).arch_info)-&gt;mode;
+@@ -2168,7 +2159,7 @@ int arm7_9_write_core_reg(struct target *target, int num, enum armv4_5_mode mode
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 	struct armv4_5_common_s *armv4_5 = &amp;arm7_9-&gt;armv4_5_common;
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
++	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 		return ERROR_FAIL;
+ 
+ 	enum armv4_5_mode reg_mode = ((struct armv4_5_core_reg*)ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, mode, num).arch_info)-&gt;mode;
+@@ -2373,7 +2364,7 @@ int arm7_9_read_memory(struct target *target, uint32_t address, uint32_t size, u
+ 			break;
+ 	}
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
++	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 		return ERROR_FAIL;
+ 
+ 	for (i = 0; i &lt;= last_reg; i++)
+@@ -2556,7 +2547,7 @@ int arm7_9_write_memory(struct target *target, uint32_t address, uint32_t size,
+ 	buf_set_u32(dbg_ctrl-&gt;value, EICE_DBG_CONTROL_DBGACK, 1, 1);
+ 	embeddedice_store_reg(dbg_ctrl);
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
++	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 		return ERROR_FAIL;
+ 
+ 	for (i = 0; i &lt;= last_reg; i++)
+diff --git a/src/target/arm920t.c b/src/target/arm920t.c
+index e1dcea7..29f7917 100644
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -244,7 +244,7 @@ static int arm920t_read_cp15_interpreted(struct target *target,
+ 	LOG_DEBUG(&quot;cp15_opcode: %8.8x, address: %8.8x, value: %8.8x&quot;, cp15_opcode, address, *value);
+ #endif
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
++	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 		return ERROR_FAIL;
+ 
+ 	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 0).dirty = 1;
+@@ -284,7 +284,7 @@ int arm920t_write_cp15_interpreted(struct target *target,
+ 	LOG_DEBUG(&quot;cp15_opcode: %8.8x, value: %8.8x, address: %8.8x&quot;, cp15_opcode, value, address);
+ #endif
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
++	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 		return ERROR_FAIL;
+ 
+ 	ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5-&gt;core_mode, 0).dirty = 1;
+@@ -889,7 +889,7 @@ COMMAND_HANDLER(arm920t_handle_read_cache_command)
+ 
+ 	fclose(output);
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
++	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 		return ERROR_FAIL;
+ 
+ 	/* mark registers dirty. */
+@@ -1172,7 +1172,7 @@ COMMAND_HANDLER(arm920t_handle_read_mmu_command)
+ 
+ 	fclose(output);
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
++	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 		return ERROR_FAIL;
+ 
+ 	/* mark registers dirty */
+diff --git a/src/target/armv4_5.c b/src/target/armv4_5.c
+index 6864efb..d22e0f3 100644
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -36,7 +36,7 @@
+ #include &quot;register.h&quot;
+ 
+ 
+-char* armv4_5_core_reg_list[] =
++static const char *armv4_5_core_reg_list[] =
+ {
+ 	&quot;r0&quot;, &quot;r1&quot;, &quot;r2&quot;, &quot;r3&quot;, &quot;r4&quot;, &quot;r5&quot;, &quot;r6&quot;, &quot;r7&quot;, &quot;r8&quot;, &quot;r9&quot;, &quot;r10&quot;, &quot;r11&quot;, &quot;r12&quot;, &quot;r13_usr&quot;, &quot;lr_usr&quot;, &quot;pc&quot;,
+ 
+@@ -101,9 +101,7 @@ static const struct {
+ /** Map PSR mode bits to the name of an ARM processor operating mode. */
+ const char *arm_mode_name(unsigned psr_mode)
+ {
+-	unsigned i;
+-
+-	for (i = 0; i &lt; ARRAY_SIZE(arm_mode_data); i++) {
++	for (unsigned i = 0; i &lt; ARRAY_SIZE(arm_mode_data); i++) {
+ 		if (arm_mode_data[i].psr == psr_mode)
+ 			return arm_mode_data[i].name;
+ 	}
+@@ -111,7 +109,17 @@ const char *arm_mode_name(unsigned psr_mode)
+ 	return &quot;UNRECOGNIZED&quot;;
+ }
+ 
+-/** Map PSR mode bits to linear number */
++/** Return true iff the parameter denotes a valid ARM processor mode. */
++bool is_arm_mode(unsigned psr_mode)
++{
++	for (unsigned i = 0; i &lt; ARRAY_SIZE(arm_mode_data); i++) {
++		if (arm_mode_data[i].psr == psr_mode)
++			return true;
++	}
++	return false;
++}
++
++/** Map PSR mode bits to linear number indexing armv4_5_core_reg_map */
+ int armv4_5_mode_to_number(enum armv4_5_mode mode)
+ {
+ 	switch (mode) {
+@@ -137,7 +145,7 @@ int armv4_5_mode_to_number(enum armv4_5_mode mode)
+ 	}
+ }
+ 
+-/** Map linear number to PSR mode bits. */
++/** Map linear number indexing armv4_5_core_reg_map to PSR mode bits. */
+ enum armv4_5_mode armv4_5_number_to_mode(int number)
+ {
+ 	switch (number) {
+@@ -166,7 +174,7 @@ char* armv4_5_state_strings[] =
+ 	&quot;ARM&quot;, &quot;Thumb&quot;, &quot;Jazelle&quot;
+ };
+ 
+-struct armv4_5_core_reg armv4_5_core_reg_list_arch_info[] =
++static const struct armv4_5_core_reg armv4_5_core_reg_list_arch_info[] =
+ {
+ 	{0, ARMV4_5_MODE_ANY, NULL, NULL},
+ 	{1, ARMV4_5_MODE_ANY, NULL, NULL},
+@@ -214,7 +222,7 @@ struct armv4_5_core_reg armv4_5_core_reg_list_arch_info[] =
+ };
+ 
+ /* map core mode (USR, FIQ, ...) and register number to indizes into the register cache */
+-int armv4_5_core_reg_map[7][17] =
++const int armv4_5_core_reg_map[7][17] =
+ {
+ 	{	/* USR */
+ 		0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 31
+@@ -383,7 +391,7 @@ struct reg_cache* armv4_5_build_reg_cache(struct target *target, struct arm *arm
+ 		arch_info[i] = armv4_5_core_reg_list_arch_info[i];
+ 		arch_info[i].target = target;
+ 		arch_info[i].armv4_5_common = armv4_5_common;
+-		reg_list[i].name = armv4_5_core_reg_list[i];
++		reg_list[i].name = (char *) armv4_5_core_reg_list[i];
+ 		reg_list[i].size = 32;
+ 		reg_list[i].value = calloc(1, 4);
+ 		reg_list[i].dirty = 0;
+@@ -415,6 +423,9 @@ int armv4_5_arch_state(struct target *target)
+ 	return ERROR_OK;
+ }
+ 
++#define ARMV4_5_CORE_REG_MODENUM(cache, mode, num) \
++		cache-&gt;reg_list[armv4_5_core_reg_map[mode][num]]
++
+ COMMAND_HANDLER(handle_armv4_5_reg_command)
+ {
+ 	char output[128];
+@@ -435,7 +446,7 @@ COMMAND_HANDLER(handle_armv4_5_reg_command)
+ 		return ERROR_OK;
+ 	}
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
++	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 		return ERROR_FAIL;
+ 
+ 	if (!armv4_5-&gt;full_context) {
+@@ -599,7 +610,7 @@ int armv4_5_get_gdb_reg_list(struct target *target, struct reg **reg_list[], int
+ 	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
+ 	int i;
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
++	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 		return ERROR_FAIL;
+ 
+ 	*reg_list_size = 26;
+@@ -679,7 +690,7 @@ int armv4_5_run_algorithm_inner(struct target *target, int num_mem_params, struc
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
++	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 		return ERROR_FAIL;
+ 
+ 	/* armv5 and later can terminate with BKPT instruction; less overhead */
+diff --git a/src/target/armv4_5.h b/src/target/armv4_5.h
+index 5b7a522..81eac47 100644
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -42,6 +42,8 @@ typedef enum armv4_5_mode
+ } armv4_5_mode_t;
+ 
+ const char *arm_mode_name(unsigned psr_mode);
++bool is_arm_mode(unsigned psr_mode);
++
+ int armv4_5_mode_to_number(enum armv4_5_mode mode);
+ enum armv4_5_mode armv4_5_number_to_mode(int number);
+ 
+@@ -54,12 +56,10 @@ typedef enum armv4_5_state
+ 
+ extern char* armv4_5_state_strings[];
+ 
+-extern int armv4_5_core_reg_map[7][17];
++extern const int armv4_5_core_reg_map[7][17];
+ 
+ #define ARMV4_5_CORE_REG_MODE(cache, mode, num) \
+ 		cache-&gt;reg_list[armv4_5_core_reg_map[armv4_5_mode_to_number(mode)][num]]
+-#define ARMV4_5_CORE_REG_MODENUM(cache, mode, num) \
+-		cache-&gt;reg_list[armv4_5_core_reg_map[mode][num]]
+ 
+ /* offsets into armv4_5 core register cache */
+ enum
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 38928f4..09e6825 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -954,7 +954,7 @@ static int xscale_debug_entry(struct target *target)
+ 	LOG_DEBUG(&quot;cpsr: 0x%8.8&quot; PRIx32 &quot;&quot;, buffer[9]);
+ 
+ 	armv4_5-&gt;core_mode = buffer[9] &amp; 0x1f;
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode) == -1)
++	if (!is_arm_mode(armv4_5-&gt;core_mode))
+ 	{
+ 		target-&gt;state = TARGET_UNKNOWN;
+ 		LOG_ERROR(&quot;cpsr contains invalid mode value - communication failure&quot;);
+@@ -969,9 +969,6 @@ static int xscale_debug_entry(struct target *target)
+ 		armv4_5-&gt;core_state = ARMV4_5_STATE_ARM;
+ 
+ 
+-	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
+-		return ERROR_FAIL;
+-
+ 	/* get banked registers, r8 to r14, and spsr if not in USR/SYS mode */
+ 	if ((armv4_5-&gt;core_mode != ARMV4_5_MODE_USR) &amp;&amp; (armv4_5-&gt;core_mode != ARMV4_5_MODE_SYS))
+ 	{
+
+commit ec93209f51afc09e273a4742dc0b5f2cefc15e76
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Nov 17 23:50:23 2009 -0800
+
+    ARM: add arm_mode_name()
+    
+    Add and use arm_mode_name() to map from PSR bits to user
+    meaningful names.   It uses a new table which, later, can
+    be used to hold other mode-coupled data.
+    
+    Add definitions for the &quot;Secure Monitor&quot; mode, as seen on
+    some ARM11 cores (like ARM1176) and on Cortex-A8.  The
+    previous mode name scheme didn't understand that mode.
+    
+    Remove the old mechanism ... there were two copies, caused
+    by Cortex-A8 needing to add &quot;Secure Monitor&quot; mode support.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm720t.c b/src/target/arm720t.c
+index b51f969..a6c7cc7 100644
+--- a/src/target/arm720t.c
++++ b/src/target/arm720t.c
+@@ -239,7 +239,7 @@ static int arm720t_arch_state(struct target *target)
+ 			&quot;MMU: %s, Cache: %s&quot;,
+ 			 armv4_5_state_strings[armv4_5-&gt;core_state],
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason, target-&gt;debug_reason)-&gt;name ,
+-			 armv4_5_mode_strings[armv4_5_mode_to_number(armv4_5-&gt;core_mode)],
++			 arm_mode_name(armv4_5-&gt;core_mode),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32),
+ 			 state[arm720t-&gt;armv4_5_mmu.mmu_enabled],
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index b29eb5c..ff95a0c 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -1420,7 +1420,8 @@ static int arm7_9_debug_entry(struct target *target)
+ 		return ERROR_TARGET_FAILURE;
+ 	}
+ 
+-	LOG_DEBUG(&quot;target entered debug state in %s mode&quot;, armv4_5_mode_strings[armv4_5_mode_to_number(armv4_5-&gt;core_mode)]);
++	LOG_DEBUG(&quot;target entered debug state in %s mode&quot;,
++			 arm_mode_name(armv4_5-&gt;core_mode));
+ 
+ 	if (armv4_5-&gt;core_state == ARMV4_5_STATE_THUMB)
+ 	{
+@@ -1613,7 +1614,8 @@ int arm7_9_restore_context(struct target *target)
+ 	 */
+ 	for (i = 0; i &lt; 6; i++)
+ 	{
+-		LOG_DEBUG(&quot;examining %s mode&quot;, armv4_5_mode_strings[i]);
++		LOG_DEBUG(&quot;examining %s mode&quot;,
++				arm_mode_name(armv4_5-&gt;core_mode));
+ 		dirty = 0;
+ 		mode_change = 0;
+ 		/* check if there are dirty registers in the current mode
+@@ -1675,7 +1677,10 @@ int arm7_9_restore_context(struct target *target)
+ 					num_regs++;
+ 					reg-&gt;dirty = 0;
+ 					reg-&gt;valid = 1;
+-					LOG_DEBUG(&quot;writing register %i of mode %s with value 0x%8.8&quot; PRIx32 &quot;&quot;, j, armv4_5_mode_strings[i], regs[j]);
++					LOG_DEBUG(&quot;writing register %i mode %s &quot;
++						&quot;with value 0x%8.8&quot; PRIx32, j,
++						arm_mode_name(armv4_5-&gt;core_mode),
++						regs[j]);
+ 				}
+ 			}
+ 
+diff --git a/src/target/arm920t.c b/src/target/arm920t.c
+index 99b4bbd..e1dcea7 100644
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -451,7 +451,7 @@ int arm920t_arch_state(struct target *target)
+ 			&quot;MMU: %s, D-Cache: %s, I-Cache: %s&quot;,
+ 			 armv4_5_state_strings[armv4_5-&gt;core_state],
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason, target-&gt;debug_reason)-&gt;name,
+-			 armv4_5_mode_strings[armv4_5_mode_to_number(armv4_5-&gt;core_mode)],
++			 arm_mode_name(armv4_5-&gt;core_mode),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32),
+ 			 state[arm920t-&gt;armv4_5_mmu.mmu_enabled],
+diff --git a/src/target/arm926ejs.c b/src/target/arm926ejs.c
+index cc6318b..27eb752 100644
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -509,7 +509,7 @@ int arm926ejs_arch_state(struct target *target)
+ 			&quot;MMU: %s, D-Cache: %s, I-Cache: %s&quot;,
+ 			 armv4_5_state_strings[armv4_5-&gt;core_state],
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason,target-&gt;debug_reason)-&gt;name,
+-			 armv4_5_mode_strings[armv4_5_mode_to_number(armv4_5-&gt;core_mode)],
++			 arm_mode_name(armv4_5-&gt;core_mode),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32),
+ 			 state[arm926ejs-&gt;armv4_5_mmu.mmu_enabled],
+diff --git a/src/target/armv4_5.c b/src/target/armv4_5.c
+index aba4431..6864efb 100644
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -53,13 +53,63 @@ char* armv4_5_core_reg_list[] =
+ 	&quot;cpsr&quot;, &quot;spsr_fiq&quot;, &quot;spsr_irq&quot;, &quot;spsr_svc&quot;, &quot;spsr_abt&quot;, &quot;spsr_und&quot;
+ };
+ 
+-static const char *armv4_5_mode_strings_list[] =
+-{
+-	&quot;Illegal mode value&quot;, &quot;User&quot;, &quot;FIQ&quot;, &quot;IRQ&quot;, &quot;Supervisor&quot;, &quot;Abort&quot;, &quot;Undefined&quot;, &quot;System&quot;
++static const struct {
++	const char *name;
++	unsigned psr;
++} arm_mode_data[] = {
++	/* Seven modes are standard from ARM7 on. &quot;System&quot; and &quot;User&quot; share
++	 * the same registers; other modes shadow from 3 to 8 registers.
++	 */
++	{
++		.name = &quot;User&quot;,
++		.psr = ARMV4_5_MODE_USR,
++	},
++	{
++		.name = &quot;FIQ&quot;,
++		.psr = ARMV4_5_MODE_FIQ,
++	},
++	{
++		.name = &quot;Supervisor&quot;,
++		.psr = ARMV4_5_MODE_SVC,
++	},
++	{
++		.name = &quot;Abort&quot;,
++		.psr = ARMV4_5_MODE_ABT,
++	},
++	{
++		.name = &quot;IRQ&quot;,
++		.psr = ARMV4_5_MODE_IRQ,
++	},
++	{
++		.name = &quot;Undefined&quot; /* instruction */,
++		.psr = ARMV4_5_MODE_UND,
++	},
++	{
++		.name = &quot;System&quot;,
++		.psr = ARMV4_5_MODE_SYS,
++	},
++	/* TrustZone &quot;Security Extensions&quot; add a secure monitor mode.
++	 * This is distinct from a &quot;debug monitor&quot; which can support
++	 * non-halting debug, in conjunction with some debuggers.
++	 */
++	{
++		.name = &quot;Secure Monitor&quot;,
++		.psr = ARM_MODE_MON,
++	},
+ };
+ 
+-/* Hack! Yuk! allow -1 index, which simplifies codepaths elsewhere in the code */
+-const char **armv4_5_mode_strings = armv4_5_mode_strings_list + 1;
++/** Map PSR mode bits to the name of an ARM processor operating mode. */
++const char *arm_mode_name(unsigned psr_mode)
++{
++	unsigned i;
++
++	for (i = 0; i &lt; ARRAY_SIZE(arm_mode_data); i++) {
++		if (arm_mode_data[i].psr == psr_mode)
++			return arm_mode_data[i].name;
++	}
++	LOG_ERROR(&quot;unrecognized psr mode: %#02x&quot;, psr_mode);
++	return &quot;UNRECOGNIZED&quot;;
++}
+ 
+ /** Map PSR mode bits to linear number */
+ int armv4_5_mode_to_number(enum armv4_5_mode mode)
+@@ -282,7 +332,8 @@ int armv4_5_set_core_reg(struct reg *reg, uint8_t *buf)
+ 
+ 		if (armv4_5_target-&gt;core_mode != (enum armv4_5_mode)(value &amp; 0x1f))
+ 		{
+-			LOG_DEBUG(&quot;changing ARM core mode to '%s'&quot;, armv4_5_mode_strings[armv4_5_mode_to_number(value &amp; 0x1f)]);
++			LOG_DEBUG(&quot;changing ARM core mode to '%s'&quot;,
++					arm_mode_name(value &amp; 0x1f));
+ 			armv4_5_target-&gt;core_mode = value &amp; 0x1f;
+ 			armv4_5_target-&gt;write_core_reg(target, 16, ARMV4_5_MODE_ANY, value);
+ 		}
+@@ -357,7 +408,7 @@ int armv4_5_arch_state(struct target *target)
+ 	LOG_USER(&quot;target halted in %s state due to %s, current mode: %s\ncpsr: 0x%8.8&quot; PRIx32 &quot; pc: 0x%8.8&quot; PRIx32 &quot;&quot;,
+ 			 armv4_5_state_strings[armv4_5-&gt;core_state],
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason, target-&gt;debug_reason)-&gt;name,
+-			 armv4_5_mode_strings[armv4_5_mode_to_number(armv4_5-&gt;core_mode)],
++			 arm_mode_name(armv4_5-&gt;core_mode),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32));
+ 
+diff --git a/src/target/armv4_5.h b/src/target/armv4_5.h
+index d126f96..5b7a522 100644
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -35,16 +35,16 @@ typedef enum armv4_5_mode
+ 	ARMV4_5_MODE_IRQ = 18,
+ 	ARMV4_5_MODE_SVC = 19,
+ 	ARMV4_5_MODE_ABT = 23,
++	ARM_MODE_MON = 26,
+ 	ARMV4_5_MODE_UND = 27,
+ 	ARMV4_5_MODE_SYS = 31,
+ 	ARMV4_5_MODE_ANY = -1
+ } armv4_5_mode_t;
+ 
++const char *arm_mode_name(unsigned psr_mode);
+ int armv4_5_mode_to_number(enum armv4_5_mode mode);
+ enum armv4_5_mode armv4_5_number_to_mode(int number);
+ 
+-extern const char **armv4_5_mode_strings;
+-
+ typedef enum armv4_5_state
+ {
+ 	ARMV4_5_STATE_ARM,
+diff --git a/src/target/armv7a.c b/src/target/armv7a.c
+index 1518674..e13b33b 100644
+--- a/src/target/armv7a.c
++++ b/src/target/armv7a.c
+@@ -47,15 +47,6 @@ char* armv7a_core_reg_list[] =
+ 	&quot;r13_mon&quot;, &quot;lr_mon&quot;, &quot;spsr_mon&quot;
+ };
+ 
+-char * armv7a_mode_strings_list[] =
+-{
+-	&quot;Illegal mode value&quot;, &quot;User&quot;, &quot;FIQ&quot;, &quot;IRQ&quot;,
+-	&quot;Supervisor&quot;, &quot;Abort&quot;, &quot;Undefined&quot;, &quot;System&quot;, &quot;Monitor&quot;
+-};
+-
+-/* Hack! Yuk! allow -1 index, which simplifies codepaths elsewhere in the code */
+-char** armv7a_mode_strings = armv7a_mode_strings_list+1;
+-
+ char* armv7a_state_strings[] =
+ {
+ 	&quot;ARM&quot;, &quot;Thumb&quot;, &quot;Jazelle&quot;, &quot;ThumbEE&quot;
+@@ -183,8 +174,7 @@ int armv7a_arch_state(struct target *target)
+ 		 armv7a_state_strings[armv7a-&gt;core_state],
+ 		 Jim_Nvp_value2name_simple(nvp_target_debug_reason,
+ 				target-&gt;debug_reason)-&gt;name,
+-		 armv7a_mode_strings[
+-			armv7a_mode_to_number(armv4_5-&gt;core_mode)],
++		 arm_mode_name(armv4_5-&gt;core_mode),
+ 		 armv7a_core_reg_list[armv7a_core_reg_map[
+ 			armv7a_mode_to_number(armv4_5-&gt;core_mode)][16]],
+ 		 buf_get_u32(ARMV7A_CORE_REG_MODE(armv4_5-&gt;core_cache,
+diff --git a/src/target/armv7a.h b/src/target/armv7a.h
+index 4d29ef9..e781e72 100644
+--- a/src/target/armv7a.h
++++ b/src/target/armv7a.h
+@@ -37,8 +37,6 @@ typedef enum armv7a_mode
+ 	ARMV7A_MODE_ANY = -1
+ } armv7a_t;
+ 
+-extern char **armv7a_mode_strings;
+-
+ typedef enum armv7a_state
+ {
+ 	ARMV7A_STATE_ARM,
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index a4a8eab..38928f4 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -857,7 +857,7 @@ static int xscale_arch_state(struct target *target)
+ 			&quot;%s&quot;,
+ 			 armv4_5_state_strings[armv4_5-&gt;core_state],
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason, target-&gt;debug_reason)-&gt;name ,
+-			 armv4_5_mode_strings[armv4_5_mode_to_number(armv4_5-&gt;core_mode)],
++			 arm_mode_name(armv4_5-&gt;core_mode),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].value, 0, 32),
+ 			 buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32),
+ 			 state[xscale-&gt;armv4_5_mmu.mmu_enabled],
+@@ -960,7 +960,8 @@ static int xscale_debug_entry(struct target *target)
+ 		LOG_ERROR(&quot;cpsr contains invalid mode value - communication failure&quot;);
+ 		return ERROR_TARGET_FAILURE;
+ 	}
+-	LOG_DEBUG(&quot;target entered debug state in %s mode&quot;, armv4_5_mode_strings[armv4_5_mode_to_number(armv4_5-&gt;core_mode)]);
++	LOG_DEBUG(&quot;target entered debug state in %s mode&quot;,
++			 arm_mode_name(armv4_5-&gt;core_mode));
+ 
+ 	if (buffer[9] &amp; 0x20)
+ 		armv4_5-&gt;core_state = ARMV4_5_STATE_THUMB;
+
+commit d6c8945662e6027f6ba12d73bac2473088672db5
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Nov 17 23:50:17 2009 -0800
+
+    ARM: only use one set of dummy FPA registers
+    
+    All ARM cores need to provide obsolete FPA registers in their
+    GDB register dumps.  (Even though cores with floating point
+    support now generally use some version of VFP...)
+    
+    Clean up that support a bit by sharing the same dummy registers,
+    and removing the duplicate copies.  Eventually we shouldn't need
+    to export those dummies.
+    
+    (This makes the ARMv7-M support include the armv4_5 header, and
+    cleans up related #includes, but doesn't yet use anything from
+    there except those dummies.)
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/flash/lpc2000.c b/src/flash/lpc2000.c
+index 191eb4b..5442e71 100644
+--- a/src/flash/lpc2000.c
++++ b/src/flash/lpc2000.c
+@@ -26,7 +26,6 @@
+ #endif
+ 
+ #include &quot;lpc2000.h&quot;
+-#include &quot;armv4_5.h&quot;
+ #include &quot;armv7m.h&quot;
+ #include &quot;binarybuffer.h&quot;
+ #include &quot;algorithm.h&quot;
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 65e0780..5e73275 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -246,36 +246,6 @@ enum arm11_regcache_ids
+ 
+ #define ARM11_GDB_REGISTER_COUNT	26
+ 
+-/* FIXME these are *identical* to the ARMv4_5 dummies ...  except
+- * for their names, and being static vs global, and having different
+- * addresses.  Ditto ARMv7a and ARMv7m dummies.
+- */
+-
+-static uint8_t arm11_gdb_dummy_fp_value[12];
+-
+-static struct reg arm11_gdb_dummy_fp_reg =
+-{
+-	.name = &quot;GDB dummy floating-point register&quot;,
+-	.value = arm11_gdb_dummy_fp_value,
+-	.dirty = 0,
+-	.valid = 1,
+-	.size = 96,
+-	.arch_info = NULL,
+-};
+-
+-static uint8_t arm11_gdb_dummy_fps_value[4];
+-
+-static struct reg arm11_gdb_dummy_fps_reg =
+-{
+-	.name = &quot;GDB dummy floating-point status register&quot;,
+-	.value = arm11_gdb_dummy_fps_value,
+-	.dirty = 0,
+-	.valid = 1,
+-	.size = 32,
+-	.arch_info = NULL,
+-};
+-
+-
+ static int arm11_on_enter_debug_state(struct arm11_common *arm11);
+ static int arm11_step(struct target *target, int current,
+ 		uint32_t address, int handle_breakpoints);
+@@ -1265,12 +1235,10 @@ static int arm11_get_gdb_reg_list(struct target *target,
+ 	*reg_list_size	= ARM11_GDB_REGISTER_COUNT;
+ 	*reg_list		= malloc(sizeof(struct reg*) * ARM11_GDB_REGISTER_COUNT);
+ 
++	/* nine unused legacy FPA registers are expected by GDB */
+ 	for (size_t i = 16; i &lt; 24; i++)
+-	{
+-		(*reg_list)[i] = &amp;arm11_gdb_dummy_fp_reg;
+-	}
+-
+-	(*reg_list)[24] = &amp;arm11_gdb_dummy_fps_reg;
++		(*reg_list)[i] = &amp;arm_gdb_dummy_fp_reg;
++	(*reg_list)[24] = &amp;arm_gdb_dummy_fps_reg;
+ 
+ 	for (size_t i = 0; i &lt; ARM11_REGCACHE_COUNT; i++)
+ 	{
+@@ -1954,9 +1922,6 @@ static int arm11_build_reg_cache(struct target *target)
+ 	NEW(struct reg,				reg_list,			ARM11_REGCACHE_COUNT);
+ 	NEW(struct arm11_reg_state,	arm11_reg_states,	ARM11_REGCACHE_COUNT);
+ 
+-	register_init_dummy(&amp;arm11_gdb_dummy_fp_reg);
+-	register_init_dummy(&amp;arm11_gdb_dummy_fps_reg);
+-
+ 	arm11-&gt;reg_list	= reg_list;
+ 
+ 	/* Build the process context cache */
+diff --git a/src/target/armv4_5.c b/src/target/armv4_5.c
+index 6f8d14c..aba4431 100644
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -189,30 +189,44 @@ int armv4_5_core_reg_map[7][17] =
+ 	}
+ };
+ 
+-uint8_t armv4_5_gdb_dummy_fp_value[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
++static const uint8_t arm_gdb_dummy_fp_value[12];
+ 
+-struct reg armv4_5_gdb_dummy_fp_reg =
++/**
++ * Dummy FPA registers are required to support GDB on ARM.
++ * Register packets require eight obsolete FPA register values.
++ * Modern ARM cores use Vector Floating Point (VFP), if they
++ * have any floating point support.  VFP is not FPA-compatible.
++ */
++struct reg arm_gdb_dummy_fp_reg =
+ {
+-	.name = &quot;GDB dummy floating-point register&quot;,
+-	.value = armv4_5_gdb_dummy_fp_value,
+-	.dirty = 0,
++	.name = &quot;GDB dummy FPA register&quot;,
++	.value = (uint8_t *) arm_gdb_dummy_fp_value,
+ 	.valid = 1,
+ 	.size = 96,
+-	.arch_info = NULL,
+ };
+ 
+-uint8_t armv4_5_gdb_dummy_fps_value[] = {0, 0, 0, 0};
++static const uint8_t arm_gdb_dummy_fps_value[4];
+ 
+-struct reg armv4_5_gdb_dummy_fps_reg =
++/**
++ * Dummy FPA status registers are required to support GDB on ARM.
++ * Register packets require an obsolete FPA status register.
++ */
++struct reg arm_gdb_dummy_fps_reg =
+ {
+-	.name = &quot;GDB dummy floating-point status register&quot;,
+-	.value = armv4_5_gdb_dummy_fps_value,
+-	.dirty = 0,
++	.name = &quot;GDB dummy FPA status register&quot;,
++	.value = (uint8_t *) arm_gdb_dummy_fps_value,
+ 	.valid = 1,
+ 	.size = 32,
+-	.arch_info = NULL,
+ };
+ 
++static void arm_gdb_dummy_init(void) __attribute__ ((constructor));
++
++static void arm_gdb_dummy_init(void)
++{
++	register_init_dummy(&amp;arm_gdb_dummy_fp_reg);
++	register_init_dummy(&amp;arm_gdb_dummy_fps_reg);
++}
++
+ int armv4_5_get_core_reg(struct reg *reg)
+ {
+ 	int retval;
+@@ -313,9 +327,6 @@ struct reg_cache* armv4_5_build_reg_cache(struct target *target, struct arm *arm
+ 	cache-&gt;reg_list = reg_list;
+ 	cache-&gt;num_regs = num_regs;
+ 
+-	register_init_dummy(&amp;armv4_5_gdb_dummy_fp_reg);
+-	register_init_dummy(&amp;armv4_5_gdb_dummy_fps_reg);
+-
+ 	for (i = 0; i &lt; 37; i++)
+ 	{
+ 		arch_info[i] = armv4_5_core_reg_list_arch_info[i];
+@@ -550,10 +561,10 @@ int armv4_5_get_gdb_reg_list(struct target *target, struct reg **reg_list[], int
+ 
+ 	for (i = 16; i &lt; 24; i++)
+ 	{
+-		(*reg_list)[i] = &amp;armv4_5_gdb_dummy_fp_reg;
++		(*reg_list)[i] = &amp;arm_gdb_dummy_fp_reg;
+ 	}
+ 
+-	(*reg_list)[24] = &amp;armv4_5_gdb_dummy_fps_reg;
++	(*reg_list)[24] = &amp;arm_gdb_dummy_fps_reg;
+ 	(*reg_list)[25] = &amp;armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR];
+ 
+ 	return ERROR_OK;
+diff --git a/src/target/armv4_5.h b/src/target/armv4_5.h
+index 5fef094..d126f96 100644
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -158,6 +158,8 @@ int arm_checksum_memory(struct target *target,
+ int arm_blank_check_memory(struct target *target,
+ 		uint32_t address, uint32_t count, uint32_t *blank);
+ 
++extern struct reg arm_gdb_dummy_fp_reg;
++extern struct reg arm_gdb_dummy_fps_reg;
+ 
+ /* ARM mode instructions
+  */
+diff --git a/src/target/armv7a.c b/src/target/armv7a.c
+index 8f90dd3..1518674 100644
+--- a/src/target/armv7a.c
++++ b/src/target/armv7a.c
+@@ -144,21 +144,6 @@ int armv7a_core_reg_map[8][17] =
+ 	}
+ };
+ 
+-/* FIXME this dummy is IDENTICAL to the armv4_5, arm11, and armv7m
+- * ones... except for naming/scoping
+- */
+-uint8_t armv7a_gdb_dummy_fp_value[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+-
+-struct reg armv7a_gdb_dummy_fp_reg =
+-{
+-	.name = &quot;GDB dummy floating-point register&quot;,
+-	.value = armv7a_gdb_dummy_fp_value,
+-	.dirty = 0,
+-	.valid = 1,
+-	.size = 96,
+-	.arch_info = NULL,
+-};
+-
+ void armv7a_show_fault_registers(struct target *target)
+ {
+ 	uint32_t dfsr, ifsr, dfar, ifar;
+diff --git a/src/target/armv7m.c b/src/target/armv7m.c
+index 862261d..56fbb05 100644
+--- a/src/target/armv7m.c
++++ b/src/target/armv7m.c
+@@ -35,7 +35,6 @@
+ #endif
+ 
+ #include &quot;breakpoints.h&quot;
+-#include &quot;target.h&quot;
+ #include &quot;armv7m.h&quot;
+ #include &quot;algorithm.h&quot;
+ #include &quot;register.h&quot;
+@@ -59,33 +58,6 @@ static char *armv7m_exception_strings[] =
+ 	&quot;DebugMonitor&quot;, &quot;RESERVED&quot;, &quot;PendSV&quot;, &quot;SysTick&quot;
+ };
+ 
+-/* FIXME these dummies are IDENTICAL to the armv4_5, arm11, and armv7a
+- * ones... except for naming/scoping
+- */
+-static uint8_t armv7m_gdb_dummy_fp_value[12];
+-
+-static struct reg armv7m_gdb_dummy_fp_reg =
+-{
+-	.name = &quot;GDB dummy floating-point register&quot;,
+-	.value = armv7m_gdb_dummy_fp_value,
+-	.dirty = 0,
+-	.valid = 1,
+-	.size = 96,
+-	.arch_info = NULL,
+-};
+-
+-static uint8_t armv7m_gdb_dummy_fps_value[4];
+-
+-static struct reg armv7m_gdb_dummy_fps_reg =
+-{
+-	.name = &quot;GDB dummy floating-point status register&quot;,
+-	.value = armv7m_gdb_dummy_fps_value,
+-	.dirty = 0,
+-	.valid = 1,
+-	.size = 32,
+-	.arch_info = NULL,
+-};
+-
+ #ifdef ARMV7_GDB_HACKS
+ uint8_t armv7m_gdb_dummy_cpsr_value[] = {0, 0, 0, 0};
+ 
+@@ -316,11 +288,8 @@ int armv7m_get_gdb_reg_list(struct target *target, struct reg **reg_list[], int
+ 	}
+ 
+ 	for (i = 16; i &lt; 24; i++)
+-	{
+-		(*reg_list)[i] = &amp;armv7m_gdb_dummy_fp_reg;
+-	}
+-
+-	(*reg_list)[24] = &amp;armv7m_gdb_dummy_fps_reg;
++		(*reg_list)[i] = &amp;arm_gdb_dummy_fp_reg;
++	(*reg_list)[24] = &amp;arm_gdb_dummy_fps_reg;
+ 
+ #ifdef ARMV7_GDB_HACKS
+ 	/* use dummy cpsr reg otherwise gdb may try and set the thumb bit */
+@@ -553,11 +522,9 @@ struct reg_cache *armv7m_build_reg_cache(struct target *target)
+ 	struct armv7m_core_reg *arch_info = calloc(num_regs, sizeof(struct armv7m_core_reg));
+ 	int i;
+ 
+-	register_init_dummy(&amp;armv7m_gdb_dummy_fps_reg);
+ #ifdef ARMV7_GDB_HACKS
+ 	register_init_dummy(&amp;armv7m_gdb_dummy_cpsr_reg);
+ #endif
+-	register_init_dummy(&amp;armv7m_gdb_dummy_fp_reg);
+ 
+ 	/* Build the process context cache */
+ 	cache-&gt;name = &quot;arm v7m registers&quot;;
+diff --git a/src/target/armv7m.h b/src/target/armv7m.h
+index dba9a3b..9dd4ddb 100644
+--- a/src/target/armv7m.h
++++ b/src/target/armv7m.h
+@@ -27,6 +27,7 @@
+ #define ARMV7M_COMMON_H
+ 
+ #include &quot;arm_adi_v5.h&quot;
++#include &quot;armv4_5.h&quot;
+ 
+ /* define for enabling armv7 gdb workarounds */
+ #if 1
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index c9938c9..42f8ee0 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -334,6 +334,9 @@ static int cortex_m3_debug_entry(struct target *target)
+ 	xPSR = buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].value, 0, 32);
+ 
+ #ifdef ARMV7_GDB_HACKS
++	/* FIXME this breaks on scan chains with more than one Cortex-M3.
++	 * Instead, each CM3 should have its own dummy value...
++	 */
+ 	/* copy real xpsr reg for gdb, setting thumb bit */
+ 	buf_set_u32(armv7m_gdb_dummy_cpsr_value, 0, 32, xPSR);
+ 	buf_set_u32(armv7m_gdb_dummy_cpsr_value, 5, 1, 1);
+diff --git a/src/target/cortex_m3.h b/src/target/cortex_m3.h
+index 759c2bc..7ce8901 100644
+--- a/src/target/cortex_m3.h
++++ b/src/target/cortex_m3.h
+@@ -26,7 +26,6 @@
+ #ifndef CORTEX_M3_H
+ #define CORTEX_M3_H
+ 
+-#include &quot;target.h&quot;
+ #include &quot;armv7m.h&quot;
+ 
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/lpc2000.c        |    1 -
+ src/target/arm11.c         |   43 +------------
+ src/target/arm720t.c       |    2 +-
+ src/target/arm7_9_common.c |   34 +++++------
+ src/target/arm920t.c       |   10 ++--
+ src/target/arm926ejs.c     |    2 +-
+ src/target/armv4_5.c       |  139 +++++++++++++++++++++++++++++++++----------
+ src/target/armv4_5.h       |   12 ++--
+ src/target/armv7a.c        |   27 +--------
+ src/target/armv7a.h        |    2 -
+ src/target/armv7m.c        |   37 +-----------
+ src/target/armv7m.h        |    1 +
+ src/target/cortex_m3.c     |    3 +
+ src/target/cortex_m3.h     |    1 -
+ src/target/xscale.c        |   10 +--
+ 15 files changed, 150 insertions(+), 174 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001811.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-456-g0091e59
+</A></li>
+	<LI>Next message: <A HREF="001813.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-460-g6e95f16
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1812">[ date ]</a>
+              <a href="thread.html#1812">[ thread ]</a>
+              <a href="subject.html#1812">[ subject ]</a>
+              <a href="author.html#1812">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

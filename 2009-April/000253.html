@@ -1,0 +1,764 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1469 - trunk/src/flash
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1469%20-%20trunk/src/flash&In-Reply-To=%3C200904191206.n3JC6qip026977%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000252.html">
+   <LINK REL="Next"  HREF="000254.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1469 - trunk/src/flash</H1>
+    <B>oharboe at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1469%20-%20trunk/src/flash&In-Reply-To=%3C200904191206.n3JC6qip026977%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1469 - trunk/src/flash">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Sun Apr 19 14:06:52 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000252.html">[Openocd-svn] r1468 - trunk/src/flash
+</A></li>
+        <LI>Next message: <A HREF="000254.html">[Openocd-svn] r1470 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#253">[ date ]</a>
+              <a href="thread.html#253">[ thread ]</a>
+              <a href="subject.html#253">[ subject ]</a>
+              <a href="author.html#253">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-04-19 14:06:49 +0200 (Sun, 19 Apr 2009)
+New Revision: 1469
+
+Modified:
+   trunk/src/flash/cfi.c
+   trunk/src/flash/cfi.h
+   trunk/src/flash/non_cfi.c
+   trunk/src/flash/non_cfi.h
+Log:
+Michael Schwingen &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">rincewind at discworld.dascon.de</A>&gt;  enhanced non-CFI flash support
+
+Modified: trunk/src/flash/cfi.c
+===================================================================
+--- trunk/src/flash/cfi.c	2009-04-19 08:18:46 UTC (rev 1468)
++++ trunk/src/flash/cfi.c	2009-04-19 12:06:49 UTC (rev 1469)
+@@ -1,6 +1,8 @@
+ /***************************************************************************
+  *   Copyright (C) 2005, 2007 by Dominic Rath                              *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
++ *   Copyright (C) 2009 Michael Schwingen                                  *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">michael at schwingen.org</A>                                                 *
+  *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+@@ -82,24 +84,6 @@
+ static void cfi_fixup_0002_unlock_addresses(flash_bank_t *flash, void *param);
+ static void cfi_fixup_atmel_reversed_erase_regions(flash_bank_t *flash, void *param);
+ 
+-/* fixup after identifying JEDEC manufactuer and ID */
+-static cfi_fixup_t cfi_jedec_fixups[] = {
+-	{CFI_MFR_SST, 0x00D4, cfi_fixup_non_cfi, NULL},
+-	{CFI_MFR_SST, 0x00D5, cfi_fixup_non_cfi, NULL},
+-	{CFI_MFR_SST, 0x00D6, cfi_fixup_non_cfi, NULL},
+-	{CFI_MFR_SST, 0x00D7, cfi_fixup_non_cfi, NULL},
+-	{CFI_MFR_SST, 0x2780, cfi_fixup_non_cfi, NULL},
+-	{CFI_MFR_ST, 0x00D5, cfi_fixup_non_cfi, NULL},
+-	{CFI_MFR_ST, 0x00D6, cfi_fixup_non_cfi, NULL},
+-	{CFI_MFR_AMD, 0x2223, cfi_fixup_non_cfi, NULL},
+-	{CFI_MFR_AMD, 0x22ab, cfi_fixup_non_cfi, NULL},
+-	{CFI_MFR_FUJITSU, 0x226b, cfi_fixup_non_cfi, NULL},
+-	{CFI_MFR_AMIC, 0xb31a, cfi_fixup_non_cfi, NULL},
+-	{CFI_MFR_MX, 0x225b, cfi_fixup_non_cfi, NULL},
+-	{CFI_MFR_AMD, 0x225b, cfi_fixup_non_cfi, NULL},
+-	{0, 0, NULL, NULL}
+-};
+-
+ /* fixup after reading cmdset 0002 primary query table */
+ static cfi_fixup_t cfi_0002_fixups[] = {
+ 	{CFI_MFR_SST, 0x00D4, cfi_fixup_0002_unlock_addresses, &amp;cfi_unlock_addresses[CFI_UNLOCK_5555_2AAA]},
+@@ -633,6 +617,8 @@
+ {
+ 	cfi_flash_bank_t *cfi_info;
+ 	int i;
++	(void) cmd_ctx;
++	(void) cmd;
+ 
+ 	if (argc &lt; 6)
+ 	{
+@@ -964,7 +950,7 @@
+ 			cfi_intel_protect(bank, set, first, last);
+ 			break;
+ 		default:
+-			LOG_ERROR(&quot;cfi primary command set %i unsupported&quot;, cfi_info-&gt;pri_id);
++			LOG_ERROR(&quot;protect: cfi primary command set %i unsupported&quot;, cfi_info-&gt;pri_id);
+ 			break;
+ 	}
+ 
+@@ -1843,7 +1829,7 @@
+ 			return cfi_intel_write_words(bank, word, wordcount, address);
+ 			break;
+ 		case 2:
+-			return cfi_spansion_write_words(bank, word, wordcount, address); 
++			return cfi_spansion_write_words(bank, word, wordcount, address);
+ 			break;
+ 		default:
+ 			LOG_ERROR(&quot;cfi primary command set %i unsupported&quot;, cfi_info-&gt;pri_id);
+@@ -1965,7 +1951,7 @@
+ 				LOG_ERROR(&quot;Unsupported chip width %d&quot;, bank-&gt;chip_width);
+ 				return ERROR_FLASH_OPERATION_FAILED;
+ 			}
+-			
++
+ 			bufferwsize/=(bank-&gt;bus_width / bank-&gt;chip_width);
+ 
+ 			/* fall back to memory writes */
+@@ -2064,6 +2050,7 @@
+ 
+ static void cfi_fixup_atmel_reversed_erase_regions(flash_bank_t *bank, void *param)
+ {
++	(void) param;
+ 	cfi_flash_bank_t *cfi_info = bank-&gt;driver_priv;
+ 	cfi_spansion_pri_ext_t *pri_ext = cfi_info-&gt;pri_ext;
+ 
+@@ -2075,6 +2062,7 @@
+ 	int i;
+ 	cfi_flash_bank_t *cfi_info = bank-&gt;driver_priv;
+ 	cfi_spansion_pri_ext_t *pri_ext = cfi_info-&gt;pri_ext;
++	(void) param;
+ 
+ 	if ((pri_ext-&gt;_reversed_geometry) || (pri_ext-&gt;TopBottom == 3))
+ 	{
+@@ -2110,7 +2098,6 @@
+ 	int num_sectors = 0;
+ 	int i;
+ 	int sector = 0;
+-	u32 offset = 0;
+ 	u32 unlock1 = 0x555;
+ 	u32 unlock2 = 0x2aa;
+ 	int retval;
+@@ -2175,6 +2162,7 @@
+ 		}
+ 	}
+ 
++	LOG_INFO(&quot;Flash Manufacturer/Device: 0x%04x 0x%04x&quot;, cfi_info-&gt;manufacturer, cfi_info-&gt;device_id);
+ 	/* switch back to read array mode */
+ 	cfi_command(bank, 0xf0, command);
+ 	if((retval = target-&gt;type-&gt;write_memory(target, flash_address(bank, 0, 0x00), bank-&gt;bus_width, 1, command)) != ERROR_OK)
+@@ -2187,7 +2175,8 @@
+ 		return retval;
+ 	}
+ 
+-	cfi_fixup(bank, cfi_jedec_fixups);
++	/* check device/manufacturer ID for known non-CFI flashes. */
++	cfi_fixup_non_cfi(bank);
+ 
+ 	/* query only if this is a CFI compatible flash,
+ 	 * otherwise the relevant info has already been filled in
+@@ -2225,7 +2214,7 @@
+ 			{
+ 				return retval;
+ 			}
+-			LOG_ERROR(&quot;Could not probe bank&quot;);
++			LOG_ERROR(&quot;Could not probe bank: no QRY&quot;);
+ 			return ERROR_FLASH_BANK_INVALID;
+ 		}
+ 
+@@ -2261,18 +2250,13 @@
+ 			(1 &lt;&lt; cfi_info-&gt;block_erase_timeout_max) * (1 &lt;&lt; cfi_info-&gt;block_erase_timeout_typ),
+ 			(1 &lt;&lt; cfi_info-&gt;chip_erase_timeout_max) * (1 &lt;&lt; cfi_info-&gt;chip_erase_timeout_typ));
+ 
+-		cfi_info-&gt;dev_size = cfi_query_u8(bank, 0, 0x27);
++		cfi_info-&gt;dev_size = 1&lt;&lt;cfi_query_u8(bank, 0, 0x27);
+ 		cfi_info-&gt;interface_desc = cfi_query_u16(bank, 0, 0x28);
+ 		cfi_info-&gt;max_buf_write_size = cfi_query_u16(bank, 0, 0x2a);
+ 		cfi_info-&gt;num_erase_regions = cfi_query_u8(bank, 0, 0x2c);
+ 
+-		LOG_DEBUG(&quot;size: 0x%x, interface desc: %i, max buffer write size: %x&quot;, 1 &lt;&lt; cfi_info-&gt;dev_size, cfi_info-&gt;interface_desc, (1 &lt;&lt; cfi_info-&gt;max_buf_write_size));
++		LOG_DEBUG(&quot;size: 0x%x, interface desc: %i, max buffer write size: %x&quot;, cfi_info-&gt;dev_size, cfi_info-&gt;interface_desc, (1 &lt;&lt; cfi_info-&gt;max_buf_write_size));
+ 
+-		if ((u32)((1 &lt;&lt; cfi_info-&gt;dev_size) * bank-&gt;bus_width / bank-&gt;chip_width) != bank-&gt;size)
+-		{
+-			LOG_WARNING(&quot;configuration specifies 0x%x size, but a 0x%x size flash was found&quot;, bank-&gt;size, 1 &lt;&lt; cfi_info-&gt;dev_size);
+-		}
+-
+ 		if (cfi_info-&gt;num_erase_regions)
+ 		{
+ 			cfi_info-&gt;erase_region_info = malloc(4 * cfi_info-&gt;num_erase_regions);
+@@ -2338,6 +2322,11 @@
+ 			break;
+ 	}
+ 
++	if ((cfi_info-&gt;dev_size * bank-&gt;bus_width / bank-&gt;chip_width) != bank-&gt;size)
++	{
++		LOG_WARNING(&quot;configuration specifies 0x%x size, but a 0x%x size flash was found&quot;, bank-&gt;size, cfi_info-&gt;dev_size);
++	}
++
+ 	if (cfi_info-&gt;num_erase_regions == 0)
+ 	{
+ 		/* a device might have only one erase block, spanning the whole device */
+@@ -2351,6 +2340,8 @@
+ 	}
+ 	else
+ 	{
++		u32 offset = 0;
++
+ 		for (i = 0; i &lt; cfi_info-&gt;num_erase_regions; i++)
+ 		{
+ 			num_sectors += (cfi_info-&gt;erase_region_info[i] &amp; 0xffff) + 1;
+@@ -2372,8 +2363,12 @@
+ 				sector++;
+ 			}
+ 		}
++		if (offset != cfi_info-&gt;dev_size)
++		{
++			LOG_WARNING(&quot;CFI size is 0x%x, but total sector size is 0x%x&quot;, cfi_info-&gt;dev_size, offset);
++		}
+ 	}
+-	
++
+ 	cfi_info-&gt;probed = 1;
+ 
+ 	return ERROR_OK;
+@@ -2504,7 +2499,7 @@
+ 	}
+ 
+ 	if (cfi_info-&gt;not_cfi == 0)
+-	printed = snprintf(buf, buf_size, &quot;\ncfi information:\n&quot;);
++		printed = snprintf(buf, buf_size, &quot;\ncfi information:\n&quot;);
+ 	else
+ 		printed = snprintf(buf, buf_size, &quot;\nnon-cfi flash:\n&quot;);
+ 	buf += printed;
+@@ -2546,7 +2541,7 @@
+ 	buf_size -= printed;
+ 
+ 		printed = snprintf(buf, buf_size, &quot;size: 0x%x, interface desc: %i, max buffer write size: %x\n&quot;,
+-		                   1 &lt;&lt; cfi_info-&gt;dev_size,
++		                   cfi_info-&gt;dev_size,
+ 		                   cfi_info-&gt;interface_desc,
+ 		                   1 &lt;&lt; cfi_info-&gt;max_buf_write_size);
+ 	buf += printed;
+
+Modified: trunk/src/flash/cfi.h
+===================================================================
+--- trunk/src/flash/cfi.h	2009-04-19 08:18:46 UTC (rev 1468)
++++ trunk/src/flash/cfi.h	2009-04-19 12:06:49 UTC (rev 1469)
+@@ -26,8 +26,8 @@
+ typedef struct cfi_flash_bank_s
+ {
+ 	working_area_t *write_algorithm;
+-	
+ 
++
+ 	int x16_as_x8;
+ 	int jedec_probe;
+ 	int not_cfi;
+@@ -59,7 +59,7 @@
+ 	u8 chip_erase_timeout_max;
+ 
+ 	/* flash geometry */
+-	u8 dev_size;
++	u32 dev_size;
+ 	u16 interface_desc;
+ 	u16 max_buf_write_size;
+ 	u8 num_erase_regions;
+
+Modified: trunk/src/flash/non_cfi.c
+===================================================================
+--- trunk/src/flash/non_cfi.c	2009-04-19 08:18:46 UTC (rev 1468)
++++ trunk/src/flash/non_cfi.c	2009-04-19 12:06:49 UTC (rev 1469)
+@@ -1,6 +1,8 @@
+ /***************************************************************************
+  *   Copyright (C) 2007 by Dominic Rath                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
++ *   Copyright (C) 2009 Michael Schwingen                                  *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">michael at schwingen.org</A>                                                 *
+  *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+@@ -29,212 +31,279 @@
+ #include &quot;cfi.h&quot;
+ #include &quot;non_cfi.h&quot;
+ 
++#define KB 1024
++#define MB (1024*1024)
++#define ERASE_REGION(num, size) (((size/256)&lt;&lt;16)|(num-1))
++
+ /* non-CFI compatible flashes */
+ non_cfi_t non_cfi_flashes[] = {
+ 	{
+ 		.mfr = CFI_MFR_SST,
+ 		.id = 0xd4,
+ 		.pri_id = 0x02,
+-		.dev_size = 0x10,			/* 2^16 = 64KB */
++		.dev_size = 64*KB,
+ 		.interface_desc = 0x0,		/* x8 only device */
+ 		.max_buf_write_size = 0x0,
+ 		.num_erase_regions = 1,
+ 		.erase_region_info =
+ 		{
+-			0x0010000f,				/* 16x  4KB */
+-			0x00000000
++			ERASE_REGION(16, 4*KB)
+ 		}
+ 	},
+ 	{
+ 		.mfr = CFI_MFR_SST,
+ 		.id = 0xd5,
+ 		.pri_id = 0x02,
+-		.dev_size = 0x11,			/* 2^17 = 128KB */
++		.dev_size = 128*KB,
+ 		.interface_desc = 0x0,		/* x8 only device */
+ 		.max_buf_write_size = 0x0,
+ 		.num_erase_regions = 1,
+ 		.erase_region_info =
+ 		{
+-			0x0010001f,
+-			0x00000000
++			ERASE_REGION(32, 4*KB)
+ 		}
+ 	},
+ 	{
+ 		.mfr = CFI_MFR_SST,
+ 		.id = 0xd6,
+ 		.pri_id = 0x02,
+-		.dev_size = 0x12,			/* 2^18 = 256KB */
++		.dev_size = 256*KB,
+ 		.interface_desc = 0x0,		/* x8 only device */
+ 		.max_buf_write_size = 0x0,
+ 		.num_erase_regions = 1,
+ 		.erase_region_info =
+ 		{
+-			0x0010003f,
+-			0x00000000
++			ERASE_REGION(64, 4*KB)
+ 		}
+ 	},
+ 	{
+ 		.mfr = CFI_MFR_SST,
+ 		.id = 0xd7,
+ 		.pri_id = 0x02,
+-		.dev_size = 0x13,			/* 2^19 = 512KB */
++		.dev_size = 512*KB,
+ 		.interface_desc = 0x0,		/* x8 only device */
+ 		.max_buf_write_size = 0x0,
+ 		.num_erase_regions = 1,
+ 		.erase_region_info =
+ 		{
+-			0x0010007f,
+-			0x00000000
++			ERASE_REGION(128, 4*KB)
+ 		}
+ 	},
+ 	{
+ 		.mfr = CFI_MFR_SST,
+ 		.id = 0x2780,
+ 		.pri_id = 0x02,
+-		.dev_size = 0x13,			/* 2^19 = 512KB */
++		.dev_size = 512*KB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device */
+ 		.max_buf_write_size = 0x0,
+ 		.num_erase_regions = 1,
+ 		.erase_region_info =
+ 		{
+-			0x0010007f,
+-			0x00000000
++			ERASE_REGION(128, 4*KB)
+ 		}
+ 	},
+ 	{
+ 		.mfr = CFI_MFR_ST,
+ 		.id = 0xd6,					/* ST29F400BB */
+ 		.pri_id = 0x02,
+-		.dev_size = 0x13,			/* 2^19 = 512KB */
++		.dev_size = 512*KB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+-			0x00400000,		/* 1x 16KB */
+-			0x00200001,		/* 2x  8KB */
+-			0x00800000,		/* 1x 32KB */
+-			0x01000006,		/* 7x 64KB */
+-			0x00000000
++			ERASE_REGION( 1, 16*KB),
++			ERASE_REGION( 2,  8*KB),
++			ERASE_REGION( 1, 32*KB),
++			ERASE_REGION( 7, 64*KB)
+ 		}
+ 	},
+ 	{
+ 		.mfr = CFI_MFR_ST,
+ 		.id = 0xd5,					/* ST29F400BT */
+ 		.pri_id = 0x02,
+-		.dev_size = 0x13,			/* 2^19 = 512KB */
++		.dev_size = 512*KB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+-			0x01000006,		/* 7x 64KB */
+-			0x00800000,		/* 1x 32KB */
+-			0x00200001,		/* 2x  8KB */
+-			0x00400000,		/* 1x 16KB */
+-			0x00000000
++			ERASE_REGION( 7, 64*KB),
++			ERASE_REGION( 1, 32*KB),
++			ERASE_REGION( 2,  8*KB),
++			ERASE_REGION( 1, 16*KB)
+ 		}
+ 	},
+ 	{
+ 		.mfr = CFI_MFR_AMD,
+ 		.id = 0x22ab,				/* AM29F400BB */
+ 		.pri_id = 0x02,
+-		.dev_size = 0x13,			/* 2^19 = 512KB */
++		.dev_size = 512*KB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+-			0x00400000,		/* 1x 16KB */
+-			0x00200001,		/* 2x  8KB */
+-			0x00800000,		/* 1x 32KB */
+-			0x01000006,		/* 7x 64KB */
+-			0x00000000
++			ERASE_REGION( 1, 16*KB),
++			ERASE_REGION( 2,  8*KB),
++			ERASE_REGION( 1, 32*KB),
++			ERASE_REGION( 7, 64*KB)
+ 		}
+ 	},
+ 	{
+ 		.mfr = CFI_MFR_AMD,
+ 		.id = 0x2223,				/* AM29F400BT */
+ 		.pri_id = 0x02,
+-		.dev_size = 0x13,			/* 2^19 = 512KB */
++		.dev_size = 512*KB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+-			0x01000006,		/* 7x 64KB */
+-			0x00800000,		/* 1x 32KB */
+-			0x00200001,		/* 2x  8KB */
+-			0x00400000,		/* 1x 16KB */
+-			0x00000000
++			ERASE_REGION( 7, 64*KB),
++			ERASE_REGION( 1, 32*KB),
++			ERASE_REGION( 2,  8*KB),
++			ERASE_REGION( 1, 16*KB)
+ 		}
+ 	},
+ 	{
+ 		.mfr = CFI_MFR_FUJITSU,
+ 		.id = 0x226b,				/* AM29SL800DB */
+ 		.pri_id = 0x02,
+-		.dev_size = 0x14,			/* 2^20 = 1MB */
++		.dev_size = 1*MB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+-			0x00400000,				/* 1x 16KB */
+-			0x00200001,				/* 2x 8KB */
+-			0x00800000,				/* 1x 32KB */
+-			0x0100000e,				/* 15x 64KB */
+-			0x00000000
++			ERASE_REGION( 1, 16*KB),
++			ERASE_REGION( 2,  8*KB),
++			ERASE_REGION( 1, 32*KB),
++			ERASE_REGION(15, 64*KB)
+ 		}
+ 	},
+ 	{
+ 		.mfr = CFI_MFR_AMIC,
+ 		.id = 0xb31a,				/* A29L800A */
+ 		.pri_id = 0x02,
+-		.dev_size = 0x14,
++		.dev_size = 1*MB,
+ 		.interface_desc = 0x2,
+ 		.max_buf_write_size = 0x0,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+-			0x00400000,				/* 1x 16KB */
+-			0x00200001,				/* 2x 8KB */
+-			0x00800000,				/* 1x 32KB */
+-			0x0100000e,				/* 15x 64KB */
+-			0x00000000
++			ERASE_REGION( 1, 16*KB),
++			ERASE_REGION( 2,  8*KB),
++			ERASE_REGION( 1, 32*KB),
++			ERASE_REGION(15, 64*KB)
+ 		}
+ 	},
+ 	{
+ 		.mfr = CFI_MFR_MX,
+ 		.id = 0x225b,				/* MX29LV800B */
+ 		.pri_id = 0x02,
+-		.dev_size = 0x14,			/* 2^20 = 1MB */
++		.dev_size = 1*MB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+-                        0x00400000,             /* 1x 16KB */
+-                        0x00200001,             /* 2x 8KB */
+-                        0x00800000,             /* 1x 32KB */
+-                        0x0100000e,             /* 15x 64KB */
+-			0x00000000
++			ERASE_REGION( 1, 16*KB),
++			ERASE_REGION( 2, 8*KB),
++			ERASE_REGION( 1, 32*KB),
++			ERASE_REGION(15, 64*KB)
+ 		}
+ 	},
++
+ 	{
++		.mfr = CFI_MFR_MX,
++		.id = 0x2249,				/* MX29LV160AB: 2MB */
++		.pri_id = 0x02,
++		.dev_size = 2*MB,
++		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
++		.max_buf_write_size = 0x0,
++		.num_erase_regions = 4,
++		.erase_region_info =
++		{
++			ERASE_REGION( 1, 16*KB),
++			ERASE_REGION( 2, 8*KB),
++			ERASE_REGION( 1, 32*KB),
++			ERASE_REGION(31, 64*KB)
++		}
++	},
++	{
++		.mfr = CFI_MFR_MX,
++		.id = 0x22C4,				/* MX29LV160AT: 2MB */
++		.pri_id = 0x02,
++		.dev_size = 2*MB,
++		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
++		.max_buf_write_size = 0x0,
++		.num_erase_regions = 4,
++		.erase_region_info =
++		{
++			ERASE_REGION(31, 64*KB),
++			ERASE_REGION( 1, 32*KB),
++			ERASE_REGION( 2, 8*KB),
++			ERASE_REGION( 1, 16*KB)
++		}
++	},
++	{
++		.mfr = CFI_MFR_SST,
++		.id = 0x2782,				/* SST39xF160 */
++		.pri_id = 0x02,
++		.dev_size = 2*MB,
++		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
++		.max_buf_write_size = 0x0,
++		.num_erase_regions = 1,
++		.erase_region_info =
++		{
++			ERASE_REGION(512, 4*KB)
++		}
++	},
++	{
++		.mfr = CFI_MFR_ATMEL,
++		.id = 0x00c0,				/* Atmel 49BV1614 */
++		.pri_id = 0x02,
++		.dev_size = 2*MB,
++		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
++		.max_buf_write_size = 0x0,
++		.num_erase_regions = 3,
++		.erase_region_info =
++		{
++			ERASE_REGION( 8,  8*KB),
++			ERASE_REGION( 2, 32*KB),
++			ERASE_REGION(30, 64*KB)
++		}
++	},
++	{
++		.mfr = CFI_MFR_ATMEL,
++		.id = 0xC2,					/* Atmel 49BV1614T */
++		.pri_id = 0x02,
++		.dev_size = 2*MB,
++		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
++		.max_buf_write_size = 0x0,
++		.num_erase_regions = 3,
++		.erase_region_info =
++		{
++			ERASE_REGION(30, 64*KB),
++			ERASE_REGION( 2, 32*KB),
++			ERASE_REGION( 8,  8*KB)
++		}
++	},
++	{
+ 		.mfr = CFI_MFR_AMD,
+ 		.id = 0x225b,				/* S29AL008D */
+ 		.pri_id = 0x02,
+-		.dev_size = 0x14,			/* 2^20 = 1MB */
++		.dev_size = 1*MB,
+ 		.interface_desc = 0x2,		/* x8 or x16 device with nBYTE */
+ 		.max_buf_write_size = 0x0,
+ 		.num_erase_regions = 4,
+ 		.erase_region_info =
+ 		{
+-                        0x00400000,             /* 1x 16KB */
+-                        0x00200001,             /* 2x 8KB */
+-                        0x00800000,             /* 1x 32KB */
+-                        0x0100000e,             /* 15x 64KB */
+-			0x00000000
++			ERASE_REGION( 1, 16*KB),
++			ERASE_REGION( 2, 8*KB),
++			ERASE_REGION( 1, 32*KB),
++			ERASE_REGION(15, 64*KB)
+ 		}
+ 	},
+ 	{
+@@ -243,23 +312,26 @@
+ 	}
+ };
+ 
+-void cfi_fixup_non_cfi(flash_bank_t *bank, void *param)
++void cfi_fixup_non_cfi(flash_bank_t *bank)
+ {
+ 	cfi_flash_bank_t *cfi_info = bank-&gt;driver_priv;
+ 	non_cfi_t *non_cfi = non_cfi_flashes;
+-	
+-	while (non_cfi-&gt;mfr)
++
++	for (non_cfi = non_cfi_flashes; non_cfi-&gt;mfr; non_cfi++)
+ 	{
+ 		if ((cfi_info-&gt;manufacturer == non_cfi-&gt;mfr)
+ 			&amp;&amp; (cfi_info-&gt;device_id == non_cfi-&gt;id))
+ 		{
+ 			break;
+ 		}
+-		non_cfi++;
+ 	}
+-	
++
++	/* only fixup jedec flashs found in table */
++	if (!non_cfi-&gt;mfr)
++		return;
++
+ 	cfi_info-&gt;not_cfi = 1;
+-	
++
+ 	/* fill in defaults for non-critical data */
+ 	cfi_info-&gt;vcc_min = 0x0;
+ 	cfi_info-&gt;vcc_max = 0x0;
+@@ -273,22 +345,23 @@
+ 	cfi_info-&gt;buf_write_timeout_max = 0x0;
+ 	cfi_info-&gt;block_erase_timeout_max = 0x0;
+ 	cfi_info-&gt;chip_erase_timeout_max = 0x0;
+-	
++
+ 	cfi_info-&gt;qry[0] = 'Q';
+ 	cfi_info-&gt;qry[1] = 'R';
+ 	cfi_info-&gt;qry[2] = 'Y';
+-	
++
+ 	cfi_info-&gt;pri_id = non_cfi-&gt;pri_id;
+ 	cfi_info-&gt;pri_addr = 0x0;
+ 	cfi_info-&gt;alt_id = 0x0;
+ 	cfi_info-&gt;alt_addr = 0x0;
+ 	cfi_info-&gt;alt_ext = NULL;
+-	
++
+ 	cfi_info-&gt;interface_desc = non_cfi-&gt;interface_desc;
+ 	cfi_info-&gt;max_buf_write_size = non_cfi-&gt;max_buf_write_size;
+ 	cfi_info-&gt;num_erase_regions = non_cfi-&gt;num_erase_regions;
+ 	cfi_info-&gt;erase_region_info = non_cfi-&gt;erase_region_info;
+-	
++	cfi_info-&gt;dev_size = non_cfi-&gt;dev_size;
++
+ 	if (cfi_info-&gt;pri_id == 0x2)
+ 	{
+ 		cfi_spansion_pri_ext_t *pri_ext = malloc(sizeof(cfi_spansion_pri_ext_t));
+@@ -296,10 +369,10 @@
+ 		pri_ext-&gt;pri[0] = 'P';
+ 		pri_ext-&gt;pri[1] = 'R';
+ 		pri_ext-&gt;pri[2] = 'I';
+-		
++
+ 		pri_ext-&gt;major_version = '1';
+ 		pri_ext-&gt;minor_version = '0';
+-		
++
+ 		pri_ext-&gt;SiliconRevision = 0x0;
+ 		pri_ext-&gt;EraseSuspend = 0x0;
+ 		pri_ext-&gt;EraseSuspend = 0x0;
+@@ -312,9 +385,11 @@
+ 		pri_ext-&gt;VppMin = 0x0;
+ 		pri_ext-&gt;VppMax = 0x0;
+ 		pri_ext-&gt;TopBottom = 0x0;
+-	
++
++		pri_ext-&gt;_unlock1 = 0x5555;
++		pri_ext-&gt;_unlock2 = 0x2AAA;
+ 		pri_ext-&gt;_reversed_geometry = 0;
+-		
++
+ 		cfi_info-&gt;pri_ext = pri_ext;
+ 	} else if ((cfi_info-&gt;pri_id == 0x1) || (cfi_info-&gt;pri_id == 0x3))
+ 	{
+
+Modified: trunk/src/flash/non_cfi.h
+===================================================================
+--- trunk/src/flash/non_cfi.h	2009-04-19 08:18:46 UTC (rev 1468)
++++ trunk/src/flash/non_cfi.h	2009-04-19 12:06:49 UTC (rev 1469)
+@@ -27,7 +27,7 @@
+ 	u16 mfr;
+ 	u16 id;
+ 	u16 pri_id;
+-	u8 dev_size;
++	u32 dev_size;
+ 	u16 interface_desc;
+ 	u16 max_buf_write_size;
+ 	u8 num_erase_regions;
+@@ -35,6 +35,6 @@
+ } non_cfi_t;
+ 
+ extern non_cfi_t non_cfi_flashes[];
+-extern void cfi_fixup_non_cfi(flash_bank_t *bank, void *param);
++extern void cfi_fixup_non_cfi(flash_bank_t *bank);
+ 
+ #endif /* NON_CFI_H */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000252.html">[Openocd-svn] r1468 - trunk/src/flash
+</A></li>
+	<LI>Next message: <A HREF="000254.html">[Openocd-svn] r1470 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#253">[ date ]</a>
+              <a href="thread.html#253">[ thread ]</a>
+              <a href="subject.html#253">[ subject ]</a>
+              <a href="author.html#253">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

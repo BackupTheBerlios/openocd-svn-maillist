@@ -1,0 +1,169 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2128 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2128%20-%20trunk/src/jtag&In-Reply-To=%3C200906081312.n58DCFpP006610%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000911.html">
+   <LINK REL="Next"  HREF="000913.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2128 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2128%20-%20trunk/src/jtag&In-Reply-To=%3C200906081312.n58DCFpP006610%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2128 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Mon Jun  8 15:12:15 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000911.html">[Openocd-svn] r2127 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000913.html">[Openocd-svn] r2129 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#912">[ date ]</a>
+              <a href="thread.html#912">[ thread ]</a>
+              <a href="subject.html#912">[ subject ]</a>
+              <a href="author.html#912">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-08 15:12:12 +0200 (Mon, 08 Jun 2009)
+New Revision: 2128
+
+Modified:
+   trunk/src/jtag/jtag.c
+Log:
+Cleanup and simplify handle_interface_command:
+- Reduce indent: invert logic of strcmp test.
+- Reduce scope: declare variables upon first use in loops.
+- Reduce unsaid: compare end of table with NULL.
+- Remove superfluous braces around blocks with one statment.
+- Improve language that introduces the list of built-in drivers.
+
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-08 10:58:28 UTC (rev 2127)
++++ trunk/src/jtag/jtag.c	2009-06-08 13:12:12 UTC (rev 2128)
+@@ -1796,11 +1796,9 @@
+ 	return ERROR_OK;
+ }
+ 
+-static int handle_interface_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++static int handle_interface_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
+ {
+-	int i;
+-	int retval;
+-
+ 	/* check whether the interface is already configured */
+ 	if (jtag_interface)
+ 	{
+@@ -1809,52 +1807,39 @@
+ 	}
+ 
+ 	/* interface name is a mandatory argument */
+-	if (argc &lt; 1 || args[0][0] == '\0')
+-	{
++	if (argc != 1 || args[0][0] == '\0')
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+-	}
+ 
+-	for (i=0; jtag_interfaces[i]; i++)
++	for (unsigned i = 0; NULL != jtag_interfaces[i]; i++)
+ 	{
+-		if (strcmp(args[0], jtag_interfaces[i]-&gt;name) == 0)
+-		{
+-			if ((retval = jtag_interfaces[i]-&gt;register_commands(cmd_ctx)) != ERROR_OK)
+-			{
++		if (strcmp(args[0], jtag_interfaces[i]-&gt;name) != 0)
++			continue;
++
++		int retval = jtag_interfaces[i]-&gt;register_commands(cmd_ctx);
++		if (ERROR_OK != retval)
+ 				return retval;
+-			}
+ 
+-			jtag_interface = jtag_interfaces[i];
++		jtag_interface = jtag_interfaces[i];
+ 
+-			if (jtag_interface-&gt;khz == NULL)
+-			{
+-				jtag_interface-&gt;khz = default_khz;
+-			}
+-			if (jtag_interface-&gt;speed_div == NULL)
+-			{
+-				jtag_interface-&gt;speed_div = default_speed_div;
+-			}
+-			if (jtag_interface-&gt;power_dropout == NULL)
+-			{
+-				jtag_interface-&gt;power_dropout = default_power_dropout;
+-			}
+-			if (jtag_interface-&gt;srst_asserted == NULL)
+-			{
+-				jtag_interface-&gt;srst_asserted = default_srst_asserted;
+-			}
++		if (jtag_interface-&gt;khz == NULL)
++			jtag_interface-&gt;khz = default_khz;
++		if (jtag_interface-&gt;speed_div == NULL)
++			jtag_interface-&gt;speed_div = default_speed_div;
++		if (jtag_interface-&gt;power_dropout == NULL)
++			jtag_interface-&gt;power_dropout = default_power_dropout;
++		if (jtag_interface-&gt;srst_asserted == NULL)
++			jtag_interface-&gt;srst_asserted = default_srst_asserted;
+ 
+-			return ERROR_OK;
+-		}
++		return ERROR_OK;
+ 	}
+ 
+ 	/* no valid interface was found (i.e. the configuration option,
+ 	 * didn't match one of the compiled-in interfaces
+ 	 */
+-	LOG_ERROR(&quot;No valid jtag interface found (%s)&quot;, args[0]);
+-	LOG_ERROR(&quot;compiled-in jtag interfaces:&quot;);
+-	for (i = 0; jtag_interfaces[i]; i++)
+-	{
+-		LOG_ERROR(&quot;%i: %s&quot;, i, jtag_interfaces[i]-&gt;name);
+-	}
++	LOG_ERROR(&quot;The specified JTAG interface was not found (%s)&quot;, args[0]);
++	LOG_ERROR(&quot;The following built-in JTAG interfaces are available:&quot;);
++	for (unsigned i = 0; NULL != jtag_interfaces[i]; i++)
++		LOG_ERROR(&quot;%u: %s&quot;, i, jtag_interfaces[i]-&gt;name);
+ 
+ 	return ERROR_JTAG_INVALID_INTERFACE;
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000911.html">[Openocd-svn] r2127 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000913.html">[Openocd-svn] r2129 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#912">[ date ]</a>
+              <a href="thread.html#912">[ thread ]</a>
+              <a href="subject.html#912">[ subject ]</a>
+              <a href="author.html#912">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

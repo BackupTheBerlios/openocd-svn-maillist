@@ -1,0 +1,505 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-974-g34bbbe7
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-974-g34bbbe7&In-Reply-To=%3CE1NMWDT-000288-3M%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001973.html">
+   <LINK REL="Next"  HREF="001975.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-974-g34bbbe7</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-974-g34bbbe7&In-Reply-To=%3CE1NMWDT-000288-3M%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-974-g34bbbe7">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Mon Dec 21 01:33:36 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001973.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-972-g0df5d1e
+</A></li>
+        <LI>Next message: <A HREF="001975.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-975-gb5962b2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1974">[ date ]</a>
+              <a href="thread.html#1974">[ thread ]</a>
+              <a href="subject.html#1974">[ subject ]</a>
+              <a href="author.html#1974">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  34bbbe796178a85305dcd2ffb3dae02b6a372e55 (commit)
+       via  abf01895aea06b0e5c79687b68c424e62b205546 (commit)
+      from  0df5d1eb3c3a640c34de52787c4a70c07b53535f (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 34bbbe796178a85305dcd2ffb3dae02b6a372e55
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sun Dec 20 16:33:00 2009 -0800
+
+    Cortex-M3: cleanup
+    
+    Misc:
+     - Introduce some &quot;struct reg&quot; temporaries, for clarity
+     - Shorten lines
+     - Add some missing whitespace
+     - Clean up comments
+     - Add notes about some fault handling issues
+     - Most of these errata workarounds are for *OLD* chip revisions
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index 6bc427a..edf9b6f 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -42,6 +42,10 @@
+ 
+ /* NOTE:  most of this should work fine for the Cortex-M1 and
+  * Cortex-M0 cores too, although they're ARMv6-M not ARMv7-M.
++ *
++ * Although there are some workarounds for errata seen only in r0p0
++ * silicon, such old parts are hard to find and thus not much tested
++ * any longer.
+  */
+ 
+ 
+@@ -138,6 +142,7 @@ static int cortex_m3_clear_halt(struct target *target)
+ 
+ 	/* Read Debug Fault Status Register */
+ 	mem_ap_read_atomic_u32(swjdp, NVIC_DFSR, &amp;cortex_m3-&gt;nvic_dfsr);
++
+ 	/* Clear Debug Fault Status */
+ 	mem_ap_write_atomic_u32(swjdp, NVIC_DFSR, cortex_m3-&gt;nvic_dfsr);
+ 	LOG_DEBUG(&quot; NVIC_DFSR 0x%&quot; PRIx32 &quot;&quot;, cortex_m3-&gt;nvic_dfsr);
+@@ -154,10 +159,15 @@ static int cortex_m3_single_step_core(struct target *target)
+ 	/* backup dhcsr reg */
+ 	dhcsr_save = cortex_m3-&gt;dcb_dhcsr;
+ 
+-	/* mask interrupts if not done already */
++	/* Mask interrupts before clearing halt, if done already.  This avoids
++	 * Erratum 377497 (fixed in r1p0) where setting MASKINTS while clearing
++	 * HALT can put the core into an unknown state.
++	 */
+ 	if (!(cortex_m3-&gt;dcb_dhcsr &amp; C_MASKINTS))
+-		mem_ap_write_atomic_u32(swjdp, DCB_DHCSR, DBGKEY | C_MASKINTS | C_HALT | C_DEBUGEN);
+-	mem_ap_write_atomic_u32(swjdp, DCB_DHCSR, DBGKEY | C_MASKINTS | C_STEP | C_DEBUGEN);
++		mem_ap_write_atomic_u32(swjdp, DCB_DHCSR,
++				DBGKEY | C_MASKINTS | C_HALT | C_DEBUGEN);
++	mem_ap_write_atomic_u32(swjdp, DCB_DHCSR,
++				DBGKEY | C_MASKINTS | C_STEP | C_DEBUGEN);
+ 	LOG_DEBUG(&quot; &quot;);
+ 
+ 	/* restore dhcsr reg */
+@@ -176,10 +186,11 @@ static int cortex_m3_endreset_event(struct target *target)
+ 	struct cortex_m3_fp_comparator *fp_list = cortex_m3-&gt;fp_comparator_list;
+ 	struct cortex_m3_dwt_comparator *dwt_list = cortex_m3-&gt;dwt_comparator_list;
+ 
++	/* FIXME handling of DEMCR clobbers vector_catch config ... */
+ 	mem_ap_read_atomic_u32(swjdp, DCB_DEMCR, &amp;dcb_demcr);
+ 	LOG_DEBUG(&quot;DCB_DEMCR = 0x%8.8&quot; PRIx32 &quot;&quot;,dcb_demcr);
+ 
+-	/* this regsiter is used for emulated dcc channel */
++	/* this register is used for emulated dcc channel */
+ 	mem_ap_write_u32(swjdp, DCB_DCRDR, 0);
+ 
+ 	/* Enable debug requests */
+@@ -190,11 +201,26 @@ static int cortex_m3_endreset_event(struct target *target)
+ 	/* clear any interrupt masking */
+ 	cortex_m3_write_debug_halt_mask(target, 0, C_MASKINTS);
+ 
+-	/* Enable trace and dwt */
++	/* Enable trace and DWT; trap hard and bus faults.
++	 *
++	 * REVISIT why trap those two?  And why trash the vector_catch
++	 * config, instead of preserving it?  Catching HARDERR and BUSERR
++	 * will interfere with code that handles those itself...
++	 */
+ 	mem_ap_write_u32(swjdp, DCB_DEMCR, TRCENA | VC_HARDERR | VC_BUSERR);
+-	/* Monitor bus faults */
++
++	/* Monitor bus faults as such (instead of as generic HARDERR), but
++	 * leave memory management and usage faults disabled.
++	 *
++	 * REVISIT setting BUSFAULTENA interferes with code which relies
++	 * on the default setting.  Why do it?
++	 */
+ 	mem_ap_write_u32(swjdp, NVIC_SHCSR, SHCSR_BUSFAULTENA);
+ 
++	/* Paranoia: evidently some (early?) chips don't preserve all the
++	 * debug state (including FBP, DWT, etc) across reset...
++	 */
++
+ 	/* Enable FPB */
+ 	target_write_u32(target, FP_CTRL, 3);
+ 	cortex_m3-&gt;fpb_enabled = 1;
+@@ -308,6 +334,7 @@ static int cortex_m3_debug_entry(struct target *target)
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+ 	struct armv7m_common *armv7m = &amp;cortex_m3-&gt;armv7m;
+ 	struct swjdp_common *swjdp = &amp;armv7m-&gt;swjdp_info;
++	struct reg *r;
+ 
+ 	LOG_DEBUG(&quot; &quot;);
+ 
+@@ -327,7 +354,8 @@ static int cortex_m3_debug_entry(struct target *target)
+ 			armv7m-&gt;read_core_reg(target, i);
+ 	}
+ 
+-	xPSR = buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].value, 0, 32);
++	r = armv7m-&gt;core_cache-&gt;reg_list + ARMV7M_xPSR;
++	xPSR = buf_get_u32(r-&gt;value, 0, 32);
+ 
+ #ifdef ARMV7_GDB_HACKS
+ 	/* FIXME this breaks on scan chains with more than one Cortex-M3.
+@@ -336,14 +364,14 @@ static int cortex_m3_debug_entry(struct target *target)
+ 	/* copy real xpsr reg for gdb, setting thumb bit */
+ 	buf_set_u32(armv7m_gdb_dummy_cpsr_value, 0, 32, xPSR);
+ 	buf_set_u32(armv7m_gdb_dummy_cpsr_value, 5, 1, 1);
+-	armv7m_gdb_dummy_cpsr_reg.valid = armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].valid;
+-	armv7m_gdb_dummy_cpsr_reg.dirty = armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].dirty;
++	armv7m_gdb_dummy_cpsr_reg.valid = r-&gt;valid;
++	armv7m_gdb_dummy_cpsr_reg.dirty = r-&gt;dirty;
+ #endif
+ 
+ 	/* For IT instructions xPSR must be reloaded on resume and clear on debug exec */
+ 	if (xPSR &amp; 0xf00)
+ 	{
+-		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].dirty = armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].valid;
++		r-&gt;dirty = r-&gt;valid;
+ 		cortex_m3_store_core_reg_u32(target, ARMV7M_REGISTER_CORE_GP, 16, xPSR &amp;~ 0xff);
+ 	}
+ 
+@@ -355,7 +383,8 @@ static int cortex_m3_debug_entry(struct target *target)
+ 	}
+ 	else
+ 	{
+-		armv7m-&gt;core_mode = buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_CONTROL].value, 0, 1);
++		armv7m-&gt;core_mode = buf_get_u32(armv7m-&gt;core_cache
++				-&gt;reg_list[ARMV7M_CONTROL].value, 0, 1);
+ 		armv7m-&gt;exception_number = 0;
+ 	}
+ 
+@@ -404,8 +433,11 @@ static int cortex_m3_poll(struct target *target)
+ 
+ 	if (target-&gt;state == TARGET_RESET)
+ 	{
+-		/* Cannot switch context while running so endreset is called with target-&gt;state == TARGET_RESET */
+-		LOG_DEBUG(&quot;Exit from reset with dcb_dhcsr 0x%&quot; PRIx32 &quot;&quot;, cortex_m3-&gt;dcb_dhcsr);
++		/* Cannot switch context while running so endreset is
++		 * called with target-&gt;state == TARGET_RESET
++		 */
++		LOG_DEBUG(&quot;Exit from reset with dcb_dhcsr 0x%&quot; PRIx32,
++				cortex_m3-&gt;dcb_dhcsr);
+ 		cortex_m3_endreset_event(target);
+ 		target-&gt;state = TARGET_RUNNING;
+ 		prev_target_state = TARGET_RUNNING;
+@@ -498,11 +530,13 @@ static int cortex_m3_soft_reset_halt(struct target *target)
+ 	uint32_t dcb_dhcsr = 0;
+ 	int retval, timeout = 0;
+ 
+-	/* Enter debug state on reset, cf. end_reset_event() */
+-	mem_ap_write_u32(swjdp, DCB_DEMCR, TRCENA | VC_HARDERR | VC_BUSERR | VC_CORERESET);
++	/* Enter debug state on reset; see end_reset_event() */
++	mem_ap_write_u32(swjdp, DCB_DEMCR,
++			TRCENA | VC_HARDERR | VC_BUSERR | VC_CORERESET);
+ 
+-	/* Request a reset */
+-	mem_ap_write_atomic_u32(swjdp, NVIC_AIRCR, AIRCR_VECTKEY | AIRCR_VECTRESET);
++	/* Request a core-only reset */
++	mem_ap_write_atomic_u32(swjdp, NVIC_AIRCR,
++			AIRCR_VECTKEY | AIRCR_VECTRESET);
+ 	target-&gt;state = TARGET_RESET;
+ 
+ 	/* registers are now invalid */
+@@ -513,15 +547,23 @@ static int cortex_m3_soft_reset_halt(struct target *target)
+ 		retval = mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;dcb_dhcsr);
+ 		if (retval == ERROR_OK)
+ 		{
+-			mem_ap_read_atomic_u32(swjdp, NVIC_DFSR, &amp;cortex_m3-&gt;nvic_dfsr);
+-			if ((dcb_dhcsr &amp; S_HALT) &amp;&amp; (cortex_m3-&gt;nvic_dfsr &amp; DFSR_VCATCH))
++			mem_ap_read_atomic_u32(swjdp, NVIC_DFSR,
++					&amp;cortex_m3-&gt;nvic_dfsr);
++			if ((dcb_dhcsr &amp; S_HALT)
++					&amp;&amp; (cortex_m3-&gt;nvic_dfsr &amp; DFSR_VCATCH))
+ 			{
+-				LOG_DEBUG(&quot;system reset-halted, dcb_dhcsr 0x%&quot; PRIx32 &quot;, nvic_dfsr 0x%&quot; PRIx32 &quot;&quot;, dcb_dhcsr, cortex_m3-&gt;nvic_dfsr);
++				LOG_DEBUG(&quot;system reset-halted, DHCSR 0x%08x, &quot;
++					&quot;DFSR 0x%08x&quot;,
++					(unsigned) dcb_dhcsr,
++					(unsigned) cortex_m3-&gt;nvic_dfsr);
+ 				cortex_m3_poll(target);
++				/* FIXME restore user's vector catch config */
+ 				return ERROR_OK;
+ 			}
+ 			else
+-				LOG_DEBUG(&quot;waiting for system reset-halt, dcb_dhcsr 0x%&quot; PRIx32 &quot;, %i ms&quot;, dcb_dhcsr, timeout);
++				LOG_DEBUG(&quot;waiting for system reset-halt, &quot;
++					&quot;DHCSR 0x%08x, %d ms&quot;,
++					(unsigned) dcb_dhcsr, timeout);
+ 		}
+ 		timeout++;
+ 		alive_sleep(1);
+@@ -549,6 +591,7 @@ static int cortex_m3_resume(struct target *target, int current,
+ 	struct armv7m_common *armv7m = target_to_armv7m(target);
+ 	struct breakpoint *breakpoint = NULL;
+ 	uint32_t resume_pc;
++	struct reg *r;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -565,30 +608,40 @@ static int cortex_m3_resume(struct target *target, int current,
+ 
+ 	if (debug_execution)
+ 	{
++		r = armv7m-&gt;core_cache-&gt;reg_list + ARMV7M_PRIMASK;
++
+ 		/* Disable interrupts */
+-		/* We disable interrupts in the PRIMASK register instead of masking with C_MASKINTS,
+-		 * This is probably the same issue as Cortex-M3 Errata	377493:
+-		 * C_MASKINTS in parallel with disabled interrupts can cause local faults to not be taken. */
+-		buf_set_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_PRIMASK].value, 0, 32, 1);
+-		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_PRIMASK].dirty = 1;
+-		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_PRIMASK].valid = 1;
++		/* We disable interrupts in the PRIMASK register instead of
++		 * masking with C_MASKINTS.  This is probably the same issue
++		 * as Cortex-M3 Erratum 377493 (fixed in r1p0):  C_MASKINTS
++		 * in parallel with disabled interrupts can cause local faults
++		 * to not be taken.
++		 *
++		 * REVISIT this clearly breaks non-debug execution, since the
++		 * PRIMASK register state isn't saved/restored...  workaround
++		 * by never resuming app code after debug execution.
++		 */
++		buf_set_u32(r-&gt;value, 0, 1, 1);
++		r-&gt;dirty = true;
++		r-&gt;valid = true;
+ 
+ 		/* Make sure we are in Thumb mode */
+-		buf_set_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].value, 0, 32,
+-			buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].value, 0, 32) | (1 &lt;&lt; 24));
+-		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].dirty = 1;
+-		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].valid = 1;
++		r = armv7m-&gt;core_cache-&gt;reg_list + ARMV7M_xPSR;
++		buf_set_u32(r-&gt;value, 24, 1, 1);
++		r-&gt;dirty = true;
++		r-&gt;valid = true;
+ 	}
+ 
+ 	/* current = 1: continue on current pc, otherwise continue at &lt;address&gt; */
++	r = armv7m-&gt;core_cache-&gt;reg_list + 15;
+ 	if (!current)
+ 	{
+-		buf_set_u32(armv7m-&gt;core_cache-&gt;reg_list[15].value, 0, 32, address);
+-		armv7m-&gt;core_cache-&gt;reg_list[15].dirty = 1;
+-		armv7m-&gt;core_cache-&gt;reg_list[15].valid = 1;
++		buf_set_u32(r-&gt;value, 0, 32, address);
++		r-&gt;dirty = true;
++		r-&gt;valid = true;
+ 	}
+ 
+-	resume_pc = buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[15].value, 0, 32);
++	resume_pc = buf_get_u32(r-&gt;value, 0, 32);
+ 
+ 	armv7m_restore_context(target);
+ 
+@@ -639,6 +692,7 @@ static int cortex_m3_step(struct target *target, int current,
+ 	struct armv7m_common *armv7m = &amp;cortex_m3-&gt;armv7m;
+ 	struct swjdp_common *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	struct breakpoint *breakpoint = NULL;
++	struct reg *pc = armv7m-&gt;core_cache-&gt;reg_list + 15;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+@@ -648,13 +702,12 @@ static int cortex_m3_step(struct target *target, int current,
+ 
+ 	/* current = 1: continue on current pc, otherwise continue at &lt;address&gt; */
+ 	if (!current)
+-		buf_set_u32(cortex_m3-&gt;armv7m.core_cache-&gt;reg_list[15].value,
+-				0, 32, address);
++		buf_set_u32(pc-&gt;value, 0, 32, address);
+ 
+ 	/* the front-end may request us not to handle breakpoints */
+ 	if (handle_breakpoints) {
+-		breakpoint = breakpoint_find(target, buf_get_u32(armv7m
+-				-&gt;core_cache-&gt;reg_list[15].value, 0, 32));
++		breakpoint = breakpoint_find(target,
++				buf_get_u32(pc-&gt;value, 0, 32));
+ 		if (breakpoint)
+ 			cortex_m3_unset_breakpoint(target, breakpoint);
+ 	}
+@@ -675,12 +728,16 @@ static int cortex_m3_step(struct target *target, int current,
+ 	if (breakpoint)
+ 		cortex_m3_set_breakpoint(target, breakpoint);
+ 
+-	LOG_DEBUG(&quot;target stepped dcb_dhcsr = 0x%&quot; PRIx32 &quot; nvic_icsr = 0x%&quot; PRIx32 &quot;&quot;, cortex_m3-&gt;dcb_dhcsr, cortex_m3-&gt;nvic_icsr);
++	LOG_DEBUG(&quot;target stepped dcb_dhcsr = 0x%&quot; PRIx32
++			&quot; nvic_icsr = 0x%&quot; PRIx32,
++			cortex_m3-&gt;dcb_dhcsr, cortex_m3-&gt;nvic_icsr);
+ 
+ 	cortex_m3_debug_entry(target);
+ 	target_call_event_callbacks(target, TARGET_EVENT_HALTED);
+ 
+-	LOG_DEBUG(&quot;target stepped dcb_dhcsr = 0x%&quot; PRIx32 &quot; nvic_icsr = 0x%&quot; PRIx32 &quot;&quot;, cortex_m3-&gt;dcb_dhcsr, cortex_m3-&gt;nvic_icsr);
++	LOG_DEBUG(&quot;target stepped dcb_dhcsr = 0x%&quot; PRIx32
++			&quot; nvic_icsr = 0x%&quot; PRIx32,
++			cortex_m3-&gt;dcb_dhcsr, cortex_m3-&gt;nvic_icsr);
+ 	return ERROR_OK;
+ }
+ 
+@@ -714,7 +771,8 @@ static int cortex_m3_assert_reset(struct target *target)
+ 	{
+ 		/* Set/Clear C_MASKINTS in a separate operation */
+ 		if (cortex_m3-&gt;dcb_dhcsr &amp; C_MASKINTS)
+-			mem_ap_write_atomic_u32(swjdp, DCB_DHCSR, DBGKEY | C_DEBUGEN | C_HALT);
++			mem_ap_write_atomic_u32(swjdp, DCB_DHCSR,
++					DBGKEY | C_DEBUGEN | C_HALT);
+ 
+ 		/* clear any debug flags before resuming */
+ 		cortex_m3_clear_halt(target);
+@@ -723,12 +781,14 @@ static int cortex_m3_assert_reset(struct target *target)
+ 		cortex_m3_write_debug_halt_mask(target, 0, C_HALT);
+ 
+ 		/* Enter debug state on reset, cf. end_reset_event() */
+-		mem_ap_write_u32(swjdp, DCB_DEMCR, TRCENA | VC_HARDERR | VC_BUSERR);
++		mem_ap_write_u32(swjdp, DCB_DEMCR,
++				TRCENA | VC_HARDERR | VC_BUSERR);
+ 	}
+ 	else
+ 	{
+ 		/* Enter debug state on reset, cf. end_reset_event() */
+-		mem_ap_write_atomic_u32(swjdp, DCB_DEMCR, TRCENA | VC_HARDERR | VC_BUSERR | VC_CORERESET);
++		mem_ap_write_atomic_u32(swjdp, DCB_DEMCR,
++				TRCENA | VC_HARDERR | VC_BUSERR | VC_CORERESET);
+ 	}
+ 
+ 	/*
+@@ -1311,8 +1371,11 @@ static int cortex_m3_store_core_reg_u32(struct target *target,
+ 		retval = cortexm3_dap_write_coreregister_u32(swjdp, value, num);
+ 		if (retval != ERROR_OK)
+ 		{
++			struct reg *r;
++
+ 			LOG_ERROR(&quot;JTAG failure %i&quot;, retval);
+-			armv7m-&gt;core_cache-&gt;reg_list[num].dirty = armv7m-&gt;core_cache-&gt;reg_list[num].valid;
++			r = armv7m-&gt;core_cache-&gt;reg_list + num;
++			r-&gt;dirty = r-&gt;valid;
+ 			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+ 		LOG_DEBUG(&quot;write core reg %i value 0x%&quot; PRIx32 &quot;&quot;, (int)num, value);
+@@ -1455,6 +1518,9 @@ struct dwt_reg {
+ 
+ static struct dwt_reg dwt_base_regs[] = {
+ 	{ DWT_CTRL, &quot;dwt_ctrl&quot;, 32, },
++	/* NOTE that Erratum 532314 (fixed r2p0) affects CYCCNT:  it wrongly
++	 * increments while the core is asleep.
++	 */
+ 	{ DWT_CYCCNT, &quot;dwt_cyccnt&quot;, 32, },
+ 	/* plus some 8 bit counters, useful for profiling with TPIU */
+ };
+
+commit abf01895aea06b0e5c79687b68c424e62b205546
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sat Dec 19 22:54:07 2009 -0800
+
+    ARM11: recognize ARM11 MPCore
+    
+    And add my copyright.  MPCore is untested, but it's the
+    only other ARM11 core to care about.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 970738c..67a8409 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -6,6 +6,8 @@
+  *                                                                         *
+  *   Copyright (C) 2008 Georg Acher &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">acher at in.tum.de</A>&gt;                      *
+  *                                                                         *
++ *   Copyright (C) 2009 David Brownell                                     *
++ *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -1209,20 +1211,24 @@ static int arm11_examine(struct target *target)
+ 
+ 	CHECK_RETVAL(jtag_execute_queue());
+ 
+-	switch (device_id &amp; 0x0FFFF000)
++	/* assume the manufacturer id is ok; check the part # */
++	switch ((device_id &gt;&gt; 12) &amp; 0xFFFF)
+ 	{
+-	case 0x07B36000:
++	case 0x7B36:
+ 		type = &quot;ARM1136&quot;;
+ 		break;
+-	case 0x07B56000:
++	case 0x7B37:
++		type = &quot;ARM11 MPCore&quot;;
++		break;
++	case 0x7B56:
+ 		type = &quot;ARM1156&quot;;
+ 		break;
+-	case 0x07B76000:
++	case 0x7B76:
+ 		arm11-&gt;arm.core_type = ARM_MODE_MON;
+ 		type = &quot;ARM1176&quot;;
+ 		break;
+ 	default:
+-		LOG_ERROR(&quot;'target arm11' expects IDCODE 0x*7B*7****&quot;);
++		LOG_ERROR(&quot;unexpected ARM11 ID code&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 	LOG_INFO(&quot;found %s&quot;, type);
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm11.c     |   16 ++++--
+ src/target/cortex_m3.c |  156 ++++++++++++++++++++++++++++++++++--------------
+ 2 files changed, 122 insertions(+), 50 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001973.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-972-g0df5d1e
+</A></li>
+	<LI>Next message: <A HREF="001975.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-975-gb5962b2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1974">[ date ]</a>
+              <a href="thread.html#1974">[ thread ]</a>
+              <a href="subject.html#1974">[ subject ]</a>
+              <a href="author.html#1974">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

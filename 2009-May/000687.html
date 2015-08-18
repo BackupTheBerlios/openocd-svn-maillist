@@ -1,0 +1,932 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1903 - in trunk: doc src/flash src/target/board
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1903%20-%20in%20trunk%3A%20doc%20src/flash%20src/target/board&In-Reply-To=%3C200905240138.n4O1cRBH008365%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000686.html">
+   <LINK REL="Next"  HREF="000688.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1903 - in trunk: doc src/flash src/target/board</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1903%20-%20in%20trunk%3A%20doc%20src/flash%20src/target/board&In-Reply-To=%3C200905240138.n4O1cRBH008365%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1903 - in trunk: doc src/flash src/target/board">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Sun May 24 03:38:27 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000686.html">[Openocd-svn] r1902 - trunk/doc
+</A></li>
+        <LI>Next message: <A HREF="000688.html">[Openocd-svn] r1904 - in trunk: doc src/flash src/target/board
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#687">[ date ]</a>
+              <a href="thread.html#687">[ thread ]</a>
+              <a href="subject.html#687">[ subject ]</a>
+              <a href="author.html#687">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-24 03:38:19 +0200 (Sun, 24 May 2009)
+New Revision: 1903
+
+Added:
+   trunk/src/flash/davinci_nand.c
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/flash/Makefile.am
+   trunk/src/flash/nand.c
+   trunk/src/target/board/dm355evm.cfg
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+NAND support for DaVinci-family drivers, with HW ECC support.
+Declare the NAND chip on the DM355 EVM board.
+
+Currently tested on DM355 for Linux interop using the standard
+large page (2KB) chip in the EVM socket; &quot;hwecc1&quot; and &quot;hwecc4&quot;
+work fine.  (Using hwecc4 relies on patches that haven't quite
+made it through the Linux-MTD bottlenecks yet.)
+
+Not yet tested:  1-bit on small-page (although it's hard to see
+how that could fail); 4-bit on small page (picky layout issues);
+the &quot;hwecc_infix&quot; mode (primarily for older boot ROMs; testing
+there is blocked on having new bootloader code).
+
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-05-24 01:33:54 UTC (rev 1902)
++++ trunk/doc/openocd.texi	2009-05-24 01:38:19 UTC (rev 1903)
+@@ -2804,6 +2804,23 @@
+ driver-specific options and behaviors.
+ Some controllers also activate controller-specific commands.
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> {NAND Driver} davinci
++This driver handles the NAND controllers found on DaVinci family
++chips from Texas Instruments.
++It takes three extra parameters:
++address of the NAND chip;
++hardware ECC mode to use (hwecc1, hwecc4, hwecc4_infix);
++address of the AEMIF controller on this processor.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at example</A>
++nand device davinci dm355.arm 0x02000000 hwecc4 0x01e10000
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> example
++All DaVinci processors support the single-bit ECC hardware,
++and newer ones also support the four-bit ECC hardware.
++The @code{write_page} and @code{read_page} methods are used
++to implement those ECC modes, unless they are disabled using
++the @command{nand raw_access} command.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+ @deffn {NAND Driver} lpc3180
+ These controllers require an extra @command{nand device}
+ parameter:  the clock rate used by the controller.
+
+Modified: trunk/src/flash/Makefile.am
+===================================================================
+--- trunk/src/flash/Makefile.am	2009-05-24 01:33:54 UTC (rev 1902)
++++ trunk/src/flash/Makefile.am	2009-05-24 01:38:19 UTC (rev 1903)
+@@ -6,7 +6,7 @@
+ METASOURCES = AUTO
+ noinst_LTLIBRARIES = libflash.la
+ libflash_la_SOURCES = \
+-	flash.c lpc2000.c cfi.c non_cfi.c at91sam7.c \
++	flash.c lpc2000.c cfi.c non_cfi.c at91sam7.c davinci_nand.c \
+ 	str7x.c str9x.c aduc702x.c nand.c nand_ecc.c nand_ecc_kw.c \
+ 	lpc3180_nand_controller.c stellaris.c str9xpec.c stm32x.c tms470.c \
+ 	ecos.c orion_nand.c s3c24xx_nand.c s3c2410_nand.c s3c2412_nand.c \
+
+Added: trunk/src/flash/davinci_nand.c
+===================================================================
+--- trunk/src/flash/davinci_nand.c	2009-05-24 01:33:54 UTC (rev 1902)
++++ trunk/src/flash/davinci_nand.c	2009-05-24 01:38:19 UTC (rev 1903)
+@@ -0,0 +1,744 @@
++/***************************************************************************
++ *   Copyright (C) 2009 by David Brownell                                  *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++/*
++ * DaVinci family NAND controller support for OpenOCD.
++ *
++ * This driver uses hardware ECC (1-bit or 4-bit) unless
++ * the chip is accessed in &quot;raw&quot; mode.
++ */
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;nand.h&quot;
++
++
++enum ecc {
++	HWECC1,		/* all controllers support 1-bit ECC */
++	HWECC4,		/* newer chips also have 4-bit ECC hardware */
++	HWECC4_INFIX,	/* avoid this layout, except maybe for boot code */
++};
++
++struct davinci_nand {
++	target_t	*target;
++
++	u8		chipsel;	/* chipselect 0..3 == CS2..CS5 */
++	u8		eccmode;
++
++	/* Async EMIF controller base */
++	u32		aemif;
++
++	/* NAND chip addresses */
++	u32		data;		/* without CLE or ALE */
++	u32		cmd;		/* with CLE */
++	u32		addr;		/* with ALE */
++
++	/* page i/o for the relevant flavor of hardware ECC */
++	int (*read_page)(struct nand_device_s *nand, u32 page,
++			u8 *data, u32 data_size, u8 *oob, u32 oob_size);
++	int (*write_page)(struct nand_device_s *nand, u32 page,
++			u8 *data, u32 data_size, u8 *oob, u32 oob_size);
++};
++
++#define NANDFCR		0x60		/* flash control register */
++#define NANDFSR		0x64		/* flash status register */
++#define NANDFECC	0x70		/* 1-bit ECC data, CS0, 1st of 4 */
++#define NAND4BITECCLOAD	0xbc		/* 4-bit ECC, load saved values */
++#define NAND4BITECC	0xc0		/* 4-bit ECC data, 1st of 4 */
++#define NANDERRADDR	0xd0		/* 4-bit ECC err addr, 1st of 2 */
++#define NANDERRVAL	0xd8		/* 4-bit ECC err value, 1st of 2 */
++
++static int halted(target_t *target, const char *label)
++{
++	if (target-&gt;state == TARGET_HALTED)
++		return true;
++
++	LOG_ERROR(&quot;Target must be halted to use NAND controller (%s)&quot;, label);
++	return false;
++}
++
++static int davinci_register_commands(struct command_context_s *cmd_ctx)
++{
++	return ERROR_OK;
++}
++
++static int davinci_init(struct nand_device_s *nand)
++{
++	struct davinci_nand *info = nand-&gt;controller_priv;
++	target_t *target = info-&gt;target;
++	u32 nandfcr;
++
++	if (!halted(target, &quot;init&quot;))
++		return ERROR_NAND_OPERATION_FAILED;
++
++	/* We require something else to have configured AEMIF to talk
++	 * to NAND chip in this range (including timings and width).
++	 */
++	target_read_u32(target, info-&gt;aemif + NANDFCR, &amp;nandfcr);
++	if (!(nandfcr &amp; (1 &lt;&lt; info-&gt;chipsel))) {
++		LOG_ERROR(&quot;chip address %08x not NAND-enabled?&quot;, info-&gt;data);
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	/* REVISIT verify:  AxCR must be in 8-bit mode, since that's all we
++	 * tested.  16 bit support should work too; but not with 4-bit ECC.
++	 */
++
++	return ERROR_OK;
++}
++
++static int davinci_reset(struct nand_device_s *nand)
++{
++	return ERROR_OK;
++}
++
++static int davinci_nand_ready(struct nand_device_s *nand, int timeout)
++{
++	struct davinci_nand *info = nand-&gt;controller_priv;
++	target_t *target = info-&gt;target;
++	u32 nandfsr;
++
++	/* NOTE: return code is zero/error, else success; not ERROR_* */
++
++	if (!halted(target, &quot;ready&quot;))
++		return 0;
++
++	do {
++		target_read_u32(target, info-&gt;aemif + NANDFSR, &amp;nandfsr);
++
++		if (nandfsr &amp; 0x01)
++			return 1;
++
++		alive_sleep(1);
++	} while (timeout-- &gt; 0);
++
++	return 0;
++}
++
++static int davinci_command(struct nand_device_s *nand, u8 command)
++{
++	struct davinci_nand *info = nand-&gt;controller_priv;
++	target_t *target = info-&gt;target;
++
++	if (!halted(target, &quot;command&quot;))
++		return ERROR_NAND_OPERATION_FAILED;
++
++	target_write_u8(target, info-&gt;cmd, command);
++	return ERROR_OK;
++}
++
++static int davinci_address(struct nand_device_s *nand, u8 address)
++{
++	struct davinci_nand *info = nand-&gt;controller_priv;
++	target_t *target = info-&gt;target;
++
++	if (!halted(target, &quot;address&quot;))
++		return ERROR_NAND_OPERATION_FAILED;
++
++	target_write_u8(target, info-&gt;addr, address);
++	return ERROR_OK;
++}
++
++static int davinci_write_data(struct nand_device_s *nand, u16 data)
++{
++	struct davinci_nand *info = nand-&gt;controller_priv;
++	target_t *target = info-&gt;target;
++
++	if (!halted(target, &quot;write_data&quot;))
++		return ERROR_NAND_OPERATION_FAILED;
++
++	target_write_u8(target, info-&gt;data, data);
++	return ERROR_OK;
++}
++
++static int davinci_read_data(struct nand_device_s *nand, void *data)
++{
++	struct davinci_nand *info = nand-&gt;controller_priv;
++	target_t *target = info-&gt;target;
++
++	if (!halted(target, &quot;read_data&quot;))
++		return ERROR_NAND_OPERATION_FAILED;
++
++	target_read_u8(target, info-&gt;data, data);
++	return ERROR_OK;
++}
++
++/* REVISIT a bit of native code should let block I/O be MUCH faster */
++
++static int davinci_read_block_data(struct nand_device_s *nand,
++		u8 *data, int data_size)
++{
++	struct davinci_nand *info = nand-&gt;controller_priv;
++	target_t *target = info-&gt;target;
++	u32 nfdata = info-&gt;data;
++	u32 tmp;
++
++	if (!halted(target, &quot;read_block&quot;))
++		return ERROR_NAND_OPERATION_FAILED;
++
++	while (data_size &gt;= 4) {
++		target_read_u32(target, nfdata, &amp;tmp);
++
++		data[0] = tmp;
++		data[1] = tmp &gt;&gt; 8;
++		data[2] = tmp &gt;&gt; 16;
++		data[3] = tmp &gt;&gt; 24;
++
++		data_size -= 4;
++		data += 4;
++	}
++
++	while (data_size &gt; 0) {
++		target_read_u8(target, nfdata, data);
++
++		data_size -= 1;
++		data += 1;
++	}
++
++	return ERROR_OK;
++}
++
++static int davinci_write_block_data(struct nand_device_s *nand,
++		u8 *data, int data_size)
++{
++	struct davinci_nand *info = nand-&gt;controller_priv;
++	target_t *target = info-&gt;target;
++	u32 nfdata = info-&gt;data;
++	u32 tmp;
++
++	if (!halted(target, &quot;write_block&quot;))
++		return ERROR_NAND_OPERATION_FAILED;
++
++	while (data_size &gt;= 4) {
++		tmp = le_to_h_u32(data);
++		target_write_u32(target, nfdata, tmp);
++
++		data_size -= 4;
++		data += 4;
++	}
++
++	while (data_size &gt; 0) {
++		target_write_u8(target, nfdata, *data);
++
++		data_size -= 1;
++		data += 1;
++	}
++
++	return ERROR_OK;
++}
++
++static int davinci_write_page(struct nand_device_s *nand, u32 page,
++		u8 *data, u32 data_size, u8 *oob, u32 oob_size)
++{
++	struct davinci_nand *info = nand-&gt;controller_priv;
++	u8 *ooballoc = NULL;
++	int status;
++
++	if (!nand-&gt;device)
++		return ERROR_NAND_DEVICE_NOT_PROBED;
++	if (!halted(info-&gt;target, &quot;write_page&quot;))
++		return ERROR_NAND_OPERATION_FAILED;
++
++	/* Always write both data and OOB ... we are not &quot;raw&quot; I/O! */
++	if (!data)
++		return ERROR_NAND_OPERATION_FAILED;
++
++	/* If we're not given OOB, write 0xff where we don't write ECC codes. */
++	switch (nand-&gt;page_size) {
++	case 512:
++		oob_size = 16;
++		break;
++	case 2048:
++		oob_size = 64;
++		break;
++	case 4096:
++		oob_size = 128;
++		break;
++	default:
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++	if (!oob) {
++		ooballoc = malloc(oob_size);
++		if (ooballoc)
++			return ERROR_NAND_OPERATION_FAILED;
++		oob = ooballoc;
++		memset(oob, 0x0ff, oob_size);
++	}
++
++	status = info-&gt;write_page(nand, page, data, data_size, oob, oob_size);
++	free(ooballoc);
++	return status;
++}
++
++static int davinci_read_page(struct nand_device_s *nand, u32 page,
++		u8 *data, u32 data_size, u8 *oob, u32 oob_size)
++{
++	struct davinci_nand *info = nand-&gt;controller_priv;
++
++	if (!nand-&gt;device)
++		return ERROR_NAND_DEVICE_NOT_PROBED;
++	if (!halted(info-&gt;target, &quot;read_page&quot;))
++		return ERROR_NAND_OPERATION_FAILED;
++
++	return info-&gt;read_page(nand, page, data, data_size, oob, oob_size);
++}
++
++static void davinci_write_pagecmd(struct nand_device_s *nand, u8 cmd, u32 page)
++{
++	struct davinci_nand *info = nand-&gt;controller_priv;
++	target_t *target = info-&gt;target;
++	int page3 = nand-&gt;address_cycles - (nand-&gt;page_size == 512);
++
++	/* write command ({page,otp}x{read,program} */
++	target_write_u8(target, info-&gt;cmd, cmd);
++
++	/* column address (beginning-of-page) */
++	target_write_u8(target, info-&gt;addr, 0);
++	if (nand-&gt;page_size &gt; 512)
++		target_write_u8(target, info-&gt;addr, 0);
++
++	/* page address */
++	target_write_u8(target, info-&gt;addr, page);
++	target_write_u8(target, info-&gt;addr, page &gt;&gt; 8);
++	if (page3)
++		target_write_u8(target, info-&gt;addr, page &gt;&gt; 16);
++	if (page3 == 2)
++		target_write_u8(target, info-&gt;addr, page &gt;&gt; 24);
++}
++
++static int davinci_writepage_tail(struct nand_device_s *nand,
++		u8 *oob, u32 oob_size)
++{
++	struct davinci_nand *info = nand-&gt;controller_priv;
++	target_t *target = info-&gt;target;
++	u8 status;
++
++	if (oob_size)
++		davinci_write_block_data(nand, oob, oob_size);
++
++	/* non-cachemode page program */
++	target_write_u8(target, info-&gt;cmd, NAND_CMD_PAGEPROG);
++
++	if (!davinci_nand_ready(nand, 100))
++		return ERROR_NAND_OPERATION_TIMEOUT;
++
++	if (nand_read_status(nand, &amp;status) != ERROR_OK) {
++		LOG_ERROR(&quot;couldn't read status&quot;);
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	if (status &amp; NAND_STATUS_FAIL) {
++		LOG_ERROR(&quot;write operation failed, status: 0x%02x&quot;, status);
++		return ERROR_NAND_OPERATION_FAILED;
++	}
++
++	return ERROR_OK;
++}
++
++/*
++ * All DaVinci family chips support 1-bit ECC on a per-chipselect basis.
++ */
++static int davinci_write_page_ecc1(struct nand_device_s *nand, u32 page,
++		u8 *data, u32 data_size, u8 *oob, u32 oob_size)
++{
++	unsigned oob_offset;
++	struct davinci_nand *info = nand-&gt;controller_priv;
++	target_t *target = info-&gt;target;
++	const u32 fcr_addr = info-&gt;aemif + NANDFCR;
++	const u32 ecc1_addr = info-&gt;aemif + NANDFECC + info-&gt;chipsel;
++	u32 fcr, ecc1;
++
++	/* Write contiguous ECC bytes starting at specified offset.
++	 * NOTE: Linux reserves twice as many bytes as we need; and
++	 * for 16-bit OOB, those extra bytes are discontiguous.
++	 */
++	switch (nand-&gt;page_size) {
++	case 512:
++		oob_offset = 0;
++		break;
++	case 2048:
++		oob_offset = 40;
++		break;
++	default:
++		oob_offset = 80;
++		break;
++	}
++
++	davinci_write_pagecmd(nand, NAND_CMD_SEQIN, page);
++
++	/* scrub any old ECC state */
++	target_read_u32(target, ecc1_addr, &amp;ecc1);
++
++	target_read_u32(target, fcr_addr, &amp;fcr);
++	fcr |= 1 &lt;&lt; (8 + info-&gt;chipsel);
++
++	do {
++		/* set &quot;start csX 1bit ecc&quot; bit */
++		target_write_u32(target, fcr_addr, fcr);
++
++		/* write 512 bytes */
++		davinci_write_block_data(nand, data, 512);
++		data += 512;
++		data_size -= 512;
++
++		/* read the ecc, pack to 3 bytes, and invert so the ecc
++		 * in an erased block is correct
++		 */
++		target_read_u32(target, ecc1_addr, &amp;ecc1);
++		ecc1 = (ecc1 &amp; 0x0fff) | ((ecc1 &amp; 0x0fff0000) &gt;&gt; 4);
++		ecc1 = ~ecc1;
++
++		/* save correct ECC code into oob data */
++		oob[oob_offset++] = (u8)(ecc1);
++		oob[oob_offset++] = (u8)(ecc1 &gt;&gt; 8);
++		oob[oob_offset++] = (u8)(ecc1 &gt;&gt; 16);
++
++	} while (data_size);
++
++	/* write OOB into spare area */
++	return davinci_writepage_tail(nand, oob, oob_size);
++}
++
++/*
++ * Preferred &quot;new style&quot; ECC layout for use with 4-bit ECC.  This somewhat
++ * slows down large page reads done with error correction (since the OOB
++ * is read first, so its ECC data can be used incrementally), but the
++ * manufacturer bad block markers are safe.  Contrast:  old &quot;infix&quot; style.
++ */
++static int davinci_write_page_ecc4(struct nand_device_s *nand, u32 page,
++		u8 *data, u32 data_size, u8 *oob, u32 oob_size)
++{
++	static const u8 ecc512[] = {
++		0, 1, 2, 3, 4, /* 5== mfr badblock */
++		6, 7, /* 8..12 for BBT or JFFS2 */ 13, 14, 15,
++	};
++	static const u8 ecc2048[] = {
++		24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
++		34, 35, 36, 37, 38, 39, 40, 41, 42, 43,
++		44, 45, 46, 47, 48, 49, 50, 51, 52, 53,
++		54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
++	};
++	static const u8 ecc4096[] = {
++		 48,  49,  50,  51,  52,  53,  54,  55,  56,  57,
++		 58,  59,  60,  61,  62,  63,  64,  65,  66,  67,
++		 68,  69,  70,  71,  72,  73,  74,  75,  76,  77,
++		 78,  79,  80,  81,  82,  83,  84,  85,  86,  87,
++		 88,  89,  90,  91,  92,  93,  94,  95,  96,  97,
++		 98,  99, 100, 101, 102, 103, 104, 105, 106, 107,
++		108, 109, 110, 111, 112, 113, 114, 115, 116, 117,
++		118, 119, 120, 121, 122, 123, 124, 125, 126, 127,
++	};
++
++	struct davinci_nand *info = nand-&gt;controller_priv;
++	const u8 *l;
++	target_t *target = info-&gt;target;
++	const u32 fcr_addr = info-&gt;aemif + NANDFCR;
++	const u32 ecc4_addr = info-&gt;aemif + NAND4BITECC;
++	u32 fcr, ecc4;
++
++	/* Use the same ECC layout Linux uses.  For small page chips
++	 * it's a bit cramped.
++	 *
++	 * NOTE:  at this writing, 4KB pages have issues in Linux
++	 * because they need more than 64 bytes of ECC data, which
++	 * the standard ECC logic can't handle.
++	 */
++	switch (nand-&gt;page_size) {
++	case 512:
++		l = ecc512;
++		break;
++	case 2048:
++		l = ecc2048;
++		break;
++	default:
++		l = ecc4096;
++		break;
++	}
++
++	davinci_write_pagecmd(nand, NAND_CMD_SEQIN, page);
++
++	/* scrub any old ECC state */
++	target_read_u32(target, info-&gt;aemif + NANDERRVAL, &amp;ecc4);
++
++	target_read_u32(target, fcr_addr, &amp;fcr);
++	fcr &amp;= ~(0x03 &lt;&lt; 4);
++	fcr |= (1 &lt;&lt; 12) | (info-&gt;chipsel &lt;&lt; 4);
++
++	do {
++		u32 raw_ecc[4], *p;
++		int i;
++
++		/* start 4bit ecc on csX */
++		target_write_u32(target, fcr_addr, fcr);
++
++		/* write 512 bytes */
++		davinci_write_block_data(nand, data, 512);
++		data += 512;
++		data_size -= 512;
++
++		/* read the ecc, then save it into 10 bytes in the oob */
++		for (i = 0; i &lt; 4; i++) {
++			target_read_u32(target, ecc4_addr + 4 * i, &amp;raw_ecc[i]);
++			raw_ecc[i] &amp;= 0x03ff03ff;
++		}
++		for (i = 0, p = raw_ecc; i &lt; 2; i++, p += 2) {
++			oob[*l++] =   p[0]        &amp; 0xff;
++			oob[*l++] = ((p[0] &gt;&gt;  8) &amp; 0x03) | ((p[0] &gt;&gt; 14) &amp; 0xfc);
++			oob[*l++] = ((p[0] &gt;&gt; 22) &amp; 0x0f) | ((p[1] &lt;&lt;  4) &amp; 0xf0);
++			oob[*l++] = ((p[1] &gt;&gt;  4) &amp; 0x3f) | ((p[1] &gt;&gt; 10) &amp; 0xc0);
++			oob[*l++] =  (p[1] &gt;&gt; 18) &amp; 0xff;
++		}
++
++	} while (data_size);
++
++	/* write OOB into spare area */
++	return davinci_writepage_tail(nand, oob, oob_size);
++}
++
++/*
++ * &quot;Infix&quot; OOB ... like Linux ECC_HW_SYNDROME.  Avoided because it trashes
++ * manufacturer bad block markers, except on small page chips.  Once you
++ * write to a page using this scheme, you need specialized code to update
++ * it (code which ignores now-invalid bad block markers).
++ *
++ * This is needed *only* to support older firmware.  Older ROM Boot Loaders
++ * need it to read their second stage loader (UBL) into SRAM, but from then
++ * on the whole system can use the cleaner non-infix layouts.  Systems with
++ * older second stage loaders (ABL/U-Boot, etc) or other system software
++ * (MVL 4.x/5.x kernels, filesystems, etc) may need it more generally.
++ */
++static int davinci_write_page_ecc4infix(struct nand_device_s *nand, u32 page,
++		u8 *data, u32 data_size, u8 *oob, u32 oob_size)
++{
++	struct davinci_nand *info = nand-&gt;controller_priv;
++	target_t *target = info-&gt;target;
++	const u32 fcr_addr = info-&gt;aemif + NANDFCR;
++	const u32 ecc4_addr = info-&gt;aemif + NAND4BITECC;
++	u32 fcr, ecc4;
++
++	davinci_write_pagecmd(nand, NAND_CMD_SEQIN, page);
++
++	/* scrub any old ECC state */
++	target_read_u32(target, info-&gt;aemif + NANDERRVAL, &amp;ecc4);
++
++	target_read_u32(target, fcr_addr, &amp;fcr);
++	fcr &amp;= ~(0x03 &lt;&lt; 4);
++	fcr |= (1 &lt;&lt; 12) | (info-&gt;chipsel &lt;&lt; 4);
++
++	do {
++		u32 raw_ecc[4], *p;
++		u8 *l;
++		int i;
++
++		/* start 4bit ecc on csX */
++		target_write_u32(target, fcr_addr, fcr);
++
++		/* write 512 bytes */
++		davinci_write_block_data(nand, data, 512);
++		data += 512;
++		data_size -= 512;
++
++		/* read the ecc */
++		for (i = 0; i &lt; 4; i++) {
++			target_read_u32(target, ecc4_addr + 4 * i, &amp;raw_ecc[i]);
++			raw_ecc[i] &amp;= 0x03ff03ff;
++		}
++
++		/* skip 6 bytes of prepad, then pack 10 packed ecc bytes */
++		for (i = 0, l = oob + 6, p = raw_ecc; i &lt; 2; i++, p += 2) {
++			*l++ =   p[0]        &amp; 0xff;
++			*l++ = ((p[0] &gt;&gt;  8) &amp; 0x03) | ((p[0] &gt;&gt; 14) &amp; 0xfc);
++			*l++ = ((p[0] &gt;&gt; 22) &amp; 0x0f) | ((p[1] &lt;&lt;  4) &amp; 0xf0);
++			*l++ = ((p[1] &gt;&gt;  4) &amp; 0x3f) | ((p[1] &gt;&gt; 10) &amp; 0xc0);
++			*l++ =  (p[1] &gt;&gt; 18) &amp; 0xff;
++		}
++
++		/* write this &quot;out-of-band&quot; data -- infix */
++		davinci_write_block_data(nand, oob, 16);
++		oob += 16;
++		oob_size -= 16;
++
++	} while (data_size);
++
++	/* the last data and OOB writes included the spare area */
++	return davinci_writepage_tail(nand, NULL, 0);
++}
++
++static int davinci_read_page_ecc4infix(struct nand_device_s *nand, u32 page,
++		u8 *data, u32 data_size, u8 *oob, u32 oob_size)
++{
++	davinci_write_pagecmd(nand, NAND_CMD_READ0, page);
++
++	/* large page devices need a start command */
++	if (nand-&gt;page_size &gt; 512)
++		davinci_command(nand, NAND_CMD_READSTART);
++
++	if (!davinci_nand_ready(nand, 100))
++		return ERROR_NAND_OPERATION_TIMEOUT;
++
++	/* NOTE:  not bothering to compute and use ECC data for now */
++
++	do {
++		/* write 512 bytes */
++		davinci_read_block_data(nand, data, 512);
++		data += 512;
++		data_size -= 512;
++
++		/* read this &quot;out-of-band&quot; data -- infix */
++		davinci_read_block_data(nand, oob, 16);
++		oob += 16;
++		oob_size -= 16;
++	} while (data_size);
++
++	return ERROR_OK;
++}
++
++static int davinci_nand_device_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **argv, int argc,
++		struct nand_device_s *nand)
++{
++	struct davinci_nand *info;
++	target_t *target;
++	unsigned long chip, aemif;
++	enum ecc eccmode;
++	int chipsel;
++	char *ep;
++
++	/* arguments:
++	 *  - &quot;davinci&quot;
++	 *  - target
++	 *  - nand chip address
++	 *  - ecc mode
++	 *  - aemif address
++	 * Plus someday, optionally, ALE and CLE masks.
++	 */
++	if (argc &lt; 5) {
++		LOG_ERROR(&quot;parameters: %s target &quot;
++				&quot;chip_addr hwecc_mode aemif_addr&quot;,
++				argv[0]);
++		goto fail;
++	}
++
++	target = get_target(argv[1]);
++	if (!target) {
++		LOG_ERROR(&quot;invalid target %s&quot;, argv[1]);
++		goto fail;
++	}
++
++	chip = strtoul(argv[2], &amp;ep, 0);
++	if (*ep || chip == 0 || chip == ULONG_MAX) {
++		LOG_ERROR(&quot;Invalid NAND chip address %s&quot;, argv[2]);
++		goto fail;
++	}
++
++	if (strcmp(argv[3], &quot;hwecc1&quot;) == 0)
++		eccmode = HWECC1;
++	else if (strcmp(argv[3], &quot;hwecc4&quot;) == 0)
++		eccmode = HWECC4;
++	else if (strcmp(argv[3], &quot;hwecc4_infix&quot;) == 0)
++		eccmode = HWECC4_INFIX;
++	else {
++		LOG_ERROR(&quot;Invalid ecc mode %s&quot;, argv[3]);
++		goto fail;
++	}
++
++	aemif = strtoul(argv[4], &amp;ep, 0);
++	if (*ep || chip == 0 || chip == ULONG_MAX) {
++		LOG_ERROR(&quot;Invalid AEMIF controller address %s&quot;, argv[4]);
++		goto fail;
++	}
++
++	/* REVISIT what we'd *like* to do is look up valid ranges using
++	 * target-specific declarations, and not even need to pass the
++	 * AEMIF controller address.
++	 */
++	if (aemif == 0x01e00000			/* dm6446, dm357 */
++			|| aemif == 0x01e10000	/* dm335, dm355 */
++			|| aemif == 0x01d10000	/* dm365 */
++			) {
++		if (chip &lt; 0x0200000 || chip &gt;= 0x0a000000) {
++			LOG_ERROR(&quot;NAND address %08lx out of range?&quot;, chip);
++			goto fail;
++		}
++		chipsel = (chip - 0x02000000) &gt;&gt; 21;
++	} else {
++		LOG_ERROR(&quot;unrecognized AEMIF controller address %08lx&quot;, aemif);
++		goto fail;
++	}
++
++	info = calloc(1, sizeof *info);
++	if (info == NULL)
++		goto fail;
++
++	info-&gt;target = target;
++	info-&gt;eccmode = eccmode;
++	info-&gt;chipsel = chipsel;
++	info-&gt;aemif = aemif;
++	info-&gt;data = chip;
++	info-&gt;cmd = chip | 0x10;
++	info-&gt;addr = chip | 0x08;
++
++	nand-&gt;controller_priv = info;
++
++	/* NOTE:  for now we don't do any error correction on read.
++	 * Nothing else in OpenOCD currently corrects read errors,
++	 * and in any case it's *writing* that we care most about.
++	 */
++	info-&gt;read_page = nand_read_page_raw;
++
++	switch (eccmode) {
++	case HWECC1:
++		/* ECC_HW, 1-bit corrections, 3 bytes ECC per 512 data bytes */
++		info-&gt;write_page = davinci_write_page_ecc1;
++		break;
++	case HWECC4:
++		/* ECC_HW, 4-bit corrections, 10 bytes ECC per 512 data bytes */
++		info-&gt;write_page = davinci_write_page_ecc4;
++		break;
++	case HWECC4_INFIX:
++		/* Same 4-bit ECC HW, with problematic page/ecc layout */
++		info-&gt;read_page = davinci_read_page_ecc4infix;
++		info-&gt;write_page = davinci_write_page_ecc4infix;
++		break;
++	}
++
++	return ERROR_OK;
++
++fail:
++	return ERROR_NAND_OPERATION_FAILED;
++}
++
++nand_flash_controller_t davinci_nand_controller = {
++	.name			= &quot;davinci&quot;,
++	.nand_device_command	= davinci_nand_device_command,
++	.register_commands	= davinci_register_commands,
++	.init			= davinci_init,
++	.reset			= davinci_reset,
++	.command		= davinci_command,
++	.address		= davinci_address,
++	.write_data		= davinci_write_data,
++	.read_data		= davinci_read_data,
++	.write_page		= davinci_write_page,
++	.read_page		= davinci_read_page,
++	.write_block_data	= davinci_write_block_data,
++	.read_block_data	= davinci_read_block_data,
++	.nand_ready		= davinci_nand_ready,
++};
+
+
+Property changes on: trunk/src/flash/davinci_nand.c
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/src/flash/nand.c
+===================================================================
+--- trunk/src/flash/nand.c	2009-05-24 01:33:54 UTC (rev 1902)
++++ trunk/src/flash/nand.c	2009-05-24 01:38:19 UTC (rev 1903)
+@@ -48,6 +48,7 @@
+ 
+ /* NAND flash controller
+  */
++extern nand_flash_controller_t davinci_nand_controller;
+ extern nand_flash_controller_t lpc3180_nand_controller;
+ extern nand_flash_controller_t orion_nand_controller;
+ extern nand_flash_controller_t s3c2410_nand_controller;
+@@ -59,6 +60,7 @@
+ 
+ static nand_flash_controller_t *nand_flash_controllers[] =
+ {
++	&amp;davinci_nand_controller,
+ 	&amp;lpc3180_nand_controller,
+ 	&amp;orion_nand_controller,
+ 	&amp;s3c2410_nand_controller,
+
+Modified: trunk/src/target/board/dm355evm.cfg
+===================================================================
+--- trunk/src/target/board/dm355evm.cfg	2009-05-24 01:33:54 UTC (rev 1902)
++++ trunk/src/target/board/dm355evm.cfg	2009-05-24 01:38:19 UTC (rev 1903)
+@@ -105,7 +105,15 @@
+ 	# FIXME setup
+ }
+ 
++# NAND -- socket has two chipselects, MT29F16G08FAA puts 1GByte on each one.
++#
++# NOTE:  &quot;hwecc4&quot; here presumes that if you're using the standard 2GB NAND
++# you either (a) have 'new' DM355 chips, with boot ROMs that don't need to
++# use &quot;hwecc4_infix&quot; for the UBL; or else (b) aren't updating anything that
++# needs infix layout ... like an old UBL, old U-Boot, old MVL kernel, etc.
++nand device davinci 0 0x02000000 hwecc4 0x01e10000
++nand device davinci 0 0x02004000 hwecc4 0x01e10000
++
+ # FIXME
+-#  - declare the NAND flash; use the 4-bit ECC
+ #  - support writing UBL with its header (new layout only with new ROMs)
+-#  - support writing ABL/U-Boot with its header (both layouts)
++#  - support writing ABL/U-Boot with its header (new layout)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000686.html">[Openocd-svn] r1902 - trunk/doc
+</A></li>
+	<LI>Next message: <A HREF="000688.html">[Openocd-svn] r1904 - in trunk: doc src/flash src/target/board
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#687">[ date ]</a>
+              <a href="thread.html#687">[ thread ]</a>
+              <a href="subject.html#687">[ subject ]</a>
+              <a href="author.html#687">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

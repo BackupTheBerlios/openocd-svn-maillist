@@ -1,0 +1,177 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2220 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2220%20-%20trunk/src/target&In-Reply-To=%3C200906120414.n5C4EVSF009286%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001003.html">
+   <LINK REL="Next"  HREF="001005.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2220 - trunk/src/target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2220%20-%20trunk/src/target&In-Reply-To=%3C200906120414.n5C4EVSF009286%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2220 - trunk/src/target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Fri Jun 12 06:14:31 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001003.html">[Openocd-svn] r2219 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001005.html">[Openocd-svn] r2221 - trunk/src/flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1004">[ date ]</a>
+              <a href="thread.html#1004">[ thread ]</a>
+              <a href="subject.html#1004">[ subject ]</a>
+              <a href="author.html#1004">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-12 06:14:28 +0200 (Fri, 12 Jun 2009)
+New Revision: 2220
+
+Modified:
+   trunk/src/target/mips_m4k.c
+Log:
+Further cleanup to MIPS target read/write memory function:
+- Move the mips32_..._read_mem calls to top-level of read_mem function.
+- Change: Only perform mips_m4k_read_mem conversion when retval == ERROR_OK.  
+   - Prevents pointless conversions of bogus read values after failures.
+- Eliminate retval variable from mips_m4k_write_mem; return directly.
+- Move declaration of retval variable to point of first use.
+- Remove the now redundant switch statements testing size:
+  - argument sanitizing already covers these cases.
+
+
+Modified: trunk/src/target/mips_m4k.c
+===================================================================
+--- trunk/src/target/mips_m4k.c	2009-06-12 04:14:18 UTC (rev 2219)
++++ trunk/src/target/mips_m4k.c	2009-06-12 04:14:28 UTC (rev 2220)
+@@ -732,7 +732,6 @@
+ {
+ 	mips32_common_t *mips32 = target-&gt;arch_info;
+ 	mips_ejtag_t *ejtag_info = &amp;mips32-&gt;ejtag_info;
+-	int retval;
+ 
+ 	LOG_DEBUG(&quot;address: 0x%8.8x, size: 0x%8.8x, count: 0x%8.8x&quot;, address, size, count);
+ 
+@@ -749,22 +748,14 @@
+ 	if (((size == 4) &amp;&amp; (address &amp; 0x3u)) || ((size == 2) &amp;&amp; (address &amp; 0x1u)))
+ 		return ERROR_TARGET_UNALIGNED_ACCESS;
+ 
+-	switch (size)
+-	{
+-		case 4:
+-		case 2:
+-		case 1:
+-			/* if noDMA off, use DMAACC mode for memory read */
+-			if(ejtag_info-&gt;impcode &amp; EJTAG_IMP_NODMA)
+-				retval = mips32_pracc_read_mem(ejtag_info, address, size, count, (void *)buffer);
+-			else
+-				retval = mips32_dmaacc_read_mem(ejtag_info, address, size, count, (void *)buffer);
+-			break;
+-		default:
+-			LOG_ERROR(&quot;BUG: we shouldn't get here&quot;);
+-			exit(-1);
+-			break;
+-	}
++	/* if noDMA off, use DMAACC mode for memory read */
++	int retval;
++	if(ejtag_info-&gt;impcode &amp; EJTAG_IMP_NODMA)
++		retval = mips32_pracc_read_mem(ejtag_info, address, size, count, (void *)buffer);
++	else
++		retval = mips32_dmaacc_read_mem(ejtag_info, address, size, count, (void *)buffer);
++	if (ERROR_OK != retval)
++		return retval;
+ 
+ 	/* TAP data register is loaded LSB first (little endian) */
+ 	if (target-&gt;endianness == TARGET_BIG_ENDIAN) 
+@@ -787,15 +778,14 @@
+ 			}
+ 		}
+ 	}
+-	
+-	return retval;
++
++	return ERROR_OK;
+ }
+ 
+ int mips_m4k_write_memory(struct target_s *target, u32 address, u32 size, u32 count, u8 *buffer)
+ {
+ 	mips32_common_t *mips32 = target-&gt;arch_info;
+ 	mips_ejtag_t *ejtag_info = &amp;mips32-&gt;ejtag_info;
+-	int retval;
+ 
+ 	LOG_DEBUG(&quot;address: 0x%8.8x, size: 0x%8.8x, count: 0x%8.8x&quot;, address, size, count);
+ 
+@@ -812,19 +802,6 @@
+ 	if (((size == 4) &amp;&amp; (address &amp; 0x3u)) || ((size == 2) &amp;&amp; (address &amp; 0x1u)))
+ 		return ERROR_TARGET_UNALIGNED_ACCESS;
+ 
+-	switch (size)
+-	{
+-		case 4:
+-		case 2:
+-		case 1:
+-			/* if noDMA off, use DMAACC mode for memory write */
+-			break;
+-		default:
+-			LOG_ERROR(&quot;BUG: we shouldn't get here&quot;);
+-			exit(-1);
+-			break;
+-	}
+-
+ 	/* TAP data register is loaded LSB first (little endian) */
+ 	if (target-&gt;endianness == TARGET_BIG_ENDIAN)
+ 	{
+@@ -847,13 +824,11 @@
+ 		}
+ 	}	   
+ 
++	/* if noDMA off, use DMAACC mode for memory write */
+ 	if(ejtag_info-&gt;impcode &amp; EJTAG_IMP_NODMA)
+-		retval = mips32_pracc_write_mem(ejtag_info, address, size, count, (void *)buffer);
++		return mips32_pracc_write_mem(ejtag_info, address, size, count, (void *)buffer);
+ 	else
+-		retval = mips32_dmaacc_write_mem(ejtag_info, address, size, count, (void *)buffer);
+-	
+-
+-	return retval;
++		return mips32_dmaacc_write_mem(ejtag_info, address, size, count, (void *)buffer);
+ }
+ 
+ int mips_m4k_register_commands(struct command_context_s *cmd_ctx)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001003.html">[Openocd-svn] r2219 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001005.html">[Openocd-svn] r2221 - trunk/src/flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1004">[ date ]</a>
+              <a href="thread.html#1004">[ thread ]</a>
+              <a href="subject.html#1004">[ subject ]</a>
+              <a href="author.html#1004">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

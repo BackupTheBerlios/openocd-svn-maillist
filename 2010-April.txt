@@ -1,0 +1,4959 @@
+From dbrownell at users.sourceforge.net  Sun Apr  4 03:37:15 2010
+From: dbrownell at users.sourceforge.net (David Brownell)
+Date: Sun,  4 Apr 2010 01:37:15 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-142-gd37a10d
+Message-ID: <E1NyEm4-0005dG-Ox@sfp-scmshell-4.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  d37a10da52bc8e6df4e3df2edd02ddbc29fe3bc4 (commit)
+      from  33e5dd12729d995b351ece716e8c835dd8331c71 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit d37a10da52bc8e6df4e3df2edd02ddbc29fe3bc4
+Author: David Brownell <dbrownell at users.sourceforge.net>
+Date:   Sat Apr 3 18:36:07 2010 -0700
+
+    buildfix
+    
+    Without this, a system using gcc (GCC) 4.2.4 (Ubuntu 4.2.4-1ubuntu4)
+    aborts builds after reporting:
+    
+    tcl.c: In function ???handle_irscan_command???:
+    tcl.c:1168: warning: passing argument 1 of ???buf_set_u32??? discards qualifiers from pointer target type
+    
+    Signed-off-by: David Brownell <dbrownell at users.sourceforge.net>
+
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index 7dc7fb7..579ca9e 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -1165,7 +1165,8 @@ COMMAND_HANDLER(handle_irscan_command)
+ 		retval = parse_u32(CMD_ARGV[i * 2 + 1], &value);
+ 		if (ERROR_OK != retval)
+ 			goto error_return;
+-		buf_set_u32((void *)fields[i].out_value, 0, field_size, value);
++void *v = (void *)fields[i].out_value;
++		buf_set_u32(v, 0, field_size, value);
+ 		fields[i].in_value = NULL;
+ 	}
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/tcl.c |    3 ++-
+ 1 files changed, 2 insertions(+), 1 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From dbrownell at users.sourceforge.net  Sun Apr  4 10:15:23 2010
+From: dbrownell at users.sourceforge.net (David Brownell)
+Date: Sun,  4 Apr 2010 08:15:23 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-144-g876bf9b
+Message-ID: <E1NyKzP-00031M-L2@sfp-scmshell-2.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  876bf9bf4cd5fc2640d91811fb69c0d36f9e2c18 (commit)
+       via  88fcb5a9ef971e54166de7cd16a3b0be20113b82 (commit)
+      from  d37a10da52bc8e6df4e3df2edd02ddbc29fe3bc4 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 876bf9bf4cd5fc2640d91811fb69c0d36f9e2c18
+Author: David Brownell <dbrownell at users.sourceforge.net>
+Date:   Sun Apr 4 00:42:05 2010 -0700
+
+    target: are we running algorithm code?
+    
+    Fixing one bug can easily uncover another  .... in this case,
+    making sure that we properly invalidate some cached NOR state when
+    resuming arbitrary target code turned up an issue when the code
+    wasn't quite arbitrary (and we couldn't know that, but some parts
+    of OpenOCD assumed the cache would not be invalidated.
+    
+    Specifically:  some flash drivers (like CFI) update that state in loops
+    with downloaded algorithms, thus invalidating the state as it's probed.
+    
+     + Add a new target state flag, to record whether the target is
+      running downloaded algorithm code.
+    
+     + Use that flag to add a special case:  "trust" downloaded algorithms
+       not to corrupt that cached state, bypassing cache invalidation.
+    
+    Also update some of the documentation to stipulate that this flavor of
+    trustworthiness is now *required* ... not just a fortuitous acident.
+    
+    Signed-off-by: David Brownell <dbrownell at users.sourceforge.net>
+
+diff --git a/src/target/target.c b/src/target/target.c
+index 75c41d3..286933f 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -478,9 +478,14 @@ int target_resume(struct target *target, int current, uint32_t address, int hand
+ 	 * themselves.  We want flash drivers and infrastructure to
+ 	 * be able to rely on (non-invalidated) cached state.
+ 	 *
++	 * For now we require that algorithms provided by OpenOCD are
++	 * used only by code which properly maintains that  cached state.
++	 * state
++	 *
+ 	 * REVISIT do the same for NAND ; maybe other flash flavors too...
+ 	 */
+-	nor_resume(target);
++		if (!target->running_alg)
++		nor_resume(target);
+ 	return retval;
+ }
+ 
+@@ -659,10 +664,12 @@ int target_run_algorithm(struct target *target,
+ 		goto done;
+ 	}
+ 
++	target->running_alg = true;
+ 	retval = target->type->run_algorithm(target,
+ 			num_mem_params, mem_params,
+ 			num_reg_params, reg_param,
+ 			entry_point, exit_point, timeout_ms, arch_info);
++	target->running_alg = false;
+ 
+ done:
+ 	return retval;
+diff --git a/src/target/target.h b/src/target/target.h
+index 7400b7e..562724b 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -117,6 +117,14 @@ struct target
+ 	 */
+ 	bool examined;
+ 
++	/** true iff the  target is currently running a downloaded
++	 *  "algorithm" instetad of arbitrary user code.  OpenOCD code
++	 *  invoking algorithms is trusted to maintain correctness of
++	 *  any cached state (e.g. for flash status), which arbitrary
++	 *  code will have no reason to know about.
++	 */
++	bool running_alg;
++
+ 	struct target_event_action *event_action;
+ 
+ 	int reset_halt;						/* attempt resetting the CPU into the halted mode? */
+
+commit 88fcb5a9ef971e54166de7cd16a3b0be20113b82
+Author: David Brownell <dbrownell at users.sourceforge.net>
+Date:   Sun Apr 4 00:38:39 2010 -0700
+
+    simplify and unconfuse target_run_algorithm()
+    
+    For some reason there are *two* schemes for interposing logic into
+    the run_algorithm() code path...  One is a standard procedural wapper
+    around the target method invocation.
+    
+    the other (superfluous) one hacked the method table by splicing
+    a second procedural wrapper into the method table.  Remove it:
+    
+    	* Rename its  slightly-more-featureful wrapper so it becomes
+    	  the standard procedural wrapper, leaving its added logic
+    	  (where it should have been in the first place.
+    
+              Also add a paranoia check, to report targets that don't
+    	  support algorithms without traversing a NULL pointer, and
+    	  tweak its code structure a bit so it's easier to modify.
+    
+    	* Get rid of the superfluous/conusing method table hacks.
+    
+    This is a net simplification, making it simpler to analyse what's
+    going on, and then interpose logic . ... by ensuring there's only one
+    natural place for it to live.
+    
+    ------------
+    
+    Signed-off-by: David Brownell <dbrownell at users.sourceforge.net>
+
+diff --git a/src/target/target.c b/src/target/target.c
+index 868241e..75c41d3 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -629,16 +629,46 @@ static int target_soft_reset_halt_imp(struct target *target)
+ 	return target->type->soft_reset_halt_imp(target);
+ }
+ 
+-static int target_run_algorithm_imp(struct target *target, int num_mem_params, struct mem_param *mem_params, int num_reg_params, struct reg_param *reg_param, uint32_t entry_point, uint32_t exit_point, int timeout_ms, void *arch_info)
++/**
++ * Downloads a target-specific native code algorithm to the target,
++ * and executes it.  * Note that some targets may need to set up, enable,
++ * and tear down a breakpoint (hard or * soft) to detect algorithm
++ * termination, while others may support  lower overhead schemes where
++ * soft breakpoints embedded in the algorithm automatically terminate the
++ * algorithm.
++ *
++ * @param target used to run the algorithm
++ * @param arch_info target-specific description of the algorithm.
++ */
++int target_run_algorithm(struct target *target,
++		int num_mem_params, struct mem_param *mem_params,
++		int num_reg_params, struct reg_param *reg_param,
++		uint32_t entry_point, uint32_t exit_point,
++		int timeout_ms, void *arch_info)
+ {
++	int retval = ERROR_FAIL;
++
+ 	if (!target_was_examined(target))
+ 	{
+ 		LOG_ERROR("Target not examined yet");
+-		return ERROR_FAIL;
++		goto done;
++	}
++	if (target->type->run_algorithm) {
++		LOG_ERROR("Target type '%s' does not support %s",
++				target_type_name(target), __func__);
++		goto done;
+ 	}
+-	return target->type->run_algorithm_imp(target, num_mem_params, mem_params, num_reg_params, reg_param, entry_point, exit_point, timeout_ms, arch_info);
++
++	retval = target->type->run_algorithm(target,
++			num_mem_params, mem_params,
++			num_reg_params, reg_param,
++			entry_point, exit_point, timeout_ms, arch_info);
++
++done:
++	return retval;
+ }
+ 
++
+ int target_read_memory(struct target *target,
+ 		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+@@ -711,17 +741,6 @@ int target_step(struct target *target,
+ }
+ 
+ 
+-int target_run_algorithm(struct target *target,
+-		int num_mem_params, struct mem_param *mem_params,
+-		int num_reg_params, struct reg_param *reg_param,
+-		uint32_t entry_point, uint32_t exit_point,
+-		int timeout_ms, void *arch_info)
+-{
+-	return target->type->run_algorithm(target,
+-			num_mem_params, mem_params, num_reg_params, reg_param,
+-			entry_point, exit_point, timeout_ms, arch_info);
+-}
+-
+ /**
+  * Reset the @c examined flag for the given target.
+  * Pure paranoia -- targets are zeroed on allocation.
+@@ -785,9 +804,6 @@ static int target_init_one(struct command_context *cmd_ctx,
+ 	type->soft_reset_halt_imp = target->type->soft_reset_halt;
+ 	type->soft_reset_halt = target_soft_reset_halt_imp;
+ 
+-	type->run_algorithm_imp = target->type->run_algorithm;
+-	type->run_algorithm = target_run_algorithm_imp;
+-
+ 	/* Sanity-check MMU support ... stub in what we must, to help
+ 	 * implement it in stages, but warn if we need to do so.
+ 	 */
+diff --git a/src/target/target_type.h b/src/target/target_type.h
+index 70eb962..d3db8b5 100644
+--- a/src/target/target_type.h
++++ b/src/target/target_type.h
+@@ -146,8 +146,6 @@ struct target_type
+ 	 */
+ 	int (*remove_watchpoint)(struct target *target, struct watchpoint *watchpoint);
+ 
+-	/* target algorithm support */
+-	int (*run_algorithm_imp)(struct target *target, int num_mem_params, struct mem_param *mem_params, int num_reg_params, struct reg_param *reg_param, uint32_t entry_point, uint32_t exit_point, int timeout_ms, void *arch_info);
+ 	/**
+ 	 * Target algorithm support.  Do @b not call this method directly,
+ 	 * use target_run_algorithm() instead.
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/target.c      |   59 ++++++++++++++++++++++++++++++++--------------
+ src/target/target.h      |    8 ++++++
+ src/target/target_type.h |    2 -
+ 3 files changed, 49 insertions(+), 20 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From dbrownell at users.sourceforge.net  Sun Apr  4 10:30:37 2010
+From: dbrownell at users.sourceforge.net (David Brownell)
+Date: Sun,  4 Apr 2010 08:30:37 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-145-g2a17fd9
+Message-ID: <E1NyLE7-0002DL-OY@sfp-scmshell-3.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  2a17fd9f9b51516a830ba4b3ae2f2284929ff266 (commit)
+      from  876bf9bf4cd5fc2640d91811fb69c0d36f9e2c18 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 2a17fd9f9b51516a830ba4b3ae2f2284929ff266
+Author: David Brownell <dbrownell at users.sourceforge.net>
+Date:   Sun Apr 4 01:28:50 2010 -0700
+
+    Restore deleted '!' character
+    
+    I'm not sure what caused this significant character to get deleted.
+    it may be related to intermittent Editor or terminal flakes  I've
+    been seeing lately (sigh).  This fix is trivial.
+    
+    Signed-off-by: David Brownell <dbrownell at users.sourceforge.net>
+
+diff --git a/src/target/target.c b/src/target/target.c
+index 286933f..f3d63fc 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -658,7 +658,7 @@ int target_run_algorithm(struct target *target,
+ 		LOG_ERROR("Target not examined yet");
+ 		goto done;
+ 	}
+-	if (target->type->run_algorithm) {
++	if (!target->type->run_algorithm) {
+ 		LOG_ERROR("Target type '%s' does not support %s",
+ 				target_type_name(target), __func__);
+ 		goto done;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/target.c |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From gowinex at users.sourceforge.net  Mon Apr 12 16:58:51 2010
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Mon, 12 Apr 2010 14:58:51 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-182-ga8a9edd
+Message-ID: <E1O1L6D-0004eC-IZ@sfp-scmshell-1.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  a8a9eddca0f8f5d8ab73f22c5a159fe1748272d5 (commit)
+       via  41cb9118536db5e5e2836ad6c75daae1d21b6f4a (commit)
+       via  f549dadb858cbf1bff1b3369dbdb2cc7d8f083a4 (commit)
+       via  689fa8ad8c9bf40a98bd09303c80b67f72b7ac1f (commit)
+       via  da741a51f2dadc66db450a2f44c7c64c886e977a (commit)
+       via  f1be0e6af2e204805a8bc2e8cadf828b9fa46c98 (commit)
+       via  2ea78551ab3388032ad78cdeefac7ab75e3bb134 (commit)
+       via  4809dbb2d7aa3b949a555876aad945d3916a8c87 (commit)
+       via  11fd673f0c315346ef065289b164da58dd1fd4c6 (commit)
+       via  b2495c010148b8343f8f70f6ee558f505a2c7409 (commit)
+       via  787a5067fbe0eaf05ad2f41a64c3eac776905724 (commit)
+       via  fdb9199001080e2d268da77f97365ab7b7f138d2 (commit)
+       via  d7246f452f4da9767e9ebdd6fb43b982954c02bf (commit)
+       via  c936cb334b9e60c3326675912c97faafb379d3ed (commit)
+       via  5926b5a94fd4e29e0e020c2f87b542fd51bd5d6f (commit)
+       via  a6307fed9100877df2def268acece81078e06d6f (commit)
+       via  617811ac664504303cf65a69c1b3f8ca262def0b (commit)
+       via  aaf848596c13f26026bcbd1071f7614e818ea766 (commit)
+       via  9acd453d9f1d7d9ef90343f84ffc43ce6e1b434d (commit)
+       via  069f88cfac1199657a7e4c9988b0bc86eca99ac9 (commit)
+       via  300f0f53c54fab5dd994a8bc42edbdc6115ef7b9 (commit)
+       via  402d3292bbd6e04ffefb1bdf7ab61f3bfc36c44a (commit)
+       via  61c06359915cbaef5b8538d2600ecbc17d4b387c (commit)
+       via  0c82bea44acf491164c96efd88c1a831fbf6ce67 (commit)
+       via  c0b5ca6d17273aff849bc6546c7388562b751225 (commit)
+       via  b2468e3c4f09cd4e9f204aeb885dfdbbeb0a8dbb (commit)
+       via  46781080347af4f207cec108dfc2f96da61dcbfa (commit)
+       via  ec1c90e3cd53446939b4655f55166bff6b3d39f4 (commit)
+       via  8ffdefcc59ee0a8d305ac5a9f28b38ad89dea7c5 (commit)
+       via  de27d28df90ab3ed190b55ffa4d2a2cbf491732c (commit)
+       via  8a871560f99779b279623540588f7295fe041781 (commit)
+       via  4a1bd5b80603f73593fd7094d7da41ff72130461 (commit)
+       via  0f3bbcf09683904c1f21b6961cbb0f36b07043c0 (commit)
+       via  263b4b9057b4e34eec8b39c4f165d370cb51a9e3 (commit)
+       via  3f0b17e48af9e3481084e1e9e697012b6824df43 (commit)
+       via  321aa6aa8fe9f6c07649776722a341bbfda028ee (commit)
+       via  81fab96c0d0da02e8debc07079d5f6fe699dff45 (commit)
+      from  2a17fd9f9b51516a830ba4b3ae2f2284929ff266 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit a8a9eddca0f8f5d8ab73f22c5a159fe1748272d5
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sun Apr 11 01:31:42 2010 +0800
+
+    TARGET/ARM7_9_COMMON: review scope of symbols
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index 8f63f3c..9f1bb2e 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -184,7 +184,7 @@ static int arm7_9_set_software_breakpoints(struct arm7_9_common *arm7_9)
+  * @param target Pointer to an ARM7/9 target to setup
+  * @return Result of clearing the watchpoints on the target
+  */
+-int arm7_9_setup(struct target *target)
++static int arm7_9_setup(struct target *target)
+ {
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 
+@@ -202,7 +202,7 @@ int arm7_9_setup(struct target *target)
+  *         queue.  For software breakpoints, this will be the status of the
+  *         required memory reads and writes
+  */
+-int arm7_9_set_breakpoint(struct target *target, struct breakpoint *breakpoint)
++static int arm7_9_set_breakpoint(struct target *target, struct breakpoint *breakpoint)
+ {
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 	int retval = ERROR_OK;
+@@ -331,7 +331,7 @@ int arm7_9_set_breakpoint(struct target *target, struct breakpoint *breakpoint)
+  *         queue.  For software breakpoints, this will be the status of the
+  *         required memory reads and writes
+  */
+-int arm7_9_unset_breakpoint(struct target *target, struct breakpoint *breakpoint)
++static int arm7_9_unset_breakpoint(struct target *target, struct breakpoint *breakpoint)
+ {
+ 	int retval = ERROR_OK;
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+@@ -506,7 +506,7 @@ int arm7_9_remove_breakpoint(struct target *target, struct breakpoint *breakpoin
+  * @return Error status if watchpoint set fails or the result of executing the
+  *         JTAG queue
+  */
+-int arm7_9_set_watchpoint(struct target *target, struct watchpoint *watchpoint)
++static int arm7_9_set_watchpoint(struct target *target, struct watchpoint *watchpoint)
+ {
+ 	int retval = ERROR_OK;
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+@@ -577,7 +577,7 @@ int arm7_9_set_watchpoint(struct target *target, struct watchpoint *watchpoint)
+  * @return Error status while trying to unset the watchpoint or the result of
+  *         executing the JTAG queue
+  */
+-int arm7_9_unset_watchpoint(struct target *target, struct watchpoint *watchpoint)
++static int arm7_9_unset_watchpoint(struct target *target, struct watchpoint *watchpoint)
+ {
+ 	int retval = ERROR_OK;
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+@@ -729,7 +729,7 @@ int arm7_9_execute_sys_speed(struct target *target)
+  * @param target Pointer to the target to issue commands to
+  * @return Always ERROR_OK
+  */
+-int arm7_9_execute_fast_sys_speed(struct target *target)
++static int arm7_9_execute_fast_sys_speed(struct target *target)
+ {
+ 	static int set = 0;
+ 	static uint8_t check_value[4], check_mask[4];
+@@ -804,7 +804,7 @@ int arm7_9_target_request_data(struct target *target, uint32_t size, uint8_t *bu
+  * @return ERROR_OK unless there are issues with the JTAG queue or when reading
+  *                  from the Embedded ICE unit
+  */
+-int arm7_9_handle_target_request(void *priv)
++static int arm7_9_handle_target_request(void *priv)
+ {
+ 	int retval = ERROR_OK;
+ 	struct target *target = priv;
+@@ -1095,7 +1095,7 @@ int arm7_9_deassert_reset(struct target *target)
+  * @param target Pointer to the ARM7/9 target to have halt cleared
+  * @return Always ERROR_OK
+  */
+-int arm7_9_clear_halt(struct target *target)
++static int arm7_9_clear_halt(struct target *target)
+ {
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 	struct reg *dbg_ctrl = &arm7_9->eice_cache->reg_list[EICE_DBG_CTRL];
+@@ -1483,7 +1483,7 @@ static int arm7_9_debug_entry(struct target *target)
+  * @return Error if the target is not halted, has an invalid core mode, or if
+  *         the JTAG queue fails to execute
+  */
+-int arm7_9_full_context(struct target *target)
++static int arm7_9_full_context(struct target *target)
+ {
+ 	int i;
+ 	int retval;
+@@ -1579,7 +1579,7 @@ int arm7_9_full_context(struct target *target)
+  * @return Error status if the target is not halted or the core mode in the
+  *         armv4_5 struct is invalid.
+  */
+-int arm7_9_restore_context(struct target *target)
++static int arm7_9_restore_context(struct target *target)
+ {
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 	struct arm *armv4_5 = &arm7_9->armv4_5_common;
+@@ -1735,7 +1735,7 @@ int arm7_9_restore_context(struct target *target)
+  * @param target Pointer to the ARM7/9 target to be restarted
+  * @return Result of executing the JTAG queue
+  */
+-int arm7_9_restart_core(struct target *target)
++static int arm7_9_restart_core(struct target *target)
+ {
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 	struct arm_jtag *jtag_info = &arm7_9->jtag_info;
+@@ -1757,7 +1757,7 @@ int arm7_9_restart_core(struct target *target)
+  *
+  * @param target Pointer to the ARM7/9 target to enable watchpoints on
+  */
+-void arm7_9_enable_watchpoints(struct target *target)
++static void arm7_9_enable_watchpoints(struct target *target)
+ {
+ 	struct watchpoint *watchpoint = target->watchpoints;
+ 
+@@ -1775,7 +1775,7 @@ void arm7_9_enable_watchpoints(struct target *target)
+  *
+  * @param target Pointer to the ARM7/9 target to enable breakpoints on
+  */
+-void arm7_9_enable_breakpoints(struct target *target)
++static void arm7_9_enable_breakpoints(struct target *target)
+ {
+ 	struct breakpoint *breakpoint = target->breakpoints;
+ 
+@@ -2828,7 +2828,7 @@ COMMAND_HANDLER(handle_arm7_9_dcc_downloads_command)
+ 	return ERROR_OK;
+ }
+ 
+-int arm7_9_setup_semihosting(struct target *target, int enable)
++static int arm7_9_setup_semihosting(struct target *target, int enable)
+ {
+ 	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+ 
+diff --git a/src/target/arm7_9_common.h b/src/target/arm7_9_common.h
+index 71f9a9d..a741c59 100644
+--- a/src/target/arm7_9_common.h
++++ b/src/target/arm7_9_common.h
+@@ -123,7 +123,6 @@ int arm7_9_poll(struct target *target);
+ 
+ int arm7_9_target_request_data(struct target *target, uint32_t size, uint8_t *buffer);
+ 
+-int arm7_9_setup(struct target *target);
+ int arm7_9_assert_reset(struct target *target);
+ int arm7_9_deassert_reset(struct target *target);
+ int arm7_9_reset_request_halt(struct target *target);
+@@ -132,8 +131,6 @@ int arm7_9_soft_reset_halt(struct target *target);
+ int arm7_9_prepare_reset_halt(struct target *target);
+ 
+ int arm7_9_halt(struct target *target);
+-int arm7_9_full_context(struct target *target);
+-int arm7_9_restore_context(struct target *target);
+ int arm7_9_resume(struct target *target, int current, uint32_t address, int handle_breakpoints, int debug_execution);
+ int arm7_9_step(struct target *target, int current, uint32_t address, int handle_breakpoints);
+ int arm7_9_read_memory(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+
+commit 41cb9118536db5e5e2836ad6c75daae1d21b6f4a
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sun Apr 11 01:19:41 2010 +0800
+
+    NOR/TMS470: review scope of symbols
+    
+    Add "static" qualifier to private functions and data.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/flash/nor/tms470.c b/src/flash/nor/tms470.c
+index af635d4..edb43af 100644
+--- a/src/flash/nor/tms470.c
++++ b/src/flash/nor/tms470.c
+@@ -29,7 +29,7 @@
+                       Internal Support, Helpers
+    ---------------------------------------------------------------------- */
+ 
+-const struct flash_sector TMS470R1A256_SECTORS[] = {
++static const struct flash_sector TMS470R1A256_SECTORS[] = {
+ 	{0x00000000, 0x00002000, -1, -1},
+ 	{0x00002000, 0x00002000, -1, -1},
+ 	{0x00004000, 0x00002000, -1, -1},
+@@ -49,7 +49,7 @@ const struct flash_sector TMS470R1A256_SECTORS[] = {
+ #define TMS470R1A256_NUM_SECTORS \
+ 	ARRAY_SIZE(TMS470R1A256_SECTORS)
+ 
+-const struct flash_sector TMS470R1A288_BANK0_SECTORS[] = {
++static const struct flash_sector TMS470R1A288_BANK0_SECTORS[] = {
+ 	{0x00000000, 0x00002000, -1, -1},
+ 	{0x00002000, 0x00002000, -1, -1},
+ 	{0x00004000, 0x00002000, -1, -1},
+@@ -59,7 +59,7 @@ const struct flash_sector TMS470R1A288_BANK0_SECTORS[] = {
+ #define TMS470R1A288_BANK0_NUM_SECTORS \
+ 	ARRAY_SIZE(TMS470R1A288_BANK0_SECTORS)
+ 
+-const struct flash_sector TMS470R1A288_BANK1_SECTORS[] = {
++static const struct flash_sector TMS470R1A288_BANK1_SECTORS[] = {
+ 	{0x00040000, 0x00010000, -1, -1},
+ 	{0x00050000, 0x00010000, -1, -1},
+ 	{0x00060000, 0x00010000, -1, -1},
+@@ -69,7 +69,7 @@ const struct flash_sector TMS470R1A288_BANK1_SECTORS[] = {
+ #define TMS470R1A288_BANK1_NUM_SECTORS \
+ 	ARRAY_SIZE(TMS470R1A288_BANK1_SECTORS)
+ 
+-const struct flash_sector TMS470R1A384_BANK0_SECTORS[] = {
++static const struct flash_sector TMS470R1A384_BANK0_SECTORS[] = {
+ 	{0x00000000, 0x00002000, -1, -1},
+ 	{0x00002000, 0x00002000, -1, -1},
+ 	{0x00004000, 0x00004000, -1, -1},
+@@ -85,7 +85,7 @@ const struct flash_sector TMS470R1A384_BANK0_SECTORS[] = {
+ #define TMS470R1A384_BANK0_NUM_SECTORS \
+ 	ARRAY_SIZE(TMS470R1A384_BANK0_SECTORS)
+ 
+-const struct flash_sector TMS470R1A384_BANK1_SECTORS[] = {
++static const struct flash_sector TMS470R1A384_BANK1_SECTORS[] = {
+ 	{0x00020000, 0x00008000, -1, -1},
+ 	{0x00028000, 0x00008000, -1, -1},
+ 	{0x00030000, 0x00008000, -1, -1},
+@@ -95,7 +95,7 @@ const struct flash_sector TMS470R1A384_BANK1_SECTORS[] = {
+ #define TMS470R1A384_BANK1_NUM_SECTORS \
+ 	ARRAY_SIZE(TMS470R1A384_BANK1_SECTORS)
+ 
+-const struct flash_sector TMS470R1A384_BANK2_SECTORS[] = {
++static const struct flash_sector TMS470R1A384_BANK2_SECTORS[] = {
+ 	{0x00040000, 0x00008000, -1, -1},
+ 	{0x00048000, 0x00008000, -1, -1},
+ 	{0x00050000, 0x00008000, -1, -1},
+@@ -667,7 +667,7 @@ static int tms470_flash_initialize_internal_state_machine(struct flash_bank *ban
+ 
+ /* ---------------------------------------------------------------------- */
+ 
+-int tms470_flash_status(struct flash_bank *bank)
++static int tms470_flash_status(struct flash_bank *bank)
+ {
+ 	struct target *target = bank->target;
+ 	int result = ERROR_OK;
+
+commit f549dadb858cbf1bff1b3369dbdb2cc7d8f083a4
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sun Apr 11 01:16:14 2010 +0800
+
+    TARGET/MIPS32: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/target/mips32.c b/src/target/mips32.c
+index b0cb79c..de8253f 100644
+--- a/src/target/mips32.c
++++ b/src/target/mips32.c
+@@ -31,7 +31,7 @@
+ #include "algorithm.h"
+ #include "register.h"
+ 
+-char* mips32_core_reg_list[] =
++static char* mips32_core_reg_list[] =
+ {
+ 	"zero", "at", "v0", "v1", "a0", "a1", "a2", "a3",
+ 	"t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7",
+@@ -40,12 +40,12 @@ char* mips32_core_reg_list[] =
+ 	"status", "lo", "hi", "badvaddr", "cause", "pc"
+ };
+ 
+-const char *mips_isa_strings[] =
++static const char *mips_isa_strings[] =
+ {
+ 	"MIPS32", "MIPS16e"
+ };
+ 
+-struct mips32_core_reg mips32_core_reg_list_arch_info[MIPS32NUMCOREREGS] =
++static struct mips32_core_reg mips32_core_reg_list_arch_info[MIPS32NUMCOREREGS] =
+ {
+ 	{0, NULL, NULL},
+ 	{1, NULL, NULL},
+@@ -93,9 +93,9 @@ struct mips32_core_reg mips32_core_reg_list_arch_info[MIPS32NUMCOREREGS] =
+ 
+ #define MIPS32NUMFPREGS 34 + 18
+ 
+-uint8_t mips32_gdb_dummy_fp_value[] = {0, 0, 0, 0};
++static uint8_t mips32_gdb_dummy_fp_value[] = {0, 0, 0, 0};
+ 
+-struct reg mips32_gdb_dummy_fp_reg =
++static struct reg mips32_gdb_dummy_fp_reg =
+ {
+ 	.name = "GDB dummy floating-point register",
+ 	.value = mips32_gdb_dummy_fp_value,
+@@ -105,7 +105,7 @@ struct reg mips32_gdb_dummy_fp_reg =
+ 	.arch_info = NULL,
+ };
+ 
+-int mips32_get_core_reg(struct reg *reg)
++static int mips32_get_core_reg(struct reg *reg)
+ {
+ 	int retval;
+ 	struct mips32_core_reg *mips32_reg = reg->arch_info;
+@@ -122,7 +122,7 @@ int mips32_get_core_reg(struct reg *reg)
+ 	return retval;
+ }
+ 
+-int mips32_set_core_reg(struct reg *reg, uint8_t *buf)
++static int mips32_set_core_reg(struct reg *reg, uint8_t *buf)
+ {
+ 	struct mips32_core_reg *mips32_reg = reg->arch_info;
+ 	struct target *target = mips32_reg->target;
+@@ -140,7 +140,7 @@ int mips32_set_core_reg(struct reg *reg, uint8_t *buf)
+ 	return ERROR_OK;
+ }
+ 
+-int mips32_read_core_reg(struct target *target, int num)
++static int mips32_read_core_reg(struct target *target, int num)
+ {
+ 	uint32_t reg_value;
+ 	struct mips32_core_reg *mips_core_reg;
+@@ -160,7 +160,7 @@ int mips32_read_core_reg(struct target *target, int num)
+ 	return ERROR_OK;
+ }
+ 
+-int mips32_write_core_reg(struct target *target, int num)
++static int mips32_write_core_reg(struct target *target, int num)
+ {
+ 	uint32_t reg_value;
+ 	struct mips32_core_reg *mips_core_reg;
+diff --git a/src/target/mips32.h b/src/target/mips32.h
+index 94d29ff..7ffe95f 100644
+--- a/src/target/mips32.h
++++ b/src/target/mips32.h
+@@ -41,8 +41,6 @@ enum mips32_isa_mode
+ 	MIPS32_ISA_MIPS16E = 1,
+ };
+ 
+-extern const char *mips_isa_strings[];
+-
+ struct mips32_comparator
+ {
+ 	int used;
+
+commit 689fa8ad8c9bf40a98bd09303c80b67f72b7ac1f
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sun Apr 11 01:11:11 2010 +0800
+
+    TARGET/MIPS32_PRACC: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/target/mips32_pracc.c b/src/target/mips32_pracc.c
+index 19ba886..d96867a 100644
+--- a/src/target/mips32_pracc.c
++++ b/src/target/mips32_pracc.c
+@@ -90,6 +90,24 @@ struct mips32_pracc_context
+ 	struct mips_ejtag *ejtag_info;
+ };
+ 
++static int mips32_pracc_read_mem8(struct mips_ejtag *ejtag_info,
++		uint32_t addr, int count, uint8_t *buf);
++static int mips32_pracc_read_mem16(struct mips_ejtag *ejtag_info,
++		uint32_t addr, int count, uint16_t *buf);
++static int mips32_pracc_read_mem32(struct mips_ejtag *ejtag_info,
++		uint32_t addr, int count, uint32_t *buf);
++static int mips32_pracc_read_u32(struct mips_ejtag *ejtag_info,
++		uint32_t addr, uint32_t *buf);
++
++static int mips32_pracc_write_mem8(struct mips_ejtag *ejtag_info,
++		uint32_t addr, int count, uint8_t *buf);
++static int mips32_pracc_write_mem16(struct mips_ejtag *ejtag_info,
++		uint32_t addr, int count, uint16_t *buf);
++static int mips32_pracc_write_mem32(struct mips_ejtag *ejtag_info,
++		uint32_t addr, int count, uint32_t *buf);
++static int mips32_pracc_write_u32(struct mips_ejtag *ejtag_info,
++		uint32_t addr, uint32_t *buf);
++
+ static int wait_for_pracc_rw(struct mips_ejtag *ejtag_info, uint32_t *ctrl)
+ {
+ 	uint32_t ejtag_ctrl;
+@@ -284,7 +302,7 @@ int mips32_pracc_read_mem(struct mips_ejtag *ejtag_info, uint32_t addr, int size
+ 	return ERROR_OK;
+ }
+ 
+-int mips32_pracc_read_mem32(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint32_t *buf)
++static int mips32_pracc_read_mem32(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint32_t *buf)
+ {
+ 	static const uint32_t code[] = {
+ 															/* start: */
+@@ -354,7 +372,7 @@ int mips32_pracc_read_mem32(struct mips_ejtag *ejtag_info, uint32_t addr, int co
+ 	return retval;
+ }
+ 
+-int mips32_pracc_read_u32(struct mips_ejtag *ejtag_info, uint32_t addr, uint32_t *buf)
++static int mips32_pracc_read_u32(struct mips_ejtag *ejtag_info, uint32_t addr, uint32_t *buf)
+ {
+ 	static const uint32_t code[] = {
+ 															/* start: */
+@@ -387,7 +405,7 @@ int mips32_pracc_read_u32(struct mips_ejtag *ejtag_info, uint32_t addr, uint32_t
+ 	return retval;
+ }
+ 
+-int mips32_pracc_read_mem16(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint16_t *buf)
++static int mips32_pracc_read_mem16(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint16_t *buf)
+ {
+ 	static const uint32_t code[] = {
+ 															/* start: */
+@@ -464,7 +482,7 @@ int mips32_pracc_read_mem16(struct mips_ejtag *ejtag_info, uint32_t addr, int co
+ 	return ERROR_OK;
+ }
+ 
+-int mips32_pracc_read_mem8(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint8_t *buf)
++static int mips32_pracc_read_mem8(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint8_t *buf)
+ {
+ 	static const uint32_t code[] = {
+ 															/* start: */
+@@ -559,7 +577,7 @@ int mips32_pracc_write_mem(struct mips_ejtag *ejtag_info, uint32_t addr, int siz
+ 	return ERROR_OK;
+ }
+ 
+-int mips32_pracc_write_mem32(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint32_t *buf)
++static int mips32_pracc_write_mem32(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint32_t *buf)
+ {
+ 	static const uint32_t code[] = {
+ 															/* start: */
+@@ -608,7 +626,7 @@ int mips32_pracc_write_mem32(struct mips_ejtag *ejtag_info, uint32_t addr, int c
+ 	return ERROR_OK;
+ }
+ 
+-int mips32_pracc_write_u32(struct mips_ejtag *ejtag_info, uint32_t addr, uint32_t *buf)
++static int mips32_pracc_write_u32(struct mips_ejtag *ejtag_info, uint32_t addr, uint32_t *buf)
+ {
+ 	static const uint32_t code[] = {
+ 															/* start: */
+@@ -640,7 +658,7 @@ int mips32_pracc_write_u32(struct mips_ejtag *ejtag_info, uint32_t addr, uint32_
+ 	return ERROR_OK;
+ }
+ 
+-int mips32_pracc_write_mem16(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint16_t *buf)
++static int mips32_pracc_write_mem16(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint16_t *buf)
+ {
+ 	static const uint32_t code[] = {
+ 															/* start: */
+@@ -698,7 +716,7 @@ int mips32_pracc_write_mem16(struct mips_ejtag *ejtag_info, uint32_t addr, int c
+ 	return ERROR_OK;
+ }
+ 
+-int mips32_pracc_write_mem8(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint8_t *buf)
++static int mips32_pracc_write_mem8(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint8_t *buf)
+ {
+ 	static const uint32_t code[] = {
+ 															/* start: */
+diff --git a/src/target/mips32_pracc.h b/src/target/mips32_pracc.h
+index f8b00d0..f2c2680 100644
+--- a/src/target/mips32_pracc.h
++++ b/src/target/mips32_pracc.h
+@@ -47,24 +47,6 @@ int mips32_pracc_write_mem(struct mips_ejtag *ejtag_info,
+ int mips32_pracc_fastdata_xfer(struct mips_ejtag *ejtag_info, struct working_area *source,
+ 		int write, uint32_t addr, int count, uint32_t *buf);
+ 
+-int mips32_pracc_read_mem8(struct mips_ejtag *ejtag_info,
+-		uint32_t addr, int count, uint8_t *buf);
+-int mips32_pracc_read_mem16(struct mips_ejtag *ejtag_info,
+-		uint32_t addr, int count, uint16_t *buf);
+-int mips32_pracc_read_mem32(struct mips_ejtag *ejtag_info,
+-		uint32_t addr, int count, uint32_t *buf);
+-int mips32_pracc_read_u32(struct mips_ejtag *ejtag_info,
+-		uint32_t addr, uint32_t *buf);
+-
+-int mips32_pracc_write_mem8(struct mips_ejtag *ejtag_info,
+-		uint32_t addr, int count, uint8_t *buf);
+-int mips32_pracc_write_mem16(struct mips_ejtag *ejtag_info,
+-		uint32_t addr, int count, uint16_t *buf);
+-int mips32_pracc_write_mem32(struct mips_ejtag *ejtag_info,
+-		uint32_t addr, int count, uint32_t *buf);
+-int mips32_pracc_write_u32(struct mips_ejtag *ejtag_info,
+-		uint32_t addr, uint32_t *buf);
+-
+ int mips32_pracc_read_regs(struct mips_ejtag *ejtag_info, uint32_t *regs);
+ int mips32_pracc_write_regs(struct mips_ejtag *ejtag_info, uint32_t *regs);
+ 
+
+commit da741a51f2dadc66db450a2f44c7c64c886e977a
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sun Apr 11 01:03:53 2010 +0800
+
+    TARGET/MIPS32_DMAACC: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/target/mips32_dmaacc.c b/src/target/mips32_dmaacc.c
+index 7d3c2da..d756928 100644
+--- a/src/target/mips32_dmaacc.c
++++ b/src/target/mips32_dmaacc.c
+@@ -28,6 +28,19 @@
+ 
+ #include "mips32_dmaacc.h"
+ 
++static int mips32_dmaacc_read_mem8(struct mips_ejtag *ejtag_info,
++		uint32_t addr, int count, uint8_t *buf);
++static int mips32_dmaacc_read_mem16(struct mips_ejtag *ejtag_info,
++		uint32_t addr, int count, uint16_t *buf);
++static int mips32_dmaacc_read_mem32(struct mips_ejtag *ejtag_info,
++		uint32_t addr, int count, uint32_t *buf);
++
++static int mips32_dmaacc_write_mem8(struct mips_ejtag *ejtag_info,
++		uint32_t addr, int count, uint8_t *buf);
++static int mips32_dmaacc_write_mem16(struct mips_ejtag *ejtag_info,
++		uint32_t addr, int count, uint16_t *buf);
++static int mips32_dmaacc_write_mem32(struct mips_ejtag *ejtag_info,
++		uint32_t addr, int count, uint32_t *buf);
+ 
+ /*
+  * The following logic shamelessly cloned from HairyDairyMaid's wrt54g_debrick
+@@ -364,7 +377,7 @@ int mips32_dmaacc_read_mem(struct mips_ejtag *ejtag_info, uint32_t addr, int siz
+ 	return ERROR_OK;
+ }
+ 
+-int mips32_dmaacc_read_mem32(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint32_t *buf)
++static int mips32_dmaacc_read_mem32(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint32_t *buf)
+ {
+ 	int i;
+ 	int	retval;
+@@ -377,7 +390,7 @@ int mips32_dmaacc_read_mem32(struct mips_ejtag *ejtag_info, uint32_t addr, int c
+ 	return ERROR_OK;
+ }
+ 
+-int mips32_dmaacc_read_mem16(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint16_t *buf)
++static int mips32_dmaacc_read_mem16(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint16_t *buf)
+ {
+ 	int i;
+ 	int retval;
+@@ -390,7 +403,7 @@ int mips32_dmaacc_read_mem16(struct mips_ejtag *ejtag_info, uint32_t addr, int c
+ 	return ERROR_OK;
+ }
+ 
+-int mips32_dmaacc_read_mem8(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint8_t *buf)
++static int mips32_dmaacc_read_mem8(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint8_t *buf)
+ {
+ 	int i;
+ 	int retval;
+@@ -418,7 +431,7 @@ int mips32_dmaacc_write_mem(struct mips_ejtag *ejtag_info, uint32_t addr, int si
+ 	return ERROR_OK;
+ }
+ 
+-int mips32_dmaacc_write_mem32(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint32_t *buf)
++static int mips32_dmaacc_write_mem32(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint32_t *buf)
+ {
+ 	int i;
+ 	int retval;
+@@ -431,7 +444,7 @@ int mips32_dmaacc_write_mem32(struct mips_ejtag *ejtag_info, uint32_t addr, int
+ 	return ERROR_OK;
+ }
+ 
+-int mips32_dmaacc_write_mem16(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint16_t *buf)
++static int mips32_dmaacc_write_mem16(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint16_t *buf)
+ {
+ 	int i;
+ 	int retval;
+@@ -444,7 +457,7 @@ int mips32_dmaacc_write_mem16(struct mips_ejtag *ejtag_info, uint32_t addr, int
+ 	return ERROR_OK;
+ }
+ 
+-int mips32_dmaacc_write_mem8(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint8_t *buf)
++static int mips32_dmaacc_write_mem8(struct mips_ejtag *ejtag_info, uint32_t addr, int count, uint8_t *buf)
+ {
+ 	int i;
+ 	int retval;
+diff --git a/src/target/mips32_dmaacc.h b/src/target/mips32_dmaacc.h
+index c1aa07d..fdf8cae 100644
+--- a/src/target/mips32_dmaacc.h
++++ b/src/target/mips32_dmaacc.h
+@@ -39,18 +39,4 @@ int mips32_dmaacc_read_mem(struct mips_ejtag *ejtag_info,
+ int mips32_dmaacc_write_mem(struct mips_ejtag *ejtag_info,
+ 		uint32_t addr, int size, int count, void *buf);
+ 
+-int mips32_dmaacc_read_mem8(struct mips_ejtag *ejtag_info,
+-		uint32_t addr, int count, uint8_t *buf);
+-int mips32_dmaacc_read_mem16(struct mips_ejtag *ejtag_info,
+-		uint32_t addr, int count, uint16_t *buf);
+-int mips32_dmaacc_read_mem32(struct mips_ejtag *ejtag_info,
+-		uint32_t addr, int count, uint32_t *buf);
+-
+-int mips32_dmaacc_write_mem8(struct mips_ejtag *ejtag_info,
+-		uint32_t addr, int count, uint8_t *buf);
+-int mips32_dmaacc_write_mem16(struct mips_ejtag *ejtag_info,
+-		uint32_t addr, int count, uint16_t *buf);
+-int mips32_dmaacc_write_mem32(struct mips_ejtag *ejtag_info,
+-		uint32_t addr, int count, uint32_t *buf);
+-
+ #endif
+
+commit f1be0e6af2e204805a8bc2e8cadf828b9fa46c98
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 22:25:22 2010 +0800
+
+    HELPER/LOG: review unused symbols
+    
+    Remove unused functions:
+    - log_catch
+    - log_rethrow
+    - log_try
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/helper/log.c b/src/helper/log.c
+index 7450fef..7ace930 100644
+--- a/src/helper/log.c
++++ b/src/helper/log.c
+@@ -114,44 +114,6 @@ static void log_forward(const char *file, unsigned line, const char *function, c
+ 	}
+ }
+ 
+-void log_try(void)
+-{
+-	log_forward_count++;
+-}
+-
+-void log_catch(void)
+-{
+-	assert(log_forward_count>0);
+-	log_forward_count--;
+-}
+-
+-void log_rethrow(void)
+-{
+-	log_catch();
+-	if (log_forward_count==0)
+-	{
+-		struct store_log_forward *log;
+-
+-		log = log_head;
+-		while (log != NULL)
+-		{
+-			log_forward(log->file, log->line, log->function, log->string);
+-
+-			struct store_log_forward *t=log;
+-			log = log->next;
+-
+-			free((void *)t->file);
+-			free((void *)t->function);
+-			free((void *)t->string);
+-			free(t);
+-
+-		}
+-
+-		log_head = NULL;
+-	}
+-}
+-
+-
+ /* The log_puts() serves to somewhat different goals:
+  *
+  * - logging
+diff --git a/src/helper/log.h b/src/helper/log.h
+index b936fee..2852140 100644
+--- a/src/helper/log.h
++++ b/src/helper/log.h
+@@ -80,14 +80,6 @@ void kept_alive(void);
+ void alive_sleep(uint64_t ms);
+ void busy_sleep(uint64_t ms);
+ 
+-/* log entries can be paused and replayed roughly according to the try/catch/rethrow
+- * concepts in C++
+- */
+-void log_try(void);
+-void log_catch(void);
+-void log_rethrow(void);
+-
+-
+ typedef void (*log_callback_fn)(void *priv, const char *file, unsigned line,
+ 		const char *function, const char *string);
+ 
+
+commit 2ea78551ab3388032ad78cdeefac7ab75e3bb134
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 22:20:41 2010 +0800
+
+    TARGET/MIPS_EJTAG: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/target/mips_ejtag.c b/src/target/mips_ejtag.c
+index 98b27f0..84ad529 100644
+--- a/src/target/mips_ejtag.c
++++ b/src/target/mips_ejtag.c
+@@ -72,7 +72,7 @@ int mips_ejtag_get_idcode(struct mips_ejtag *ejtag_info, uint32_t *idcode)
+ 	return ERROR_OK;
+ }
+ 
+-int mips_ejtag_get_impcode(struct mips_ejtag *ejtag_info, uint32_t *impcode)
++static int mips_ejtag_get_impcode(struct mips_ejtag *ejtag_info, uint32_t *impcode)
+ {
+ 	struct scan_field field;
+ 
+@@ -154,7 +154,7 @@ int mips_ejtag_drscan_8(struct mips_ejtag *ejtag_info, uint32_t *data)
+ 	return ERROR_OK;
+ }
+ 
+-int mips_ejtag_step_enable(struct mips_ejtag *ejtag_info)
++static int mips_ejtag_step_enable(struct mips_ejtag *ejtag_info)
+ {
+ 	static const uint32_t code[] = {
+ 			MIPS32_MTC0(1,31,0),			/* move $1 to COP0 DeSave */
+@@ -170,7 +170,8 @@ int mips_ejtag_step_enable(struct mips_ejtag *ejtag_info)
+ 
+ 	return ERROR_OK;
+ }
+-int mips_ejtag_step_disable(struct mips_ejtag *ejtag_info)
++
++static int mips_ejtag_step_disable(struct mips_ejtag *ejtag_info)
+ {
+ 	static const uint32_t code[] = {
+ 			MIPS32_MTC0(15,31,0),							/* move $15 to COP0 DeSave */
+diff --git a/src/target/mips_ejtag.h b/src/target/mips_ejtag.h
+index f302a70..694cb34 100644
+--- a/src/target/mips_ejtag.h
++++ b/src/target/mips_ejtag.h
+@@ -134,7 +134,6 @@ int mips_ejtag_set_instr(struct mips_ejtag *ejtag_info,
+ 		int new_instr);
+ int mips_ejtag_enter_debug(struct mips_ejtag *ejtag_info);
+ int mips_ejtag_exit_debug(struct mips_ejtag *ejtag_info);
+-int mips_ejtag_get_impcode(struct mips_ejtag *ejtag_info, uint32_t *impcode);
+ int mips_ejtag_get_idcode(struct mips_ejtag *ejtag_info, uint32_t *idcode);
+ int mips_ejtag_drscan_32(struct mips_ejtag *ejtag_info, uint32_t *data);
+ int mips_ejtag_drscan_8(struct mips_ejtag *ejtag_info, uint32_t *data);
+
+commit 4809dbb2d7aa3b949a555876aad945d3916a8c87
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 22:14:34 2010 +0800
+
+    NOR/CFI: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/flash/nor/cfi.c b/src/flash/nor/cfi.c
+index 5f7ed1e..4dad7b6 100644
+--- a/src/flash/nor/cfi.c
++++ b/src/flash/nor/cfi.c
+@@ -244,7 +244,7 @@ static void cfi_intel_clear_status_register(struct flash_bank *bank)
+ 	cfi_send_command(bank, 0x50, flash_address(bank, 0, 0x0));
+ }
+ 
+-uint8_t cfi_intel_wait_status_busy(struct flash_bank *bank, int timeout)
++static uint8_t cfi_intel_wait_status_busy(struct flash_bank *bank, int timeout)
+ {
+ 	uint8_t status;
+ 
+@@ -285,7 +285,7 @@ uint8_t cfi_intel_wait_status_busy(struct flash_bank *bank, int timeout)
+ 	return status;
+ }
+ 
+-int cfi_spansion_wait_status_busy(struct flash_bank *bank, int timeout)
++static int cfi_spansion_wait_status_busy(struct flash_bank *bank, int timeout)
+ {
+ 	uint8_t status, oldstatus;
+ 	struct cfi_flash_bank *cfi_info = bank->driver_priv;
+@@ -1810,7 +1810,7 @@ static int cfi_write_words(struct flash_bank *bank, uint8_t *word, uint32_t word
+ 	return ERROR_FLASH_OPERATION_FAILED;
+ }
+ 
+-int cfi_write(struct flash_bank *bank, uint8_t *buffer, uint32_t offset, uint32_t count)
++static int cfi_write(struct flash_bank *bank, uint8_t *buffer, uint32_t offset, uint32_t count)
+ {
+ 	struct cfi_flash_bank *cfi_info = bank->driver_priv;
+ 	struct target *target = bank->target;
+
+commit 11fd673f0c315346ef065289b164da58dd1fd4c6
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 22:12:20 2010 +0800
+
+    TARGET/DSP563XX_ONCE: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/target/dsp563xx_once.c b/src/target/dsp563xx_once.c
+index 0186751..416cb6b 100644
+--- a/src/target/dsp563xx_once.c
++++ b/src/target/dsp563xx_once.c
+@@ -30,7 +30,7 @@
+ #include "dsp563xx_once.h"
+ 
+ /** single word instruction */
+-int dsp563xx_once_ir_exec(struct jtag_tap *tap, uint8_t instr, uint8_t rw,
++static int dsp563xx_once_ir_exec(struct jtag_tap *tap, uint8_t instr, uint8_t rw,
+ 			  uint8_t go, uint8_t ex)
+ {
+ 	dsp563xx_write_dr_u8(tap, 0,
+@@ -41,7 +41,7 @@ int dsp563xx_once_ir_exec(struct jtag_tap *tap, uint8_t instr, uint8_t rw,
+ }
+ 
+ /** single word instruction */
+-int dsp563xx_once_ir_exec_nq(struct jtag_tap *tap, uint8_t instr, uint8_t rw,
++static int dsp563xx_once_ir_exec_nq(struct jtag_tap *tap, uint8_t instr, uint8_t rw,
+ 			     uint8_t go, uint8_t ex)
+ {
+ 	dsp563xx_write_dr_u8(tap, 0,
+diff --git a/src/target/dsp563xx_once.h b/src/target/dsp563xx_once.h
+index 871f622..942cd65 100644
+--- a/src/target/dsp563xx_once.h
++++ b/src/target/dsp563xx_once.h
+@@ -57,12 +57,6 @@
+ #define DSP563XX_ONCE_OPABEX	0x011	/* trace buffer/inc ptr */
+ #define DSP563XX_ONCE_NOREG	0x01F	/* no register selected */
+ 
+-/** single word instruction */
+-int dsp563xx_once_ir_exec(struct jtag_tap *tap, uint8_t instr, uint8_t rw,
+-			  uint8_t go, uint8_t ex);
+-/** single word instruction */
+-int dsp563xx_once_ir_exec_nq(struct jtag_tap *tap, uint8_t instr, uint8_t rw,
+-			     uint8_t go, uint8_t ex);
+ /** once read register */
+ int dsp563xx_once_reg_read(struct jtag_tap *tap, uint8_t reg, uint32_t * data);
+ /** once write register */
+
+commit b2495c010148b8343f8f70f6ee558f505a2c7409
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 22:04:03 2010 +0800
+
+    OPENOCD: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/openocd.c b/src/openocd.c
+index 54c454d..81c2dcd 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -202,7 +202,7 @@ static const struct command_registration openocd_command_handlers[] = {
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
+-int openocd_register_commands(struct command_context *cmd_ctx)
++static int openocd_register_commands(struct command_context *cmd_ctx)
+ {
+ 	return register_commands(cmd_ctx, NULL, openocd_command_handlers);
+ }
+
+commit 787a5067fbe0eaf05ad2f41a64c3eac776905724
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 22:01:16 2010 +0800
+
+    JTAG/COMMANDS: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/jtag/commands.c b/src/jtag/commands.c
+index 6951f03..d236fe9 100644
+--- a/src/jtag/commands.c
++++ b/src/jtag/commands.c
+@@ -121,7 +121,7 @@ void* cmd_queue_alloc(size_t size)
+ 	return t + offset;
+ }
+ 
+-void cmd_queue_free(void)
++static void cmd_queue_free(void)
+ {
+ 	struct cmd_queue_page *page = cmd_queue_pages;
+ 
+diff --git a/src/jtag/commands.h b/src/jtag/commands.h
+index 692eee4..87bd9c5 100644
+--- a/src/jtag/commands.h
++++ b/src/jtag/commands.h
+@@ -158,7 +158,6 @@ struct jtag_command {
+ extern struct jtag_command* jtag_command_queue;
+ 
+ void* cmd_queue_alloc(size_t size);
+-void cmd_queue_free(void);
+ 
+ void jtag_queue_command(struct jtag_command *cmd);
+ void jtag_command_queue_reset(void);
+
+commit fdb9199001080e2d268da77f97365ab7b7f138d2
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 21:54:37 2010 +0800
+
+    BINARYBUFFER: review scope of data and functions
+    
+    Add "static" qualifier to private data and functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/helper/binarybuffer.c b/src/helper/binarybuffer.c
+index 081cc03..3a16cce 100644
+--- a/src/helper/binarybuffer.c
++++ b/src/helper/binarybuffer.c
+@@ -27,7 +27,7 @@
+ #include "log.h"
+ #include "binarybuffer.h"
+ 
+-const unsigned char bit_reverse_table256[] =
++static const unsigned char bit_reverse_table256[] =
+ {
+   0x00, 0x80, 0x40, 0xC0, 0x20, 0xA0, 0x60, 0xE0, 0x10, 0x90, 0x50, 0xD0, 0x30, 0xB0, 0x70, 0xF0,
+   0x08, 0x88, 0x48, 0xC8, 0x28, 0xA8, 0x68, 0xE8, 0x18, 0x98, 0x58, 0xD8, 0x38, 0xB8, 0x78, 0xF8,
+@@ -161,7 +161,7 @@ uint32_t flip_u32(uint32_t value, unsigned int num)
+ 	return c;
+ }
+ 
+-int ceil_f_to_u32(float x)
++static int ceil_f_to_u32(float x)
+ {
+ 	if (x < 0)	/* return zero for negative numbers */
+ 		return 0;
+
+commit d7246f452f4da9767e9ebdd6fb43b982954c02bf
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 21:52:33 2010 +0800
+
+    NOR/STR7X: review scope of data
+    
+    Add "static" qualifier to private data.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/flash/nor/str7x.c b/src/flash/nor/str7x.c
+index fa1744c..d5e8e28 100644
+--- a/src/flash/nor/str7x.c
++++ b/src/flash/nor/str7x.c
+@@ -31,7 +31,7 @@
+ #include <target/algorithm.h>
+ 
+ 
+-struct str7x_mem_layout mem_layout_str7bank0[] = {
++static struct str7x_mem_layout mem_layout_str7bank0[] = {
+ 	{0x00000000, 0x02000, 0x01},
+ 	{0x00002000, 0x02000, 0x02},
+ 	{0x00004000, 0x02000, 0x04},
+@@ -42,7 +42,7 @@ struct str7x_mem_layout mem_layout_str7bank0[] = {
+ 	{0x00030000, 0x10000, 0x80}
+ };
+ 
+-struct str7x_mem_layout mem_layout_str7bank1[] = {
++static struct str7x_mem_layout mem_layout_str7bank1[] = {
+ 	{0x00000000, 0x02000, 0x10000},
+ 	{0x00002000, 0x02000, 0x20000}
+ };
+
+commit c936cb334b9e60c3326675912c97faafb379d3ed
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 21:50:15 2010 +0800
+
+    NAND/TCL: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/flash/nand/core.h b/src/flash/nand/core.h
+index e4fb18b..a8e7466 100644
+--- a/src/flash/nand/core.h
++++ b/src/flash/nand/core.h
+@@ -221,7 +221,6 @@ int nand_calculate_ecc_kw(struct nand_device *nand,
+ 		const uint8_t *dat, uint8_t *ecc_code);
+ 
+ int nand_register_commands(struct command_context *cmd_ctx);
+-int nand_init(struct command_context *cmd_ctx);
+ 
+ /// helper for parsing a nand device command argument string
+ COMMAND_HELPER(nand_command_get_device, unsigned name_index,
+diff --git a/src/flash/nand/tcl.c b/src/flash/nand/tcl.c
+index 29b4b69..86dbd67 100644
+--- a/src/flash/nand/tcl.c
++++ b/src/flash/nand/tcl.c
+@@ -512,7 +512,7 @@ static const struct command_registration nand_exec_command_handlers[] = {
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
+-int nand_init(struct command_context *cmd_ctx)
++static int nand_init(struct command_context *cmd_ctx)
+ {
+ 	if (!nand_devices)
+ 		return ERROR_OK;
+@@ -536,12 +536,14 @@ COMMAND_HANDLER(handle_nand_init_command)
+ 	LOG_DEBUG("Initializing NAND devices...");
+ 	return nand_init(CMD_CTX);
+ }
+-int nand_list_walker(struct nand_flash_controller *c, void *x)
++
++static int nand_list_walker(struct nand_flash_controller *c, void *x)
+ {
+ 	struct command_context *cmd_ctx = (struct command_context *)x;
+ 	command_print(cmd_ctx, "  %s", c->name);
+ 	return ERROR_OK;
+ }
++
+ COMMAND_HANDLER(handle_nand_list_drivers)
+ {
+ 	command_print(CMD_CTX, "Available NAND flash controller drivers:");
+
+commit 5926b5a94fd4e29e0e020c2f87b542fd51bd5d6f
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 20:11:40 2010 +0800
+
+    MFLASH: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/flash/mflash.c b/src/flash/mflash.c
+index 289fe5e..d307858 100644
+--- a/src/flash/mflash.c
++++ b/src/flash/mflash.c
+@@ -1302,7 +1302,7 @@ static const struct command_registration mflash_exec_command_handlers[] = {
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
+-int mflash_init_drivers(struct command_context *cmd_ctx)
++static int mflash_init_drivers(struct command_context *cmd_ctx)
+ {
+ 	if (!mflash_bank)
+ 		return ERROR_OK;
+diff --git a/src/flash/mflash.h b/src/flash/mflash.h
+index 358d253..bb3cd05 100644
+--- a/src/flash/mflash.h
++++ b/src/flash/mflash.h
+@@ -142,7 +142,6 @@ struct mflash_bank
+ };
+ 
+ int mflash_register_commands(struct command_context *cmd_ctx);
+-int mflash_init_drivers(struct command_context *cmd_ctx);
+ 
+ #define MG_MFLASH_SECTOR_SIZE		(0x200)		/* 512Bytes = 2^9 */
+ #define MG_MFLASH_SECTOR_SIZE_MASK	(0x200-1)
+
+commit a6307fed9100877df2def268acece81078e06d6f
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 20:09:59 2010 +0800
+
+    NAND/ARM_IO: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/flash/nand/arm_io.c b/src/flash/nand/arm_io.c
+index 0cd39c0..7c7148e 100644
+--- a/src/flash/nand/arm_io.c
++++ b/src/flash/nand/arm_io.c
+@@ -43,7 +43,7 @@
+  * @param area Pointer to a pointer to a working area to copy code to
+  * @return Success or failure of the operation
+  */
+-int arm_code_to_working_area(struct target *target,
++static int arm_code_to_working_area(struct target *target,
+ 		const uint32_t *code, unsigned code_size,
+ 		unsigned additional, struct working_area **area)
+ {
+
+commit 617811ac664504303cf65a69c1b3f8ca262def0b
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 20:08:41 2010 +0800
+
+    NAND/CORE: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    Move function's comment from core.h to core.c.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/flash/nand/core.c b/src/flash/nand/core.c
+index 50d8249..9013812 100644
+--- a/src/flash/nand/core.c
++++ b/src/flash/nand/core.c
+@@ -160,7 +160,14 @@ static struct nand_ecclayout nand_oob_8 = {
+ };
+ #endif
+ 
+-struct nand_device *get_nand_device_by_name(const char *name)
++/**
++ * Returns the flash bank specified by @a name, which matches the
++ * driver name and a suffix (option) specify the driver-specific
++ * bank number. The suffix consists of the '.' and the driver-specific
++ * bank number: when two davinci banks are defined, then 'davinci.1' refers
++ * to the second (e.g. DM355EVM).
++ */
++static struct nand_device *get_nand_device_by_name(const char *name)
+ {
+ 	unsigned requested = get_flash_name_index(name);
+ 	unsigned found = 0;
+diff --git a/src/flash/nand/core.h b/src/flash/nand/core.h
+index d2d1571..e4fb18b 100644
+--- a/src/flash/nand/core.h
++++ b/src/flash/nand/core.h
+@@ -197,15 +197,6 @@ enum oob_formats
+ };
+ 
+ 
+-/**
+- * Returns the flash bank specified by @a name, which matches the
+- * driver name and a suffix (option) specify the driver-specific
+- * bank number. The suffix consists of the '.' and the driver-specific
+- * bank number: when two davinci banks are defined, then 'davinci.1' refers
+- * to the second (e.g. DM355EVM).
+- */
+-struct nand_device *get_nand_device_by_name(const char *name);
+-
+ struct nand_device *get_nand_device_by_num(int num);
+ 
+ int nand_page_command(struct nand_device *nand, uint32_t page,
+
+commit aaf848596c13f26026bcbd1071f7614e818ea766
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 20:03:19 2010 +0800
+
+    NAND/MX3: review scope of data
+    
+    Add "static" qualifier to private data.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/flash/nand/mx3.c b/src/flash/nand/mx3.c
+index 4823534..7d9cc8b 100644
+--- a/src/flash/nand/mx3.c
++++ b/src/flash/nand/mx3.c
+@@ -47,7 +47,7 @@ static const char sram_buffer_bounds_err_msg[] =
+ 	"trying to access out of SRAM buffer bound (addr=0x%" PRIx32 ")";
+ static const char get_status_register_err_msg[] = "can't get NAND status";
+ static uint32_t in_sram_address;
+-unsigned char sign_of_sequental_byte_read;
++static unsigned char sign_of_sequental_byte_read;
+ 
+ static int test_iomux_settings (struct target * target, uint32_t value,
+ 				uint32_t mask, const char *text);
+
+commit 9acd453d9f1d7d9ef90343f84ffc43ce6e1b434d
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 19:58:15 2010 +0800
+
+    NOR/ADUC702X: review scope of data
+    
+    Add "static" qualifier to private data.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/flash/nor/aduc702x.c b/src/flash/nor/aduc702x.c
+index 88072b9..57c591d 100644
+--- a/src/flash/nor/aduc702x.c
++++ b/src/flash/nor/aduc702x.c
+@@ -343,7 +343,7 @@ static int aduc702x_write_single(struct flash_bank *bank, uint8_t *buffer, uint3
+ 	return ERROR_OK;
+ }
+ 
+-int aduc702x_write(struct flash_bank *bank, uint8_t *buffer, uint32_t offset, uint32_t count)
++static int aduc702x_write(struct flash_bank *bank, uint8_t *buffer, uint32_t offset, uint32_t count)
+ {
+ 	int retval;
+ 
+
+commit 069f88cfac1199657a7e4c9988b0bc86eca99ac9
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 19:56:24 2010 +0800
+
+    NOR/AVRF: review scope of data
+    
+    Add "static" qualifier to private data.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/flash/nor/avrf.c b/src/flash/nor/avrf.c
+index 5b40ad7..15b8b27 100644
+--- a/src/flash/nor/avrf.c
++++ b/src/flash/nor/avrf.c
+@@ -50,7 +50,7 @@
+ #define AVR_JTAG_REG_ProgrammingCommand_Len			15
+ #define AVR_JTAG_REG_FlashDataByte_Len				16
+ 
+-struct avrf_type avft_chips_info[] =
++static struct avrf_type avft_chips_info[] =
+ {
+ /*	name, chip_id,	flash_page_size, flash_page_num,
+  *			eeprom_page_size, eeprom_page_num
+
+commit 300f0f53c54fab5dd994a8bc42edbdc6115ef7b9
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 19:54:22 2010 +0800
+
+    NOR/CORE: review scope of data
+    
+    Add "static" qualifier to private data.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/flash/nor/core.c b/src/flash/nor/core.c
+index 8b581b0..18012c6 100644
+--- a/src/flash/nor/core.c
++++ b/src/flash/nor/core.c
+@@ -36,7 +36,7 @@
+  * primarily support access from Tcl scripts or from GDB.
+  */
+ 
+-struct flash_bank *flash_banks;
++static struct flash_bank *flash_banks;
+ 
+ int flash_driver_erase(struct flash_bank *bank, int first, int last)
+ {
+
+commit 402d3292bbd6e04ffefb1bdf7ab61f3bfc36c44a
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 19:38:15 2010 +0800
+
+    NOR/DRIVERS: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    Remove unused "extern" in src/ecosboard.c
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/ecosboard.c b/src/ecosboard.c
+index 4249e1b..1e3152e 100644
+--- a/src/ecosboard.c
++++ b/src/ecosboard.c
+@@ -99,9 +99,6 @@ static bool writeLog = true;
+ 
+ char hwaddr[512];
+ 
+-
+-extern struct flash_driver *flash_drivers[];
+-
+ #ifdef CYGPKG_PROFILE_GPROF
+ #include <cyg/profile/profile.h>
+ 
+diff --git a/src/flash/nor/drivers.c b/src/flash/nor/drivers.c
+index 7f71d83..3e09a00 100644
+--- a/src/flash/nor/drivers.c
++++ b/src/flash/nor/drivers.c
+@@ -44,7 +44,7 @@ extern struct flash_driver faux_flash;
+  * The list of built-in flash drivers.
+  * @todo Make this dynamically extendable with loadable modules.
+  */
+-struct flash_driver *flash_drivers[] = {
++static struct flash_driver *flash_drivers[] = {
+ 	&lpc2000_flash,
+ 	&lpc288x_flash,
+ 	&lpc2900_flash,
+
+commit 61c06359915cbaef5b8538d2600ecbc17d4b387c
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 19:29:51 2010 +0800
+
+    STR9XPEC: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/flash/nor/str9xpec.c b/src/flash/nor/str9xpec.c
+index a93b6a2..861d70b 100644
+--- a/src/flash/nor/str9xpec.c
++++ b/src/flash/nor/str9xpec.c
+@@ -33,7 +33,7 @@ static int str9xpec_erase_area(struct flash_bank *bank, int first, int last);
+ static int str9xpec_set_address(struct flash_bank *bank, uint8_t sector);
+ static int str9xpec_write_options(struct flash_bank *bank);
+ 
+-int str9xpec_set_instr(struct jtag_tap *tap, uint32_t new_instr, tap_state_t end_state)
++static int str9xpec_set_instr(struct jtag_tap *tap, uint32_t new_instr, tap_state_t end_state)
+ {
+ 	if (tap == NULL) {
+ 		return ERROR_TARGET_INVALID;
+
+commit 0c82bea44acf491164c96efd88c1a831fbf6ce67
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 19:28:13 2010 +0800
+
+    TCL: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/flash/nor/core.h b/src/flash/nor/core.h
+index 98763b7..68220af 100644
+--- a/src/flash/nor/core.h
++++ b/src/flash/nor/core.h
+@@ -97,8 +97,6 @@ struct flash_bank
+ 
+ /// Registers the 'flash' subsystem commands
+ int flash_register_commands(struct command_context *cmd_ctx);
+-/// Initializes the 'flash' subsystem drivers
+-int flash_init_drivers(struct command_context *cmd_ctx);
+ 
+ /**
+  * Erases @a length bytes in the @a target flash, starting at @a addr.
+diff --git a/src/flash/nor/tcl.c b/src/flash/nor/tcl.c
+index fc7169f..aed55c0 100644
+--- a/src/flash/nor/tcl.c
++++ b/src/flash/nor/tcl.c
+@@ -774,7 +774,7 @@ static const struct command_registration flash_exec_command_handlers[] = {
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
+-int flash_init_drivers(struct command_context *cmd_ctx)
++static int flash_init_drivers(struct command_context *cmd_ctx)
+ {
+ 	if (!flash_bank_list())
+ 		return ERROR_OK;
+
+commit c0b5ca6d17273aff849bc6546c7388562b751225
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 19:25:32 2010 +0800
+
+    TIME_SUPPORT: review unused symbols
+    
+    Remove unused functions:
+    - timeval_add
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/helper/time_support.c b/src/helper/time_support.c
+index 1934315..1f55bc2 100644
+--- a/src/helper/time_support.c
++++ b/src/helper/time_support.c
+@@ -51,13 +51,6 @@ int timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *
+ 	return x->tv_sec < y->tv_sec;
+ }
+ 
+-/* add two struct timeval values */
+-int timeval_add(struct timeval *result, struct timeval *x, struct timeval *y)
+-{
+-	memcpy(result, x, sizeof(struct timeval));
+-	return timeval_add_time(result, y->tv_sec, y->tv_usec);
+-}
+-
+ int timeval_add_time(struct timeval *result, long sec, long usec)
+ {
+ 	result->tv_sec += sec;
+diff --git a/src/helper/time_support.h b/src/helper/time_support.h
+index a2d180a..fab432d 100644
+--- a/src/helper/time_support.h
++++ b/src/helper/time_support.h
+@@ -38,7 +38,6 @@
+ #endif
+ 
+ int timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *y);
+-int timeval_add(struct timeval *result, struct timeval *x, struct timeval *y);
+ int timeval_add_time(struct timeval *result, long sec, long usec);
+ 
+ /// @returns gettimeofday() timeval as 64-bit in ms
+
+commit b2468e3c4f09cd4e9f204aeb885dfdbbeb0a8dbb
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 17:23:06 2010 +0800
+
+    HELLO: review unused symbols
+    
+    Remove unused functions:
+    - hello_register_commands
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/hello.c b/src/hello.c
+index 8cd5fab..d3fce3d 100644
+--- a/src/hello.c
++++ b/src/hello.c
+@@ -121,8 +121,3 @@ const struct command_registration hello_command_handlers[] = {
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+-
+-int hello_register_commands(struct command_context *cmd_ctx)
+-{
+-	return register_commands(cmd_ctx, NULL, hello_command_handlers);
+-}
+diff --git a/src/hello.h b/src/hello.h
+index fc674ad..f41c67a 100644
+--- a/src/hello.h
++++ b/src/hello.h
+@@ -20,12 +20,8 @@
+ #ifndef OPENOCD_HELLO_H
+ #define OPENOCD_HELLO_H
+ 
+-struct command_context;
+ struct command_registration;
+ 
+-/// Register the hello commands in the specified command_context
+-int hello_register_commands(struct command_context *cmd_ctx);
+-
+ /**
+  * Export the registration for the hello command group, so it can be
+  * embedded in example drivers.
+
+commit 46781080347af4f207cec108dfc2f96da61dcbfa
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 17:06:16 2010 +0800
+
+    PLD: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/pld/pld.c b/src/pld/pld.c
+index 5ed7596..90067e3 100644
+--- a/src/pld/pld.c
++++ b/src/pld/pld.c
+@@ -206,7 +206,8 @@ static const struct command_registration pld_exec_command_handlers[] = {
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+-int pld_init(struct command_context *cmd_ctx)
++
++static int pld_init(struct command_context *cmd_ctx)
+ {
+ 	if (!pld_devices)
+ 		return ERROR_OK;
+diff --git a/src/pld/pld.h b/src/pld/pld.h
+index cd92ff0..d306246 100644
+--- a/src/pld/pld.h
++++ b/src/pld/pld.h
+@@ -46,8 +46,6 @@ struct pld_device
+ 
+ int pld_register_commands(struct command_context *cmd_ctx);
+ 
+-int pld_init(struct command_context *cmd_ctx);
+-
+ struct pld_device *get_pld_device_by_num(int num);
+ 
+ #define ERROR_PLD_DEVICE_INVALID	(-1000)
+
+commit ec1c90e3cd53446939b4655f55166bff6b3d39f4
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 17:03:02 2010 +0800
+
+    ADI_V5_JTAG: review scope of data
+    
+    Add "static" qualifier to private data.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/target/adi_v5_jtag.c b/src/target/adi_v5_jtag.c
+index 0d795fb..04c6ae7 100644
+--- a/src/target/adi_v5_jtag.c
++++ b/src/target/adi_v5_jtag.c
+@@ -429,7 +429,7 @@ const struct dap_ops jtag_dp_ops = {
+ };
+ 
+ 
+-const uint8_t swd2jtag_bitseq[] = {
++static const uint8_t swd2jtag_bitseq[] = {
+ 	/* More than 50 TCK/SWCLK cycles with TMS/SWDIO high,
+ 	 * putting both JTAG and SWD logic into reset state.
+ 	 */
+
+commit 8ffdefcc59ee0a8d305ac5a9f28b38ad89dea7c5
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 17:01:06 2010 +0800
+
+    ARM920T: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/target/arm920t.c b/src/target/arm920t.c
+index 99f7dca..658315b 100644
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -788,7 +788,7 @@ static int arm920t_mcr(struct target *target, int cpnum,
+ 		uint32_t CRn, uint32_t CRm,
+ 		uint32_t value);
+ 
+-int arm920t_init_arch_info(struct target *target,
++static int arm920t_init_arch_info(struct target *target,
+ 		struct arm920t_common *arm920t, struct jtag_tap *tap)
+ {
+ 	struct arm7_9_common *arm7_9 = &arm920t->arm7_9_common;
+
+commit de27d28df90ab3ed190b55ffa4d2a2cbf491732c
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 16:59:50 2010 +0800
+
+    ARM_JTAG: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/target/arm_jtag.c b/src/target/arm_jtag.c
+index 8cc4428..3a552ee 100644
+--- a/src/target/arm_jtag.c
++++ b/src/target/arm_jtag.c
+@@ -82,7 +82,7 @@ int arm_jtag_scann_inner(struct arm_jtag *jtag_info, uint32_t new_scan_chain, ta
+ 	return retval;
+ }
+ 
+-int arm_jtag_reset_callback(enum jtag_event event, void *priv)
++static int arm_jtag_reset_callback(enum jtag_event event, void *priv)
+ {
+ 	struct arm_jtag *jtag_info = priv;
+ 
+
+commit 8a871560f99779b279623540588f7295fe041781
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 16:57:49 2010 +0800
+
+    ARM_SIMULATOR: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/target/arm_simulator.c b/src/target/arm_simulator.c
+index 908c613..730f588 100644
+--- a/src/target/arm_simulator.c
++++ b/src/target/arm_simulator.c
+@@ -279,7 +279,7 @@ static int thumb_pass_branch_condition(uint32_t cpsr, uint16_t opcode)
+  * if the dry_run_pc argument is provided, no state is changed,
+  * but the new pc is stored in the variable pointed at by the argument
+  */
+-int arm_simulate_step_core(struct target *target,
++static int arm_simulate_step_core(struct target *target,
+ 		uint32_t *dry_run_pc, struct arm_sim_interface *sim)
+ {
+ 	uint32_t current_pc = sim->get_reg(sim, 15);
+diff --git a/src/target/arm_simulator.h b/src/target/arm_simulator.h
+index bd5458e..b332a17 100644
+--- a/src/target/arm_simulator.h
++++ b/src/target/arm_simulator.h
+@@ -40,8 +40,4 @@ struct arm_sim_interface
+ /* armv4_5 version */
+ int arm_simulate_step(struct target *target, uint32_t *dry_run_pc);
+ 
+-/* a generic arm simulator. Caller must implement the sim interface */
+-int arm_simulate_step_core(struct target *target,
+-		uint32_t *dry_run_pc, struct arm_sim_interface *sim);
+-
+ #endif /* ARM_SIMULATOR_H */
+
+commit 4a1bd5b80603f73593fd7094d7da41ff72130461
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 16:46:59 2010 +0800
+
+    ARMV4_5_MMU: review unused symbols
+    
+    Remove unused data:
+    - armv4_5_mmu_page_type_names
+    Remove prototype of not existing function:
+    - armv4mmu_translate_va
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/target/armv4_5_mmu.c b/src/target/armv4_5_mmu.c
+index 4d2fbee..fc1dde7 100644
+--- a/src/target/armv4_5_mmu.c
++++ b/src/target/armv4_5_mmu.c
+@@ -26,13 +26,6 @@
+ #include "armv4_5_mmu.h"
+ 
+ 
+-uint32_t armv4mmu_translate_va(struct target *target, struct armv4_5_mmu_common *armv4_5_mmu, uint32_t va, int *type, uint32_t *cb, int *domain, uint32_t *ap);
+-
+-char* armv4_5_mmu_page_type_names[] =
+-{
+-	"section", "large page", "small page", "tiny page"
+-};
+-
+ uint32_t armv4_5_mmu_translate_va(struct target *target, struct armv4_5_mmu_common *armv4_5_mmu, uint32_t va, int *type, uint32_t *cb, int *domain, uint32_t *ap)
+ {
+ 	uint32_t first_lvl_descriptor = 0x0;
+
+commit 0f3bbcf09683904c1f21b6961cbb0f36b07043c0
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 16:46:01 2010 +0800
+
+    ARMV4_5: review scope of data
+    
+    Add "static" qualifier to private data.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/target/arm.h b/src/target/arm.h
+index 99bd983..ce8cbe1 100644
+--- a/src/target/arm.h
++++ b/src/target/arm.h
+@@ -80,8 +80,6 @@ enum arm_state {
+ 	ARM_STATE_THUMB_EE,
+ };
+ 
+-extern const char *arm_state_strings[];
+-
+ #define ARM_COMMON_MAGIC 0x0A450A45
+ 
+ /**
+diff --git a/src/target/armv4_5.c b/src/target/armv4_5.c
+index 1e9a296..eeb6694 100644
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -217,7 +217,7 @@ enum arm_mode armv4_5_number_to_mode(int number)
+ 	}
+ }
+ 
+-const char *arm_state_strings[] =
++static const char *arm_state_strings[] =
+ {
+ 	"ARM", "Thumb", "Jazelle", "ThumbEE",
+ };
+
+commit 263b4b9057b4e34eec8b39c4f165d370cb51a9e3
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 16:44:54 2010 +0800
+
+    EMBEDDEDICE: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/target/embeddedice.c b/src/target/embeddedice.c
+index 69f3a76..7ef4ac4 100644
+--- a/src/target/embeddedice.c
++++ b/src/target/embeddedice.c
+@@ -47,6 +47,8 @@
+  * core entered debug mode.
+  */
+ 
++static int embeddedice_set_reg_w_exec(struct reg *reg, uint8_t *buf);
++
+ /*
+  * From:  ARM9E-S TRM, DDI 0165, table C-4 (and similar, for other cores)
+  */
+@@ -469,7 +471,7 @@ void embeddedice_set_reg(struct reg *reg, uint32_t value)
+  * Write an EmbeddedICE register, updating the register cache.
+  * Uses embeddedice_set_reg(); not queued.
+  */
+-int embeddedice_set_reg_w_exec(struct reg *reg, uint8_t *buf)
++static int embeddedice_set_reg_w_exec(struct reg *reg, uint8_t *buf)
+ {
+ 	int retval;
+ 
+diff --git a/src/target/embeddedice.h b/src/target/embeddedice.h
+index d278115..42df8d0 100644
+--- a/src/target/embeddedice.h
++++ b/src/target/embeddedice.h
+@@ -106,7 +106,6 @@ void embeddedice_write_reg(struct reg *reg, uint32_t value);
+ void embeddedice_store_reg(struct reg *reg);
+ 
+ void embeddedice_set_reg(struct reg *reg, uint32_t value);
+-int embeddedice_set_reg_w_exec(struct reg *reg, uint8_t *buf);
+ 
+ int embeddedice_receive(struct arm_jtag *jtag_info, uint32_t *data, uint32_t size);
+ int embeddedice_send(struct arm_jtag *jtag_info, uint32_t *data, uint32_t size);
+
+commit 3f0b17e48af9e3481084e1e9e697012b6824df43
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 00:25:35 2010 +0800
+
+    TARGET: review unused symbols
+    
+    Remove unused functions:
+    - target_all_handle_event
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/target/target.c b/src/target/target.c
+index f1b292a..73594fb 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -3580,22 +3580,6 @@ static int target_array2mem(Jim_Interp *interp, struct target *target,
+ 	return JIM_OK;
+ }
+ 
+-void target_all_handle_event(enum target_event e)
+-{
+-	struct target *target;
+-
+-	LOG_DEBUG("**all*targets: event: %d, %s",
+-			   (int)e,
+-			   Jim_Nvp_value2name_simple(nvp_target_event, e)->name);
+-
+-	target = all_targets;
+-	while (target) {
+-		target_handle_event(target, e);
+-		target = target->next;
+-	}
+-}
+-
+-
+ /* FIX? should we propagate errors here rather than printing them
+  * and continuing?
+  */
+diff --git a/src/target/target.h b/src/target/target.h
+index 18ffb38..0292945 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -473,7 +473,6 @@ int target_write_u8(struct target *target, uint32_t address, uint8_t value);
+ int target_arch_state(struct target *target);
+ 
+ void target_handle_event(struct target *t, enum target_event e);
+-void target_all_handle_event(enum target_event e);
+ 
+ #define ERROR_TARGET_INVALID	(-300)
+ #define ERROR_TARGET_INIT_FAILED (-301)
+
+commit 321aa6aa8fe9f6c07649776722a341bbfda028ee
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 00:22:46 2010 +0800
+
+    TARGET: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    Remove unused "extern" in src/ecosboard.c
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/ecosboard.c b/src/ecosboard.c
+index f752354..4249e1b 100644
+--- a/src/ecosboard.c
++++ b/src/ecosboard.c
+@@ -101,7 +101,6 @@ char hwaddr[512];
+ 
+ 
+ extern struct flash_driver *flash_drivers[];
+-extern struct target_type *target_types[];
+ 
+ #ifdef CYGPKG_PROFILE_GPROF
+ #include <cyg/profile/profile.h>
+diff --git a/src/target/target.c b/src/target/target.c
+index f3d63fc..f1b292a 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -50,6 +50,7 @@ static int target_array2mem(Jim_Interp *interp, struct target *target,
+ 		int argc, Jim_Obj *const *argv);
+ static int target_mem2array(Jim_Interp *interp, struct target *target,
+ 		int argc, Jim_Obj *const *argv);
++static int target_register_user_commands(struct command_context *cmd_ctx);
+ 
+ /* targets */
+ extern struct target_type arm7tdmi_target;
+@@ -70,7 +71,7 @@ extern struct target_type avr_target;
+ extern struct target_type dsp563xx_target;
+ extern struct target_type testee_target;
+ 
+-struct target_type *target_types[] =
++static struct target_type *target_types[] =
+ {
+ 	&arm7tdmi_target,
+ 	&arm9tdmi_target,
+@@ -93,8 +94,8 @@ struct target_type *target_types[] =
+ };
+ 
+ struct target *all_targets = NULL;
+-struct target_event_callback *target_event_callbacks = NULL;
+-struct target_timer_callback *target_timer_callbacks = NULL;
++static struct target_event_callback *target_event_callbacks = NULL;
++static struct target_timer_callback *target_timer_callbacks = NULL;
+ 
+ static const Jim_Nvp nvp_assert[] = {
+ 	{ .name = "assert", NVP_ASSERT },
+@@ -121,7 +122,7 @@ static const Jim_Nvp nvp_error_target[] = {
+ 	{ .value = -1, .name = NULL }
+ };
+ 
+-const char *target_strerror_safe(int err)
++static const char *target_strerror_safe(int err)
+ {
+ 	const Jim_Nvp *n;
+ 
+@@ -282,7 +283,7 @@ uint16_t target_buffer_get_u16(struct target *target, const uint8_t *buffer)
+ }
+ 
+ /* read a uint8_t from a buffer in target memory endianness */
+-uint8_t target_buffer_get_u8(struct target *target, const uint8_t *buffer)
++static uint8_t target_buffer_get_u8(struct target *target, const uint8_t *buffer)
+ {
+ 	return *buffer & 0x0ff;
+ }
+@@ -306,7 +307,7 @@ void target_buffer_set_u16(struct target *target, uint8_t *buffer, uint16_t valu
+ }
+ 
+ /* write a uint8_t to a buffer in target memory endianness */
+-void target_buffer_set_u8(struct target *target, uint8_t *buffer, uint8_t value)
++static void target_buffer_set_u8(struct target *target, uint8_t *buffer, uint8_t value)
+ {
+ 	*buffer = value;
+ }
+@@ -489,7 +490,7 @@ int target_resume(struct target *target, int current, uint32_t address, int hand
+ 	return retval;
+ }
+ 
+-int target_process_reset(struct command_context *cmd_ctx, enum target_reset_mode reset_mode)
++static int target_process_reset(struct command_context *cmd_ctx, enum target_reset_mode reset_mode)
+ {
+ 	char buf[100];
+ 	int retval;
+@@ -682,7 +683,7 @@ int target_read_memory(struct target *target,
+ 	return target->type->read_memory(target, address, size, count, buffer);
+ }
+ 
+-int target_read_phys_memory(struct target *target,
++static int target_read_phys_memory(struct target *target,
+ 		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+ 	return target->type->read_phys_memory(target, address, size, count, buffer);
+@@ -694,7 +695,7 @@ int target_write_memory(struct target *target,
+ 	return target->type->write_memory(target, address, size, count, buffer);
+ }
+ 
+-int target_write_phys_memory(struct target *target,
++static int target_write_phys_memory(struct target *target,
+ 		uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+ 	return target->type->write_phys_memory(target, address, size, count, buffer);
+@@ -854,7 +855,7 @@ static int target_init_one(struct command_context *cmd_ctx,
+ 	return ERROR_OK;
+ }
+ 
+-int target_init(struct command_context *cmd_ctx)
++static int target_init(struct command_context *cmd_ctx)
+ {
+ 	struct target *target;
+ 	int retval;
+@@ -987,7 +988,7 @@ int target_unregister_event_callback(int (*callback)(struct target *target, enum
+ 	return ERROR_OK;
+ }
+ 
+-int target_unregister_timer_callback(int (*callback)(void *priv), void *priv)
++static int target_unregister_timer_callback(int (*callback)(void *priv), void *priv)
+ {
+ 	struct target_timer_callback **p = &target_timer_callbacks;
+ 	struct target_timer_callback *c = target_timer_callbacks;
+@@ -1230,7 +1231,7 @@ int target_alloc_working_area(struct target *target, uint32_t size, struct worki
+ 	return ERROR_OK;
+ }
+ 
+-int target_free_working_area_restore(struct target *target, struct working_area *area, int restore)
++static int target_free_working_area_restore(struct target *target, struct working_area *area, int restore)
+ {
+ 	if (area->free)
+ 		return ERROR_OK;
+@@ -1259,7 +1260,7 @@ int target_free_working_area(struct target *target, struct working_area *area)
+ /* free resources and restore memory, if restoring memory fails,
+  * free up resources anyway
+  */
+-void target_free_all_working_areas_restore(struct target *target, int restore)
++static void target_free_all_working_areas_restore(struct target *target, int restore)
+ {
+ 	struct working_area *c = target->working_areas;
+ 
+@@ -5262,7 +5263,7 @@ static const struct command_registration target_exec_command_handlers[] = {
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+-int target_register_user_commands(struct command_context *cmd_ctx)
++static int target_register_user_commands(struct command_context *cmd_ctx)
+ {
+ 	int retval = ERROR_OK;
+ 	if ((retval = target_request_register_commands(cmd_ctx)) != ERROR_OK)
+diff --git a/src/target/target.h b/src/target/target.h
+index 562724b..18ffb38 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -247,11 +247,7 @@ struct target_timer_callback
+ };
+ 
+ int target_register_commands(struct command_context *cmd_ctx);
+-int target_register_user_commands(struct command_context *cmd_ctx);
+-int target_init(struct command_context *cmd_ctx);
+ int target_examine(void);
+-int target_process_reset(struct command_context *cmd_ctx,
+-		enum target_reset_mode reset_mode);
+ 
+ int target_register_event_callback(
+ 		int (*callback)(struct target *target,
+@@ -273,7 +269,6 @@ int target_call_event_callbacks(struct target *target, enum target_event event);
+  */
+ int target_register_timer_callback(int (*callback)(void *priv),
+ 		int time_ms, int periodic, void *priv);
+-int target_unregister_timer_callback(int (*callback)(void *priv), void *priv);
+ 
+ int target_call_timer_callbacks(void);
+ /**
+@@ -458,22 +453,14 @@ const char *target_state_name( struct target *target );
+ int target_alloc_working_area(struct target *target,
+ 		uint32_t size, struct working_area **area);
+ int target_free_working_area(struct target *target, struct working_area *area);
+-int target_free_working_area_restore(struct target *target,
+-		struct working_area *area, int restore);
+ void target_free_all_working_areas(struct target *target);
+-void target_free_all_working_areas_restore(struct target *target, int restore);
+ 
+ extern struct target *all_targets;
+ 
+-extern struct target_event_callback *target_event_callbacks;
+-extern struct target_timer_callback *target_timer_callbacks;
+-
+ uint32_t target_buffer_get_u32(struct target *target, const uint8_t *buffer);
+ uint16_t target_buffer_get_u16(struct target *target, const uint8_t *buffer);
+-uint8_t  target_buffer_get_u8 (struct target *target, const uint8_t *buffer);
+ void target_buffer_set_u32(struct target *target, uint8_t *buffer, uint32_t value);
+ void target_buffer_set_u16(struct target *target, uint8_t *buffer, uint16_t value);
+-void target_buffer_set_u8 (struct target *target, uint8_t *buffer, uint8_t  value);
+ 
+ int target_read_u32(struct target *target, uint32_t address, uint32_t *value);
+ int target_read_u16(struct target *target, uint32_t address, uint16_t *value);
+@@ -500,8 +487,6 @@ void target_all_handle_event(enum target_event e);
+ #define ERROR_TARGET_NOT_RUNNING (-310)
+ #define ERROR_TARGET_NOT_EXAMINED (-311)
+ 
+-const char *target_strerror_safe(int err);
+-
+ extern bool get_target_reset_nag(void);
+ 
+ #endif /* TARGET_H */
+
+commit 81fab96c0d0da02e8debc07079d5f6fe699dff45
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Sat Apr 10 00:07:40 2010 +0800
+
+    ARMv7M: review scope of functions
+    
+    Add "static" qualifier to private functions.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/target/armv7m.c b/src/target/armv7m.c
+index f0829c6..83335a5 100644
+--- a/src/target/armv7m.c
++++ b/src/target/armv7m.c
+@@ -527,7 +527,7 @@ struct reg_cache *armv7m_build_reg_cache(struct target *target)
+ 	return cache;
+ }
+ 
+-int armv7m_setup_semihosting(struct target *target, int enable)
++static int armv7m_setup_semihosting(struct target *target, int enable)
+ {
+ 	/* nothing todo for armv7m */
+ 	return ERROR_OK;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/ecosboard.c            |    4 ---
+ src/flash/mflash.c         |    2 +-
+ src/flash/mflash.h         |    1 -
+ src/flash/nand/arm_io.c    |    2 +-
+ src/flash/nand/core.c      |    9 +++++++-
+ src/flash/nand/core.h      |   10 ---------
+ src/flash/nand/mx3.c       |    2 +-
+ src/flash/nand/tcl.c       |    6 +++-
+ src/flash/nor/aduc702x.c   |    2 +-
+ src/flash/nor/avrf.c       |    2 +-
+ src/flash/nor/cfi.c        |    6 ++--
+ src/flash/nor/core.c       |    2 +-
+ src/flash/nor/core.h       |    2 -
+ src/flash/nor/drivers.c    |    2 +-
+ src/flash/nor/str7x.c      |    4 +-
+ src/flash/nor/str9xpec.c   |    2 +-
+ src/flash/nor/tcl.c        |    2 +-
+ src/flash/nor/tms470.c     |   14 ++++++------
+ src/hello.c                |    5 ----
+ src/hello.h                |    4 ---
+ src/helper/binarybuffer.c  |    4 +-
+ src/helper/log.c           |   38 -------------------------------------
+ src/helper/log.h           |    8 -------
+ src/helper/time_support.c  |    7 ------
+ src/helper/time_support.h  |    1 -
+ src/jtag/commands.c        |    2 +-
+ src/jtag/commands.h        |    1 -
+ src/openocd.c              |    2 +-
+ src/pld/pld.c              |    3 +-
+ src/pld/pld.h              |    2 -
+ src/target/adi_v5_jtag.c   |    2 +-
+ src/target/arm.h           |    2 -
+ src/target/arm7_9_common.c |   28 +++++++++++++-------------
+ src/target/arm7_9_common.h |    3 --
+ src/target/arm920t.c       |    2 +-
+ src/target/arm_jtag.c      |    2 +-
+ src/target/arm_simulator.c |    2 +-
+ src/target/arm_simulator.h |    4 ---
+ src/target/armv4_5.c       |    2 +-
+ src/target/armv4_5_mmu.c   |    7 ------
+ src/target/armv7m.c        |    2 +-
+ src/target/dsp563xx_once.c |    4 +-
+ src/target/dsp563xx_once.h |    6 -----
+ src/target/embeddedice.c   |    4 ++-
+ src/target/embeddedice.h   |    1 -
+ src/target/mips32.c        |   18 ++++++++--------
+ src/target/mips32.h        |    2 -
+ src/target/mips32_dmaacc.c |   25 ++++++++++++++++++-----
+ src/target/mips32_dmaacc.h |   14 -------------
+ src/target/mips32_pracc.c  |   34 +++++++++++++++++++++++++-------
+ src/target/mips32_pracc.h  |   18 -----------------
+ src/target/mips_ejtag.c    |    7 +++--
+ src/target/mips_ejtag.h    |    1 -
+ src/target/target.c        |   45 ++++++++++++++-----------------------------
+ src/target/target.h        |   16 ---------------
+ 55 files changed, 137 insertions(+), 265 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From gowinex at users.sourceforge.net  Wed Apr 14 07:37:48 2010
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Wed, 14 Apr 2010 05:37:48 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-183-gdecad30
+Message-ID: <E1O1vIL-0008HS-Nf@sfp-scmshell-1.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  decad308655edf61094d5d552ab93f9fb2a6d535 (commit)
+      from  a8a9eddca0f8f5d8ab73f22c5a159fe1748272d5 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit decad308655edf61094d5d552ab93f9fb2a6d535
+Author: Anton Fedotov <AD.Fedotov at gmail.com>
+Date:   Wed Apr 14 07:36:08 2010 +0200
+
+    cortex-a8: more MMU support
+    
+    + virt2phys() can now convert virtual address to real
+    + read_memory() and write_memory() are renamed to read_phys_memory()
+    and write_phys_memory()
+    + new read_memory() and write_memory() try to resolve real address if
+    mmu is enambled than perform real address reading/writing
+       + if address is bellow 0xc000000 than TTB0 is used for page table
+    dereference, if above - than TTB1. Linux style of user/kernel address
+    separation
+       + if above fails (i.e address is unspecified) than mode is checked
+    whether it is Supervisor (than TTB1) or User (than TTB0)
+    - Software breakpoints doesn't work. You should invoke
+    "gdb_breakpoint_override hard" before you start debugging
+    + cortex_a8_mmu(), cortex_a8_enable_mmu_caches(),
+    cortex_a8_disable_mmu_caches() are implemented
+    
+    Signed-off-by: ??yvind Harboe <oyvind.harboe at zylin.com>
+
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index a548027..aa0e030 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -51,6 +51,16 @@ static int cortex_a8_dap_read_coreregister_u32(struct target *target,
+ 		uint32_t *value, int regnum);
+ static int cortex_a8_dap_write_coreregister_u32(struct target *target,
+ 		uint32_t value, int regnum);
++static int cortex_a8_mmu(struct target *target, int *enabled);
++static int cortex_a8_virt2phys(struct target *target,
++                uint32_t virt, uint32_t *phys);
++static void cortex_a8_disable_mmu_caches(struct target *target, int mmu,
++                int d_u_cache, int i_cache);
++static void cortex_a8_enable_mmu_caches(struct target *target, int mmu,
++                int d_u_cache, int i_cache);
++static uint32_t cortex_a8_get_ttb(struct target *target);
++
++
+ /*
+  * FIXME do topology discovery using the ROM; don't
+  * assume this is an OMAP3.   Also, allow for multiple ARMv7-A
+@@ -1269,111 +1279,158 @@ static int cortex_a8_deassert_reset(struct target *target)
+  * ap number for every access.
+  */
+ 
++static int cortex_a8_read_phys_memory(struct target *target,
++                uint32_t address, uint32_t size,
++                uint32_t count, uint8_t *buffer)
++{
++        struct armv7a_common *armv7a = target_to_armv7a(target);
++        struct adiv5_dap *swjdp = &armv7a->dap;
++        int retval = ERROR_INVALID_ARGUMENTS;
++
++        /* cortex_a8 handles unaligned memory access */
++
++// ???  dap_ap_select(swjdp, swjdp_memoryap);
++        LOG_DEBUG("Reading memory at real address 0x%x; size %d; count %d", address, size, count);
++        if (count && buffer) {
++                switch (size) {
++                case 4:
++                        retval = mem_ap_read_buf_u32(swjdp, buffer, 4 * count, address);
++                        break;
++                case 2:
++                        retval = mem_ap_read_buf_u16(swjdp, buffer, 2 * count, address);
++                        break;
++                case 1:
++                        retval = mem_ap_read_buf_u8(swjdp, buffer, count, address);
++                        break;
++                }
++        }
++
++        return retval;
++}
++
+ static int cortex_a8_read_memory(struct target *target, uint32_t address,
+ 		uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+-	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &armv7a->dap;
+-	int retval = ERROR_INVALID_ARGUMENTS;
++        int enabled = 0;
++        uint32_t virt, phys;
+ 
+ 	/* cortex_a8 handles unaligned memory access */
+ 
+ // ???	dap_ap_select(swjdp, swjdp_memoryap);
++        LOG_DEBUG("Reading memory at address 0x%x; size %d; count %d", address, size, count);
++        cortex_a8_mmu(target, &enabled);
++        if(enabled)
++        {
++            virt = address;
++            cortex_a8_virt2phys(target, virt, &phys);
++            LOG_DEBUG("Reading at virtual address. Translating v:0x%x to r:0x%x", virt, phys);
++            address = phys;
++        }
++
++        return cortex_a8_read_phys_memory(target, address, size, count, buffer);
++}
+ 
+-	if (count && buffer) {
+-		switch (size) {
+-		case 4:
+-			retval = mem_ap_read_buf_u32(swjdp, buffer, 4 * count, address);
+-			break;
+-		case 2:
+-			retval = mem_ap_read_buf_u16(swjdp, buffer, 2 * count, address);
+-			break;
+-		case 1:
+-			retval = mem_ap_read_buf_u8(swjdp, buffer, count, address);
+-			break;
+-		}
+-	}
+-
+-	return retval;
++static int cortex_a8_write_phys_memory(struct target *target,
++                uint32_t address, uint32_t size,
++                uint32_t count, uint8_t *buffer)
++{
++        struct armv7a_common *armv7a = target_to_armv7a(target);
++        struct adiv5_dap *swjdp = &armv7a->dap;
++        int retval = ERROR_INVALID_ARGUMENTS;
++
++// ???  dap_ap_select(swjdp, swjdp_memoryap);
++
++        LOG_DEBUG("Writing memory to real address 0x%x; size %d; count %d", address, size, count);
++        if (count && buffer) {
++                switch (size) {
++                case 4:
++                        retval = mem_ap_write_buf_u32(swjdp, buffer, 4 * count, address);
++                        break;
++                case 2:
++                        retval = mem_ap_write_buf_u16(swjdp, buffer, 2 * count, address);
++                        break;
++                case 1:
++                        retval = mem_ap_write_buf_u8(swjdp, buffer, count, address);
++                        break;
++                }
++        }
++
++        /* REVISIT this op is generic ARMv7-A/R stuff */
++        if (retval == ERROR_OK && target->state == TARGET_HALTED)
++        {
++                struct arm_dpm *dpm = armv7a->armv4_5_common.dpm;
++
++                retval = dpm->prepare(dpm);
++                if (retval != ERROR_OK)
++                        return retval;
++
++                /* The Cache handling will NOT work with MMU active, the
++                 * wrong addresses will be invalidated!
++                 *
++                 * For both ICache and DCache, walk all cache lines in the
++                 * address range. Cortex-A8 has fixed 64 byte line length.
++                 *
++                 * REVISIT per ARMv7, these may trigger watchpoints ...
++                 */
++
++                /* invalidate I-Cache */
++                if (armv7a->armv4_5_mmu.armv4_5_cache.i_cache_enabled)
++                {
++                        /* ICIMVAU - Invalidate Cache single entry
++                         * with MVA to PoU
++                         *      MCR p15, 0, r0, c7, c5, 1
++                         */
++                        for (uint32_t cacheline = address;
++                                        cacheline < address + size * count;
++                                        cacheline += 64) {
++                                retval = dpm->instr_write_data_r0(dpm,
++                                        ARMV4_5_MCR(15, 0, 0, 7, 5, 1),
++                                        cacheline);
++                        }
++                }
++
++                /* invalidate D-Cache */
++                if (armv7a->armv4_5_mmu.armv4_5_cache.d_u_cache_enabled)
++                {
++                        /* DCIMVAC - Invalidate data Cache line
++                         * with MVA to PoC
++                         *      MCR p15, 0, r0, c7, c6, 1
++                         */
++                        for (uint32_t cacheline = address;
++                                        cacheline < address + size * count;
++                                        cacheline += 64) {
++                                retval = dpm->instr_write_data_r0(dpm,
++                                        ARMV4_5_MCR(15, 0, 0, 7, 6, 1),
++                                        cacheline);
++                        }
++                }
++
++                /* (void) */ dpm->finish(dpm);
++        }
++
++        return retval;
+ }
+ 
+ static int cortex_a8_write_memory(struct target *target, uint32_t address,
+-		uint32_t size, uint32_t count, uint8_t *buffer)
++                uint32_t size, uint32_t count, uint8_t *buffer)
+ {
+-	struct armv7a_common *armv7a = target_to_armv7a(target);
+-	struct adiv5_dap *swjdp = &armv7a->dap;
+-	int retval = ERROR_INVALID_ARGUMENTS;
+-
+-// ???	dap_ap_select(swjdp, swjdp_memoryap);
+-
+-	if (count && buffer) {
+-		switch (size) {
+-		case 4:
+-			retval = mem_ap_write_buf_u32(swjdp, buffer, 4 * count, address);
+-			break;
+-		case 2:
+-			retval = mem_ap_write_buf_u16(swjdp, buffer, 2 * count, address);
+-			break;
+-		case 1:
+-			retval = mem_ap_write_buf_u8(swjdp, buffer, count, address);
+-			break;
+-		}
+-	}
+-
+-	/* REVISIT this op is generic ARMv7-A/R stuff */
+-	if (retval == ERROR_OK && target->state == TARGET_HALTED)
+-	{
+-		struct arm_dpm *dpm = armv7a->armv4_5_common.dpm;
+-
+-		retval = dpm->prepare(dpm);
+-		if (retval != ERROR_OK)
+-			return retval;
+-
+-		/* The Cache handling will NOT work with MMU active, the
+-		 * wrong addresses will be invalidated!
+-		 *
+-		 * For both ICache and DCache, walk all cache lines in the
+-		 * address range. Cortex-A8 has fixed 64 byte line length.
+-		 *
+-		 * REVISIT per ARMv7, these may trigger watchpoints ...
+-		 */
+-
+-		/* invalidate I-Cache */
+-		if (armv7a->armv4_5_mmu.armv4_5_cache.i_cache_enabled)
+-		{
+-			/* ICIMVAU - Invalidate Cache single entry
+-			 * with MVA to PoU
+-			 *	MCR p15, 0, r0, c7, c5, 1
+-			 */
+-			for (uint32_t cacheline = address;
+-					cacheline < address + size * count;
+-					cacheline += 64) {
+-				retval = dpm->instr_write_data_r0(dpm,
+-					ARMV4_5_MCR(15, 0, 0, 7, 5, 1),
+-					cacheline);
+-			}
+-		}
+-
+-		/* invalidate D-Cache */
+-		if (armv7a->armv4_5_mmu.armv4_5_cache.d_u_cache_enabled)
+-		{
+-			/* DCIMVAC - Invalidate data Cache line
+-			 * with MVA to PoC
+-			 *	MCR p15, 0, r0, c7, c6, 1
+-			 */
+-			for (uint32_t cacheline = address;
+-					cacheline < address + size * count;
+-					cacheline += 64) {
+-				retval = dpm->instr_write_data_r0(dpm,
+-					ARMV4_5_MCR(15, 0, 0, 7, 6, 1),
+-					cacheline);
+-			}
+-		}
+-
+-		/* (void) */ dpm->finish(dpm);
+-	}
+-
+-	return retval;
++        int enabled = 0;
++        uint32_t virt, phys;
++
++// ???  dap_ap_select(swjdp, swjdp_memoryap);
++
++        LOG_DEBUG("Writing memory to address 0x%x; size %d; count %d", address, size, count);
++        cortex_a8_mmu(target, &enabled);
++        if(enabled)
++        {
++            virt = address;
++            cortex_a8_virt2phys(target, virt, &phys);
++            LOG_DEBUG("Writing to virtual address. Translating v:0x%x to r:0x%x", virt, phys);
++            address = phys;
++        }
++
++        return cortex_a8_write_phys_memory(target, address, size, 
++                count, buffer);
+ }
+ 
+ static int cortex_a8_bulk_write_memory(struct target *target, uint32_t address,
+@@ -1580,6 +1637,9 @@ static int cortex_a8_init_arch_info(struct target *target,
+ 
+ 	cortex_a8->fast_reg_read = 0;
+ 
++	/* Set default value */
++	cortex_a8->current_address_mode = ARM_MODE_ANY;
++
+ 	/* register arch-specific functions */
+ 	armv7a->examine_debug_reason = NULL;
+ 
+@@ -1587,11 +1647,11 @@ static int cortex_a8_init_arch_info(struct target *target,
+ 
+ 	armv7a->pre_restore_context = NULL;
+ 	armv7a->armv4_5_mmu.armv4_5_cache.ctype = -1;
+-//	armv7a->armv4_5_mmu.get_ttb = armv7a_get_ttb;
+-	armv7a->armv4_5_mmu.read_memory = cortex_a8_read_memory;
+-	armv7a->armv4_5_mmu.write_memory = cortex_a8_write_memory;
+-//	armv7a->armv4_5_mmu.disable_mmu_caches = armv7a_disable_mmu_caches;
+-//	armv7a->armv4_5_mmu.enable_mmu_caches = armv7a_enable_mmu_caches;
++	armv7a->armv4_5_mmu.get_ttb = cortex_a8_get_ttb;
++	armv7a->armv4_5_mmu.read_memory = cortex_a8_read_phys_memory;
++	armv7a->armv4_5_mmu.write_memory = cortex_a8_write_phys_memory;
++	armv7a->armv4_5_mmu.disable_mmu_caches = cortex_a8_disable_mmu_caches;
++	armv7a->armv4_5_mmu.enable_mmu_caches = cortex_a8_enable_mmu_caches;
+ 	armv7a->armv4_5_mmu.has_tiny_pages = 1;
+ 	armv7a->armv4_5_mmu.mmu_enabled = 0;
+ 
+@@ -1616,6 +1676,160 @@ static int cortex_a8_target_create(struct target *target, Jim_Interp *interp)
+ 	return ERROR_OK;
+ }
+ 
++static uint32_t cortex_a8_get_ttb(struct target *target)
++{
++	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
++    struct armv7a_common *armv7a = &cortex_a8->armv7a_common;
++    uint32_t ttb = 0, retval = ERROR_OK;
++
++    /* current_address_mode is set inside cortex_a8_virt2phys()
++       where we can determine if address belongs to user or kernel */
++    if(cortex_a8->current_address_mode == ARM_MODE_SVC)
++    {
++        /* MRC p15,0,<Rt>,c1,c0,0 ; Read CP15 System Control Register */
++        retval = armv7a->armv4_5_common.mrc(target, 15,
++                    0, 1,   /* op1, op2 */
++                    2, 0,   /* CRn, CRm */
++                    &ttb);
++    }
++    else if(cortex_a8->current_address_mode == ARM_MODE_USR)
++    {
++        /* MRC p15,0,<Rt>,c1,c0,0 ; Read CP15 System Control Register */
++        retval = armv7a->armv4_5_common.mrc(target, 15,
++                    0, 0,   /* op1, op2 */
++                    2, 0,   /* CRn, CRm */
++                    &ttb);
++    }
++    /* we don't know whose address is: user or kernel
++       we assume that if we are in kernel mode then
++       address belongs to kernel else if in user mode
++       - to user */
++    else if(armv7a->armv4_5_common.core_mode == ARM_MODE_SVC)
++    {
++        /* MRC p15,0,<Rt>,c1,c0,0 ; Read CP15 System Control Register */
++        retval = armv7a->armv4_5_common.mrc(target, 15,
++                    0, 1,   /* op1, op2 */
++                    2, 0,   /* CRn, CRm */
++                    &ttb);
++    }
++    else if(armv7a->armv4_5_common.core_mode == ARM_MODE_USR)
++    {
++        /* MRC p15,0,<Rt>,c1,c0,0 ; Read CP15 System Control Register */
++        retval = armv7a->armv4_5_common.mrc(target, 15,
++                    0, 0,   /* op1, op2 */
++                    2, 0,   /* CRn, CRm */
++                    &ttb);
++    }
++    /* finaly we don't know whose ttb to use: user or kernel */
++    else
++        LOG_ERROR("Don't know how to get ttb for current mode!!!");
++
++    ttb &= 0xffffc000;
++
++    return ttb;
++}
++
++static void cortex_a8_disable_mmu_caches(struct target *target, int mmu,
++                int d_u_cache, int i_cache)
++{
++    struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
++    struct armv7a_common *armv7a = &cortex_a8->armv7a_common;
++    uint32_t cp15_control;
++
++    /* read cp15 control register */
++    armv7a->armv4_5_common.mrc(target, 15,
++                    0, 0,   /* op1, op2 */
++                    1, 0,   /* CRn, CRm */
++                    &cp15_control);
++
++
++    if (mmu)
++            cp15_control &= ~0x1U;
++
++    if (d_u_cache)
++            cp15_control &= ~0x4U;
++
++    if (i_cache)
++            cp15_control &= ~0x1000U;
++
++    armv7a->armv4_5_common.mcr(target, 15,
++                    0, 0,   /* op1, op2 */
++                    1, 0,   /* CRn, CRm */
++                    cp15_control);
++}
++
++static void cortex_a8_enable_mmu_caches(struct target *target, int mmu,
++                int d_u_cache, int i_cache)
++{
++    struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
++    struct armv7a_common *armv7a = &cortex_a8->armv7a_common;
++    uint32_t cp15_control;
++
++    /* read cp15 control register */
++    armv7a->armv4_5_common.mrc(target, 15,
++                    0, 0,   /* op1, op2 */
++                    1, 0,   /* CRn, CRm */
++                    &cp15_control);
++
++    if (mmu)
++            cp15_control |= 0x1U;
++
++    if (d_u_cache)
++            cp15_control |= 0x4U;
++
++    if (i_cache)
++            cp15_control |= 0x1000U;
++
++    armv7a->armv4_5_common.mcr(target, 15,
++                    0, 0,   /* op1, op2 */
++                    1, 0,   /* CRn, CRm */
++                    cp15_control);
++}
++
++
++static int cortex_a8_mmu(struct target *target, int *enabled)
++{
++	if (target->state != TARGET_HALTED) {
++		LOG_ERROR("%s: target not halted", __func__);
++		return ERROR_TARGET_INVALID;
++	}
++
++	*enabled = target_to_cortex_a8(target)->armv7a_common.armv4_5_mmu.mmu_enabled;
++	return ERROR_OK;
++}
++
++static int cortex_a8_virt2phys(struct target *target,
++		uint32_t virt, uint32_t *phys)
++{
++	int type;
++	uint32_t cb;
++	int domain;
++	uint32_t ap;
++	struct cortex_a8_common *cortex_a8 = target_to_cortex_a8(target);
++	// struct armv7a_common *armv7a = &cortex_a8->armv7a_common;
++	struct armv7a_common *armv7a = target_to_armv7a(target);
++
++    /* We assume that virtual address is separated
++       between user and kernel in Linux style:
++       0x00000000-0xbfffffff - User space
++       0xc0000000-0xffffffff - Kernel space */
++    if( virt < 0xc0000000 ) /* Linux user space */
++        cortex_a8->current_address_mode = ARM_MODE_USR;
++    else /* Linux kernel */
++        cortex_a8->current_address_mode = ARM_MODE_SVC;
++	uint32_t ret = armv4_5_mmu_translate_va(target,
++			&armv7a->armv4_5_mmu, virt, &type, &cb, &domain, &ap);
++    /* Reset the flag. We don't want someone else to use it by error */
++    cortex_a8->current_address_mode = ARM_MODE_ANY;
++
++	if (type == -1)
++	{
++		return ret;
++	}
++	*phys = ret;
++	return ERROR_OK;
++}
++
+ COMMAND_HANDLER(cortex_a8_handle_cache_info_command)
+ {
+ 	struct target *target = get_current_target(CMD_CTX);
+@@ -1703,4 +1917,10 @@ struct target_type cortexa8_target = {
+ 	.target_create = cortex_a8_target_create,
+ 	.init_target = cortex_a8_init_target,
+ 	.examine = cortex_a8_examine,
++
++	.read_phys_memory = cortex_a8_read_phys_memory,
++	.write_phys_memory = cortex_a8_write_phys_memory,
++	.mmu = cortex_a8_mmu,
++	.virt2phys = cortex_a8_virt2phys,
++
+ };
+diff --git a/src/target/cortex_a8.h b/src/target/cortex_a8.h
+index cc2e009..7e116e4 100644
+--- a/src/target/cortex_a8.h
++++ b/src/target/cortex_a8.h
+@@ -72,6 +72,9 @@ struct cortex_a8_common
+ 	/* Use cortex_a8_read_regs_through_mem for fast register reads */
+ 	int fast_reg_read;
+ 
++	/* Flag that helps to resolve what ttb to use: user or kernel */
++	int current_address_mode;
++
+ 	struct armv7a_common armv7a_common;
+ };
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/cortex_a8.c |  416 ++++++++++++++++++++++++++++++++++++-----------
+ src/target/cortex_a8.h |    3 +
+ 2 files changed, 321 insertions(+), 98 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From gowinex at users.sourceforge.net  Thu Apr 15 19:12:32 2010
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Thu, 15 Apr 2010 17:12:32 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-184-gd31bbc3
+Message-ID: <E1O2ScE-000668-KO@sfp-scmshell-2.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  d31bbc33fab65a27edfd142202b90011bd471406 (commit)
+      from  decad308655edf61094d5d552ab93f9fb2a6d535 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit d31bbc33fab65a27edfd142202b90011bd471406
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Thu Apr 15 17:11:01 2010 +0800
+
+    TCL SCRIPTS: fix command name
+    
+    Some tcl script has underline between the words "flash bank"
+    resulting in 'invalid command name "flash_bank"'.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/tcl/board/at91rm9200-dk.cfg b/tcl/board/at91rm9200-dk.cfg
+index af6e3df..402ed05 100644
+--- a/tcl/board/at91rm9200-dk.cfg
++++ b/tcl/board/at91rm9200-dk.cfg
+@@ -10,7 +10,7 @@ $_TARGETNAME configure -event reset-init { at91rm9200_dk_init }
+ 
+ #flash bank <name> <driver> <base> <size> <chip_width> <bus_width> <target>
+ set _FLASHNAME $_CHIPNAME.flash
+-flash_bank $_FLASHNAME cfi 0x10000000 0x00200000 2 2 $_TARGETNAME
++flash bank $_FLASHNAME cfi 0x10000000 0x00200000 2 2 $_TARGETNAME
+ 
+ 
+ proc at91rm9200_dk_init { } {
+diff --git a/tcl/board/imx27ads.cfg b/tcl/board/imx27ads.cfg
+index 927647a..e705b1e 100644
+--- a/tcl/board/imx27ads.cfg
++++ b/tcl/board/imx27ads.cfg
+@@ -6,7 +6,7 @@ $_TARGETNAME configure -event reset-init { imx27ads_init }
+ 
+ # The IMX27 ADS board has a NOR flash on CS0
+ set _FLASHNAME $_CHIPNAME.flash
+-flash_bank $_FLASHNAME cfi 0xc0000000 0x00200000 2 2 $_TARGETNAME
++flash bank $_FLASHNAME cfi 0xc0000000 0x00200000 2 2 $_TARGETNAME
+ 
+ proc imx27ads_init { } {
+ 	# This setup puts RAM at 0xA0000000
+diff --git a/tcl/board/logicpd_imx27.cfg b/tcl/board/logicpd_imx27.cfg
+index 02afc77..da0b462 100644
+--- a/tcl/board/logicpd_imx27.cfg
++++ b/tcl/board/logicpd_imx27.cfg
+@@ -3,7 +3,7 @@ source [find target/imx27.cfg]
+ 
+ # The Logic PD board has a NOR flash on CS0
+ set _FLASHNAME $_CHIPNAME.flash
+-flash_bank $_FLASHNAME cfi 0xc0000000 0x00200000 2 2 $_TARGETNAME
++flash bank $_FLASHNAME cfi 0xc0000000 0x00200000 2 2 $_TARGETNAME
+ 
+ #
+ # FIX ME, Add support to
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ tcl/board/at91rm9200-dk.cfg |    2 +-
+ tcl/board/imx27ads.cfg      |    2 +-
+ tcl/board/logicpd_imx27.cfg |    2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From gowinex at users.sourceforge.net  Thu Apr 15 19:19:40 2010
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Thu, 15 Apr 2010 17:19:40 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-185-gee13916
+Message-ID: <E1O2Sj8-0004f7-Du@sfp-scmshell-4.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  ee139164114460d5c4c1a720e28740a7dceca712 (commit)
+      from  d31bbc33fab65a27edfd142202b90011bd471406 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit ee139164114460d5c4c1a720e28740a7dceca712
+Author: Mike Dunn <mikedunn at newsguy.com>
+Date:   Tue Apr 13 13:34:52 2010 -0400
+
+    xscale: fix analyze_trace for trace data collected in wrap mode
+    
+    This patch fixes the xscale_analyze_trace() function.  This function was
+    defective for a trace collected in 'fill' mode (hiccups with repeated
+    instructions) and completely broken when buffer overflowed in 'wrap' mode.  The
+    reason for the latter case is that the checkpoint registers were interpreted
+    incorrectly when two checkpoints are present in the trace (which will be true in
+    'wrap' mode once the buffer fills).  In this case, checkpoint1 register will
+    contain the older entry, and checkpoint0 the newer.  The original code assumed
+    the opposite.  I eventually gave up trying to understand all the logic of the
+    function, and rewrote it.  I think it's much cleaner and understandable now.  I
+    have been using and testing this for a few weeks now.  I'm confident it hasn't
+    regressed in any way.
+    
+    Also added capability to handle (as best as possible) the case where an
+    instruction can not be read from the loaded trace image; e.g., partial image.
+    This was a 'TODO' comment in the original xscale_analyze_trace().
+    
+    Outside of xcsale_analyze_trace(), these (related) changes were made:
+    
+    - Remove pc_ok and current_pc elements from struct xscale_trace.  These elements
+      and associated logic are useless clutter because the very first entry placed
+      in the trace buffer is always an indirect jump to the address at which
+      execution resumed.  This type of trace entry includes the literal address in
+      the trace buffer, so the initial address of the trace is immediately
+      determined from the trace buffer contents and does not need to be recorded
+      when trace is enabled.
+    
+    - Added num_checkpoints to struct xscale_trace_data, which is necessary in order
+      to correctly interpret the checkpoint register contents.
+    
+    - In xscale_read_trace()
+      - Fix potential array out-of-bounds condition.
+      - Eliminate partial address entries when parsing trace (can occur in wrap mode).
+      - Count and record number of checkpoints in trace.
+    
+    - Added small, inlined utility function xscale_display_instruction() to help
+      make the code more concise and clear.
+    
+    TODO:
+     - Save processor state (arm or thumb) in struct xscale_trace when trace is
+       enabled so that trace can be analyzed correctly (currently assumes arm mode).
+     - Add element to struct xscale_trace that records (when trace is enabled)
+       whether vector table is relocated high (to 0xffff0000) or not, so that a
+       branch to an exception vector is traced correctly (curently assumes vectors
+       at 0x0).
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 24c0794..ddc73d2 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -1277,12 +1277,6 @@ static int xscale_resume(struct target *target, int current,
+ 	 * clean the trace buffer if it is to be enabled (0x62) */
+ 	if (xscale->trace.buffer_enabled)
+ 	{
+-		/* if trace buffer is set to 'fill' mode, save starting pc */
+-		if (xscale->trace.buffer_fill > 0)
+-		{
+-			xscale->trace.pc_ok = 1;
+-			xscale->trace.current_pc = buf_get_u32(armv4_5->pc->value, 0, 32);
+-		}
+ 		xscale_send_u32(target, 0x62);
+ 		xscale_send_u32(target, 0x31);
+ 	}
+@@ -2521,6 +2515,7 @@ static int xscale_read_trace(struct target *target)
+ 	uint32_t trace_buffer[258];
+ 	int is_address[256];
+ 	int i, j;
++	unsigned int num_checkpoints = 0;
+ 
+ 	if (target->state != TARGET_HALTED)
+ 	{
+@@ -2537,23 +2532,27 @@ static int xscale_read_trace(struct target *target)
+ 	/* parse buffer backwards to identify address entries */
+ 	for (i = 255; i >= 0; i--)
+ 	{
++		/* also count number of checkpointed entries */
++		if ((trace_buffer[i] & 0xe0) == 0xc0)
++			num_checkpoints++;
++
+ 		is_address[i] = 0;
+ 		if (((trace_buffer[i] & 0xf0) == 0x90) ||
+ 			((trace_buffer[i] & 0xf0) == 0xd0))
+ 		{
+-			if (i >= 3)
++			if (i > 0)
+ 				is_address[--i] = 1;
+-			if (i >= 2)
++			if (i > 0)
+ 				is_address[--i] = 1;
+-			if (i >= 1)
++			if (i > 0)
+ 				is_address[--i] = 1;
+-			if (i >= 0)
++			if (i > 0)
+ 				is_address[--i] = 1;
+ 		}
+ 	}
+ 
+ 
+-	/* search first non-zero entry */
++	/* search first non-zero entry that is not part of an address */
+ 	for (j = 0; (j < 256) && (trace_buffer[j] == 0) && (!is_address[j]); j++)
+ 		;
+ 
+@@ -2563,6 +2562,22 @@ static int xscale_read_trace(struct target *target)
+ 		return ERROR_XSCALE_NO_TRACE_DATA;
+ 	}
+ 
++	/* account for possible partial address at buffer start (wrap mode only) */
++	if (is_address[0])
++	{	/* first entry is address; complete set of 4? */
++		i = 1;
++		while (i < 4)
++			if (!is_address[i++])
++				break;
++		if (i < 4)
++			j += i;   /* partial address; can't use it */
++	}
++
++	/* if first valid entry is indirect branch, can't use that either (no address) */
++	if (((trace_buffer[j] & 0xf0) == 0x90) || ((trace_buffer[j] & 0xf0) == 0xd0))
++		j++;
++
++	/* walk linked list to terminating entry */
+ 	for (trace_data_p = &xscale->trace.data; *trace_data_p; trace_data_p = &(*trace_data_p)->next)
+ 		;
+ 
+@@ -2574,6 +2589,7 @@ static int xscale_read_trace(struct target *target)
+ 			buf_get_u32(armv4_5->pc->value, 0, 32);
+ 	(*trace_data_p)->entries = malloc(sizeof(struct xscale_trace_entry) * (256 - j));
+ 	(*trace_data_p)->depth = 256 - j;
++	(*trace_data_p)->num_checkpoints = num_checkpoints;
+ 
+ 	for (i = j; i < 256; i++)
+ 	{
+@@ -2587,10 +2603,10 @@ static int xscale_read_trace(struct target *target)
+ 	return ERROR_OK;
+ }
+ 
+-static int xscale_read_instruction(struct target *target,
+-		struct arm_instruction *instruction)
++static int xscale_read_instruction(struct target *target, uint32_t pc,
++								   struct arm_instruction *instruction)
+ {
+-	struct xscale_common *xscale = target_to_xscale(target);
++	struct xscale_common *const xscale = target_to_xscale(target);
+ 	int i;
+ 	int section = -1;
+ 	size_t size_read;
+@@ -2603,8 +2619,8 @@ static int xscale_read_instruction(struct target *target,
+ 	/* search for the section the current instruction belongs to */
+ 	for (i = 0; i < xscale->trace.image->num_sections; i++)
+ 	{
+-		if ((xscale->trace.image->sections[i].base_address <= xscale->trace.current_pc) &&
+-			(xscale->trace.image->sections[i].base_address + xscale->trace.image->sections[i].size > xscale->trace.current_pc))
++		if ((xscale->trace.image->sections[i].base_address <= pc) &&
++			(xscale->trace.image->sections[i].base_address + xscale->trace.image->sections[i].size > pc))
+ 		{
+ 			section = i;
+ 			break;
+@@ -2621,27 +2637,27 @@ static int xscale_read_instruction(struct target *target,
+ 	{
+ 		uint8_t buf[4];
+ 		if ((retval = image_read_section(xscale->trace.image, section,
+-			xscale->trace.current_pc - xscale->trace.image->sections[section].base_address,
++			pc - xscale->trace.image->sections[section].base_address,
+ 			4, buf, &size_read)) != ERROR_OK)
+ 		{
+ 			LOG_ERROR("error while reading instruction: %i", retval);
+ 			return ERROR_TRACE_INSTRUCTION_UNAVAILABLE;
+ 		}
+ 		opcode = target_buffer_get_u32(target, buf);
+-		arm_evaluate_opcode(opcode, xscale->trace.current_pc, instruction);
++		arm_evaluate_opcode(opcode, pc, instruction);
+ 	}
+ 	else if (xscale->trace.core_state == ARM_STATE_THUMB)
+ 	{
+ 		uint8_t buf[2];
+ 		if ((retval = image_read_section(xscale->trace.image, section,
+-			xscale->trace.current_pc - xscale->trace.image->sections[section].base_address,
++			pc - xscale->trace.image->sections[section].base_address,
+ 			2, buf, &size_read)) != ERROR_OK)
+ 		{
+ 			LOG_ERROR("error while reading instruction: %i", retval);
+ 			return ERROR_TRACE_INSTRUCTION_UNAVAILABLE;
+ 		}
+ 		opcode = target_buffer_get_u16(target, buf);
+-		thumb_evaluate_opcode(opcode, xscale->trace.current_pc, instruction);
++		thumb_evaluate_opcode(opcode, pc, instruction);
+ 	}
+ 	else
+ 	{
+@@ -2652,207 +2668,234 @@ static int xscale_read_instruction(struct target *target,
+ 	return ERROR_OK;
+ }
+ 
+-static int xscale_branch_address(struct xscale_trace_data *trace_data,
+-		int i, uint32_t *target)
++/* Extract address encoded into trace data. 
++ * Write result to address referenced by argument 'target', or 0 if incomplete.  */
++static inline void xscale_branch_address(struct xscale_trace_data *trace_data,
++					 int i, uint32_t *target)
+ {
+ 	/* if there are less than four entries prior to the indirect branch message
+ 	 * we can't extract the address */
+ 	if (i < 4)
+-	{
+-		return -1;
+-	}
+-
+-	*target = (trace_data->entries[i-1].data) | (trace_data->entries[i-2].data << 8) |
+-				(trace_data->entries[i-3].data << 16) | (trace_data->entries[i-4].data << 24);
++		*target = 0;
++	else
++		*target = (trace_data->entries[i-1].data) | (trace_data->entries[i-2].data << 8) |
++			(trace_data->entries[i-3].data << 16) | (trace_data->entries[i-4].data << 24);
++}
+ 
+-	return 0;
++static inline void xscale_display_instruction(struct target *target, uint32_t pc,
++											  struct arm_instruction *instruction,
++											  struct command_context *cmd_ctx)
++{
++   int retval = xscale_read_instruction(target, pc, instruction);
++   if (retval == ERROR_OK)
++	  command_print(cmd_ctx, "%s", instruction->text);
++   else
++	  command_print(cmd_ctx, "0x%8.8" PRIx32 "\t<not found in image>", pc);
+ }
+ 
+ static int xscale_analyze_trace(struct target *target, struct command_context *cmd_ctx)
+ {
+-	struct xscale_common *xscale = target_to_xscale(target);
+-	int next_pc_ok = 0;
+-	uint32_t next_pc = 0x0;
+-	struct xscale_trace_data *trace_data = xscale->trace.data;
+-	int retval;
+-
+-	while (trace_data)
+-	{
+-		int i, chkpt;
+-		int rollover;
+-		int branch;
+-		int exception;
+-		xscale->trace.core_state = ARM_STATE_ARM;
+-
+-		chkpt = 0;
+-		rollover = 0;
++   struct xscale_common *xscale = target_to_xscale(target);
++   struct xscale_trace_data *trace_data = xscale->trace.data;
++   int i, retval;
++   uint32_t breakpoint_pc;
++   struct arm_instruction instruction;
++   uint32_t current_pc = 0;  /* initialized when address determined */
++	
++   if (!xscale->trace.image)
++	  LOG_WARNING("No trace image loaded; use 'xscale trace_image'");
++
++   /* loop for each trace buffer that was loaded from target */
++   while (trace_data)
++   {
++	  int chkpt = 0;  /* incremented as checkpointed entries found */
++	  int j;
++
++	  /* FIXME: set this to correct mode when trace buffer is first enabled */
++	  xscale->trace.core_state = ARM_STATE_ARM;
++
++	  /* loop for each entry in this trace buffer */
++	  for (i = 0; i < trace_data->depth; i++)
++	  {
++		 int exception = 0;
++		 uint32_t chkpt_reg = 0x0;
++		 uint32_t branch_target = 0;
++		 int count;
++
++		 /* trace entry type is upper nybble of 'message byte' */
++		 int trace_msg_type = (trace_data->entries[i].data & 0xf0) >> 4;
++
++		 /* Target addresses of indirect branches are written into buffer
++		  * before the message byte representing the branch. Skip past it */
++		 if (trace_data->entries[i].type == XSCALE_TRACE_ADDRESS)
++			continue;
+ 
+-		for (i = 0; i < trace_data->depth; i++)
+-		{
+-			next_pc_ok = 0;
+-			branch = 0;
+-			exception = 0;
++		 switch (trace_msg_type)
++		 {
++			case 0:		/* Exceptions */
++			case 1:
++			case 2:
++			case 3:
++			case 4:
++			case 5:
++			case 6:
++			case 7:
++			   exception = (trace_data->entries[i].data & 0x70) >> 4;
++
++			   /* FIXME: vector table may be at ffff0000 */
++			   branch_target = (trace_data->entries[i].data & 0xf0) >> 2;
++			   break;
++
++			case 8:		/* Direct Branch */
++			   break;
++
++			case 9:		/* Indirect Branch */
++			   xscale_branch_address(trace_data, i, &branch_target);
++			   break;
++
++			case 13:	   /* Checkpointed Indirect Branch */
++			   xscale_branch_address(trace_data, i, &branch_target);
++			   if ((trace_data->num_checkpoints == 2) && (chkpt == 0))
++				  chkpt_reg = trace_data->chkpt1; /* 2 chkpts, this is oldest */
++			   else
++				  chkpt_reg = trace_data->chkpt0; /* 1 chkpt, or 2 and newest */
++
++			   chkpt++;
++			   break;
++
++			case 12:	   /* Checkpointed Direct Branch */
++			   if ((trace_data->num_checkpoints == 2) && (chkpt == 0))
++				  chkpt_reg = trace_data->chkpt1; /* 2 chkpts, this is oldest */
++			   else
++				  chkpt_reg = trace_data->chkpt0; /* 1 chkpt, or 2 and newest */
++
++			   /* if no current_pc, checkpoint will be starting point */
++			   if (current_pc == 0)
++				  branch_target = chkpt_reg;
++
++			   chkpt++;
++			   break;
++
++			case 15:	/* Roll-over */
++			   break;
++
++			default:	/* Reserved */
++			   LOG_WARNING("trace is suspect: invalid trace message byte");
++			   continue;
++
++		 }
++
++		 /* If we don't have the current_pc yet, but we did get the branch target
++		  * (either from the trace buffer on indirect branch, or from a checkpoint reg),
++		  * then we can start displaying instructions at the next iteration, with
++		  * branch_target as the starting point.
++		  */
++		 if (current_pc == 0)
++		 {
++			current_pc = branch_target; /* remains 0 unless branch_target obtained */
++			continue;
++		 }
++
++		 /* We have current_pc.  Read and display the instructions from the image.
++		  * First, display count instructions (lower nybble of message byte). */
++		 count = trace_data->entries[i].data & 0x0f;
++		 for (j = 0; j < count; j++)
++		 {
++			xscale_display_instruction(target, current_pc, &instruction, cmd_ctx);
++			current_pc += xscale->trace.core_state == ARM_STATE_ARM ? 4 : 2;
++		 }
++
++		 /* An additional instruction is implicitly added to count for
++		  * rollover and some exceptions: undef, swi, prefetch abort. */
++		 if ((trace_msg_type == 15) || (exception > 0 && exception < 4))
++		 {
++			xscale_display_instruction(target, current_pc, &instruction, cmd_ctx);
++			current_pc += xscale->trace.core_state == ARM_STATE_ARM ? 4 : 2;
++		 }
++
++		 if (trace_msg_type == 15) /* rollover */
++			continue;
+ 
+-			if (trace_data->entries[i].type == XSCALE_TRACE_ADDRESS)
+-				continue;
++		 if (exception)
++		 {
++			command_print(cmd_ctx, "--- exception %i ---", exception);
++			continue;
++		 }
++			
++		 /* not exception or rollover; next instruction is a branch and is
++		  * not included in the count */
++		 xscale_display_instruction(target, current_pc, &instruction, cmd_ctx);
++
++		 /* for direct branches, extract branch destination from instruction */
++		 if ((trace_msg_type == 8) || (trace_msg_type == 12))
++		 {
++			retval = xscale_read_instruction(target, current_pc, &instruction);
++			if (retval == ERROR_OK)
++			   current_pc = instruction.info.b_bl_bx_blx.target_address;
++			else
++			   current_pc = 0;	/* branch destination unknown */
+ 
+-			switch ((trace_data->entries[i].data & 0xf0) >> 4)
++			/* direct branch w/ checkpoint; can also get from checkpoint reg */
++			if (trace_msg_type == 12)
+ 			{
+-				case 0:		/* Exceptions */
+-				case 1:
+-				case 2:
+-				case 3:
+-				case 4:
+-				case 5:
+-				case 6:
+-				case 7:
+-					exception = (trace_data->entries[i].data & 0x70) >> 4;
+-					next_pc_ok = 1;
+-					next_pc = (trace_data->entries[i].data & 0xf0) >> 2;
+-					command_print(cmd_ctx, "--- exception %i ---", (trace_data->entries[i].data & 0xf0) >> 4);
+-					break;
+-				case 8:		/* Direct Branch */
+-					branch = 1;
+-					break;
+-				case 9:		/* Indirect Branch */
+-					branch = 1;
+-					if (xscale_branch_address(trace_data, i, &next_pc) == 0)
+-					{
+-						next_pc_ok = 1;
+-					}
+-					break;
+-				case 13:	/* Checkpointed Indirect Branch */
+-					if (xscale_branch_address(trace_data, i, &next_pc) == 0)
+-					{
+-						next_pc_ok = 1;
+-						if (((chkpt == 0) && (next_pc != trace_data->chkpt0))
+-							|| ((chkpt == 1) && (next_pc != trace_data->chkpt1)))
+-							LOG_WARNING("checkpointed indirect branch target address doesn't match checkpoint");
+-					}
+-					/* explicit fall-through */
+-				case 12:	/* Checkpointed Direct Branch */
+-					branch = 1;
+-					if (chkpt == 0)
+-					{
+-						next_pc_ok = 1;
+-						next_pc = trace_data->chkpt0;
+-						chkpt++;
+-					}
+-					else if (chkpt == 1)
+-					{
+-						next_pc_ok = 1;
+-						next_pc = trace_data->chkpt0;
+-						chkpt++;
+-					}
+-					else
+-					{
+-						LOG_WARNING("more than two checkpointed branches encountered");
+-					}
+-					break;
+-				case 15:	/* Roll-over */
+-					rollover++;
+-					continue;
+-				default:	/* Reserved */
+-					command_print(cmd_ctx, "--- reserved trace message ---");
+-					LOG_ERROR("BUG: trace message %i is reserved", (trace_data->entries[i].data & 0xf0) >> 4);
+-					return ERROR_OK;
++			   if (current_pc == 0)
++				  current_pc = chkpt_reg;
++			   else if (current_pc != chkpt_reg)  /* sanity check */
++				  LOG_WARNING("trace is suspect: checkpoint register "
++							  "inconsistent with adddress from image");
+ 			}
+ 
+-			if (xscale->trace.pc_ok)
+-			{
+-				int executed = (trace_data->entries[i].data & 0xf) + rollover * 16;
+-				struct arm_instruction instruction;
++			if (current_pc == 0)
++			   command_print(cmd_ctx, "address unknown");
+ 
+-				if ((exception == 6) || (exception == 7))
+-				{
+-					/* IRQ or FIQ exception, no instruction executed */
+-					executed -= 1;
+-				}
++			continue;
++		 }
+ 
+-				while (executed-- >= 0)
+-				{
+-					if ((retval = xscale_read_instruction(target, &instruction)) != ERROR_OK)
+-					{
+-						/* can't continue tracing with no image available */
+-						if (retval == ERROR_TRACE_IMAGE_UNAVAILABLE)
+-						{
+-							return retval;
+-						}
+-						else if (retval == ERROR_TRACE_INSTRUCTION_UNAVAILABLE)
+-						{
+-							/* TODO: handle incomplete images */
+-						}
+-					}
+-
+-					/* a precise abort on a load to the PC is included in the incremental
+-					 * word count, other instructions causing data aborts are not included
+-					 */
+-					if ((executed == 0) && (exception == 4)
+-						&& ((instruction.type >= ARM_LDR) && (instruction.type <= ARM_LDM)))
+-					{
+-						if ((instruction.type == ARM_LDM)
+-							&& ((instruction.info.load_store_multiple.register_list & 0x8000) == 0))
+-						{
+-							executed--;
+-						}
+-						else if (((instruction.type >= ARM_LDR) && (instruction.type <= ARM_LDRSH))
+-							&& (instruction.info.load_store.Rd != 15))
+-						{
+-							executed--;
+-						}
+-					}
+-
+-					/* only the last instruction executed
+-					 * (the one that caused the control flow change)
+-					 * could be a taken branch
+-					 */
+-					if (((executed == -1) && (branch == 1)) &&
+-						(((instruction.type == ARM_B) ||
+-							(instruction.type == ARM_BL) ||
+-							(instruction.type == ARM_BLX)) &&
+-							(instruction.info.b_bl_bx_blx.target_address != 0xffffffff)))
+-					{
+-						xscale->trace.current_pc = instruction.info.b_bl_bx_blx.target_address;
+-					}
+-					else
+-					{
+-						xscale->trace.current_pc += (xscale->trace.core_state == ARM_STATE_ARM) ? 4 : 2;
+-					}
+-					command_print(cmd_ctx, "%s", instruction.text);
+-				}
++		 /* indirect branch; the branch destination was read from trace buffer */
++		 if ((trace_msg_type == 9) || (trace_msg_type == 13))
++		 {
++			current_pc = branch_target;
+ 
+-				rollover = 0;
+-			}
++			/* sanity check (checkpoint reg is redundant) */
++			if ((trace_msg_type == 13) && (chkpt_reg != branch_target))
++			   LOG_WARNING("trace is suspect: checkpoint register "
++						   "inconsistent with address from trace buffer");
++		 }
+ 
+-			if (next_pc_ok)
+-			{
+-				xscale->trace.current_pc = next_pc;
+-				xscale->trace.pc_ok = 1;
+-			}
+-		}
++	  } /* END: for (i = 0; i < trace_data->depth; i++) */
+ 
+-		for (; xscale->trace.current_pc < trace_data->last_instruction; xscale->trace.current_pc += (xscale->trace.core_state == ARM_STATE_ARM) ? 4 : 2)
+-		{
+-			struct arm_instruction instruction;
+-			if ((retval = xscale_read_instruction(target, &instruction)) != ERROR_OK)
+-			{
+-				/* can't continue tracing with no image available */
+-				if (retval == ERROR_TRACE_IMAGE_UNAVAILABLE)
+-				{
+-					return retval;
+-				}
+-				else if (retval == ERROR_TRACE_INSTRUCTION_UNAVAILABLE)
+-				{
+-					/* TODO: handle incomplete images */
+-				}
+-			}
+-			command_print(cmd_ctx, "%s", instruction.text);
+-		}
++	  breakpoint_pc = trace_data->last_instruction; /* used below */
++	  trace_data = trace_data->next;
+ 
+-		trace_data = trace_data->next;
+-	}
++   } /* END: while (trace_data) */
+ 
+-	return ERROR_OK;
++   /* Finally... display all instructions up to the value of the pc when the
++	* debug break occurred (saved when trace data was collected from target).
++	* This is necessary because the trace only records execution branches and 16
++	* consecutive instructions (rollovers), so last few typically missed.
++	*/
++   if (current_pc == 0)
++	  return ERROR_OK;   /* current_pc was never found */
++
++   /* how many instructions remaining? */
++   int gap_count = (breakpoint_pc - current_pc) /
++	  (xscale->trace.core_state == ARM_STATE_ARM ? 4 : 2);
++
++   /* should never be negative or over 16, but verify */
++   if (gap_count < 0 || gap_count > 16)
++   {
++	  LOG_WARNING("trace is suspect: excessive gap at end of trace");
++	  return ERROR_OK;  /* bail; large number or negative value no good */
++   }
++
++   /* display remaining instructions */
++   for (i = 0; i < gap_count; i++)
++   {
++	  xscale_display_instruction(target, current_pc, &instruction, cmd_ctx);
++	  current_pc += xscale->trace.core_state == ARM_STATE_ARM ? 4 : 2;
++   }
++
++   return ERROR_OK;
+ }
+ 
+ static const struct reg_arch_type xscale_reg_type = {
+@@ -3329,7 +3372,6 @@ COMMAND_HANDLER(xscale_handle_trace_buffer_command)
+ {
+ 	struct target *target = get_current_target(CMD_CTX);
+ 	struct xscale_common *xscale = target_to_xscale(target);
+-	struct arm *armv4_5 = &xscale->armv4_5_common;
+ 	uint32_t dcsr_value;
+ 	int retval;
+ 
+@@ -3378,20 +3420,6 @@ COMMAND_HANDLER(xscale_handle_trace_buffer_command)
+ 		xscale->trace.buffer_fill = -1;
+ 	}
+ 
+-	if (xscale->trace.buffer_enabled)
+-	{
+-		/* if we enable the trace buffer in fill-once
+-		 * mode we know the address of the first instruction */
+-		xscale->trace.pc_ok = 1;
+-		xscale->trace.current_pc =
+-				buf_get_u32(armv4_5->pc->value, 0, 32);
+-	}
+-	else
+-	{
+-		/* otherwise the address is unknown, and we have no known good PC */
+-		xscale->trace.pc_ok = 0;
+-	}
+-
+ 	command_print(CMD_CTX, "trace buffer %s (%s)",
+ 		(xscale->trace.buffer_enabled) ? "enabled" : "disabled",
+ 		(xscale->trace.buffer_fill > 0) ? "fill" : "wrap");
+diff --git a/src/target/xscale.h b/src/target/xscale.h
+index f20074f..82f4e37 100644
+--- a/src/target/xscale.h
++++ b/src/target/xscale.h
+@@ -67,6 +67,7 @@ struct xscale_trace_data
+ 	uint32_t chkpt0;
+ 	uint32_t chkpt1;
+ 	uint32_t last_instruction;
++	unsigned int num_checkpoints;
+ 	struct xscale_trace_data *next;
+ };
+ 
+@@ -77,8 +78,6 @@ struct xscale_trace
+ 	struct xscale_trace_data *data;		/* linked list of collected trace data */
+ 	int buffer_enabled;				/* whether trace buffer is enabled */
+ 	int buffer_fill;				/* maximum number of trace runs to read (-1 for wrap-around) */
+-	int pc_ok;
+-	uint32_t current_pc;
+ 	enum arm_state core_state;	/* current core state (ARM, Thumb) */
+ };
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/xscale.c |  456 +++++++++++++++++++++++++++------------------------
+ src/target/xscale.h |    3 +-
+ 2 files changed, 243 insertions(+), 216 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From gowinex at users.sourceforge.net  Thu Apr 15 19:22:04 2010
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Thu, 15 Apr 2010 17:22:04 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-187-gb886049
+Message-ID: <E1O2SlS-0006dD-2d@sfp-scmshell-2.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  b886049c74de147b1ce6f7f0173ecd71323c5c64 (commit)
+       via  c9e58238c3b1ae181a7d54bc5255ef98771493c2 (commit)
+      from  ee139164114460d5c4c1a720e28740a7dceca712 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit b886049c74de147b1ce6f7f0173ecd71323c5c64
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Wed Apr 14 16:51:16 2010 +0800
+
+    NOR/CFI: remove redundant code
+    
+    Arguments for "flash bank" command are already
+    parsed and put in "bank" struct.
+    Removed code to parse them again.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/flash/nor/cfi.c b/src/flash/nor/cfi.c
+index 325dce9..a64d78f 100644
+--- a/src/flash/nor/cfi.c
++++ b/src/flash/nor/cfi.c
+@@ -598,12 +598,8 @@ FLASH_BANK_COMMAND_HANDLER(cfi_flash_bank_command)
+ 		return ERROR_FLASH_BANK_INVALID;
+ 	}
+ 
+-	uint16_t chip_width, bus_width;
+-	COMMAND_PARSE_NUMBER(u16, CMD_ARGV[3], chip_width);
+-	COMMAND_PARSE_NUMBER(u16, CMD_ARGV[4], bus_width);
+-
+-	if ((chip_width > CFI_MAX_CHIP_WIDTH)
+-			|| (bus_width > CFI_MAX_BUS_WIDTH))
++	if ((bank->chip_width > CFI_MAX_CHIP_WIDTH)
++			|| (bank->bus_width > CFI_MAX_BUS_WIDTH))
+ 	{
+ 		LOG_ERROR("chip and bus width have to specified in bytes");
+ 		return ERROR_FLASH_BANK_INVALID;
+
+commit c9e58238c3b1ae181a7d54bc5255ef98771493c2
+Author: Antonio Borneo <borneo.antonio at gmail.com>
+Date:   Wed Apr 14 16:32:30 2010 +0800
+
+    NOR/CFI: fix order of arguments check
+    
+    Syntax of "flash bank" command requires:
+    - chip_width as CMD_ARGV[3]
+    - bus_width  as CMD_ARGV[4]
+    Actual code swaps the arguments.
+    Bug has no run time impact since wrong variables
+    are only used to check value and both are checked
+    against same constraint.
+    
+    Signed-off-by: Antonio Borneo <borneo.antonio at gmail.com>
+
+diff --git a/src/flash/nor/cfi.c b/src/flash/nor/cfi.c
+index 4dad7b6..325dce9 100644
+--- a/src/flash/nor/cfi.c
++++ b/src/flash/nor/cfi.c
+@@ -599,8 +599,8 @@ FLASH_BANK_COMMAND_HANDLER(cfi_flash_bank_command)
+ 	}
+ 
+ 	uint16_t chip_width, bus_width;
+-	COMMAND_PARSE_NUMBER(u16, CMD_ARGV[3], bus_width);
+-	COMMAND_PARSE_NUMBER(u16, CMD_ARGV[4], chip_width);
++	COMMAND_PARSE_NUMBER(u16, CMD_ARGV[3], chip_width);
++	COMMAND_PARSE_NUMBER(u16, CMD_ARGV[4], bus_width);
+ 
+ 	if ((chip_width > CFI_MAX_CHIP_WIDTH)
+ 			|| (bus_width > CFI_MAX_BUS_WIDTH))
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/cfi.c |    8 ++------
+ 1 files changed, 2 insertions(+), 6 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From dbrownell at users.sourceforge.net  Fri Apr 16 05:14:37 2010
+From: dbrownell at users.sourceforge.net (David Brownell)
+Date: Fri, 16 Apr 2010 03:14:37 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-188-g620310b
+Message-ID: <E1O2c0s-0004VO-Mx@sfp-scmshell-3.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  620310bcc64a0ba9103c4c05300fe9d25cc92b12 (commit)
+      from  b886049c74de147b1ce6f7f0173ecd71323c5c64 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 620310bcc64a0ba9103c4c05300fe9d25cc92b12
+Author: David Brownell <dbrownell at users.sourceforge.net>
+Date:   Thu Apr 15 19:48:55 2010 -0700
+
+    NOR/core bugfix: restore invariants
+    
+    The The patch labeled "CFI CORE: bug-fix protect single sector" was merged
+    rged without some requested bugfixes.  Most significantly it broke invariants
+    in the code, invalidating descriptions and changing the calling convention
+    for underlying drivers.  (It (Also wasn't CFI-specific...)
+    
+    Fix that, and Include an update from Antonio Borneo for the degenerate
+    "nothing to do" case, (although that's still in the  wrong location.  which
+    is presumably why that is it was working in some cases but not all.)
+    
+     src/flash/nor/core.c |   21 ++++++++++++++++-----
+     1 file changed, 16 insertions(+), 5 deletions(-)
+    
+    Signed-off-by: David Brownell <dbrownell at users.sourceforge.net>
+
+diff --git a/src/flash/nor/core.c b/src/flash/nor/core.c
+index 18012c6..15e460a 100644
+--- a/src/flash/nor/core.c
++++ b/src/flash/nor/core.c
+@@ -56,7 +56,10 @@ int flash_driver_protect(struct flash_bank *bank, int set, int first, int last)
+ 	int retval;
+ 	bool updated = false;
+ 
+-	/* NOTE: "first == last" means protect just that sector */
++	/* NOTE: "first == last" means (un?)protect just that sector.
++	 code including Lower level ddrivers may rely on this "first <= last"
++	 * invariant.
++	*/
+ 
+ 	/* callers may not supply illegal parameters ... */
+ 	if (first < 0 || first > last || last >= bank->num_sectors)
+@@ -90,10 +93,10 @@ scan:
+ 		 * REVISIT we could handle discontiguous regions by issuing
+ 		 * more than one driver request.  How much would that matter?
+ 		 */
+-		if (i == first) {
++		if (i == first && i != last) {
+ 			updated = true;
+ 			first++;
+-		} else if (i == last) {
++		} else if (i == last && i != first) {
+ 			updated = true;
+ 			last--;
+ 		}
+@@ -107,11 +110,19 @@ scan:
+ 		goto scan;
+ 	}
+ 
+-	/* Single sector, already protected?  Nothing to do! */
+-	if (first > last)
++	/* Single sector, already protected?  Nothing to do!
++	 * We may have trimmed our parameters into this degenerate case.
++	 *
++	 * FIXME repeating the "is_protected==set" test is a giveaway that
++	 * this fast-exit belongs earlier, in the trim-it-down loop; mve.
++	 * */
++	if (first == last && bank->sectors[first].is_protected == set)
+ 		return ERROR_OK;
+ 
+ 
++	/* Note that we don't pass illegal parameters to drivers; any
++	 * trimming just turns one valid range into another one.
++	 */
+ 	retval = bank->driver->protect(bank, set, first, last);
+ 	if (retval != ERROR_OK)
+ 	{
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/core.c |   21 ++++++++++++++++-----
+ 1 files changed, 16 insertions(+), 5 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From gowinex at users.sourceforge.net  Tue Apr 20 08:58:11 2010
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Tue, 20 Apr 2010 06:58:11 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-189-gddf7aab
+Message-ID: <E1O47PS-0006q0-Ty@sfp-scmshell-4.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  ddf7aabc6726956315f21394559ba1c543fcbf36 (commit)
+      from  620310bcc64a0ba9103c4c05300fe9d25cc92b12 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit ddf7aabc6726956315f21394559ba1c543fcbf36
+Author: Andreas Fritiofson <andreas.fritiofson at gmail.com>
+Date:   Sat Apr 17 01:03:39 2010 +0200
+
+    stm32x: allow flash probe on a running target
+    
+    If the flash has not yet been probed and GDB connects while the target is
+    running, the flash probe triggered by GDB's memory map read will fail. In
+    that case the returned memory map will be empty, causing a subsequent load
+    from within GDB to fail. There's not much you can do from GDB to recover,
+    other than a restart; a 'mon reset init' and manual 'mon flash probe' won't
+    help since GDB has already made up its mind about the memory map.
+    
+    It seems there's no reason to require the target to be halted when probing
+    the flash. Remove the check to let a valid memory map be provided to GDB
+    even when connecting to a running target.
+    
+    Signed-off-by: Andreas Fritiofson <andreas.fritiofson at gmail.com>
+
+diff --git a/src/flash/nor/stm32x.c b/src/flash/nor/stm32x.c
+index 845d589..818c474 100644
+--- a/src/flash/nor/stm32x.c
++++ b/src/flash/nor/stm32x.c
+@@ -676,12 +676,6 @@ static int stm32x_probe(struct flash_bank *bank)
+ 	uint32_t device_id;
+ 	int page_size;
+ 
+-	if (bank->target->state != TARGET_HALTED)
+-	{
+-		LOG_ERROR("Target not halted");
+-		return ERROR_TARGET_NOT_HALTED;
+-	}
+-
+ 	stm32x_info->probed = 0;
+ 
+ 	/* read stm32 device id register */
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/stm32x.c |    6 ------
+ 1 files changed, 0 insertions(+), 6 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From gowinex at users.sourceforge.net  Tue Apr 20 09:07:57 2010
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Tue, 20 Apr 2010 07:07:57 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-190-ge4056cc
+Message-ID: <E1O47Yu-0000Kf-2b@sfp-scmshell-2.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  e4056cca2d10da3a746ebfa01799165140640071 (commit)
+      from  ddf7aabc6726956315f21394559ba1c543fcbf36 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit e4056cca2d10da3a746ebfa01799165140640071
+Author: ??yvind Harboe <oyvind.harboe at zylin.com>
+Date:   Tue Apr 20 09:05:07 2010 +0200
+
+    doc: gdb-attach can fix gdb connect issues
+    
+    Flash probing must succeed for e.g. gdb load and automatic
+    hardware/software breakpoints to work.
+    
+    Signed-off-by: ??yvind Harboe <oyvind.harboe at zylin.com>
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index bb8f3ab..5273d5d 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -3784,7 +3784,8 @@ proc my_attach_proc @{ @} @{
+ mychip.cpu configure -event gdb-attach my_attach_proc
+ mychip.cpu configure -event gdb-attach @{
+     echo "Reset..."
+-    reset halt
++    # To make flash probe and gdb load to flash work we need a reset init.
++    reset init
+ @}
+ @end example
+ 
+@@ -3804,7 +3805,11 @@ The following target events are defined:
+ @* Currently not used (goal: when JTAG examine starts)
+ @end ignore
+ @item @b{gdb-attach}
+-@* When GDB connects
++@* When GDB connects. This is before any communication with the target, so this 
++can be used to set up the target so it is possible to probe flash. Probing flash
++is necessary during gdb connect if gdb load is to write the image to flash. Another
++use of the flash memory map is for GDB to automatically hardware/software breakpoints
++depending on whether the breakpoint is in RAM or read only memory.
+ @item @b{gdb-detach}
+ @* When GDB disconnects
+ @item @b{gdb-end}
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ doc/openocd.texi |    9 +++++++--
+ 1 files changed, 7 insertions(+), 2 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From gowinex at users.sourceforge.net  Tue Apr 20 22:18:42 2010
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Tue, 20 Apr 2010 20:18:42 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-191-gcc5f3c8
+Message-ID: <E1O4Ju7-0001VW-ED@sfp-scmshell-2.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  cc5f3c85de7632a32f41b435c54b83487a3aa622 (commit)
+      from  e4056cca2d10da3a746ebfa01799165140640071 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit cc5f3c85de7632a32f41b435c54b83487a3aa622
+Author: michal smulski <michal.smulski at ooma.com>
+Date:   Tue Apr 20 22:18:04 2010 +0200
+
+    docs: improve load_image docs
+    
+    add docs for missing args.
+    
+    Signed-off-by: ??yvind Harboe <oyvind.harboe at zylin.com>
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index 5273d5d..cfba79f 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -5671,10 +5671,20 @@ separately.
+ @end deffn
+ 
+ @anchor{load_image}
+- at deffn Command {load_image} filename address [@option{bin}|@option{ihex}|@option{elf}]
+-Load image from file @var{filename} to target memory at @var{address}.
++ at deffn Command {load_image} filename address [@option{bin}|@option{ihex}|@option{elf}] @option{min_addr} @option{max_length}]
++Load image from file @var{filename} to target memory offset by @var{address} from its load address. 
+ The file format may optionally be specified
+-(@option{bin}, @option{ihex}, or @option{elf})
++(@option{bin}, @option{ihex}, or @option{elf}).
++In addition the following arguments may be specifed:
++ at var{min_addr} - ignore data below @var{min_addr} (this is w.r.t. to the target's load address + @var{address})
++ at var{max_length} - maximum number of bytes to load.
++ at example
++proc load_image_bin @{fname foffset address length @} @{
++    # Load data from fname filename at foffset offset to
++    # target at address. Load at most length bytes.
++    load_image $fname [expr $address - $foffset] bin $address $length      
++@}
++ at end example
+ @end deffn
+ 
+ @deffn Command {test_image} filename [address [@option{bin}|@option{ihex}|@option{elf}]]
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ doc/openocd.texi |   16 +++++++++++++---
+ 1 files changed, 13 insertions(+), 3 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From gowinex at users.sourceforge.net  Sat Apr 24 16:52:09 2010
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Sat, 24 Apr 2010 14:52:09 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-193-gc6cd253
+Message-ID: <E1O5giI-0006Yt-V6@sfp-scmshell-3.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  c6cd253ae105a9542f051d4af3fda7e9a1c7140b (commit)
+       via  48e282aa00e8746a3e5e4234c915a4c5f9909063 (commit)
+      from  cc5f3c85de7632a32f41b435c54b83487a3aa622 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit c6cd253ae105a9542f051d4af3fda7e9a1c7140b
+Author: michal smulski <michal.smulski at ooma.com>
+Date:   Sat Apr 24 16:51:34 2010 +0200
+
+    telo: update configuration scripts to matched master branch
+    
+    Signed-off-by: ??yvind Harboe <oyvind.harboe at zylin.com>
+
+diff --git a/tcl/board/telo.cfg b/tcl/board/telo.cfg
+index a60cb02..1c0ad76 100644
+--- a/tcl/board/telo.cfg
++++ b/tcl/board/telo.cfg
+@@ -58,4 +58,4 @@ set _FLASHNAME $_CHIPNAME.flash
+ flash bank $_FLASHNAME cfi 0x20000000 0x01000000 2 2 $_TARGETNAME
+ 
+ # writing data to memory does not work without this
+-memwrite burst disable
+\ No newline at end of file
++arm11 memwrite burst disable
+\ No newline at end of file
+diff --git a/tcl/target/c100config.tcl b/tcl/target/c100config.tcl
+index b08f909..17a9476 100644
+--- a/tcl/target/c100config.tcl
++++ b/tcl/target/c100config.tcl
+@@ -403,9 +403,9 @@ proc flashUBOOT {file} {
+     flash erase_sector 0 0 3
+     puts "Programming u-boot"
+     putsUART0 "Programming u-boot..."
+-    memwrite burst enable
++    arm11 memwrite burst enable
+     flash write_image $file $EXP_CS0_BASEADDR
+-    memwrite burst disable
++    arm11 memwrite burst disable
+     putsUART0 "done.\n"
+     putsUART0 "Rebooting, please wait!\n"
+     reboot
+diff --git a/tcl/target/c100helper.tcl b/tcl/target/c100helper.tcl
+index 1fd58b6..477fe5c 100644
+--- a/tcl/target/c100helper.tcl
++++ b/tcl/target/c100helper.tcl
+@@ -325,7 +325,7 @@ proc setupDDR2 {} {
+     if {$tmp == "128M"} {
+ 	configureDDR2regs_128M
+     } elseif {$tmp == "256M"} {
+-	configureDDR2regs_256B
++	configureDDR2regs_256M
+     } else {
+ 	puts "Don't know how to configure DDR2 setup?"
+     }
+diff --git a/tcl/target/telo.cfg b/tcl/target/telo.cfg
+deleted file mode 100644
+index aa9ff22..0000000
+--- a/tcl/target/telo.cfg
++++ /dev/null
+@@ -1,61 +0,0 @@
+-source [find target/c100.cfg]
+-# basic register defintion for C100
+-source [find target/c100regs.tcl]
+-# board-config info
+-source [find target/c100config.tcl]
+-# C100 helper functions
+-source [find target/c100helper.tcl]
+-
+-
+-# Telo board & C100 support trst and srst
+-# Note that libftd2xx.so tries to assert srst
+-# which break this script
+-# use libftdi.so library instead with this script
+-# make the reset asserted to
+-# allow RC circuit to discharge for: [ms]
+-adapter_nsrst_assert_width 100
+-jtag_ntrst_assert_width 100
+-# don't talk to JTAG after reset for: [ms]
+-adapter_nsrst_delay 100
+-jtag_ntrst_delay 100
+-reset_config trst_and_srst separate
+-
+-
+-
+-
+-# issue telnet: reset init
+-# issue gdb: monitor reset init
+-$_TARGETNAME configure -event reset-init {
+-	adapter_khz 100
+-	# this will setup Telo board
+-	setupTelo
+-	#turn up the JTAG speed
+-	adapter_khz 3000
+-	puts "JTAG speed now 3MHz"
+-	puts "type helpC100 to get help on C100"
+-}
+-
+-$_TARGETNAME configure -event reset-deassert-post {
+-	# Force target into ARM state.
+-#	soft_reset_halt # not implemented on ARM11
+-	puts "Detected SRSRT asserted on C100.CPU"
+-
+-}
+-
+-$_TARGETNAME configure -event reset-assert-post {
+-  puts "Assering reset"
+-  #sleep 10
+-}
+-
+-proc power_restore {} { puts "Sensed power restore. No action." }
+-proc srst_deasserted {} { puts "Sensed nSRST deasserted. No action." }
+-
+-
+-# boots from NOR on CS0:  8 MBytes CFI flash, 16-bit bus
+-# it's really 16MB but the upper 8mb is controller via gpio
+-# openocd does not support 'complex reads/writes' to NOR
+-set _FLASHNAME $_CHIPNAME.flash
+-flash bank $_FLASHNAME cfi 0x20000000 0x01000000 2 2 $_TARGETNAME
+-
+-# writing data to memory does not work without this
+-memwrite burst disable
+
+commit 48e282aa00e8746a3e5e4234c915a4c5f9909063
+Author: michal smulski <michal.smulski at ooma.com>
+Date:   Sat Apr 24 16:50:27 2010 +0200
+
+    adapter: allow adjusting srst assert with
+    
+    Signed-off-by: ??yvind Harboe <oyvind.harboe at zylin.com>
+
+diff --git a/src/jtag/adapter.c b/src/jtag/adapter.c
+index b262a9a..50e2a02 100644
+--- a/src/jtag/adapter.c
++++ b/src/jtag/adapter.c
+@@ -366,6 +366,23 @@ COMMAND_HANDLER(handle_adapter_nsrst_delay_command)
+ 	return ERROR_OK;
+ }
+ 
++COMMAND_HANDLER(handle_adapter_nsrst_assert_width_command)
++{
++	if (CMD_ARGC > 1)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	if (CMD_ARGC == 1)
++	{
++		unsigned width;
++		COMMAND_PARSE_NUMBER(uint, CMD_ARGV[0], width);
++
++		jtag_set_nsrst_assert_width(width);
++	}
++	command_print(CMD_CTX, "adapter_nsrst_assert_width: %u", jtag_get_nsrst_assert_width());
++	return ERROR_OK;
++}
++
++
++
+ COMMAND_HANDLER(handle_adapter_khz_command)
+ {
+ 	if (CMD_ARGC > 1)
+@@ -421,6 +438,13 @@ static const struct command_registration interface_command_handlers[] = {
+ 		.usage = "[milliseconds]",
+ 	},
+ 	{
++		.name = "adapter_nsrst_assert_width",
++		.handler = handle_adapter_nsrst_assert_width_command,
++		.mode = COMMAND_ANY,
++		.help = "delay after asserting SRST in ms",
++		.usage = "[milliseconds]",
++	},
++	{
+ 		.name = "interface",
+ 		.handler = handle_interface_command,
+ 		.mode = COMMAND_CONFIG,
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/adapter.c        |   24 +++++++++++++++++
+ tcl/board/telo.cfg        |    2 +-
+ tcl/target/c100config.tcl |    4 +-
+ tcl/target/c100helper.tcl |    2 +-
+ tcl/target/telo.cfg       |   61 ---------------------------------------------
+ 5 files changed, 28 insertions(+), 65 deletions(-)
+ delete mode 100644 tcl/target/telo.cfg
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From gowinex at users.sourceforge.net  Sat Apr 24 16:57:55 2010
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Sat, 24 Apr 2010 14:57:55 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-194-g4f1296d
+Message-ID: <E1O5gns-0006tQ-LE@sfp-scmshell-3.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  4f1296d1510715b5504f39909dadae79698aa27a (commit)
+      from  c6cd253ae105a9542f051d4af3fda7e9a1c7140b (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 4f1296d1510715b5504f39909dadae79698aa27a
+Author: Mike Dunn <mikedunn at newsguy.com>
+Date:   Wed Apr 21 13:40:51 2010 -0400
+
+    xscale: add support for length arg to wp command
+    
+    This patch adds support for the length argument to the xscale implementation of
+    the wp command.  Per discussion with David, the length argument specifies the
+    range of addresses over which a memory access should generate a debug exception.
+    This patch utilizes the "mask" feature of the xscale debug hardware to implement
+    the correct functionality of the length argument.  Some limitations imposed by
+    the hardware are:
+    
+       - The length must be a power of two, with a minumum of 4.
+       - Two data breakpoint registers are available, allowing for two watchpoints.
+         However, if the length of a watchpoint is greater than four, both registers
+         are used (the second for a mask value), limiting the number of watchpoints
+         to one.
+    
+    This patch also removes a useless call to xscale_get_reg(dbcon) in
+    xscale_set_watchpoint() (value had already been read from the register cache,
+    and the same previously read value is then modified and written back).
+    
+    I have been using and testing this patch for a couple days.
+    
+    Questions, corrections, criticisms of course gratefully received.
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index ddc73d2..ed0eef3 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -2266,7 +2266,7 @@ static int xscale_set_watchpoint(struct target *target,
+ 		struct watchpoint *watchpoint)
+ {
+ 	struct xscale_common *xscale = target_to_xscale(target);
+-	uint8_t enable = 0;
++	uint32_t enable = 0;
+ 	struct reg *dbcon = &xscale->reg_cache->reg_list[XSCALE_DBCON];
+ 	uint32_t dbcon_value = buf_get_u32(dbcon->value, 0, 32);
+ 
+@@ -2276,8 +2276,6 @@ static int xscale_set_watchpoint(struct target *target,
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
+-	xscale_get_reg(dbcon);
+-
+ 	switch (watchpoint->rw)
+ 	{
+ 		case WPT_READ:
+@@ -2293,6 +2291,24 @@ static int xscale_set_watchpoint(struct target *target,
+ 			LOG_ERROR("BUG: watchpoint->rw neither read, write nor access");
+ 	}
+ 
++	/* For watchpoint across more than one word, both DBR registers must
++	   be enlisted, with the second used as a mask. */
++	if (watchpoint->length > 4)
++	{
++	   if (xscale->dbr0_used || xscale->dbr1_used) 
++	   {
++		  LOG_ERROR("BUG: sufficient hardware comparators unavailable");
++		  return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	   }
++
++	   /* Write mask value to DBR1, based on the length argument.
++		* Address bits ignored by the comparator are those set in mask. */
++	   xscale_set_reg_u32(&xscale->reg_cache->reg_list[XSCALE_DBR1],
++						  watchpoint->length - 1);
++	   xscale->dbr1_used = 1;
++	   enable |= 0x100;			/* DBCON[M] */
++	}
++
+ 	if (!xscale->dbr0_used)
+ 	{
+ 		xscale_set_reg_u32(&xscale->reg_cache->reg_list[XSCALE_DBR0], watchpoint->address);
+@@ -2312,7 +2328,7 @@ static int xscale_set_watchpoint(struct target *target,
+ 	else
+ 	{
+ 		LOG_ERROR("BUG: no hardware comparator available");
+-		return ERROR_OK;
++		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -2328,13 +2344,30 @@ static int xscale_add_watchpoint(struct target *target,
+ 		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+ 	}
+ 
+-	if ((watchpoint->length != 1) && (watchpoint->length != 2) && (watchpoint->length != 4))
++	if (watchpoint->value)
++	   LOG_WARNING("xscale does not support value, mask arguments; ignoring");
++
++	/* check that length is a power of two */
++	for (uint32_t len = watchpoint->length; len != 1; len /= 2)
+ 	{
+-		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	   if (len % 2)
++	   {
++		  LOG_ERROR("xscale requires that watchpoint length is a power of two");
++		  return ERROR_COMMAND_ARGUMENT_INVALID;
++	   }
+ 	}
+ 
+-	xscale->dbr_available--;
++	if (watchpoint->length == 4) /* single word watchpoint */
++	{
++	   xscale->dbr_available--; /* one DBR reg used */
++	   return ERROR_OK;
++	}
+ 
++	/* watchpoints across multiple words require both DBR registers */
++	if (xscale->dbr_available < 2)
++	   return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++	
++	xscale->dbr_available = 0;
+ 	return ERROR_OK;
+ }
+ 
+@@ -2359,7 +2392,14 @@ static int xscale_unset_watchpoint(struct target *target,
+ 
+ 	if (watchpoint->set == 1)
+ 	{
+-		dbcon_value &= ~0x3;
++	   if (watchpoint->length > 4)
++	   {
++		  dbcon_value &= ~0x103; /* clear DBCON[M] as well */
++		  xscale->dbr1_used = 0; /* DBR1 was used for mask */
++	   }
++	   else
++		  dbcon_value &= ~0x3;
++
+ 		xscale_set_reg_u32(dbcon, dbcon_value);
+ 		xscale->dbr0_used = 0;
+ 	}
+@@ -2389,6 +2429,9 @@ static int xscale_remove_watchpoint(struct target *target, struct watchpoint *wa
+ 		xscale_unset_watchpoint(target, watchpoint);
+ 	}
+ 
++	if (watchpoint->length > 4)
++	   xscale->dbr_available++;	/* both DBR regs now available */
++	
+ 	xscale->dbr_available++;
+ 
+ 	return ERROR_OK;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/xscale.c |   59 ++++++++++++++++++++++++++++++++++++++++++++-------
+ 1 files changed, 51 insertions(+), 8 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From gowinex at users.sourceforge.net  Mon Apr 26 07:09:35 2010
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Mon, 26 Apr 2010 05:09:35 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-196-g56a21c9
+Message-ID: <E1O6GZe-00053e-Es@sfp-scmshell-2.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  56a21c9cb1e4785e2ca3aac16c7a6bb17874d9aa (commit)
+       via  e0285dbe73594b640d9db2473821413097cbafc4 (commit)
+      from  4f1296d1510715b5504f39909dadae79698aa27a (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 56a21c9cb1e4785e2ca3aac16c7a6bb17874d9aa
+Author: Marek Vasut <marek.vasut at gmail.com>
+Date:   Mon Apr 26 03:34:03 2010 +0200
+
+    Add Voipac PXA270 module support
+    
+    This patch adds support for the Voipac PXA270 module. Including NOR flash.
+    
+    Signed-off-by: Marek Vasut <marek.vasut at gmail.com>
+
+diff --git a/tcl/board/voipac.cfg b/tcl/board/voipac.cfg
+new file mode 100644
+index 0000000..c59277e
+--- /dev/null
++++ b/tcl/board/voipac.cfg
+@@ -0,0 +1,12 @@
++# Config for Voipac PXA270/PXA270M module.
++
++set CHIPNAME voipac
++source [find target/pxa270.cfg]
++
++# The board supports separate reset lines
++# Override this in the interface config for parallel dongles
++reset_config trst_and_srst separate
++
++# flash bank <driver> <base> <size> <chip_width> <bus_width>
++flash bank $_CHIPNAME.flash0 cfi 0x00000000 0x2000000 2 2 $_TARGETNAME
++flash bank $_CHIPNAME.flash1 cfi 0x02000000 0x2000000 2 2 $_TARGETNAME
+
+commit e0285dbe73594b640d9db2473821413097cbafc4
+Author: Marek Vasut <marek.vasut at gmail.com>
+Date:   Mon Apr 26 03:08:00 2010 +0200
+
+    Add VPACLink interface definition
+    
+    This patch adds definition file for the Voipac VPACLink JTAG adaptor. The
+    adaptor is combined JTAG/UART device.
+    
+    Signed-off-by: Marek Vasut <marek.vasut at gmail.com>
+
+diff --git a/tcl/interface/vpaclink.cfg b/tcl/interface/vpaclink.cfg
+new file mode 100644
+index 0000000..a4795d3
+--- /dev/null
++++ b/tcl/interface/vpaclink.cfg
+@@ -0,0 +1,10 @@
++#
++# Voipac VPACLink
++#
++# http://voipac.com/27M-JTG-000
++#
++
++interface ft2232
++ft2232_device_desc "VPACLink A"
++ft2232_layout oocdlink
++ft2232_vid_pid 0x0403 0x6010
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ tcl/board/voipac.cfg       |   12 ++++++++++++
+ tcl/interface/vpaclink.cfg |   10 ++++++++++
+ 2 files changed, 22 insertions(+), 0 deletions(-)
+ create mode 100644 tcl/board/voipac.cfg
+ create mode 100644 tcl/interface/vpaclink.cfg
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From gowinex at users.sourceforge.net  Wed Apr 28 08:45:18 2010
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Wed, 28 Apr 2010 06:45:18 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-197-g49b7905
+Message-ID: <E1O711L-0003Zh-Em@sfp-scmshell-4.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  49b7905cae66ee9e011c71aff758fafba823f87f (commit)
+      from  56a21c9cb1e4785e2ca3aac16c7a6bb17874d9aa (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 49b7905cae66ee9e011c71aff758fafba823f87f
+Author: ??yvind Harboe <oyvind.harboe at zylin.com>
+Date:   Wed Apr 28 08:01:28 2010 +0200
+
+    nor: remove bogus output about padding sections
+    
+    padding of 0 bytes is actually no padding, do not output
+    warning about padding in that case.
+    
+    Signed-off-by: ??yvind Harboe <oyvind.harboe at zylin.com>
+
+diff --git a/src/flash/nor/core.c b/src/flash/nor/core.c
+index 15e460a..b8dda96 100644
+--- a/src/flash/nor/core.c
++++ b/src/flash/nor/core.c
+@@ -611,7 +611,8 @@ int flash_write_unlock(struct target *target, struct image *image,
+ 			run_size += image->sections[++section_last].size;
+ 			run_size += pad_bytes;
+ 
+-			LOG_INFO("Padding image section %d with %d bytes", section_last-1, pad_bytes);
++			if (pad_bytes > 0)
++				LOG_INFO("Padding image section %d with %d bytes", section_last-1, pad_bytes);
+ 		}
+ 
+ 		/* fit the run into bank constraints */
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/core.c |    3 ++-
+ 1 files changed, 2 insertions(+), 1 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+
+From gowinex at users.sourceforge.net  Fri Apr 30 03:02:54 2010
+From: gowinex at users.sourceforge.net (Øyvind Harboe)
+Date: Fri, 30 Apr 2010 01:02:54 +0000
+Subject: [openocd-svn] Main OpenOCD repository branch, master,
+	updated. v0.4.0-200-gda9f72c
+Message-ID: <E1O7ed8-0004oH-FL@sfp-scmshell-4.v30.ch3.sourceforge.com>
+
+This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project "Main OpenOCD repository".
+
+The branch, master has been updated
+       via  da9f72ca0a3305cf6f961834dc441496a36c85de (commit)
+       via  5e79f999bcc898d94a2d7751831e9f7aee24fbd5 (commit)
+       via  78248f1df67d1b4feefd8ac4e459acd7599d6af2 (commit)
+      from  49b7905cae66ee9e011c71aff758fafba823f87f (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit da9f72ca0a3305cf6f961834dc441496a36c85de
+Author: ??yvind Harboe <oyvind.harboe at zylin.com>
+Date:   Fri Apr 30 02:51:05 2010 +0200
+
+    zy1000: it has a CFI chip, no need for the ecosflash driver
+    
+    The ecosflash driver is no longer used by any of the config
+    scripts. It is more useful to get more testing of CFI.
+    
+    Signed-off-by: ??yvind Harboe <oyvind.harboe at zylin.com>
+
+diff --git a/tcl/board/zy1000.cfg b/tcl/board/zy1000.cfg
+index 17594c2..ee7afcd 100644
+--- a/tcl/board/zy1000.cfg
++++ b/tcl/board/zy1000.cfg
+@@ -39,7 +39,8 @@ arm7_9 fast_memory_access enable
+ arm7_9 dcc_downloads enable
+ 
+ set _FLASHNAME $_CHIPNAME.flash
+-flash bank $_FLASHNAME ecosflash 0x01000000 0x200000 2 2 $_TARGETNAME ecos/at91eb40a.elf
++flash bank $_FLASHNAME cfi 0x01000000 0x200000 2 2 $_TARGETNAME
++
+ $_TARGETNAME configure -event reset-init {
+ 	# Set up chip selects & timings
+ 	mww 0xFFE00000 0x0100273D
+
+commit 5e79f999bcc898d94a2d7751831e9f7aee24fbd5
+Author: ??yvind Harboe <oyvind.harboe at zylin.com>
+Date:   Thu Apr 29 17:42:47 2010 +0200
+
+    flash: write_image would fail for certain images
+    
+    Fix a bug where write_image would fail if the sections
+    in the image were not in ascending order. This has previously
+    been fixed in gdb load.
+    
+    Solved by sorting the image sections before running flash
+    write_image erase unlock foo.elf.
+    
+    Signed-off-by: ??yvind Harboe <oyvind.harboe at zylin.com>
+
+diff --git a/src/flash/nor/core.c b/src/flash/nor/core.c
+index 1ff4193..9a77353 100644
+--- a/src/flash/nor/core.c
++++ b/src/flash/nor/core.c
+@@ -509,6 +509,25 @@ static int flash_unlock_address_range(struct target *target, uint32_t addr, uint
+ 			addr, length, &flash_driver_unprotect);
+ }
+ 
++static int compare_section (const void * a, const void * b)
++{
++	struct imageection *b1, *b2;
++	b1=*((struct imageection **)a);
++	b2=*((struct imageection **)b);
++
++	if (b1->base_address == b2->base_address)
++	{
++		return 0;
++	} else if (b1->base_address > b2->base_address)
++	{
++		return 1;
++	} else
++	{
++		return -1;
++	}
++}
++
++
+ int flash_write_unlock(struct target *target, struct image *image,
+ 		uint32_t *written, int erase, bool unlock)
+ {
+@@ -536,6 +555,19 @@ int flash_write_unlock(struct target *target, struct image *image,
+ 	/* allocate padding array */
+ 	padding = calloc(image->num_sections, sizeof(*padding));
+ 
++	/* This fn requires all sections to be in ascending order of addresses,
++	 * whereas an image can have sections out of order. */
++	struct imageection **sections = malloc(sizeof(struct imageection *) *
++			image->num_sections);
++	int i;
++	for (i = 0; i < image->num_sections; i++)
++	{
++		sections[i] = &image->sections[i];
++	}
++
++	qsort(sections, image->num_sections, sizeof(struct imageection *),
++			compare_section);
++
+ 	/* loop until we reach end of the image */
+ 	while (section < image->num_sections)
+ 	{
+@@ -543,11 +575,11 @@ int flash_write_unlock(struct target *target, struct image *image,
+ 		uint8_t *buffer;
+ 		int section_first;
+ 		int section_last;
+-		uint32_t run_address = image->sections[section].base_address + section_offset;
+-		uint32_t run_size = image->sections[section].size - section_offset;
++		uint32_t run_address = sections[section]->base_address + section_offset;
++		uint32_t run_size = sections[section]->size - section_offset;
+ 		int pad_bytes = 0;
+ 
+-		if (image->sections[section].size ==  0)
++		if (sections[section]->size ==  0)
+ 		{
+ 			LOG_WARNING("empty section %d", section);
+ 			section++;
+@@ -570,7 +602,7 @@ int flash_write_unlock(struct target *target, struct image *image,
+ 		while ((run_address + run_size - 1 < c->base + c->size - 1)
+ 				&& (section_last + 1 < image->num_sections))
+ 		{
+-			if (image->sections[section_last + 1].base_address < (run_address + run_size))
++			if (sections[section_last + 1]->base_address < (run_address + run_size))
+ 			{
+ 				LOG_DEBUG("section %d out of order "
+ 						"(surprising, but supported)",
+@@ -598,11 +630,11 @@ int flash_write_unlock(struct target *target, struct image *image,
+ 			/* if we have multiple sections within our image,
+ 			 * flash programming could fail due to alignment issues
+ 			 * attempt to rebuild a consecutive buffer for the flash loader */
+-			pad_bytes = (image->sections[section_last + 1].base_address) - (run_address + run_size);
++			pad_bytes = (sections[section_last + 1]->base_address) - (run_address + run_size);
+ 			if ((run_address + run_size + pad_bytes) > (c->base + c->size))
+ 				break;
+ 			padding[section_last] = pad_bytes;
+-			run_size += image->sections[++section_last].size;
++			run_size += sections[++section_last]->size;
+ 			run_size += pad_bytes;
+ 
+ 			if (pad_bytes > 0)
+@@ -651,15 +683,21 @@ int flash_write_unlock(struct target *target, struct image *image,
+ 			size_t size_read;
+ 
+ 			size_read = run_size - buffer_size;
+-			if (size_read > image->sections[section].size - section_offset)
+-			    size_read = image->sections[section].size - section_offset;
++			if (size_read > sections[section]->size - section_offset)
++			    size_read = sections[section]->size - section_offset;
+ 
+-			if ((retval = image_read_section(image, section, section_offset,
++			/* KLUDGE!
++			 *
++			 * #??%#"%??% we have to figure out the section # from the sorted
++			 * list of pointers to sections to invoke image_read_section()...
++			 */
++			int t_section_num = (sections[section] - image->sections) / sizeof(struct imageection);
++
++			if ((retval = image_read_section(image, t_section_num, section_offset,
+ 					size_read, buffer + buffer_size, &size_read)) != ERROR_OK || size_read == 0)
+ 			{
+ 				free(buffer);
+-				free(padding);
+-				return retval;
++				goto done;
+ 			}
+ 
+ 			/* see if we need to pad the section */
+@@ -669,7 +707,7 @@ int flash_write_unlock(struct target *target, struct image *image,
+ 			buffer_size += size_read;
+ 			section_offset += size_read;
+ 
+-			if (section_offset >= image->sections[section].size)
++			if (section_offset >= sections[section]->size)
+ 			{
+ 				section++;
+ 				section_offset = 0;
+@@ -702,14 +740,17 @@ int flash_write_unlock(struct target *target, struct image *image,
+ 
+ 		if (retval != ERROR_OK)
+ 		{
+-			free(padding);
+-			return retval; /* abort operation */
++			/* abort operation */
++			goto done;
+ 		}
+ 
+ 		if (written != NULL)
+ 			*written += run_size; /* add run size to total written counter */
+ 	}
+ 
++
++done:
++	free(sections);
+ 	free(padding);
+ 
+ 	return retval;
+
+commit 78248f1df67d1b4feefd8ac4e459acd7599d6af2
+Author: ??yvind Harboe <oyvind.harboe at zylin.com>
+Date:   Thu Apr 29 03:49:32 2010 +0200
+
+    flash: write_image will now pad erase to nearest sector
+    
+    this is done for unlocking and it is a simple omission that
+    it wasn't done for sectors.
+    
+    The unnerving thing is that nobody has complained about this
+    until now....
+    
+    Signed-off-by: ??yvind Harboe <oyvind.harboe at zylin.com>
+
+diff --git a/src/flash/nor/core.c b/src/flash/nor/core.c
+index b8dda96..1ff4193 100644
+--- a/src/flash/nor/core.c
++++ b/src/flash/nor/core.c
+@@ -1,6 +1,6 @@
+ /***************************************************************************
+  *   Copyright (C) 2005 by Dominic Rath <Dominic.Rath at gmx.de>              *
+- *   Copyright (C) 2007,2008 ??yvind Harboe <oyvind.harboe at zylin.com>       *
++ *   Copyright (C) 2007-2010 ??yvind Harboe <oyvind.harboe at zylin.com>       *
+  *   Copyright (C) 2008 by Spencer Oliver <spen at spen-soft.co.uk>           *
+  *   Copyright (C) 2009 Zachary T Welch <zw at superlucidity.net>             *
+  *                                                                         *
+@@ -519,12 +519,6 @@ int flash_write_unlock(struct target *target, struct image *image,
+ 	struct flash_bank *c;
+ 	int *padding;
+ 
+-	/* REVISIT do_pad should perhaps just be another parameter.
+-	 * GDB wouldn't ever need it, since it erases separately.
+-	 * But "flash write_image" commands might want that option.
+-	 */
+-	bool do_pad = false;
+-
+ 	section = 0;
+ 	section_offset = 0;
+ 
+@@ -694,7 +688,7 @@ int flash_write_unlock(struct target *target, struct image *image,
+ 			{
+ 				/* calculate and erase sectors */
+ 				retval = flash_erase_address_range(target,
+-						do_pad, run_address, run_size);
++						true, run_address, run_size);
+ 			}
+ 		}
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/core.c |   79 ++++++++++++++++++++++++++++++++++++--------------
+ tcl/board/zy1000.cfg |    3 +-
+ 2 files changed, 59 insertions(+), 23 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+

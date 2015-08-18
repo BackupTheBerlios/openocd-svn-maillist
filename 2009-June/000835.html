@@ -1,0 +1,201 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2051 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2051%20-%20trunk/src/target&In-Reply-To=%3C200906041345.n54DjoS2028443%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000834.html">
+   <LINK REL="Next"  HREF="000836.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2051 - trunk/src/target</H1>
+    <B>ntfreak at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2051%20-%20trunk/src/target&In-Reply-To=%3C200906041345.n54DjoS2028443%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2051 - trunk/src/target">ntfreak at mail.berlios.de
+       </A><BR>
+    <I>Thu Jun  4 15:45:50 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000834.html">[Openocd-svn] r2050 - in trunk/src: flash jtag pld target xsvf
+</A></li>
+        <LI>Next message: <A HREF="000836.html">[Openocd-svn] r2052 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#835">[ date ]</a>
+              <a href="thread.html#835">[ thread ]</a>
+              <a href="subject.html#835">[ subject ]</a>
+              <a href="author.html#835">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: ntfreak
+Date: 2009-06-04 15:45:50 +0200 (Thu, 04 Jun 2009)
+New Revision: 2051
+
+Modified:
+   trunk/src/target/arm_adi_v5.c
+   trunk/src/target/arm_adi_v5.h
+   trunk/src/target/cortex_m3.c
+Log:
+- add support for different TAR autotincrement sizes as per ARM ADI spec.
+- set TAR size to 12 bits for Cortex-M3.
+- Original patch submitted by Magnus Lundin [<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lundin at mlu.mine.nu</A>].
+
+
+Modified: trunk/src/target/arm_adi_v5.c
+===================================================================
+--- trunk/src/target/arm_adi_v5.c	2009-06-04 13:18:07 UTC (rev 2050)
++++ trunk/src/target/arm_adi_v5.c	2009-06-04 13:45:50 UTC (rev 2051)
+@@ -52,6 +52,18 @@
+  * are immediatley available.
+ */
+ 
++
++/* ARM ADI Specification requires at least 10 bits used for TAR autoincrement  */
++
++/*
++	u32 tar_block_size(u32 address)
++	Return the largest block starting at address that does not cross a tar block size alignment boundary
++*/
++static u32 max_tar_block_size(u32 tar_autoincr_block, u32 address)
++{
++	return (tar_autoincr_block - ((tar_autoincr_block - 1) &amp; address)) &gt;&gt; 2;
++}
++
+ /***************************************************************************
+  *                                                                         *
+  * DPACC and APACC scanchain access through JTAG-DP                        *
+@@ -467,8 +479,8 @@
+ 
+ 	while (wcount &gt; 0)
+ 	{
+-		/* Adjust to write blocks within 4K aligned boundaries */
+-		blocksize = (0x1000 - (0xFFF &amp; address)) &gt;&gt; 2;
++		/* Adjust to write blocks within boundaries aligned to the TAR autoincremnent size*/
++		blocksize = max_tar_block_size(swjdp-&gt;tar_autoincr_block, address);
+ 		if (wcount &lt; blocksize)
+ 			blocksize = wcount;
+ 
+@@ -517,8 +529,8 @@
+ 	{
+ 		int nbytes;
+ 
+-		/* Adjust to read within 4K block boundaries */
+-		blocksize = (0x1000 - (0xFFF &amp; address)) &gt;&gt; 1;
++		/* Adjust to write blocks within boundaries aligned to the TAR autoincremnent size*/
++		blocksize = max_tar_block_size(swjdp-&gt;tar_autoincr_block, address);
+ 
+ 		if (wcount &lt; blocksize)
+ 			blocksize = wcount;
+@@ -613,8 +625,8 @@
+ 	{
+ 		int nbytes;
+ 
+-		/* Adjust to read within 4K block boundaries */
+-		blocksize = (0x1000 - (0xFFF &amp; address));
++		/* Adjust to write blocks within boundaries aligned to the TAR autoincremnent size*/
++		blocksize = max_tar_block_size(swjdp-&gt;tar_autoincr_block, address);
+ 
+ 		if (wcount &lt; blocksize)
+ 			blocksize = wcount;
+@@ -710,8 +722,8 @@
+ 
+ 	while (wcount &gt; 0)
+ 	{
+-		/* Adjust to read within 4K block boundaries */
+-		blocksize = (0x1000 - (0xFFF &amp; address)) &gt;&gt; 2;
++		/* Adjust to read blocks within boundaries aligned to the TAR autoincremnent size*/
++		blocksize = max_tar_block_size(swjdp-&gt;tar_autoincr_block, address);
+ 		if (wcount &lt; blocksize)
+ 			blocksize = wcount;
+ 
+@@ -784,8 +796,8 @@
+ 	{
+ 		int nbytes;
+ 
+-		/* Adjust to read within 4K block boundaries */
+-		blocksize = (0x1000 - (0xFFF &amp; address)) &gt;&gt; 1;
++		/* Adjust to read blocks within boundaries aligned to the TAR autoincremnent size*/
++		blocksize = max_tar_block_size(swjdp-&gt;tar_autoincr_block, address);
+ 		if (wcount &lt; blocksize)
+ 			blocksize = wcount;
+ 
+@@ -879,8 +891,8 @@
+ 	{
+ 		int nbytes;
+ 
+-		/* Adjust to read within 4K block boundaries */
+-		blocksize = (0x1000 - (0xFFF &amp; address));
++		/* Adjust to read blocks within boundaries aligned to the TAR autoincremnent size*/
++		blocksize = max_tar_block_size(swjdp-&gt;tar_autoincr_block, address);
+ 
+ 		if (wcount &lt; blocksize)
+ 			blocksize = wcount;
+
+Modified: trunk/src/target/arm_adi_v5.h
+===================================================================
+--- trunk/src/target/arm_adi_v5.h	2009-06-04 13:18:07 UTC (rev 2050)
++++ trunk/src/target/arm_adi_v5.h	2009-06-04 13:45:50 UTC (rev 2051)
+@@ -99,8 +99,17 @@
+ 	u8  ack;
+ 	/* extra tck clocks for memory bus access */
+ 	u32	memaccess_tck;
++	/* Size of TAR autoincrement block, ARM ADI Specification requires at least 10 bits */
++	u32 tar_autoincr_block;
++
+ } swjdp_common_t;
+ 
++/* Accessor function for currently selected DAP-AP number */ 
++static inline u8 dap_ap_get_select(swjdp_common_t *swjdp)
++{
++	return (u8)( swjdp -&gt;apsel &gt;&gt; 24);
++}
++
+ /* Internal functions used in the module, partial transactions, use with caution */
+ extern int dap_dp_write_reg(swjdp_common_t *swjdp, u32 value, u8 reg_addr);
+ /* extern int swjdp_write_apacc(swjdp_common_t *swjdp, u32 value, u8 reg_addr); */
+
+Modified: trunk/src/target/cortex_m3.c
+===================================================================
+--- trunk/src/target/cortex_m3.c	2009-06-04 13:18:07 UTC (rev 2050)
++++ trunk/src/target/cortex_m3.c	2009-06-04 13:45:50 UTC (rev 2051)
+@@ -1579,6 +1579,7 @@
+ 	armv7m-&gt;swjdp_info.ap_tar_value = -1;
+ 	armv7m-&gt;swjdp_info.jtag_info = &amp;cortex_m3-&gt;jtag_info;
+ 	armv7m-&gt;swjdp_info.memaccess_tck = 8;
++	armv7m-&gt;swjdp_info.tar_autoincr_block = (1&lt;&lt;12);	/* Cortex-M3 has 4096 bytes autoincrement range */
+ 
+ 	/* initialize arch-specific breakpoint handling */
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000834.html">[Openocd-svn] r2050 - in trunk/src: flash jtag pld target xsvf
+</A></li>
+	<LI>Next message: <A HREF="000836.html">[Openocd-svn] r2052 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#835">[ date ]</a>
+              <a href="thread.html#835">[ thread ]</a>
+              <a href="subject.html#835">[ subject ]</a>
+              <a href="author.html#835">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

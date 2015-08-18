@@ -1,0 +1,217 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1850 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1850%20-%20trunk/src/target&In-Reply-To=%3C200905200507.n4K57biD028631%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000633.html">
+   <LINK REL="Next"  HREF="000635.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1850 - trunk/src/target</H1>
+    <B>kc8apf at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1850%20-%20trunk/src/target&In-Reply-To=%3C200905200507.n4K57biD028631%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1850 - trunk/src/target">kc8apf at mail.berlios.de
+       </A><BR>
+    <I>Wed May 20 07:07:37 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000633.html">[Openocd-svn] r1849 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000635.html">[Openocd-svn] r1851 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#634">[ date ]</a>
+              <a href="thread.html#634">[ thread ]</a>
+              <a href="subject.html#634">[ subject ]</a>
+              <a href="author.html#634">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kc8apf
+Date: 2009-05-20 07:07:34 +0200 (Wed, 20 May 2009)
+New Revision: 1850
+
+Modified:
+   trunk/src/target/mips32.c
+   trunk/src/target/mips32.h
+   trunk/src/target/mips_ejtag.c
+   trunk/src/target/mips_ejtag.h
+   trunk/src/target/mips_m4k.c
+Log:
+Author: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">spen at spen-soft.co.uk</A>&gt;
+- Bring the mips step/resume interrupt handling inline with the
+rest of openocd.
+
+
+Modified: trunk/src/target/mips32.c
+===================================================================
+--- trunk/src/target/mips32.c	2009-05-20 04:55:01 UTC (rev 1849)
++++ trunk/src/target/mips32.c	2009-05-20 05:07:34 UTC (rev 1850)
+@@ -420,3 +420,41 @@
+ 	
+ 	return ERROR_OK;
+ }
++
++int mips32_enable_interrupts(struct target_s *target, int enable)
++{
++	int retval;
++	int update = 0;
++	u32 dcr;
++	
++	/* read debug control register */
++	if ((retval = target_read_u32(target, EJTAG_DCR, &amp;dcr)) != ERROR_OK)
++		return retval;
++	
++	if (enable)
++	{
++		if (!(dcr &amp; (1&lt;&lt;4)))
++		{
++			/* enable interrupts */
++			dcr |= (1&lt;&lt;4);
++			update = 1;
++		}
++	}
++	else
++	{
++		if (dcr &amp; (1&lt;&lt;4))
++		{
++			/* disable interrupts */
++			dcr &amp;= ~(1&lt;&lt;4);
++			update = 1;
++		}
++	}
++	
++	if (update)
++	{
++		if ((retval = target_write_u32(target, EJTAG_DCR, dcr)) != ERROR_OK)
++			return retval;
++	}
++	
++	return ERROR_OK;
++}
+
+Modified: trunk/src/target/mips32.h
+===================================================================
+--- trunk/src/target/mips32.h	2009-05-20 04:55:01 UTC (rev 1849)
++++ trunk/src/target/mips32.h	2009-05-20 05:07:34 UTC (rev 1850)
+@@ -131,6 +131,7 @@
+ extern reg_cache_t *mips32_build_reg_cache(target_t *target);
+ extern int mips32_run_algorithm(struct target_s *target, int num_mem_params, mem_param_t *mem_params, int num_reg_params, reg_param_t *reg_params, u32 entry_point, u32 exit_point, int timeout_ms, void *arch_info);
+ extern int mips32_configure_break_unit(struct target_s *target);
++extern int mips32_enable_interrupts(struct target_s *target, int enable);
+ extern int mips32_examine(struct target_s *target);
+ 
+ extern int mips32_register_commands(struct command_context_s *cmd_ctx);
+
+Modified: trunk/src/target/mips_ejtag.c
+===================================================================
+--- trunk/src/target/mips_ejtag.c	2009-05-20 04:55:01 UTC (rev 1849)
++++ trunk/src/target/mips_ejtag.c	2009-05-20 05:07:34 UTC (rev 1850)
+@@ -216,13 +216,11 @@
+ 	return ERROR_OK;
+ }
+ 
+-int mips_ejtag_exit_debug(mips_ejtag_t *ejtag_info, int enable_interrupts)
++int mips_ejtag_exit_debug(mips_ejtag_t *ejtag_info)
+ {
+ 	u32 inst;
+ 	inst = MIPS32_DRET;
+-
+-	/* TODO : enable/disable interrrupts */
+-
++	
+ 	/* execute our dret instruction */
+ 	mips32_pracc_exec(ejtag_info, 1, &amp;inst, 0, NULL, 0, NULL, 0);
+ 
+
+Modified: trunk/src/target/mips_ejtag.h
+===================================================================
+--- trunk/src/target/mips_ejtag.h	2009-05-20 04:55:01 UTC (rev 1849)
++++ trunk/src/target/mips_ejtag.h	2009-05-20 05:07:34 UTC (rev 1850)
+@@ -108,7 +108,7 @@
+ 
+ extern int mips_ejtag_set_instr(mips_ejtag_t *ejtag_info, int new_instr, void *delete_me_and_submit_patch);
+ extern int mips_ejtag_enter_debug(mips_ejtag_t *ejtag_info);
+-extern int mips_ejtag_exit_debug(mips_ejtag_t *ejtag_info, int enable_interrupts);
++extern int mips_ejtag_exit_debug(mips_ejtag_t *ejtag_info);
+ extern int mips_ejtag_get_impcode(mips_ejtag_t *ejtag_info, u32 *impcode, in_handler_t handler);
+ extern int mips_ejtag_get_idcode(mips_ejtag_t *ejtag_info, u32 *idcode, in_handler_t handler);
+ extern int mips_ejtag_drscan_32(mips_ejtag_t *ejtag_info, u32 *data);
+
+Modified: trunk/src/target/mips_m4k.c
+===================================================================
+--- trunk/src/target/mips_m4k.c	2009-05-20 04:55:01 UTC (rev 1849)
++++ trunk/src/target/mips_m4k.c	2009-05-20 05:07:34 UTC (rev 1850)
+@@ -344,8 +344,11 @@
+ 	/* configure single step mode */
+ 	mips_ejtag_config_step(ejtag_info, 1);
+ 
++	/* disable interrupts while stepping */
++	mips32_enable_interrupts(target, 0);
++	
+ 	/* exit debug mode */
+-	mips_ejtag_exit_debug(ejtag_info, 1);
++	mips_ejtag_exit_debug(ejtag_info);
+ 
+ 	mips_m4k_debug_entry(target);
+ 
+@@ -397,8 +400,11 @@
+ 		}
+ 	}
+ 
+-	/* exit debug mode - enable interrupts if required */
+-	mips_ejtag_exit_debug(ejtag_info, !debug_execution);
++	/* enable interrupts if we are running */
++	mips32_enable_interrupts(target, !debug_execution);
++	
++	/* exit debug mode */
++	mips_ejtag_exit_debug(ejtag_info);
+ 	target-&gt;debug_reason = DBG_REASON_NOTHALTED;
+ 
+ 	/* registers are now invalid */
+@@ -452,8 +458,11 @@
+ 
+ 	target_call_event_callbacks(target, TARGET_EVENT_RESUMED);
+ 
++	/* disable interrupts while stepping */
++	mips32_enable_interrupts(target, 0);
++		
+ 	/* exit debug mode */
+-	mips_ejtag_exit_debug(ejtag_info, 1);
++	mips_ejtag_exit_debug(ejtag_info);
+ 
+ 	/* registers are now invalid */
+ 	mips32_invalidate_core_regs(target);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000633.html">[Openocd-svn] r1849 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000635.html">[Openocd-svn] r1851 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#634">[ date ]</a>
+              <a href="thread.html#634">[ thread ]</a>
+              <a href="subject.html#634">[ subject ]</a>
+              <a href="author.html#634">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,266 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2560 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2560%20-%20trunk/src/target&In-Reply-To=%3C200907231534.n6NFY803010327%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001342.html">
+   <LINK REL="Next"  HREF="001344.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2560 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2560%20-%20trunk/src/target&In-Reply-To=%3C200907231534.n6NFY803010327%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2560 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul 23 17:34:08 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001342.html">[Openocd-svn] r2559 - in trunk/src: jtag target
+</A></li>
+        <LI>Next message: <A HREF="001344.html">[Openocd-svn] r2561 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1343">[ date ]</a>
+              <a href="thread.html#1343">[ thread ]</a>
+              <a href="subject.html#1343">[ subject ]</a>
+              <a href="author.html#1343">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-07-23 17:34:03 +0200 (Thu, 23 Jul 2009)
+New Revision: 2560
+
+Modified:
+   trunk/src/target/arm_disassembler.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt; thumb2 disassembly for Load byte, memory hints
+
+Modified: trunk/src/target/arm_disassembler.c
+===================================================================
+--- trunk/src/target/arm_disassembler.c	2009-07-23 07:04:21 UTC (rev 2559)
++++ trunk/src/target/arm_disassembler.c	2009-07-23 15:34:03 UTC (rev 2560)
+@@ -2,6 +2,8 @@
+  *   Copyright (C) 2006 by Dominic Rath                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
+  *                                                                         *
++ *   Copyright (C) 2009 by David Brownell                                  *
++ *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -3340,6 +3342,170 @@
+ 	return ERROR_INVALID_ARGUMENTS;
+ }
+ 
++static int t2ev_load_byte_hints(uint32_t opcode, uint32_t address,
++		arm_instruction_t *instruction, char *cp)
++{
++	int rn = (opcode &gt;&gt; 16) &amp; 0xf;
++	int rt = (opcode &gt;&gt; 12) &amp; 0xf;
++	int op2 = (opcode &gt;&gt; 6) &amp; 0x3f;
++	unsigned immed;
++	char *p1 = &quot;]&quot;, *p2 = &quot;&quot;;
++	char *mnemonic;
++
++	switch ((opcode &gt;&gt; 23) &amp; 0x3) {
++	case 0:
++		if ((rn &amp; rt) == 0xf) {
++preload_immediate_t2:
++			immed = opcode &amp; 0xfff;
++preload_immediate_t1:
++			p1 = (opcode &amp; (1 &lt;&lt; 21)) ? &quot;W&quot; : &quot;&quot;;
++			sprintf(cp, &quot;PLD%s\t[r%d, #%d]\t; %#6.6x&quot;,
++					p1, rn, immed, immed);
++			return ERROR_OK;
++		}
++		if (rn == 0x0f &amp;&amp; rt != 0x0f) {
++ldrb_literal:
++			immed = opcode &amp; 0xfff;
++			address = thumb_alignpc4(address);
++			if (opcode &amp; (1 &lt;&lt; 23))
++				address += immed;
++			else
++				address -= immed;
++			sprintf(cp, &quot;LDRB\tr%d, %#8.8&quot; PRIx32,
++					rt, address);
++			return ERROR_OK;
++		}
++		if (rn == 0x0f)
++			break;
++		if ((op2 &amp; 0x3c) == 0x38) {
++			immed = opcode &amp; 0xff;
++			sprintf(cp, &quot;LDRBT\tr%d, [r%d, #%d]\t; %#2.2x&quot;,
++					rt, rn, immed, immed);
++			return ERROR_OK;
++		}
++		if ((op2 &amp; 0x3c) == 0x30) {
++			if (rt == 0x0f) {
++				immed = opcode &amp; 0xff;
++				goto preload_immediate_t1;
++			}
++			mnemonic = &quot;LDRB&quot;;
++ldrxb_immediate_t3:
++			immed = opcode &amp; 0xff;
++			if (opcode &amp; 0x200)
++				immed = -immed;
++
++			/* two indexed modes will write back rn */
++			if (opcode &amp; 0x100) {
++				if (opcode &amp; 0x400)	/* pre-indexed */
++					p2 = &quot;]!&quot;;
++				else {			/* post-indexed */
++					p1 = &quot;]&quot;;
++					p2 = &quot;&quot;;
++				}
++			}
++ldrxb_immediate_t2:
++			sprintf(cp, &quot;%s\tr%d, [r%d%s, #%d%s\t; %#8.8x&quot;,
++					mnemonic, rt, rn, p1,
++					immed, p2, immed);
++			return ERROR_OK;
++		}
++		if ((op2 &amp; 0x24) == 0x24) {
++			mnemonic = &quot;LDRB&quot;;
++			goto ldrxb_immediate_t3;
++		}
++		if (op2 == 0) {
++			int rm = opcode &amp; 0xf;
++
++			if (rt == 0x0f)
++				sprintf(cp, &quot;PLD\t&quot;);
++			else
++				sprintf(cp, &quot;LDRB.W\tr%d, &quot;, rt);
++			immed = (opcode &gt;&gt; 4) &amp; 0x3;
++			cp = strchr(cp, 0);
++			sprintf(cp, &quot;[r%d, r%d, LSL #%d]&quot;, rn, rm, immed);
++			return ERROR_OK;
++		}
++		break;
++	case 1:
++		if (rt == 0xf)
++			goto preload_immediate_t2;
++		if (rn == 0x0f)
++			goto ldrb_literal;
++		mnemonic = &quot;LDRB.W&quot;;
++		immed = opcode &amp; 0xfff;
++		goto ldrxb_immediate_t2;
++	case 2:
++		if ((rn &amp; rt) == 0xf) {
++pli_immediate:
++			immed = opcode &amp; 0xfff;
++			address = thumb_alignpc4(address);
++			if (opcode &amp; (1 &lt;&lt; 23))
++				address += immed;
++			else
++				address -= immed;
++			sprintf(cp, &quot;PLI\t%#8.8&quot; PRIx32, address);
++			return ERROR_OK;
++		}
++		if (rn == 0xf &amp;&amp; rt != 0xf) {
++ldrsb_literal:
++			immed = opcode &amp; 0xfff;
++			address = thumb_alignpc4(address);
++			if (opcode &amp; (1 &lt;&lt; 23))
++				address += immed;
++			else
++				address -= immed;
++			sprintf(cp, &quot;LDRSB\t%#8.8&quot; PRIx32, address);
++			return ERROR_OK;
++		}
++		if (rn == 0xf)
++			break;
++		if ((op2 &amp; 0x3c) == 0x38) {
++			immed = opcode &amp; 0xff;
++			sprintf(cp, &quot;LDRSBT\tr%d, [r%d, #%d]\t; %2.2x&quot;,
++					rt, rn, immed, immed);
++			return ERROR_OK;
++		}
++		if ((op2 &amp; 0x3c) == 0x30) {
++			if (rt == 0xf) {
++				immed = opcode &amp; 0xff;
++				immed = -immed;	// pli
++				sprintf(cp, &quot;PLI\t[r%d, #-%d]\t; %2.2x&quot;,
++						rn, immed, immed);
++				return ERROR_OK;
++			}
++			mnemonic = &quot;LDRSB&quot;;
++			goto ldrxb_immediate_t3;
++		}
++		if ((op2 &amp; 0x24) == 0x24) {
++			mnemonic = &quot;LDRSB&quot;;
++			goto ldrxb_immediate_t3;
++		}
++		if (op2 == 0) {
++			int rm = opcode &amp; 0xf;
++
++			if (rt == 0x0f)
++				sprintf(cp, &quot;PLI\t&quot;);
++			else
++				sprintf(cp, &quot;LDRSB.W\tr%d, &quot;, rt);
++			immed = (opcode &gt;&gt; 4) &amp; 0x3;
++			cp = strchr(cp, 0);
++			sprintf(cp, &quot;[r%d, r%d, LSL #%d]&quot;, rn, rm, immed);
++			return ERROR_OK;
++		}
++		break;
++	case 3:
++		if (rt == 0xf)
++			goto pli_immediate;
++		if (rn == 0xf)
++			goto ldrsb_literal;
++		immed = opcode &amp; 0xfff;
++		mnemonic = &quot;LDRSB&quot;;
++		goto ldrxb_immediate_t2;
++	}
++
++	return ERROR_INVALID_ARGUMENTS;
++}
++
+ /*
+  * REVISIT for Thumb2 instructions, instruction-&gt;type and friends aren't
+  * always set.  That means eventual arm_simulate_step() support for Thumb2
+@@ -3407,6 +3573,10 @@
+ 	else if ((opcode &amp; 0x1f700000) == 0x18500000)
+ 		retval = t2ev_load_word(opcode, address, instruction, cp);
+ 
++	/* ARMv7-M: A5.3.9 Load byte, memory hints */
++	else if ((opcode &amp; 0x1e700000) == 0x18100000)
++		retval = t2ev_load_byte_hints(opcode, address, instruction, cp);
++
+ 	/* ARMv7-M: A5.3.10 Store single data item */
+ 	else if ((opcode &amp; 0x1f100000) == 0x18000000)
+ 		retval = t2ev_store_single(opcode, address, instruction, cp);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001342.html">[Openocd-svn] r2559 - in trunk/src: jtag target
+</A></li>
+	<LI>Next message: <A HREF="001344.html">[Openocd-svn] r2561 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1343">[ date ]</a>
+              <a href="thread.html#1343">[ thread ]</a>
+              <a href="subject.html#1343">[ subject ]</a>
+              <a href="author.html#1343">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

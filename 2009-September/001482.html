@@ -1,0 +1,249 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2699 - in trunk/tcl: board target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2699%20-%20in%20trunk/tcl%3A%20board%20target&In-Reply-To=%3C200909120811.n8C8BlYI006649%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001481.html">
+   <LINK REL="Next"  HREF="001483.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2699 - in trunk/tcl: board target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2699%20-%20in%20trunk/tcl%3A%20board%20target&In-Reply-To=%3C200909120811.n8C8BlYI006649%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2699 - in trunk/tcl: board target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Sat Sep 12 10:11:47 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001481.html">[Openocd-svn] r2698 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001483.html">[Openocd-svn] r2700 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1482">[ date ]</a>
+              <a href="thread.html#1482">[ thread ]</a>
+              <a href="subject.html#1482">[ subject ]</a>
+              <a href="author.html#1482">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-09-12 10:11:45 +0200 (Sat, 12 Sep 2009)
+New Revision: 2699
+
+Modified:
+   trunk/tcl/board/dm355evm.cfg
+   trunk/tcl/target/davinci.cfg
+   trunk/tcl/target/ti_dm355.cfg
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt; 
+Update the board config for the DaVinci DM355 EVM so the reset-init
+event handler does the rest of the work it should do:
+
+ - minor PLL setup bugfixes
+ - initialize the DDR2 controller
+ - probe both NAND banks
+ - initialize UART0
+ - enable the icache
+
+
+Modified: trunk/tcl/board/dm355evm.cfg
+===================================================================
+--- trunk/tcl/board/dm355evm.cfg	2009-09-12 08:10:19 UTC (rev 2698)
++++ trunk/tcl/board/dm355evm.cfg	2009-09-12 08:11:45 UTC (rev 2699)
+@@ -35,7 +35,7 @@
+ 	set addr [dict get $dm355 pllc1]
+ 	set pll_divs [dict create]
+ 	dict set pll_divs div3 16
+-	dict set pll_divs div4 8
++	dict set pll_divs div4 4
+ 	pll_v02_setup $addr 144 $pll_divs
+ 
+ 	# ARM is now running at 216 MHz, so JTAG can go faster
+@@ -48,6 +48,7 @@
+ 
+ 	set addr [dict get $dm355 pllc2]
+ 	set pll_divs [dict create]
++	dict set pll_divs div1 1
+ 	dict set pll_divs prediv 8
+ 	pll_v02_setup $addr 114 $pll_divs
+ 
+@@ -77,8 +78,55 @@
+ 	########################
+ 	# DDR2 EMIF
+ 
+-	# FIXME setup
++	# VTPIOCR impedance calibration
++	set addr [dict get $dm355 sysbase]
++	set addr [expr $addr + 0x70]
+ 
++	# clear CLR, LOCK, PWRDN; wait a clock; set CLR
++	mmw $addr 0 0x20c0
++	mmw $addr 0x2000 0
++
++	# wait for READY
++        while { [expr [mrw $addr] &amp; 0x8000] == 0 } { sleep 1 }
++
++	# set IO_READY; then LOCK and PWRSAVE; then PWRDN
++	mmw $addr 0x4000 0
++	mmw $addr 0x0180 0
++	mmw $addr 0x0040 0
++
++	# NOTE:  this DDR2 initialization sequence borrows from
++	# both UBL 1.50 and the SPRUEH7D DDR2 EMIF spec.
++
++	# reset (then re-enable) DDR controller
++	psc_reset 13
++	psc_go
++	psc_enable 13
++	psc_go
++
++	# now set it up for Micron MT47H64M16HR-37E @ 171 MHz
++
++	set addr [dict get $dm355 ddr_emif]
++
++	# DDRPHYCR1
++	mww [expr $addr + 0xe4] 0x50006404
++
++	# PBBPR -- burst priority
++	mww [expr $addr + 0x20] 0xfe
++
++	# SDCR -- unlock boot config; init for DDR2, relock, unlock SDTIM*
++	mmw [expr $addr + 0x08] 0x00800000 0
++	mmw [expr $addr + 0x08] 0x0013c632 0x03870fff
++
++	# SDTIMR, SDTIMR2
++	mww [expr $addr + 0x10] 0x2a923249
++	mww [expr $addr + 0x14] 0x4c17c763
++
++	# SDCR -- relock SDTIM*
++	mmw [expr $addr + 0x08] 0 0x00008000
++
++	# SDRCR -- refresh rate (171 MHz * 7.8usec)
++	mww [expr $addr + 0x0c] 1336
++
+ 	########################
+ 	# ASYNC EMIF
+ 
+@@ -98,10 +146,43 @@
+ 	# NANDFCR -- only CS0 has NAND
+ 	mww [expr $addr + 0x60] 0x01
+ 
++	# default: both chipselects to the NAND socket are used
++	nand probe 0
++	nand probe 1
++
+ 	########################
+ 	# UART0
+ 
+-	# FIXME setup
++	set addr [dict get $dm355 uart0]
++
++	# PWREMU_MGNT -- rx + tx in reset
++	mww [expr $addr + 0x30] 0
++
++	# DLL, DLH -- 115200 baud
++	mwb [expr $addr + 0x20] 0x0d
++	mwb [expr $addr + 0x24] 0x00
++
++	# FCR - clear and disable FIFOs
++	mwb [expr $addr + 0x08] 0x07
++	mwb [expr $addr + 0x08] 0x00
++
++	# IER - disable IRQs
++	mwb [expr $addr + 0x04] 0x00
++
++	# LCR - 8-N-1
++	mwb [expr $addr + 0x0c] 0x03
++
++	# MCR - no flow control or loopback
++	mwb [expr $addr + 0x10] 0x00
++
++	# PWREMU_MGNT -- rx + tx normal, free running during JTAG halt
++	mww [expr $addr + 0x30] 0xe001
++
++
++	########################
++
++	# turn on icache - set I bit in cp15 register c1
++	arm926ejs cp15 0 0 1 0 0x00051078
+ }
+ 
+ # NAND -- socket has two chipselects, MT29F16G08FAA puts 1GByte on each one.
+
+Modified: trunk/tcl/target/davinci.cfg
+===================================================================
+--- trunk/tcl/target/davinci.cfg	2009-09-12 08:10:19 UTC (rev 2698)
++++ trunk/tcl/target/davinci.cfg	2009-09-12 08:11:45 UTC (rev 2699)
+@@ -125,6 +125,7 @@
+ 		set pllstat [expr $pll_addr + 0x013c]
+ 		while {[expr [mrw $pllstat] &amp; 0x01] != 0} { sleep 1 }
+ 	}
++	mww [expr $pll_addr + 0x0138] 0x00
+ 
+ 	# 11 - wait at least 5 usec for reset to finish
+ 	# (assume covered by overheads including JTAG messaging)
+@@ -152,7 +153,14 @@
+ 	mmw [expr $psc_addr + 0x0a00 + (4 * $module)] 0x03 0x1f
+ }
+ 
+-# execute non-DSP PSC transition(s) set up by psc_enable
++# prepare a non-DSP module to be reset; finish with psc_go
++proc psc_reset {module} {
++	set psc_addr 0x01c41000
++	# write MDCTL
++	mmw [expr $psc_addr + 0x0a00 + (4 * $module)] 0x01 0x1f
++}
++
++# execute non-DSP PSC transition(s) set up by psc_enable, psc_reset, etc
+ proc psc_go {} {
+ 	set psc_addr 0x01c41000
+ 	set ptstat_addr [expr $psc_addr + 0x0128]
+
+Modified: trunk/tcl/target/ti_dm355.cfg
+===================================================================
+--- trunk/tcl/target/ti_dm355.cfg	2009-09-12 08:10:19 UTC (rev 2698)
++++ trunk/tcl/target/ti_dm355.cfg	2009-09-12 08:11:45 UTC (rev 2699)
+@@ -65,6 +65,9 @@
+ dict set dm355 a_emif_cs1	0x04000000
+ dict set dm355 ddr_emif		0x20000000
+ dict set dm355 ddr		0x80000000
++dict set dm355 uart0		0x01c20000
++dict set dm355 uart1		0x01c20400
++dict set dm355 uart2		0x01e06000
+ 
+ source [find target/davinci.cfg]
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001481.html">[Openocd-svn] r2698 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001483.html">[Openocd-svn] r2700 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1482">[ date ]</a>
+              <a href="thread.html#1482">[ thread ]</a>
+              <a href="subject.html#1482">[ subject ]</a>
+              <a href="author.html#1482">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

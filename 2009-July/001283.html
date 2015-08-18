@@ -1,0 +1,175 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2499 - trunk/src/flash
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2499%20-%20trunk/src/flash&In-Reply-To=%3C200907081829.n68IT4Xu005558%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001282.html">
+   <LINK REL="Next"  HREF="001284.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2499 - trunk/src/flash</H1>
+    <B>oharboe at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2499%20-%20trunk/src/flash&In-Reply-To=%3C200907081829.n68IT4Xu005558%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2499 - trunk/src/flash">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Wed Jul  8 20:29:04 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001282.html">[Openocd-svn] r2498 - trunk
+</A></li>
+        <LI>Next message: <A HREF="001284.html">[Openocd-svn] r2500 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1283">[ date ]</a>
+              <a href="thread.html#1283">[ thread ]</a>
+              <a href="subject.html#1283">[ subject ]</a>
+              <a href="author.html#1283">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-07-08 20:29:03 +0200 (Wed, 08 Jul 2009)
+New Revision: 2499
+
+Modified:
+   trunk/src/flash/aduc702x.c
+Log:
+Fix SEGFAULTs and broken error handling for flash programming w/working area
+
+Modified: trunk/src/flash/aduc702x.c
+===================================================================
+--- trunk/src/flash/aduc702x.c	2009-07-08 10:38:50 UTC (rev 2498)
++++ trunk/src/flash/aduc702x.c	2009-07-08 18:29:03 UTC (rev 2499)
+@@ -193,6 +193,11 @@
+ 	return ERROR_FLASH_OPERATION_FAILED;
+ }
+ 
++/* If this fn returns ERROR_TARGET_RESOURCE_NOT_AVAILABLE, then the caller can fall
++ * back to another mechanism that does not require onboard RAM
++ *
++ * Caller should not check for other return values specifically
++ */
+ static int aduc702x_write_block(struct flash_bank_s *bank, uint8_t *buffer, uint32_t offset, uint32_t count)
+ {
+ 	aduc702x_flash_bank_t *aduc702x_info = bank-&gt;driver_priv;
+@@ -204,6 +209,12 @@
+ 	armv4_5_algorithm_t armv4_5_info;
+ 	int retval = ERROR_OK;
+ 
++	if (((count%2)!=0)||((offset%2)!=0))
++	{
++		LOG_ERROR(&quot;write block must be multiple of two bytes in offset &amp; length&quot;);
++		return ERROR_FAIL;
++	}
++
+         /* parameters:
+ 
+         r0 - address of source data (absolute)
+@@ -249,8 +260,12 @@
+ 		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+ 	};
+ 
+-	target_write_buffer(target, aduc702x_info-&gt;write_algorithm-&gt;address,
++	retval=target_write_buffer(target, aduc702x_info-&gt;write_algorithm-&gt;address,
+                 sizeof(aduc702x_flash_write_code), (uint8_t*)aduc702x_flash_write_code);
++	if (retval!=ERROR_OK)
++	{
++		return retval;
++	}
+ 
+ 	/* memory buffer */
+ 	while (target_alloc_working_area(target, buffer_size, &amp;source) != ERROR_OK)
+@@ -279,12 +294,16 @@
+ 
+ 	while (count &gt; 0)
+ 	{
+-		uint32_t thisrun_count = (count &gt; (buffer_size / 2)) ? (buffer_size / 2) : count;
++		uint32_t thisrun_count = (count &gt; buffer_size) ? buffer_size : count;
+ 
+-		target_write_buffer(target, source-&gt;address, thisrun_count * 2, buffer);
++		retval=target_write_buffer(target, source-&gt;address, thisrun_count, buffer);
++		if (retval!=ERROR_OK)
++		{
++			break;
++		}
+ 
+ 		buf_set_u32(reg_params[0].value, 0, 32, source-&gt;address);
+-		buf_set_u32(reg_params[1].value, 0, 32, thisrun_count);
++		buf_set_u32(reg_params[1].value, 0, 32, thisrun_count/2);
+ 		buf_set_u32(reg_params[2].value, 0, 32, address);
+ 		buf_set_u32(reg_params[4].value, 0, 32, 0xFFFFF800);
+ 
+@@ -294,17 +313,19 @@
+                         10000, &amp;armv4_5_info)) != ERROR_OK)
+ 		{
+ 			LOG_ERROR(&quot;error executing aduc702x flash write algorithm&quot;);
+-			retval = ERROR_FLASH_OPERATION_FAILED;
+ 			break;
+ 		}
+ 
+-		if ((buf_get_u32(reg_params[3].value, 0, 32) &amp; 1) != 1) {
+-			retval = ERROR_FLASH_OPERATION_FAILED;
++		if ((buf_get_u32(reg_params[3].value, 0, 32) &amp; 1) != 1)
++		{
++			/* FIX!!!! what does this mean??? replace w/sensible error message */
++			LOG_ERROR(&quot;aduc702x detected error writing flash&quot;);
++			retval = ERROR_FAIL;
+ 			break;
+ 		}
+ 
+-		buffer += thisrun_count * 2;
+-		address += thisrun_count * 2;
++		buffer += thisrun_count;
++		address += thisrun_count;
+ 		count -= thisrun_count;
+ 	}
+ 
+@@ -382,14 +403,9 @@
+                                 return ERROR_FLASH_OPERATION_FAILED;
+                         }
+                 }
+-                else if (retval == ERROR_FLASH_OPERATION_FAILED)
+-                {
+-                        LOG_ERROR(&quot;flash block writing failed&quot;);
+-                        return ERROR_FLASH_OPERATION_FAILED;
+-                }
+         }
+ 
+-        return ERROR_OK;
++        return retval;
+ }
+ 
+ static int aduc702x_probe(struct flash_bank_s *bank)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001282.html">[Openocd-svn] r2498 - trunk
+</A></li>
+	<LI>Next message: <A HREF="001284.html">[Openocd-svn] r2500 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1283">[ date ]</a>
+              <a href="thread.html#1283">[ thread ]</a>
+              <a href="subject.html#1283">[ subject ]</a>
+              <a href="author.html#1283">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2628 - in trunk: . src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2628%20-%20in%20trunk%3A%20.%20src/jtag&In-Reply-To=%3C200908260832.n7Q8W4uP004646%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001410.html">
+   <LINK REL="Next"  HREF="001412.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2628 - in trunk: . src/jtag</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2628%20-%20in%20trunk%3A%20.%20src/jtag&In-Reply-To=%3C200908260832.n7Q8W4uP004646%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2628 - in trunk: . src/jtag">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Wed Aug 26 10:32:04 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001410.html">[Openocd-svn] r2627 - trunk
+</A></li>
+        <LI>Next message: <A HREF="001412.html">[Openocd-svn] r2629 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1411">[ date ]</a>
+              <a href="thread.html#1411">[ thread ]</a>
+              <a href="subject.html#1411">[ subject ]</a>
+              <a href="author.html#1411">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-08-26 10:32:03 +0200 (Wed, 26 Aug 2009)
+New Revision: 2628
+
+Modified:
+   trunk/TODO
+   trunk/src/jtag/core.c
+   trunk/src/jtag/jtag.h
+Log:
+reduce arm11 output noise
+
+Modified: trunk/TODO
+===================================================================
+--- trunk/TODO	2009-08-26 07:11:16 UTC (rev 2627)
++++ trunk/TODO	2009-08-26 08:32:03 UTC (rev 2628)
+@@ -117,7 +117,10 @@
+ - ARM923EJS:
+   - reset run/halt/step is not robust; needs testing to map out problems.
+ - ARM11 improvements (MB?)
+-  - fix single stepping  (reported by &#216;H)
++  - fix single stepping  (reported by &#216;H). Michael Bruck explained
++  that what's required is to emulate the current instruction(just like the
++  arm7 code) to know what address to set the breakpoint at for single
++  stepping an instruction.
+   - implement missing functionality (grep FNC_INFO_NOTIMPLEMENTED ...)
+ - Cortex A8 support (ML)
+   - add target implementation (ML)
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-08-26 07:11:16 UTC (rev 2627)
++++ trunk/src/jtag/core.c	2009-08-26 08:32:03 UTC (rev 2628)
+@@ -939,7 +939,7 @@
+ 	/* If none of the expected ids matched, log an error */
+ 	if (ii != tap-&gt;expected_ids_cnt)
+ 	{
+-		LOG_INFO(&quot;JTAG Tap/device matched&quot;);
++		LOG_DEBUG(&quot;JTAG Tap/device matched&quot;);
+ 		return true;
+ 	}
+ 	jtag_examine_chain_display(LOG_LVL_ERROR, &quot;got&quot;,
+@@ -978,11 +978,13 @@
+ 	for (unsigned bit_count = 0; bit_count &lt; (JTAG_MAX_CHAIN_SIZE * 32) - 31;)
+ 	{
+ 		uint32_t idcode = buf_get_u32(idcode_buffer, bit_count, 32);
++		tap-&gt;hasidcode = true;
+ 		if ((idcode &amp; 1) == 0)
+ 		{
+ 			/* LSB must not be 0, this indicates a device in bypass */
+ 			LOG_WARNING(&quot;Tap/Device does not have IDCODE&quot;);
+ 			idcode = 0;
++			tap-&gt;hasidcode = false;
+ 
+ 			bit_count += 1;
+ 		}
+@@ -1074,7 +1076,8 @@
+ 		}
+ 
+ 		val = buf_get_u32(ir_test, chain_pos, 2);
+-		if (val != 0x1)
++		/* Only fail this check if we have IDCODE for this device */
++		if ((val != 0x1)&amp;&amp;(tap-&gt;hasidcode))
+ 		{
+ 			char *cbuf = buf_to_str(ir_test, total_ir_length, 16);
+ 			LOG_ERROR(&quot;Could not validate JTAG scan chain, IR mismatch, scan returned 0x%s. tap=%s pos=%d expected 0x1 got %0x&quot;, cbuf, jtag_tap_name(tap), chain_pos, val);
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-08-26 07:11:16 UTC (rev 2627)
++++ trunk/src/jtag/jtag.h	2009-08-26 08:32:03 UTC (rev 2628)
+@@ -144,7 +144,7 @@
+ 
+ /* this is really: typedef jtag_tap_t */
+ /* But - the typedef is done in &quot;types.h&quot; */
+-/* due to &quot;forward decloration reasons&quot; */
++/* due to &quot;forward declaration reasons&quot; */
+ struct jtag_tap_s
+ {
+ 	const char* chip;
+@@ -161,6 +161,7 @@
+ 	uint32_t ir_capture_mask;
+ 	uint8_t* expected_mask; /**&lt; Capture-IR expected mask */
+ 	uint32_t idcode;
++	bool hasidcode; /* not all devices have idcode, we'll discover this during chain examination */
+ 	/**&lt; device identification code */
+ 
+ 	/// Array of expected identification codes */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001410.html">[Openocd-svn] r2627 - trunk
+</A></li>
+	<LI>Next message: <A HREF="001412.html">[Openocd-svn] r2629 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1411">[ date ]</a>
+              <a href="thread.html#1411">[ thread ]</a>
+              <a href="subject.html#1411">[ subject ]</a>
+              <a href="author.html#1411">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

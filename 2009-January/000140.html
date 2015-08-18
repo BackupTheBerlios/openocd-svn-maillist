@@ -1,0 +1,422 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1356 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1356%20-%20trunk/src/jtag&In-Reply-To=%3C200901230702.n0N72tif027695%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000139.html">
+   <LINK REL="Next"  HREF="000141.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1356 - trunk/src/jtag</H1>
+    <B>kc8apf at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1356%20-%20trunk/src/jtag&In-Reply-To=%3C200901230702.n0N72tif027695%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1356 - trunk/src/jtag">kc8apf at mail.berlios.de
+       </A><BR>
+    <I>Fri Jan 23 08:02:55 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000139.html">[Openocd-svn] r1355 - branches/openocd-0.1	branches/openocd-0.1/contrib branches/openocd-0.1/doc	tags/openocd-0.1.0 tags/openocd-0.1.0/contrib tags/openocd-0.1.0/doc
+</A></li>
+        <LI>Next message: <A HREF="000141.html">[Openocd-svn] r1357 - trunk/tools/xsvf_tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#140">[ date ]</a>
+              <a href="thread.html#140">[ thread ]</a>
+              <a href="subject.html#140">[ subject ]</a>
+              <a href="author.html#140">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kc8apf
+Date: 2009-01-23 08:02:47 +0100 (Fri, 23 Jan 2009)
+New Revision: 1356
+
+Modified:
+   trunk/src/jtag/vsllink.c
+Log:
+vsllink support for stable clocks by Simon Qian &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">simonqian at SimonQian.com</A>&gt;
+
+Modified: trunk/src/jtag/vsllink.c
+===================================================================
+--- trunk/src/jtag/vsllink.c	2009-01-21 04:16:20 UTC (rev 1355)
++++ trunk/src/jtag/vsllink.c	2009-01-23 07:02:47 UTC (rev 1356)
+@@ -44,7 +44,7 @@
+ #endif
+ 
+ #ifdef _DEBUG_JTAG_IO_
+-#define DEBUG_JTAG_IO(expr ...)	LOG_DEBUG(expr)
++#define DEBUG_JTAG_IO(expr ...)		LOG_DEBUG(expr)
+ #else
+ #define DEBUG_JTAG_IO(expr ...)
+ #endif
+@@ -54,7 +54,7 @@
+ u8 vsllink_bulkout;
+ u8 vsllink_bulkin;
+ 
+-#define VSLLINK_USB_TIMEOUT			5000
++#define VSLLINK_USB_TIMEOUT			10000
+ 
+ static int VSLLINK_BufferSize = 1024;
+ 
+@@ -76,7 +76,7 @@
+ #define VSLLINK_CMD_HW_SWDCMD		0xA2
+ 
+ #define VSLLINK_CMDJTAGSEQ_TMSBYTE	0x00
+-#define VSLLINK_CMDJTAGSEQ_TMS0BYTE	0x40
++#define VSLLINK_CMDJTAGSEQ_TMSCLOCK	0x40
+ #define VSLLINK_CMDJTAGSEQ_SCAN		0x80
+ 
+ #define VSLLINK_CMDJTAGSEQ_CMDMSK	0xC0
+@@ -92,7 +92,7 @@
+ #define JTAG_PINMSK_TDO				(1 &lt;&lt; 7)
+ 
+ 
+-#define VSLLINK_TAP_MOVE(from, to) VSLLINK_tap_move[tap_move_map[from]][tap_move_map[to]]
++#define VSLLINK_TAP_MOVE(from, to)	VSLLINK_tap_move[tap_move_map[from]][tap_move_map[to]]
+ 
+ /* VSLLINK_tap_move[i][j]: tap movement command to go from state i to state j
+  * 0: Test-Logic-Reset
+@@ -206,6 +206,7 @@
+ void vsllink_state_move(void);
+ void vsllink_path_move(int num_states, enum tap_state *path);
+ void vsllink_runtest(int num_cycles);
++void vsllink_stableclocks(int num_cycles, int tms);
+ void vsllink_scan(int ir_scan, enum scan_type type, u8 *buffer, int scan_size, scan_command_t *command);
+ void vsllink_reset(int trst, int srst);
+ void vsllink_simple_command(u8 command);
+@@ -257,7 +258,7 @@
+ 	enum scan_type type;
+ 	u8 *buffer;
+ 
+-	DEBUG_JTAG_IO(&quot;--------------------------------------------------------------------------------&quot;);
++	DEBUG_JTAG_IO(&quot;--------------------------------- vsllink -------------------------------------&quot;);
+ 
+ 	vsllink_usb_out_buffer[0] = VSLLINK_CMD_HW_JTAGSEQCMD;
+ 	vsllink_usb_out_buffer_idx = 3;
+@@ -332,7 +333,7 @@
+ 				DEBUG_JTAG_IO(&quot;reset trst: %i srst %i&quot;, cmd-&gt;cmd.reset-&gt;trst, cmd-&gt;cmd.reset-&gt;srst);
+ 
+ 				vsllink_tap_execute();
+-			
++
+ 				if (cmd-&gt;cmd.reset-&gt;trst == 1)
+ 				{
+ 					cur_state = TAP_RESET;
+@@ -348,9 +349,33 @@
+ 				vsllink_tap_execute();
+ 				jtag_sleep(cmd-&gt;cmd.sleep-&gt;us);
+ 				break;
+-	
++
++			case JTAG_STABLECLOCKS:
++				DEBUG_JTAG_IO(&quot;add %d clocks&quot;, cmd-&gt;cmd.stableclocks-&gt;num_cycles);
++				switch(cur_state)
++				{
++				case TAP_RESET:
++					// tms should be '1' to stay in TAP_RESET mode
++					scan_size = 1;
++					break;
++				case TAP_DRSHIFT:
++				case TAP_IDLE:
++				case TAP_DRPAUSE:
++				case TAP_IRSHIFT:
++				case TAP_IRPAUSE:
++					// in other mode, tms should be '0'
++					scan_size = 0;
++					break;			/* above stable states are OK */
++				default:
++					 LOG_ERROR( &quot;jtag_add_clocks() was called with TAP in non-stable state \&quot;%s\&quot;&quot;,
++							 jtag_state_name(cur_state) );
++					 exit(-1);
++				}
++				vsllink_stableclocks(cmd-&gt;cmd.stableclocks-&gt;num_cycles, scan_size);
++				break;
++
+ 			default:
+-				LOG_ERROR(&quot;BUG: unknown JTAG command type encountered&quot;);
++				LOG_ERROR(&quot;BUG: unknown JTAG command type encountered: %d&quot;, cmd-&gt;type);
+ 				exit(-1);
+ 		}
+ 		cmd = cmd-&gt;next;
+@@ -752,92 +777,94 @@
+ 	}
+ }
+ 
+-void vsllink_runtest(int num_cycles)
++void vsllink_stableclocks(int num_cycles, int tms)
+ {
+ 	int tms_len;
+-	enum tap_state saved_end_state = end_state;
++	u16 tms_append_byte;
+ 
+-	if (cur_state != TAP_IDLE)
++	if (vsllink_tms_data_len &gt; 0)
+ 	{
+-		// enter into IDLE state
+-		vsllink_end_state(TAP_IDLE);
+-		vsllink_state_move();
+-	}
+-	else
+-	{
+-		// cur_state == TAP_IDLE
+-		if (vsllink_tms_data_len &gt; 0)
++		// there are vsllink_tms_data_len more tms bits to be shifted
++		// so there are vsllink_tms_data_len + num_cycles tms bits in all
++		tms_len = vsllink_tms_data_len + num_cycles;
++		if (tms &gt; 0)
+ 		{
+-			// there are vsllink_tms_data_len more tms bits to be shifted
+-			// so there are vsllink_tms_data_len + num_cycles tms bits in all
+-			tms_len = vsllink_tms_data_len + num_cycles;
+-			if (tms_len &lt;= 16)
++			// append '1' for tms
++			tms_append_byte = (u16)((((1 &lt;&lt; num_cycles) - 1) &lt;&lt; vsllink_tms_data_len) &amp; 0xFFFF);
++		}
++		else
++		{
++			// append '0' for tms
++			tms_append_byte = 0;
++		}
++		if (tms_len &lt;= 16)
++		{
++			// merge into last tms shift
++			if (tms_len &lt; 8)
+ 			{
+-				// merge into last tms shift
+-				if (tms_len &lt; 8)
++				// just add to vsllink_tms_data_len
++				// same result if tun through
++				//vsllink_tms_data_len += num_cycles;
++				vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx] |= (u8)(tms_append_byte &amp; 0xFF);
++			}
++			else if (tms_len == 8)
++			{
++				// end last tms shift command
++				// just reduce it, and append last tms byte
++				(*vsllink_tms_cmd_pos)--;
++				vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] |= (u8)(tms_append_byte &amp; 0xFF);
++			}
++			else if (tms_len &lt; 16)
++			{
++				if ((*vsllink_tms_cmd_pos &amp; VSLLINK_CMDJTAGSEQ_LENMSK) &lt; VSLLINK_CMDJTAGSEQ_LENMSK)
+ 				{
+-					// just add to vsllink_tms_data_len
+-					// same result if tun through
+-					//vsllink_tms_data_len += num_cycles;
++					// every tms shift command can contain VSLLINK_CMDJTAGSEQ_LENMSK + 1 bytes in most
++					// there is enought tms length in the current tms shift command
++					// increase the tms byte length by 1 and set the last byte to 0
++					(*vsllink_tms_cmd_pos)++;
++					vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] |= (u8)(tms_append_byte &amp; 0xFF);
++					vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx] = (u8)(tms_append_byte &gt;&gt; 8);
+ 				}
+-				else if (tms_len == 8)
++				else
+ 				{
+-					// end last tms shift command
+-					// just reduce it, no need to append_tms
++					// every tms shift command can contain VSLLINK_CMDJTAGSEQ_LENMSK + 1 bytes in most
++					// not enough tms length in the current tms shift command
++					// so a new command should be added
++					// first decrease byte length of last tms shift command
+ 					(*vsllink_tms_cmd_pos)--;
+-					vsllink_usb_out_buffer_idx++;
++					// append last tms byte and move the command pointer to the next empty position
++					vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] |= (u8)(tms_append_byte &amp; 0xFF);
++					// add new command(3 bytes)
++					vsllink_tap_ensure_space(0, 3);
++					vsllink_tms_cmd_pos = &amp;vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx];
++					vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] = VSLLINK_CMDJTAGSEQ_TMSBYTE | 1;
++					vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx] = (u8)(tms_append_byte &gt;&gt; 8);
+ 				}
+-				else if (tms_len &lt; 16)
+-				{
+-					if ((*vsllink_tms_cmd_pos &amp; VSLLINK_CMDJTAGSEQ_LENMSK) &lt; VSLLINK_CMDJTAGSEQ_LENMSK)
+-					{
+-						// every tms shift command can contain VSLLINK_CMDJTAGSEQ_LENMSK + 1 bytes in most
+-						// there is enought tms length in the current tms shift command
+-						// increase the tms byte length by 1 and set the last byte to 0
+-						(*vsllink_tms_cmd_pos)++;
+-						vsllink_usb_out_buffer_idx++;
+-						vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx] = 0;
+-					}
+-					else
+-					{
+-						// every tms shift command can contain VSLLINK_CMDJTAGSEQ_LENMSK + 1 bytes in most
+-						// not enough tms length in the current tms shift command
+-						// so a new command should be added
+-						// first decrease byte length of last tms shift command
+-						(*vsllink_tms_cmd_pos)--;
+-						// move the command pointer to the next empty position
+-						vsllink_usb_out_buffer_idx++;
+-						// add new command(3 bytes)
+-						vsllink_tap_ensure_space(0, 3);
+-						vsllink_tms_cmd_pos = &amp;vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx];
+-						vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] = VSLLINK_CMDJTAGSEQ_TMSBYTE | 1;
+-						vsllink_usb_out_buffer[++vsllink_usb_out_buffer_idx] = 0;
+-					}
+-				}
+-				else if (tms_len == 16)
+-				{
+-					// end last tms shift command
+-					vsllink_usb_out_buffer_idx++;
+-					vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] = 0;
+-				}
+-
+-				vsllink_tms_data_len = (vsllink_tms_data_len + num_cycles) &amp; 7;
+-				if (vsllink_tms_data_len == 0)
+-				{
+-					vsllink_tms_cmd_pos = NULL;
+-				}
+-				num_cycles = 0;
+ 			}
+-			else
++			else if (tms_len == 16)
+ 			{
+-				vsllink_usb_out_buffer_idx++;
+-				vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] = 0;
++				// end last tms shift command
++				vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] |= (u8)(tms_append_byte &amp; 0xFF);
++				vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] = (u8)(tms_append_byte &gt;&gt; 8);
++			}
+ 
+-				num_cycles -= 16 - vsllink_tms_data_len;
+-				vsllink_tms_data_len = 0;
++			vsllink_tms_data_len = tms_len &amp; 7;
++			if (vsllink_tms_data_len == 0)
++			{
+ 				vsllink_tms_cmd_pos = NULL;
+ 			}
++			num_cycles = 0;
+ 		}
++		else
++		{
++			// more shifts will be needed
++			vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] |= (u8)(tms_append_byte &amp; 0xFF);
++			vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] = (u8)(tms_append_byte &gt;&gt; 8);
++
++			num_cycles -= 16 - vsllink_tms_data_len;
++			vsllink_tms_data_len = 0;
++			vsllink_tms_cmd_pos = NULL;
++		}
+ 	}
+ 	// from here vsllink_tms_data_len == 0 or num_cycles == 0
+ 
+@@ -860,7 +887,15 @@
+ 			vsllink_tap_ensure_space(1, 5);
+ 			// if tms_len &gt; 0, vsllink_tms_data_len == 0
+ 			// so just add new command
+-			vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] = VSLLINK_CMDJTAGSEQ_TMS0BYTE;
++			// LSB of the command byte is the tms value when do the shifting
++			if (tms &gt; 0)
++			{
++				vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] = VSLLINK_CMDJTAGSEQ_TMSCLOCK | 1;
++			}
++			else
++			{
++				vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] = VSLLINK_CMDJTAGSEQ_TMSCLOCK;
++			}
+ 			vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] = (tms_len &gt;&gt; 0) &amp; 0xff;
+ 			vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] = (tms_len &gt;&gt; 8) &amp; 0xff;
+ 			vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] = (tms_len &gt;&gt; 16) &amp; 0xff;
+@@ -873,21 +908,43 @@
+ 			if (tms_len &gt; 0xFFFF)
+ 			{
+ 				vsllink_tap_execute();
+-				vsllink_usb_out_buffer[0] = VSLLINK_CMD_HW_JTAGSEQCMD;
+-				vsllink_usb_out_buffer_idx = 3;
+ 			}
+ 		}
+ 
++		// post-process
+ 		vsllink_tms_data_len = num_cycles &amp; 7;
+ 		if (vsllink_tms_data_len &gt; 0)
+ 		{
+ 			vsllink_tap_ensure_space(0, 3);
+ 			vsllink_tms_cmd_pos = &amp;vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx];
+ 			vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx++] = VSLLINK_CMDJTAGSEQ_TMSBYTE | 1;
+-			vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx] = 0;
++			if (tms &gt; 0)
++			{
++				// append '1' for tms
++				vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx] = (1 &lt;&lt; vsllink_tms_data_len) - 1;
++			}
++			else
++			{
++				// append '0' for tms
++				vsllink_usb_out_buffer[vsllink_usb_out_buffer_idx] = 0x00;
++			}
+ 		}
+ 	}
++}
+ 
++void vsllink_runtest(int num_cycles)
++{
++	enum tap_state saved_end_state = end_state;
++
++	if (cur_state != TAP_IDLE)
++	{
++		// enter into IDLE state
++		vsllink_end_state(TAP_IDLE);
++		vsllink_state_move();
++	}
++
++	vsllink_stableclocks(num_cycles, 0);
++
+ 	// post-process
+ 	// set end_state
+ 	vsllink_end_state(saved_end_state);
+@@ -1122,8 +1179,6 @@
+ 	if (scans &gt; available_scans || bytes &gt; available_bytes)
+ 	{
+ 		vsllink_tap_execute();
+-		vsllink_usb_out_buffer[0] = VSLLINK_CMD_HW_JTAGSEQCMD;
+-		vsllink_usb_out_buffer_idx = 3;
+ 	}
+ }
+ 
+@@ -1238,7 +1293,10 @@
+ 		
+ 		vsllink_tap_init();
+ 	}
+-	
++
++	vsllink_usb_out_buffer[0] = VSLLINK_CMD_HW_JTAGSEQCMD;
++	vsllink_usb_out_buffer_idx = 3;
++
+ 	return ERROR_OK;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000139.html">[Openocd-svn] r1355 - branches/openocd-0.1	branches/openocd-0.1/contrib branches/openocd-0.1/doc	tags/openocd-0.1.0 tags/openocd-0.1.0/contrib tags/openocd-0.1.0/doc
+</A></li>
+	<LI>Next message: <A HREF="000141.html">[Openocd-svn] r1357 - trunk/tools/xsvf_tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#140">[ date ]</a>
+              <a href="thread.html#140">[ thread ]</a>
+              <a href="subject.html#140">[ subject ]</a>
+              <a href="author.html#140">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

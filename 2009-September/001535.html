@@ -1,0 +1,524 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2752 - in trunk: doc src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2752%20-%20in%20trunk%3A%20doc%20src/target&In-Reply-To=%3C200909232152.n8NLqeNk009480%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001534.html">
+   <LINK REL="Next"  HREF="001536.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2752 - in trunk: doc src/target</H1>
+    <B>dbrownell at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2752%20-%20in%20trunk%3A%20doc%20src/target&In-Reply-To=%3C200909232152.n8NLqeNk009480%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2752 - in trunk: doc src/target">dbrownell at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep 23 23:52:40 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001534.html">[Openocd-svn] r2751 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001536.html">[Openocd-svn] r2753 - trunk/src/helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1535">[ date ]</a>
+              <a href="thread.html#1535">[ thread ]</a>
+              <a href="subject.html#1535">[ subject ]</a>
+              <a href="author.html#1535">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: dbrownell
+Date: 2009-09-23 23:52:40 +0200 (Wed, 23 Sep 2009)
+New Revision: 2752
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/target/etm.c
+   trunk/src/target/etm.h
+Log:
+When setting up an ETM, cache its ETM_CONFIG register.  Then
+only expose the registers which are actually present.  They
+could be missing for two basic reasons:
+
+ - This version might not support them at all; e.g. ETMv1.1
+   doesn't have some control/status registers.  (My sample of
+   ARM9 boards shows all with ETMv1.3 support, FWIW.)
+
+ - The configuration on this chip may not populate as many
+   registers as possible; e.g. only two data value comparators
+   instead of eight.
+
+Includes a bugfix in the &quot;etm info&quot; command:  only one of the
+two registers is missing on older silicon, so show the first
+one before bailing.
+
+Update ETM usage docs to explain that those registers need to be
+written to configure what is traced, and that some ETM configs
+are not yet handled.  Also, give some examples of the kinds of
+constrained trace which could be arranged.
+
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-09-23 09:16:00 UTC (rev 2751)
++++ trunk/doc/openocd.texi	2009-09-23 21:52:40 UTC (rev 2752)
+@@ -4807,6 +4807,10 @@
+ It's unclear how much of a common interface is shared
+ with the current XScale trace support, or should be
+ shared with eventual Nexus-style trace module support.
++At this writing (September 2009) only ARM7 and ARM9 support
++for ETM modules is available.  The code should be able to
++work with some newer cores; but not all of them support
++this original style of JTAG access.
+ @end quotation
+ 
+ @subsection ETM Configuration
+@@ -4823,8 +4827,10 @@
+ The @var{clocking} must be @option{half} or @option{full}.
+ 
+ @quotation Note
+-You can see the ETM registers using the @command{reg} command, although
+-not all of those possible registers are present in every ETM.
++You can see the ETM registers using the @command{reg} command.
++Not all possible registers are present in every ETM.
++Most of the registers are write-only, and are used to configure
++what CPU activities are traced.
+ @end quotation
+ @end deffn
+ 
+@@ -4867,6 +4873,36 @@
+ That data can be exported to files for later analysis.
+ It can also be parsed with OpenOCD, for basic sanity checking.
+ 
++To configure what is being traced, you will need to write
++various trace registers using @command{reg ETM_*} commands.
++For the definitions of these registers, read ARM publication
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at emph</A>{IHI 0014, ``Embedded Trace Macrocell, Architecture Specification''}.
++Be aware that most of the relevant registers are write-only,
++and that ETM resources are limited.  There are only a handful
++of address comparators, data comparators, counters, and so on.
++
++Examples of scenarios you might arrange to trace include:
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at itemize</A>
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> Code flow within a function, @emph{excluding} subroutines
++it calls.  Use address range comparators to enable tracing
++for instruction access within that function's body.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> Code flow within a function, @emph{including} subroutines
++it calls.  Use the sequencer and address comparators to activate
++tracing on an ``entered function'' state, then deactivate it by
++exiting that state when the function's exit code is invoked.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> Code flow starting at the fifth invocation of a function,
++combining one of the above models with a counter.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> CPU data accesses to the registers for a particular device,
++using address range comparators and the ViewData logic.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> Such data accesses only during IRQ handling, combining the above
++model with sequencer triggers which on entry and exit to the IRQ handler.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @emph{... more}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> itemize
++
++At this writing, September 2009, there are no Tcl utility
++procedures to help set up any common tracing scenarios.
++
+ @deffn Command {etm analyze}
+ Reads trace data into memory, if it wasn't already present.
+ Decodes and prints the data that was collected.
+
+Modified: trunk/src/target/etm.c
+===================================================================
+--- trunk/src/target/etm.c	2009-09-23 09:16:00 UTC (rev 2751)
++++ trunk/src/target/etm.c	2009-09-23 21:52:40 UTC (rev 2752)
+@@ -71,10 +71,14 @@
+  * Newer versions of ETM make some W/O registers R/W, and
+  * provide definitions for some previously-unused bits.
+  */
+-static const struct etm_reg_info reg[] = {
++
++/* basic registers that are always there given the right ETM version */
++static const struct etm_reg_info etm_core[] = {
++	/* NOTE: we &quot;know&quot; ETM_CONFIG is listed first */
++	{ ETM_CONFIG, 32, RO, 0x10, &quot;ETM_CONFIG&quot;, },
++
+ 	/* ETM Trace Registers */
+ 	{ ETM_CTRL, 32, RW, 0x10, &quot;ETM_CTRL&quot;, },
+-	{ ETM_CONFIG, 32, RO, 0x10, &quot;ETM_CONFIG&quot;, },
+ 	{ ETM_TRIG_EVENT, 17, WO, 0x10, &quot;ETM_TRIG_EVENT&quot;, },
+ 	{ ETM_ASIC_CTRL,  8, WO, 0x10, &quot;ETM_ASIC_CTRL&quot;, },
+ 	{ ETM_STATUS,  3, RO, 0x11, &quot;ETM_STATUS&quot;, },
+@@ -86,16 +90,25 @@
+ 	{ ETM_TRACE_EN_EVENT, 17, WO, 0x10, &quot;ETM_TRACE_EN_EVENT&quot;, },
+ 	{ ETM_TRACE_EN_CTRL1, 26, WO, 0x10, &quot;ETM_TRACE_EN_CTRL1&quot;, },
+ 
+-	/* FIFOFULL configuration */
+-	{ ETM_FIFOFULL_REGION, 25, WO, 0x10, &quot;ETM_FIFOFULL_REGION&quot;, },
+-	{ ETM_FIFOFULL_LEVEL,  8, WO, 0x10, &quot;ETM_FIFOFULL_LEVEL&quot;, },
+-
+ 	/* ViewData configuration (data trace) */
+ 	{ ETM_VIEWDATA_EVENT, 17, WO, 0x10, &quot;ETM_VIEWDATA_EVENT&quot;, },
+ 	{ ETM_VIEWDATA_CTRL1, 32, WO, 0x10, &quot;ETM_VIEWDATA_CTRL1&quot;, },
+ 	{ ETM_VIEWDATA_CTRL2, 32, WO, 0x10, &quot;ETM_VIEWDATA_CTRL2&quot;, },
+ 	{ ETM_VIEWDATA_CTRL3, 17, WO, 0x10, &quot;ETM_VIEWDATA_CTRL3&quot;, },
+ 
++	/* REVISIT exclude VIEWDATA_CTRL2 when it's not there */
++
++	{ 0x78, 12, WO, 0x20, &quot;ETM_SYNC_FREQ&quot;, },
++	{ 0x79, 32, RO, 0x20, &quot;ETM_ID&quot;, },
++};
++
++static const struct etm_reg_info etm_fifofull[] = {
++	/* FIFOFULL configuration */
++	{ ETM_FIFOFULL_REGION, 25, WO, 0x10, &quot;ETM_FIFOFULL_REGION&quot;, },
++	{ ETM_FIFOFULL_LEVEL,  8, WO, 0x10, &quot;ETM_FIFOFULL_LEVEL&quot;, },
++};
++
++static const struct etm_reg_info etm_addr_comp[] = {
+ 	/* Address comparator register pairs */
+ #define ADDR_COMPARATOR(i) \
+ 		{ ETM_ADDR_COMPARATOR_VALUE + (i), 32, WO, 0x10, \
+@@ -120,7 +133,9 @@
+ 	ADDR_COMPARATOR(14),
+ 	ADDR_COMPARATOR(15),
+ #undef ADDR_COMPARATOR
++};
+ 
++static const struct etm_reg_info etm_data_comp[] = {
+ 	/* Data Value Comparators (NOTE: odd addresses are reserved) */
+ #define DATA_COMPARATOR(i) \
+ 		{ ETM_DATA_COMPARATOR_VALUE + 2*(i), 32, WO, 0x10, \
+@@ -136,8 +151,9 @@
+ 	DATA_COMPARATOR(6),
+ 	DATA_COMPARATOR(7),
+ #undef DATA_COMPARATOR
++};
+ 
+-	/* Counters */
++static const struct etm_reg_info etm_counters[] = {
+ #define COUNTER(i) \
+ 		{ ETM_COUNTER_RELOAD_VALUE + (i), 16, WO, 0x10, \
+ 				&quot;ETM_COUNTER_RELOAD_VALUE&quot; #i, }, \
+@@ -152,8 +168,9 @@
+ 	COUNTER(2),
+ 	COUNTER(3),
+ #undef COUNTER
++};
+ 
+-	/* Sequencers */
++static const struct etm_reg_info etm_sequencer[] = {
+ #define SEQ(i) \
+ 		{ ETM_SEQUENCER_EVENT + (i), 17, WO, 0x10, \
+ 				&quot;ETM_SEQUENCER_EVENT&quot; #i, }
+@@ -166,7 +183,9 @@
+ #undef SEQ
+ 	/* 0x66 reserved */
+ 	{ ETM_SEQUENCER_STATE,  2, RO, 0x10, &quot;ETM_SEQUENCER_STATE&quot;, },
++};
+ 
++static const struct etm_reg_info etm_outputs[] = {
+ #define OUT(i) \
+ 		{ ETM_EXTERNAL_OUTPUT + (i), 17, WO, 0x10, \
+ 				&quot;ETM_EXTERNAL_OUTPUT&quot; #i, }
+@@ -176,6 +195,7 @@
+ 	OUT(2),
+ 	OUT(3),
+ #undef OUT
++};
+ 
+ #if 0
+ 	/* registers from 0x6c..0x7f were added after ETMv1.3 */
+@@ -185,11 +205,7 @@
+ 	{ 0x6d, 32, RO, 0x20, &quot;ETM_CONTEXTID_COMPARATOR_VALUE1&quot;, }
+ 	{ 0x6e, 32, RO, 0x20, &quot;ETM_CONTEXTID_COMPARATOR_VALUE1&quot;, }
+ 	{ 0x6f, 32, RO, 0x20, &quot;ETM_CONTEXTID_COMPARATOR_MASK&quot;, }
+-
+-	{ 0x78, 12, WO, 0x20, &quot;ETM_SYNC_FREQ&quot;, },
+-	{ 0x79, 32, RO, 0x20, &quot;ETM_ID&quot;, },
+ #endif
+-};
+ 
+ static int etm_reg_arch_type = -1;
+ 
+@@ -224,44 +240,138 @@
+ 	return NULL;
+ }
+ 
++static void etm_reg_add(unsigned bcd_vers, arm_jtag_t *jtag_info,
++		reg_cache_t *cache, etm_reg_t *ereg,
++		const struct etm_reg_info *r, unsigned nreg)
++{
++	reg_t *reg = cache-&gt;reg_list;
++
++	reg += cache-&gt;num_regs;
++	ereg += cache-&gt;num_regs;
++
++	/* add up to &quot;nreg&quot; registers from &quot;r&quot;, if supported by this
++	 * version of the ETM, to the specified cache.
++	 */
++	for (; nreg--; r++) {
++
++		/* this ETM may be too old to have some registers */
++		if (r-&gt;bcd_vers &gt; bcd_vers)
++			continue;
++
++		reg-&gt;name = r-&gt;name;
++		reg-&gt;size = r-&gt;size;
++		reg-&gt;value = &amp;ereg-&gt;value;
++		reg-&gt;arch_info = ereg;
++		reg-&gt;arch_type = etm_reg_arch_type;
++		reg++;
++		cache-&gt;num_regs++;
++
++		ereg-&gt;reg_info = r;
++		ereg-&gt;jtag_info = jtag_info;
++		ereg++;
++	}
++}
++
+ reg_cache_t *etm_build_reg_cache(target_t *target,
+ 		arm_jtag_t *jtag_info, etm_context_t *etm_ctx)
+ {
+ 	reg_cache_t *reg_cache = malloc(sizeof(reg_cache_t));
+ 	reg_t *reg_list = NULL;
+ 	etm_reg_t *arch_info = NULL;
+-	int num_regs = ARRAY_SIZE(reg);
+-	int i;
++	unsigned bcd_vers, config;
+ 
+ 	/* register a register arch-type for etm registers only once */
+ 	if (etm_reg_arch_type == -1)
+-		etm_reg_arch_type = register_reg_arch_type(etm_get_reg, etm_set_reg_w_exec);
++		etm_reg_arch_type = register_reg_arch_type(etm_get_reg,
++				etm_set_reg_w_exec);
+ 
+ 	/* the actual registers are kept in two arrays */
+-	reg_list = calloc(num_regs, sizeof(reg_t));
+-	arch_info = calloc(num_regs, sizeof(etm_reg_t));
++	reg_list = calloc(128, sizeof(reg_t));
++	arch_info = calloc(128, sizeof(etm_reg_t));
+ 
+ 	/* fill in values for the reg cache */
+ 	reg_cache-&gt;name = &quot;etm registers&quot;;
+ 	reg_cache-&gt;next = NULL;
+ 	reg_cache-&gt;reg_list = reg_list;
+-	reg_cache-&gt;num_regs = num_regs;
++	reg_cache-&gt;num_regs = 0;
+ 
+-	/* set up registers */
+-	for (i = 0; i &lt; num_regs; i++)
+-	{
+-		const struct etm_reg_info *r = reg + i;
++	/* add ETM_CONFIG, then parse its values to see
++	 * which other registers exist in this ETM
++	 */
++	etm_reg_add(0x10, jtag_info, reg_cache, arch_info,
++			etm_core, 1);
+ 
+-		reg_list[i].name = r-&gt;name;
+-		reg_list[i].size = r-&gt;size;
+-		reg_list[i].value = &amp;arch_info[i].value;
+-		reg_list[i].arch_info = &amp;arch_info[i];
+-		reg_list[i].arch_type = etm_reg_arch_type;
++	etm_get_reg(reg_list);
++	etm_ctx-&gt;config = buf_get_u32((void *)&amp;arch_info-&gt;value, 0, 32);
++	config = etm_ctx-&gt;config;
+ 
+-		arch_info[i].reg_info = r;
+-		arch_info[i].jtag_info = jtag_info;
++	/* figure ETM version then add base registers */
++	if (config &amp; (1 &lt;&lt; 31)) {
++		bcd_vers = 0x20;
++		LOG_WARNING(&quot;ETMv2+ support is incomplete&quot;);
++
++		/* REVISIT read ID register, distinguish ETMv3.3 etc;
++		 * don't presume trace start/stop support is present;
++		 * and include any context ID comparator registers.
++		 */
++	} else {
++		switch (config &gt;&gt; 28) {
++		case 7:
++		case 5:
++		case 3:
++			bcd_vers = 0x13;
++			break;
++		case 4:
++		case 2:
++			bcd_vers = 0x12;
++			break;
++		case 1:
++			bcd_vers = 0x11;
++			break;
++		case 0:
++			bcd_vers = 0x10;
++			break;
++		default:
++			LOG_WARNING(&quot;Bad ETMv1 protocol %d&quot;, config &gt;&gt; 28);
++			free(reg_cache);
++			free(reg_list);
++			free(arch_info);
++			return ERROR_OK;
++		}
+ 	}
++	etm_ctx-&gt;bcd_vers = bcd_vers;
++	LOG_INFO(&quot;ETM v%d.%d&quot;, bcd_vers &gt;&gt; 4, bcd_vers &amp; 0xf);
+ 
++	etm_reg_add(bcd_vers, jtag_info, reg_cache, arch_info,
++			etm_core + 1, ARRAY_SIZE(etm_core) - 1);
++
++	/* address and data comparators; counters; outputs */
++	etm_reg_add(bcd_vers, jtag_info, reg_cache, arch_info,
++			etm_addr_comp, 4 * (0x0f &amp; (config &gt;&gt; 0)));
++	etm_reg_add(bcd_vers, jtag_info, reg_cache, arch_info,
++			etm_data_comp, 2 * (0x0f &amp; (config &gt;&gt; 4)));
++	etm_reg_add(bcd_vers, jtag_info, reg_cache, arch_info,
++			etm_counters, 4 * (0x07 &amp; (config &gt;&gt; 13)));
++	etm_reg_add(bcd_vers, jtag_info, reg_cache, arch_info,
++			etm_outputs, (0x07 &amp; (config &gt;&gt; 20)));
++
++	/* FIFOFULL presence is optional
++	 * REVISIT for ETMv1.2 and later, don't bother adding this
++	 * unless ETM_SYS_CONFIG says it's also *supported* ...
++	 */
++	if (config &amp; (1 &lt;&lt; 23))
++		etm_reg_add(bcd_vers, jtag_info, reg_cache, arch_info,
++				etm_fifofull, ARRAY_SIZE(etm_fifofull));
++
++	/* sequencer is optional (for state-dependant triggering) */
++	if (config &amp; (1 &lt;&lt; 16))
++		etm_reg_add(bcd_vers, jtag_info, reg_cache, arch_info,
++				etm_sequencer, ARRAY_SIZE(etm_sequencer));
++
++	/* REVISIT could realloc and likely save half the memory
++	 * in the two chunks we allocated...
++	 */
++
+ 	/* the ETM might have an ETB connected */
+ 	if (strcmp(etm_ctx-&gt;capture_driver-&gt;name, &quot;etb&quot;) == 0)
+ 	{
+@@ -271,6 +381,7 @@
+ 		{
+ 			LOG_ERROR(&quot;etb selected as etm capture driver, but no ETB configured&quot;);
+ 			free(reg_cache);
++			free(reg_list);
+ 			free(arch_info);
+ 			return ERROR_OK;
+ 		}
+@@ -1362,7 +1473,7 @@
+ 	target_t *target;
+ 	armv4_5_common_t *armv4_5;
+ 	arm7_9_common_t *arm7_9;
+-	reg_t *etm_config_reg;
++	etm_context_t *etm;
+ 	reg_t *etm_sys_config_reg;
+ 
+ 	int max_port_size;
+@@ -1375,32 +1486,46 @@
+ 		return ERROR_OK;
+ 	}
+ 
+-	if (!arm7_9-&gt;etm_ctx)
++	etm = arm7_9-&gt;etm_ctx;
++	if (!etm)
+ 	{
+ 		command_print(cmd_ctx, &quot;current target doesn't have an ETM configured&quot;);
+ 		return ERROR_OK;
+ 	}
+ 
+-	etm_config_reg = etm_reg_lookup(arm7_9-&gt;etm_ctx, ETM_CONFIG);
+-	if (!etm_config_reg)
+-		return ERROR_OK;
+-	etm_sys_config_reg = etm_reg_lookup(arm7_9-&gt;etm_ctx, ETM_SYS_CONFIG);
++	command_print(cmd_ctx, &quot;ETM v%d.%d&quot;,
++			etm-&gt;bcd_vers &gt;&gt; 4, etm-&gt;bcd_vers &amp; 0xf);
++	command_print(cmd_ctx, &quot;pairs of address comparators: %i&quot;,
++			(etm-&gt;config &gt;&gt; 0) &amp; 0x0f);
++	command_print(cmd_ctx, &quot;data comparators: %i&quot;,
++			(etm-&gt;config &gt;&gt; 4) &amp; 0x0f);
++	command_print(cmd_ctx, &quot;memory map decoders: %i&quot;,
++			(etm-&gt;config &gt;&gt; 8) &amp; 0x1f);
++	command_print(cmd_ctx, &quot;number of counters: %i&quot;,
++			(etm-&gt;config &gt;&gt; 13) &amp; 0x07);
++	command_print(cmd_ctx, &quot;sequencer %spresent&quot;,
++			(etm-&gt;config &amp; (1 &lt;&lt; 16)) ? &quot;&quot; : &quot;not &quot;);
++	command_print(cmd_ctx, &quot;number of ext. inputs: %i&quot;,
++			(etm-&gt;config &gt;&gt; 17) &amp; 0x07);
++	command_print(cmd_ctx, &quot;number of ext. outputs: %i&quot;,
++			(etm-&gt;config &gt;&gt; 20) &amp; 0x07);
++	command_print(cmd_ctx, &quot;FIFO full %spresent&quot;,
++			(etm-&gt;config &amp; (1 &lt;&lt; 23)) ? &quot;&quot; : &quot;not &quot;);
++	if (etm-&gt;bcd_vers &lt; 0x20)
++		command_print(cmd_ctx, &quot;protocol version: %i&quot;,
++				(etm-&gt;config &gt;&gt; 28) &amp; 0x07);
++	else {
++		command_print(cmd_ctx, &quot;trace start/stop %spresent&quot;,
++				(etm-&gt;config &amp; (1 &lt;&lt; 26)) ? &quot;&quot; : &quot;not &quot;);
++		command_print(cmd_ctx, &quot;number of context comparators: %i&quot;,
++				(etm-&gt;config &gt;&gt; 24) &amp; 0x03);
++	}
++
++	/* SYS_CONFIG isn't present before ETMv1.2 */
++	etm_sys_config_reg = etm_reg_lookup(etm, ETM_SYS_CONFIG);
+ 	if (!etm_sys_config_reg)
+ 		return ERROR_OK;
+ 
+-	etm_get_reg(etm_config_reg);
+-	command_print(cmd_ctx, &quot;pairs of address comparators: %i&quot;, (int)buf_get_u32(etm_config_reg-&gt;value, 0, 4));
+-	command_print(cmd_ctx, &quot;pairs of data comparators: %i&quot;, (int)buf_get_u32(etm_config_reg-&gt;value, 4, 4));
+-	command_print(cmd_ctx, &quot;memory map decoders: %i&quot;, (int)buf_get_u32(etm_config_reg-&gt;value, 8, 5));
+-	command_print(cmd_ctx, &quot;number of counters: %i&quot;, (int)buf_get_u32(etm_config_reg-&gt;value, 13, 3));
+-	command_print(cmd_ctx, &quot;sequencer %spresent&quot;,
+-			(buf_get_u32(etm_config_reg-&gt;value, 16, 1) == 1) ? &quot;&quot; : &quot;not &quot;);
+-	command_print(cmd_ctx, &quot;number of ext. inputs: %i&quot;, (int)buf_get_u32(etm_config_reg-&gt;value, 17, 3));
+-	command_print(cmd_ctx, &quot;number of ext. outputs: %i&quot;,(int) buf_get_u32(etm_config_reg-&gt;value, 20, 3));
+-	command_print(cmd_ctx, &quot;FIFO full %spresent&quot;,
+-			(buf_get_u32(etm_config_reg-&gt;value, 23, 1) == 1) ? &quot;&quot; : &quot;not &quot;);
+-	command_print(cmd_ctx, &quot;protocol version: %i&quot;, (int)buf_get_u32(etm_config_reg-&gt;value, 28, 3));
+-
+ 	etm_get_reg(etm_sys_config_reg);
+ 
+ 	switch (buf_get_u32(etm_sys_config_reg-&gt;value, 0, 3))
+
+Modified: trunk/src/target/etm.h
+===================================================================
+--- trunk/src/target/etm.h	2009-09-23 09:16:00 UTC (rev 2751)
++++ trunk/src/target/etm.h	2009-09-23 21:52:40 UTC (rev 2752)
+@@ -165,6 +165,8 @@
+ 	bool data_half;			/* port half on a 16 bit port */
+ 	bool pc_ok;			/* full PC has been acquired */
+ 	bool ptr_ok;			/* whether last_ptr is valid */
++	uint8_t bcd_vers;		/* e.g. 0x13 == ETMv1.3 */
++	uint32_t config;		/* cache of ETM_CONFIG value */
+ 	uint32_t current_pc;		/* current program counter */
+ 	uint32_t last_branch;		/* last branch address output */
+ 	uint32_t last_branch_reason;	/* type of last branch encountered */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001534.html">[Openocd-svn] r2751 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001536.html">[Openocd-svn] r2753 - trunk/src/helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1535">[ date ]</a>
+              <a href="thread.html#1535">[ thread ]</a>
+              <a href="subject.html#1535">[ subject ]</a>
+              <a href="author.html#1535">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

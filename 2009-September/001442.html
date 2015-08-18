@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2659 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2659%20-%20trunk/src/target&In-Reply-To=%3C200909011008.n81A81f3028245%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="001443.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2659 - trunk/src/target</H1>
+    <B>ntfreak at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2659%20-%20trunk/src/target&In-Reply-To=%3C200909011008.n81A81f3028245%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2659 - trunk/src/target">ntfreak at mail.berlios.de
+       </A><BR>
+    <I>Tue Sep  1 12:08:01 CEST 2009</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="001443.html">[Openocd-svn] r2660 - trunk/src/flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1442">[ date ]</a>
+              <a href="thread.html#1442">[ thread ]</a>
+              <a href="subject.html#1442">[ subject ]</a>
+              <a href="author.html#1442">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: ntfreak
+Date: 2009-09-01 12:08:00 +0200 (Tue, 01 Sep 2009)
+New Revision: 2659
+
+Modified:
+   trunk/src/target/cortex_m3.c
+Log:
+- fix a regression when using cortex_m3 emulated dcc channel
+
+
+Modified: trunk/src/target/cortex_m3.c
+===================================================================
+--- trunk/src/target/cortex_m3.c	2009-08-31 12:21:12 UTC (rev 2658)
++++ trunk/src/target/cortex_m3.c	2009-09-01 10:08:00 UTC (rev 2659)
+@@ -105,7 +105,7 @@
+ 	uint32_t dcrdr;
+ 
+ 	/* because the DCB_DCRDR is used for the emulated dcc channel
+-	 * we gave to save/restore the DCB_DCRDR when used */
++	 * we have to save/restore the DCB_DCRDR when used */
+ 
+ 	mem_ap_read_u32(swjdp, DCB_DCRDR, &amp;dcrdr);
+ 
+@@ -119,8 +119,13 @@
+ 	dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, DCB_DCRDR &amp; 0xFFFFFFF0);
+ 	dap_ap_read_reg_u32(swjdp, AP_REG_BD0 | (DCB_DCRDR &amp; 0xC), value);
+ 
+-	mem_ap_write_u32(swjdp, DCB_DCRDR, dcrdr);
+ 	retval = swjdp_transaction_endcheck(swjdp);
++
++	/* restore DCB_DCRDR - this needs to be in a seperate
++	 * transaction otherwise the emulated DCC channel breaks */
++	if (retval == ERROR_OK)
++		retval = mem_ap_write_atomic_u32(swjdp, DCB_DCRDR, dcrdr);
++
+ 	return retval;
+ }
+ 
+@@ -130,7 +135,7 @@
+ 	uint32_t dcrdr;
+ 
+ 	/* because the DCB_DCRDR is used for the emulated dcc channel
+-	 * we gave to save/restore the DCB_DCRDR when used */
++	 * we have to save/restore the DCB_DCRDR when used */
+ 
+ 	mem_ap_read_u32(swjdp, DCB_DCRDR, &amp;dcrdr);
+ 
+@@ -144,12 +149,16 @@
+ 	dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, DCB_DCRSR &amp; 0xFFFFFFF0);
+ 	dap_ap_write_reg_u32(swjdp, AP_REG_BD0 | (DCB_DCRSR &amp; 0xC), regnum | DCRSR_WnR);
+ 
+-	mem_ap_write_u32(swjdp, DCB_DCRDR, dcrdr);
+ 	retval = swjdp_transaction_endcheck(swjdp);
++
++	/* restore DCB_DCRDR - this needs to be in a seperate
++	 * transaction otherwise the emulated DCC channel breaks */
++	if (retval == ERROR_OK)
++		retval = mem_ap_write_atomic_u32(swjdp, DCB_DCRDR, dcrdr);
++
+ 	return retval;
+ }
+ 
+-
+ int cortex_m3_write_debug_halt_mask(target_t *target, uint32_t mask_on, uint32_t mask_off)
+ {
+ 	/* get pointers to arch-specific information */
+@@ -668,7 +677,7 @@
+ 		/* Single step past breakpoint at current address */
+ 		if ((breakpoint = breakpoint_find(target, resume_pc)))
+ 		{
+-			LOG_DEBUG(&quot;unset breakpoint at 0x%8.8&quot; PRIx32 &quot; (ID: %d)&quot;, 
++			LOG_DEBUG(&quot;unset breakpoint at 0x%8.8&quot; PRIx32 &quot; (ID: %d)&quot;,
+ 					  breakpoint-&gt;address,
+ 					  breakpoint-&gt;unique_id );
+ 			cortex_m3_unset_breakpoint(target, breakpoint);
+@@ -971,7 +980,7 @@
+ 		breakpoint-&gt;set = 0x11; /* Any nice value but 0 */
+ 	}
+ 
+-	LOG_DEBUG(&quot;BPID: %d, Type: %d, Address: 0x%08&quot; PRIx32 &quot; Length: %d (set=%d)&quot;, 
++	LOG_DEBUG(&quot;BPID: %d, Type: %d, Address: 0x%08&quot; PRIx32 &quot; Length: %d (set=%d)&quot;,
+ 			  breakpoint-&gt;unique_id,
+ 			  (int)(breakpoint-&gt;type),
+ 			  breakpoint-&gt;address,
+@@ -995,7 +1004,7 @@
+ 		return ERROR_OK;
+ 	}
+ 
+-	LOG_DEBUG(&quot;BPID: %d, Type: %d, Address: 0x%08&quot; PRIx32 &quot; Length: %d (set=%d)&quot;, 
++	LOG_DEBUG(&quot;BPID: %d, Type: %d, Address: 0x%08&quot; PRIx32 &quot; Length: %d (set=%d)&quot;,
+ 			  breakpoint-&gt;unique_id,
+ 			  (int)(breakpoint-&gt;type),
+ 			  breakpoint-&gt;address,
+@@ -1165,7 +1174,7 @@
+ 				  watchpoint-&gt;unique_id );
+ 		return ERROR_OK;
+ 	}
+-	LOG_DEBUG(&quot;Watchpoint (ID: %d) address: 0x%08&quot; PRIx32 &quot; set=%d &quot;, 
++	LOG_DEBUG(&quot;Watchpoint (ID: %d) address: 0x%08&quot; PRIx32 &quot; set=%d &quot;,
+ 			  watchpoint-&gt;unique_id, watchpoint-&gt;address, watchpoint-&gt;set );
+ 	return ERROR_OK;
+ 
+@@ -1185,7 +1194,7 @@
+ 		return ERROR_OK;
+ 	}
+ 
+-	LOG_DEBUG(&quot;Watchpoint (ID: %d) address: 0x%08&quot; PRIx32 &quot; set=%d &quot;, 
++	LOG_DEBUG(&quot;Watchpoint (ID: %d) address: 0x%08&quot; PRIx32 &quot; set=%d &quot;,
+ 			  watchpoint-&gt;unique_id, watchpoint-&gt;address,watchpoint-&gt;set );
+ 
+ 	dwt_num = watchpoint-&gt;set - 1;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="001443.html">[Openocd-svn] r2660 - trunk/src/flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1442">[ date ]</a>
+              <a href="thread.html#1442">[ thread ]</a>
+              <a href="subject.html#1442">[ subject ]</a>
+              <a href="author.html#1442">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

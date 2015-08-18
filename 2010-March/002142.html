@@ -1,0 +1,209 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-63-g7a5c9c2
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-63-g7a5c9c2&In-Reply-To=%3CE1NoXVG-0006z9-QM%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002141.html">
+   <LINK REL="Next"  HREF="002143.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-63-g7a5c9c2</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-63-g7a5c9c2&In-Reply-To=%3CE1NoXVG-0006z9-QM%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-63-g7a5c9c2">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Mon Mar  8 08:35:49 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002141.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-62-g50dc56a
+</A></li>
+        <LI>Next message: <A HREF="002143.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-64-gfc1063a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2142">[ date ]</a>
+              <a href="thread.html#2142">[ thread ]</a>
+              <a href="subject.html#2142">[ subject ]</a>
+              <a href="author.html#2142">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  7a5c9c2f4ae409e09faf12d5b8b76af135a85e73 (commit)
+      from  50dc56a488c6e4d5acdfd73f12e3502e1586c51e (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 7a5c9c2f4ae409e09faf12d5b8b76af135a85e73
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Mon Mar 8 08:32:45 2010 +0100
+
+    zy1000: embedded ice dcc tweak
+    
+    How many bits to shift out before/after enabled tap not
+    in bypass is calculated outside the loop. This is more of
+    a demonstration of principle and to clarify code than
+    a performance optimisation as such. Follows up a bit
+    on the simplification work in jtag interface.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index 65d8402..005a4e0 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -803,34 +803,43 @@ int interface_jtag_add_pathmove(int num_states, const tap_state_t *path)
+ 	return interface_add_tms_seq(state_count, seq, cur_state);
+ }
+ 
+-void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, uint8_t *buffer, int little, int count)
++static void jtag_pre_post_bits(struct jtag_tap *tap, int *pre, int *post)
+ {
+-//	static int const reg_addr = 0x5;
+-	tap_state_t end_state = jtag_get_end_state();
+-	if (jtag_tap_next_enabled(jtag_tap_next_enabled(NULL)) == NULL)
++	/* bypass bits before and after */
++	int pre_bits = 0;
++	int post_bits = 0;
++
++	bool found = false;
++	struct jtag_tap *cur_tap, *nextTap;
++	for (cur_tap = jtag_tap_next_enabled(NULL); cur_tap!= NULL; cur_tap = nextTap)
+ 	{
+-		/* better performance via code duplication */
+-		if (little)
++		nextTap = jtag_tap_next_enabled(cur_tap);
++		if (cur_tap == tap)
+ 		{
+-			int i;
+-			for (i = 0; i &lt; count; i++)
+-			{
+-				shiftValueInner(TAP_DRSHIFT, TAP_DRSHIFT, 32, fast_target_buffer_get_u32(buffer, 1));
+-				shiftValueInner(TAP_DRSHIFT, end_state, 6, reg_addr | (1 &lt;&lt; 5));
+-				buffer += 4;
+-			}
++			found = true;
+ 		} else
+ 		{
+-			int i;
+-			for (i = 0; i &lt; count; i++)
++			if (found)
+ 			{
+-				shiftValueInner(TAP_DRSHIFT, TAP_DRSHIFT, 32, fast_target_buffer_get_u32(buffer, 0));
+-				shiftValueInner(TAP_DRSHIFT, end_state, 6, reg_addr | (1 &lt;&lt; 5));
+-				buffer += 4;
++				post_bits++;
++			} else
++			{
++				pre_bits++;
+ 			}
+ 		}
+ 	}
+-	else
++	*pre = pre_bits;
++	*post = post_bits;
++}
++
++void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, uint8_t *buffer, int little, int count)
++{
++
++	int pre_bits;
++	int post_bits;
++	jtag_pre_post_bits(tap, &amp;pre_bits, &amp;post_bits);
++
++	if ((pre_bits &gt; 32) || (post_bits &gt; 32))
+ 	{
+ 		int i;
+ 		for (i = 0; i &lt; count; i++)
+@@ -838,6 +847,22 @@ void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, uint8_t *buffer,
+ 			embeddedice_write_reg_inner(tap, reg_addr, fast_target_buffer_get_u32(buffer, little));
+ 			buffer += 4;
+ 		}
++	} else
++	{
++		tap_state_t end_state = jtag_get_end_state();
++		tap_state_t shift_end_state;
++		if (post_bits == 0)
++			shift_end_state = end_state;
++
++		int i;
++		for (i = 0; i &lt; count; i++)
++		{
++			shiftValueInner(TAP_DRSHIFT, TAP_DRSHIFT, pre_bits, 0);
++			shiftValueInner(TAP_DRSHIFT, TAP_DRSHIFT, 32, fast_target_buffer_get_u32(buffer, little));
++			shiftValueInner(TAP_DRSHIFT, shift_end_state, 6, reg_addr | (1 &lt;&lt; 5));
++			shiftValueInner(shift_end_state, end_state, post_bits, 0);
++			buffer += 4;
++		}
+ 	}
+ }
+ 
+@@ -858,8 +883,9 @@ int arm11_run_instr_data_to_core_noack_inner(struct jtag_tap * tap, uint32_t opc
+ 
+ 
+ 	/* bypass bits before and after */
+-	int pre_bits = 0;
+-	int post_bits = 0;
++	int pre_bits;
++	int post_bits;
++	jtag_pre_post_bits(tap, &amp;pre_bits, &amp;post_bits);
+ 
+ 	bool found = false;
+ 	struct jtag_tap *cur_tap, *nextTap;
+@@ -895,6 +921,7 @@ int arm11_run_instr_data_to_core_noack_inner(struct jtag_tap * tap, uint32_t opc
+ 		value |= (*t++&lt;&lt;24);
+ 
+ 		shiftValueInner(TAP_DRSHIFT, TAP_DRSHIFT, 32, value);
++		/* minimum 2 bits */
+ 		shiftValueInner(TAP_DRSHIFT, TAP_DRPAUSE, post_bits, 0);
+ 
+ #if 1
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/zy1000/zy1000.c |   69 ++++++++++++++++++++++++++++++++--------------
+ 1 files changed, 48 insertions(+), 21 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002141.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-62-g50dc56a
+</A></li>
+	<LI>Next message: <A HREF="002143.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-64-gfc1063a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2142">[ date ]</a>
+              <a href="thread.html#2142">[ thread ]</a>
+              <a href="subject.html#2142">[ subject ]</a>
+              <a href="author.html#2142">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

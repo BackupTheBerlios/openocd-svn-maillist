@@ -1,0 +1,326 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-30-g45b5c83
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-30-g45b5c83&In-Reply-To=%3Cmailman.151.1331736156.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002665.html">
+   <LINK REL="Next"  HREF="002667.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-30-g45b5c83</H1>
+    <B>&#195;&#152;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-30-g45b5c83&In-Reply-To=%3Cmailman.151.1331736156.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-30-g45b5c83">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Aug 12 12:02:44 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002665.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-27-g85cf298
+</A></li>
+        <LI>Next message: <A HREF="002667.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-31-g9779a2b
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2666">[ date ]</a>
+              <a href="thread.html#2666">[ thread ]</a>
+              <a href="subject.html#2666">[ subject ]</a>
+              <a href="author.html#2666">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  45b5c838a66b200bd05d401f2b245bba3fd46d9d (commit)
+       via  85f1963d52a4aa2a82f6966dc9a16f5d48b0b93d (commit)
+       via  28f088dc661d4c0e50c60876a5d6eec13d144c0c (commit)
+      from  85cf298667fbb64ebffed4a1db57223535a888c9 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 45b5c838a66b200bd05d401f2b245bba3fd46d9d
+Author: Stefan Mahr &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">stefan.mahr at sphairon.com</A>&gt;
+Date:   Wed Aug 10 23:42:28 2011 +0200
+
+    mips: fix potential alignment error
+
+diff --git a/src/target/mips_m4k.c b/src/target/mips_m4k.c
+index facf9a5..7be96a4 100644
+--- a/src/target/mips_m4k.c
++++ b/src/target/mips_m4k.c
+@@ -870,7 +870,22 @@ static int mips_m4k_read_memory(struct target *target, uint32_t address,
+ 	if (((size == 4) &amp;&amp; (address &amp; 0x3u)) || ((size == 2) &amp;&amp; (address &amp; 0x1u)))
+ 		return ERROR_TARGET_UNALIGNED_ACCESS;
+ 
+-	void * t = buffer;
++	/* since we don't know if buffer is aligned, we allocate new mem that is always aligned */
++	void *t = NULL;
++
++	if (size &gt; 1)
++	{
++		t = malloc(count * size * sizeof(uint8_t));
++		if (t == NULL)
++		{
++			LOG_ERROR(&quot;Out of memory&quot;);
++			return ERROR_FAIL;
++		}
++	}
++	else
++	{
++		t = buffer;
++	}
+ 
+ 	/* if noDMA off, use DMAACC mode for memory read */
+ 	int retval;
+@@ -894,6 +909,9 @@ static int mips_m4k_read_memory(struct target *target, uint32_t address,
+ 		}
+ 	}
+ 
++	if ((size &gt; 1) &amp;&amp; (t != NULL))
++		free(t);
++
+ 	return retval;
+ }
+ 
+
+commit 85f1963d52a4aa2a82f6966dc9a16f5d48b0b93d
+Author: Stefan Mahr &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">stefan.mahr at sphairon.com</A>&gt;
+Date:   Wed Aug 10 23:29:20 2011 +0200
+
+    mips: fix reading uint32 and uint16 when running on big endian host
+
+diff --git a/src/target/mips_m4k.c b/src/target/mips_m4k.c
+index e4ab044..facf9a5 100644
+--- a/src/target/mips_m4k.c
++++ b/src/target/mips_m4k.c
+@@ -870,35 +870,31 @@ static int mips_m4k_read_memory(struct target *target, uint32_t address,
+ 	if (((size == 4) &amp;&amp; (address &amp; 0x3u)) || ((size == 2) &amp;&amp; (address &amp; 0x1u)))
+ 		return ERROR_TARGET_UNALIGNED_ACCESS;
+ 
++	void * t = buffer;
++
+ 	/* if noDMA off, use DMAACC mode for memory read */
+ 	int retval;
+ 	if (ejtag_info-&gt;impcode &amp; EJTAG_IMP_NODMA)
+-		retval = mips32_pracc_read_mem(ejtag_info, address, size, count, (void *)buffer);
++		retval = mips32_pracc_read_mem(ejtag_info, address, size, count, t);
+ 	else
+-		retval = mips32_dmaacc_read_mem(ejtag_info, address, size, count, (void *)buffer);
+-	if (ERROR_OK != retval)
+-		return retval;
++		retval = mips32_dmaacc_read_mem(ejtag_info, address, size, count, t);
+ 
+ 	/* mips32_..._read_mem with size 4/2 returns uint32_t/uint16_t in host */
+ 	/* endianness, but byte array should represent target endianness       */
+-	uint32_t i, t32;
+-	uint16_t t16;
+-	for(i = 0; i &lt; (count*size); i += size)
++	if (ERROR_OK == retval)
+ 	{
+ 		switch(size)
+ 		{
+ 		case 4:
+-			t32 = le_to_h_u32(&amp;buffer[i]);
+-			target_buffer_set_u32(target,&amp;buffer[i], t32);
++			target_buffer_set_u32_array(target,buffer,count,t);
+ 			break;
+ 		case 2:
+-			t16 = le_to_h_u16(&amp;buffer[i]);
+-			target_buffer_set_u16(target,&amp;buffer[i], t16);
++			target_buffer_set_u16_array(target,buffer,count,t);
+ 			break;
+ 		}
+ 	}
+ 
+-	return ERROR_OK;
++	return retval;
+ }
+ 
+ static int mips_m4k_write_memory(struct target *target, uint32_t address,
+@@ -924,35 +920,27 @@ static int mips_m4k_write_memory(struct target *target, uint32_t address,
+ 		return ERROR_TARGET_UNALIGNED_ACCESS;
+ 
+ 	/** correct endianess if we have word or hword access */
+-	uint8_t *t = NULL;
++	void *t = NULL;
+ 	if (size &gt; 1)
+ 	{
+ 		/* mips32_..._write_mem with size 4/2 requires uint32_t/uint16_t in host */
+ 		/* endianness, but byte array represents target endianness               */
+-		t = malloc(count * sizeof(uint32_t));
++		t = malloc(count * size * sizeof(uint8_t));
+ 		if (t == NULL)
+ 		{
+ 			LOG_ERROR(&quot;Out of memory&quot;);
+ 			return ERROR_FAIL;
+ 		}
+ 
+-		uint32_t i, t32;
+-		uint16_t t16;
+-		for(i = 0; i &lt; (count*size); i += size)
++		switch(size)
+ 		{
+-			switch(size)
+-			{
+-			case 4:
+-				t32 = target_buffer_get_u32(target,&amp;buffer[i]);
+-				h_u32_to_le(&amp;t[i], t32);
+-				break;
+-			case 2:
+-				t16 = target_buffer_get_u16(target,&amp;buffer[i]);
+-				h_u16_to_le(&amp;t[i], t16);
+-				break;
+-			}
++		case 4:
++			target_buffer_get_u32_array(target,buffer,count,(uint32_t*)t);
++			break;
++		case 2:
++			target_buffer_get_u16_array(target,buffer,count,(uint16_t*)t);
++			break;
+ 		}
+-
+ 		buffer = t;
+ 	}
+ 
+@@ -1078,7 +1066,7 @@ static int mips_m4k_bulk_write_memory(struct target *target, uint32_t address,
+ 
+ 	/* mips32_pracc_fastdata_xfer requires uint32_t in host endianness, */
+ 	/* but byte array represents target endianness                      */
+-	uint8_t * t = NULL;
++	uint32_t *t = NULL;
+ 	t = malloc(count * sizeof(uint32_t));
+ 	if (t == NULL)
+ 	{
+@@ -1086,15 +1074,10 @@ static int mips_m4k_bulk_write_memory(struct target *target, uint32_t address,
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	uint32_t i, t32;
+-	for(i = 0; i &lt; (count*4); i += 4)
+-	{
+-		t32 = target_buffer_get_u32(target,&amp;buffer[i]);
+-		h_u32_to_le(&amp;t[i], t32);
+-	}
++	target_buffer_get_u32_array(target,buffer,count,t);
+ 
+ 	retval = mips32_pracc_fastdata_xfer(ejtag_info, mips32-&gt;fast_data_area, write_t, address,
+-			count, (uint32_t*) (void *)t);
++			count, t);
+ 
+ 	if (t != NULL)
+ 		free(t);
+
+commit 28f088dc661d4c0e50c60876a5d6eec13d144c0c
+Author: Stefan Mahr &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">stefan.mahr at sphairon.com</A>&gt;
+Date:   Wed Aug 10 22:34:41 2011 +0200
+
+    target: add helper functions to get/set u16 or u32 array from/to buffer
+
+diff --git a/src/target/target.c b/src/target/target.c
+index 0343156..b71d839 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -348,6 +348,38 @@ static void target_buffer_set_u8(struct target *target, uint8_t *buffer, uint8_t
+ 	*buffer = value;
+ }
+ 
++/* write a uint32_t array to a buffer in target memory endianness */
++void target_buffer_get_u32_array(struct target *target, const uint8_t *buffer, uint32_t count, uint32_t *dstbuf)
++{
++	uint32_t i;
++	for(i = 0; i &lt; count; i ++)
++		dstbuf[i] = target_buffer_get_u32(target,&amp;buffer[i*4]);
++}
++
++/* write a uint16_t array to a buffer in target memory endianness */
++void target_buffer_get_u16_array(struct target *target, const uint8_t *buffer, uint32_t count, uint16_t *dstbuf)
++{
++	uint32_t i;
++	for(i = 0; i &lt; count; i ++)
++		dstbuf[i] = target_buffer_get_u16(target,&amp;buffer[i*2]);
++}
++
++/* write a uint32_t array to a buffer in target memory endianness */
++void target_buffer_set_u32_array(struct target *target, uint8_t *buffer, uint32_t count, uint32_t *srcbuf)
++{
++	uint32_t i;
++	for(i = 0; i &lt; count; i ++)
++		target_buffer_set_u32(target,&amp;buffer[i*4],srcbuf[i]);
++}
++
++/* write a uint16_t array to a buffer in target memory endianness */
++void target_buffer_set_u16_array(struct target *target, uint8_t *buffer, uint32_t count, uint16_t *srcbuf)
++{
++	uint32_t i;
++	for(i = 0; i &lt; count; i ++)
++		target_buffer_set_u16(target,&amp;buffer[i*2],srcbuf[i]);
++}
++
+ /* return a pointer to a configured target; id is name or number */
+ struct target *get_target(const char *id)
+ {
+diff --git a/src/target/target.h b/src/target/target.h
+index 74f74de..1b5730f 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -524,6 +524,11 @@ void target_buffer_set_u32(struct target *target, uint8_t *buffer, uint32_t valu
+ void target_buffer_set_u24(struct target *target, uint8_t *buffer, uint32_t value);
+ void target_buffer_set_u16(struct target *target, uint8_t *buffer, uint16_t value);
+ 
++void target_buffer_get_u32_array(struct target *target, const uint8_t *buffer, uint32_t count, uint32_t *dstbuf);
++void target_buffer_get_u16_array(struct target *target, const uint8_t *buffer, uint32_t count, uint16_t *dstbuf);
++void target_buffer_set_u32_array(struct target *target, uint8_t *buffer, uint32_t count, uint32_t *srcbuf);
++void target_buffer_set_u16_array(struct target *target, uint8_t *buffer, uint32_t count, uint16_t *srcbuf);
++
+ int target_read_u32(struct target *target, uint32_t address, uint32_t *value);
+ int target_read_u16(struct target *target, uint32_t address, uint16_t *value);
+ int target_read_u8(struct target *target, uint32_t address, uint8_t *value);
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/mips_m4k.c |   75 +++++++++++++++++++++++++------------------------
+ src/target/target.c   |   32 +++++++++++++++++++++
+ src/target/target.h   |    5 +++
+ 3 files changed, 75 insertions(+), 37 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002665.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-27-g85cf298
+</A></li>
+	<LI>Next message: <A HREF="002667.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-31-g9779a2b
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2666">[ date ]</a>
+              <a href="thread.html#2666">[ thread ]</a>
+              <a href="subject.html#2666">[ subject ]</a>
+              <a href="author.html#2666">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,354 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2818 - in trunk: doc src/jtag src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2818%20-%20in%20trunk%3A%20doc%20src/jtag%20src/target&In-Reply-To=%3C200910071531.n97FVZCi031948%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001600.html">
+   <LINK REL="Next"  HREF="001602.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2818 - in trunk: doc src/jtag src/target</H1>
+    <B>dbrownell at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2818%20-%20in%20trunk%3A%20doc%20src/jtag%20src/target&In-Reply-To=%3C200910071531.n97FVZCi031948%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2818 - in trunk: doc src/jtag src/target">dbrownell at mail.berlios.de
+       </A><BR>
+    <I>Wed Oct  7 17:31:35 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001600.html">[Openocd-svn] r2817 - trunk/tcl/board
+</A></li>
+        <LI>Next message: <A HREF="001602.html">[Openocd-svn] r2819 - in trunk: . doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1601">[ date ]</a>
+              <a href="thread.html#1601">[ thread ]</a>
+              <a href="subject.html#1601">[ subject ]</a>
+              <a href="author.html#1601">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: dbrownell
+Date: 2009-10-07 17:31:33 +0200 (Wed, 07 Oct 2009)
+New Revision: 2818
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/jtag/jtag.h
+   trunk/src/jtag/tcl.c
+   trunk/src/target/arm7_9_common.c
+Log:
+Updates for &quot;reset_config&quot;:
+
+ - revert to previous default: don't talk JTAG during SRST
+ - add &quot;srst_nogates&quot; flag, the converse of &quot;srst_gates_jtag&quot;
+ - with no args, display the current configuration
+
+And update the User's Guide text with bullet lists to be a bit more clear.
+
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-10-07 12:21:58 UTC (rev 2817)
++++ trunk/doc/openocd.texi	2009-10-07 15:31:33 UTC (rev 2818)
+@@ -2099,7 +2099,7 @@
+ @end deffn
+ 
+ @deffn {Command} reset_config mode_flag ...
+-This command tells OpenOCD the reset configuration
++This command displays or modifies the reset configuration
+ of your combination of JTAG board and target in target
+ configuration scripts.
+ 
+@@ -2113,7 +2113,9 @@
+ with a board that only wires up SRST.)
+ 
+ The @var{mode_flag} options can be specified in any order, but only one
+-of each type -- @var{signals}, @var{combination}, @var{trst_type},
++of each type -- @var{signals}, @var{combination},
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at var</A>{gates},
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at var</A>{trst_type},
+ and @var{srst_type} -- may be specified at a time.
+ If you don't provide a new value for a given type, its previous
+ value (perhaps the default) is unchanged.
+@@ -2121,6 +2123,8 @@
+ TRST just to declare that if the JTAG adapter should want to drive SRST,
+ it must explicitly be driven high (@option{srst_push_pull}).
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at itemize</A>
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A>
+ @var{signals} can specify which of the reset signals are connected.
+ For example, If the JTAG interface provides SRST, but the board doesn't
+ connect that signal properly, then OpenOCD can't use it.
+@@ -2128,10 +2132,11 @@
+ @option{srst_only} and @option{trst_and_srst}.
+ 
+ @quotation Tip
+-If your board provides SRST or TRST through the JTAG connector,
++If your board provides SRST and/or TRST through the JTAG connector,
+ you must declare that or else those signals will not be used.
+ @end quotation
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A>
+ The @var{combination} is an optional value specifying broken reset
+ signal implementations.
+ The default behaviour if no option given is @option{separate},
+@@ -2144,26 +2149,37 @@
+ @option{combined} implies both @option{srst_pulls_trst} and
+ @option{trst_pulls_srst}.
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at option</A>{srst_gates_jtag} indicates that asserting SRST gates the
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A>
++The @var{gates} tokens control flags that describe some cases where
++JTAG may be unvailable during reset.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at option</A>{srst_gates_jtag} (default)
++indicates that asserting SRST gates the
+ JTAG clock. This means that no communication can happen on JTAG
+ while SRST is asserted.
++Its converse is @option{srst_nogate}, indicating that JTAG commands
++can safely be issued while SRST is active.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> itemize
+ 
+ The optional @var{trst_type} and @var{srst_type} parameters allow the
+ driver mode of each reset line to be specified.  These values only affect
+ JTAG interfaces with support for different driver modes, like the Amontec
+-JTAGkey and JTAGAccelerator.  Also, they are necessarily ignored if the
++JTAGkey and JTAG Accelerator.  Also, they are necessarily ignored if the
+ relevant signal (TRST or SRST) is not connected.
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at itemize</A>
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A>
+ Possible @var{trst_type} driver modes for the test reset signal (TRST)
+-are @option{trst_push_pull} (default) and @option{trst_open_drain}.
++are the default @option{trst_push_pull}, and @option{trst_open_drain}.
+ Most boards connect this signal to a pulldown, so the JTAG TAPs
+ never leave reset unless they are hooked up to a JTAG adapter.
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A>
+ Possible @var{srst_type} driver modes for the system reset signal (SRST)
+ are the default @option{srst_open_drain}, and @option{srst_push_pull}.
+ Most boards connect this signal to a pullup, and allow the
+ signal to be pulled low by various events including system
+ powerup and pressing a reset button.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> itemize
+ @end deffn
+ 
+ 
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-10-07 12:21:58 UTC (rev 2817)
++++ trunk/src/jtag/jtag.h	2009-10-07 15:31:33 UTC (rev 2818)
+@@ -286,7 +286,7 @@
+ 	RESET_TRST_PULLS_SRST = 0x8,
+ 	RESET_TRST_OPEN_DRAIN = 0x10,
+ 	RESET_SRST_PUSH_PULL  = 0x20,
+-	RESET_SRST_GATES_JTAG = 0x40,
++	RESET_SRST_NO_GATING  = 0x40,
+ };
+ 
+ enum reset_types jtag_get_reset_config(void);
+
+Modified: trunk/src/jtag/tcl.c
+===================================================================
+--- trunk/src/jtag/tcl.c	2009-10-07 12:21:58 UTC (rev 2817)
++++ trunk/src/jtag/tcl.c	2009-10-07 15:31:33 UTC (rev 2818)
+@@ -631,7 +631,12 @@
+ 		COMMAND_CONFIG, &quot;(DEPRECATED) jtag_device &lt;ir_length&gt; &lt;ir_expected&gt; &lt;ir_mask&gt;&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;reset_config&quot;, handle_reset_config_command,
+ 		COMMAND_ANY,
+-		&quot;[none/trst_only/srst_only/trst_and_srst] [srst_pulls_trst/trst_pulls_srst] [combined/separate] [trst_push_pull/trst_open_drain] [srst_push_pull/srst_open_drain]&quot;);
++		&quot;reset_config &quot;
++		&quot;[none|trst_only|srst_only|trst_and_srst] &quot;
++		&quot;[srst_pulls_trst|trst_pulls_srst|combined|separate] &quot;
++		&quot;[srst_gates_jtag|srst_nogate] &quot;
++		&quot;[trst_push_pull|trst_open_drain] &quot;
++		&quot;[srst_push_pull|srst_open_drain]&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;jtag_nsrst_delay&quot;, handle_jtag_nsrst_delay_command,
+ 		COMMAND_ANY, &quot;jtag_nsrst_delay &lt;ms&gt; - delay after deasserting srst in ms&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;jtag_ntrst_delay&quot;, handle_jtag_ntrst_delay_command,
+@@ -851,9 +856,6 @@
+ 	int new_cfg = 0;
+ 	int mask = 0;
+ 
+-	if (argc &lt; 1)
+-		return ERROR_COMMAND_SYNTAX_ERROR;
+-
+ 	/* Original versions cared about the order of these tokens:
+ 	 *   reset_config signals [combination [trst_type [srst_type]]]
+ 	 * They also clobbered the previous configuration even on error.
+@@ -865,13 +867,21 @@
+ 		int tmp = 0;
+ 		int m;
+ 
+-		m = RESET_SRST_GATES_JTAG;
+-		tmp = 0;
++		/* gating */
++		m = RESET_SRST_NO_GATING;
+ 		if (strcmp(*args, &quot;srst_gates_jtag&quot;) == 0)
+-		{
+-			tmp = RESET_SRST_GATES_JTAG;
++			/* default: don't use JTAG while SRST asserted */;
++		else if (strcmp(*args, &quot;srst_nogate&quot;) == 0)
++			tmp = RESET_SRST_NO_GATING;
++		else
++			m = 0;
++		if (mask &amp; m) {
++			LOG_ERROR(&quot;extra reset_config %s spec (%s)&quot;,
++					&quot;gating&quot;, *args);
++			return ERROR_INVALID_ARGUMENTS;
++		}
++		if (m)
+ 			goto next;
+-		}
+ 
+ 		/* signals */
+ 		m = RESET_HAS_TRST | RESET_HAS_SRST;
+@@ -958,11 +968,82 @@
+ 	}
+ 
+ 	/* clear previous values of those bits, save new values */
+-	enum reset_types old_cfg = jtag_get_reset_config();
+-	old_cfg &amp;= ~mask;
+-	new_cfg |= old_cfg;
+-	jtag_set_reset_config(new_cfg);
++	if (mask) {
++		int old_cfg = jtag_get_reset_config();
+ 
++		old_cfg &amp;= ~mask;
++		new_cfg |= old_cfg;
++		jtag_set_reset_config(new_cfg);
++	} else
++		new_cfg = jtag_get_reset_config();
++
++
++	/*
++	 * Display the (now-)current reset mode
++	 */
++	char *modes[5];
++
++	/* minimal JTAG has neither SRST nor TRST (so that's the default) */
++	switch (new_cfg &amp; (RESET_HAS_TRST | RESET_HAS_SRST)) {
++	case RESET_HAS_SRST:
++		modes[0] = &quot;srst_only&quot;;
++		break;
++	case RESET_HAS_TRST:
++		modes[0] = &quot;trst_only&quot;;
++		break;
++	case RESET_TRST_AND_SRST:
++		modes[0] = &quot;trst_and_srst&quot;;
++		break;
++	default:
++		modes[0] = &quot;none&quot;;
++		break;
++	}
++
++	/* normally SRST and TRST are decoupled; but bugs happen ... */
++	switch (new_cfg &amp; (RESET_SRST_PULLS_TRST | RESET_TRST_PULLS_SRST)) {
++	case RESET_SRST_PULLS_TRST:
++		modes[1] = &quot;srst_pulls_trst&quot;;
++		break;
++	case RESET_TRST_PULLS_SRST:
++		modes[1] = &quot;trst_pulls_srst&quot;;
++		break;
++	case RESET_SRST_PULLS_TRST | RESET_TRST_PULLS_SRST:
++		modes[1] = &quot;combined&quot;;
++		break;
++	default:
++		modes[1] = &quot;separate&quot;;
++		break;
++	}
++
++	/* TRST-less connectors include Altera, Xilinx, and minimal JTAG */
++	if (new_cfg &amp; RESET_HAS_TRST) {
++		if (new_cfg &amp; RESET_TRST_OPEN_DRAIN)
++			modes[3] = &quot; trst_open_drain&quot;;
++		else
++			modes[3] = &quot; trst_push_pull&quot;;
++	} else
++		modes[3] = &quot;&quot;;
++
++	/* SRST-less connectors include TI-14, Xilinx, and minimal JTAG */
++	if (new_cfg &amp; RESET_HAS_SRST) {
++		if (new_cfg &amp; RESET_SRST_NO_GATING)
++			modes[2] = &quot; srst_nogate&quot;;
++		else
++			modes[2] = &quot; srst_gates_jtag&quot;;
++
++		if (new_cfg &amp; RESET_SRST_PUSH_PULL)
++			modes[4] = &quot; srst_push_pull&quot;;
++		else
++			modes[4] = &quot; srst_open_drain&quot;;
++	} else {
++		modes[2] = &quot;&quot;;
++		modes[4] = &quot;&quot;;
++	}
++
++	command_print(cmd_ctx, &quot;%s %s%s%s%s&quot;,
++			modes[0], modes[1],
++			modes[2], modes[3], modes[4]);
++
+ 	return ERROR_OK;
+ }
+ 
+
+Modified: trunk/src/target/arm7_9_common.c
+===================================================================
+--- trunk/src/target/arm7_9_common.c	2009-10-07 12:21:58 UTC (rev 2817)
++++ trunk/src/target/arm7_9_common.c	2009-10-07 15:31:33 UTC (rev 2818)
+@@ -1021,12 +1021,19 @@
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	/* at this point trst has been asserted/deasserted once. We want to
+-	 * program embedded ice while SRST is asserted, but some CPUs gate
+-	 * the JTAG clock while SRST is asserted
++	/* At this point trst has been asserted/deasserted once. We would
++	 * like to program EmbeddedICE while SRST is asserted, instead of
++	 * depending on SRST to leave that module alone.  However, many CPUs
++	 * gate the JTAG clock while SRST is asserted; or JTAG may need
++	 * clock stability guarantees (adaptive clocking might help).
++	 *
++	 * So we assume JTAG access during SRST is off the menu unless it's
++	 * been specifically enabled.
+ 	 */
+ 	bool srst_asserted = false;
+-	if (((jtag_reset_config &amp; RESET_SRST_PULLS_TRST) == 0) &amp;&amp; ((jtag_reset_config &amp; RESET_SRST_GATES_JTAG) == 0))
++
++	if (((jtag_reset_config &amp; RESET_SRST_PULLS_TRST) == 0)
++			&amp;&amp; (jtag_reset_config &amp; RESET_SRST_NO_GATING))
+ 	{
+ 		jtag_add_reset(0, 1);
+ 		srst_asserted = true;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001600.html">[Openocd-svn] r2817 - trunk/tcl/board
+</A></li>
+	<LI>Next message: <A HREF="001602.html">[Openocd-svn] r2819 - in trunk: . doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1601">[ date ]</a>
+              <a href="thread.html#1601">[ thread ]</a>
+              <a href="subject.html#1601">[ subject ]</a>
+              <a href="author.html#1601">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

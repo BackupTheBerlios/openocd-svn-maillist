@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-891-g875298b
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-891-g875298b&In-Reply-To=%3Cmailman.91.1331736154.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002605.html">
+   <LINK REL="Next"  HREF="002607.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-891-g875298b</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-891-g875298b&In-Reply-To=%3Cmailman.91.1331736154.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-891-g875298b">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Sun May 29 23:22:07 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002605.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-890-gba57692
+</A></li>
+        <LI>Next message: <A HREF="002607.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-892-g096fd6b
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2606">[ date ]</a>
+              <a href="thread.html#2606">[ thread ]</a>
+              <a href="subject.html#2606">[ subject ]</a>
+              <a href="author.html#2606">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  875298bc53eb8274fd297099dc57135c9b0f1044 (commit)
+      from  ba576920cff26833befb6bc19a53c9593ddec0d0 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 875298bc53eb8274fd297099dc57135c9b0f1044
+Author: Stefan Mahr &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">stefan.mahr at sphairon.com</A>&gt;
+Date:   Sun May 29 22:50:40 2011 +0200
+
+    mips: fix swapping if running on big endian host
+
+diff --git a/src/target/mips_ejtag.c b/src/target/mips_ejtag.c
+index 704aec2..f951049 100644
+--- a/src/target/mips_ejtag.c
++++ b/src/target/mips_ejtag.c
+@@ -52,12 +52,13 @@ void mips_ejtag_set_instr(struct mips_ejtag *ejtag_info, int new_instr)
+ int mips_ejtag_get_idcode(struct mips_ejtag *ejtag_info, uint32_t *idcode)
+ {
+ 	struct scan_field field;
++	uint8_t r[4];
+ 
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_IDCODE);
+ 
+ 	field.num_bits = 32;
+ 	field.out_value = NULL;
+-	field.in_value = (void*)idcode;
++	field.in_value = r;
+ 
+ 	jtag_add_dr_scan(ejtag_info-&gt;tap, 1, &amp;field, TAP_IDLE);
+ 
+@@ -67,18 +68,22 @@ int mips_ejtag_get_idcode(struct mips_ejtag *ejtag_info, uint32_t *idcode)
+ 		LOG_ERROR(&quot;register read failed&quot;);
+ 		return retval;
+ 	}
++
++	*idcode = buf_get_u32(field.in_value, 0, 32);
++
+ 	return ERROR_OK;
+ }
+ 
+ static int mips_ejtag_get_impcode(struct mips_ejtag *ejtag_info, uint32_t *impcode)
+ {
+ 	struct scan_field field;
++	uint8_t r[4];
+ 
+ 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_IMPCODE);
+ 
+ 	field.num_bits = 32;
+ 	field.out_value = NULL;
+-	field.in_value = (void*)impcode;
++	field.in_value = r;
+ 
+ 	jtag_add_dr_scan(ejtag_info-&gt;tap, 1, &amp;field, TAP_IDLE);
+ 
+@@ -88,6 +93,9 @@ static int mips_ejtag_get_impcode(struct mips_ejtag *ejtag_info, uint32_t *impco
+ 		LOG_ERROR(&quot;register read failed&quot;);
+ 		return retval;
+ 	}
++
++	*impcode = buf_get_u32(field.in_value, 0, 32);
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -334,6 +342,8 @@ int mips_ejtag_init(struct mips_ejtag *ejtag_info)
+ int mips_ejtag_fastdata_scan(struct mips_ejtag *ejtag_info, int write_t, uint32_t *data)
+ {
+ 	struct jtag_tap *tap;
++	uint8_t r[4];
++
+ 	tap = ejtag_info-&gt;tap;
+ 	assert(tap != NULL);
+ 
+@@ -357,10 +367,16 @@ int mips_ejtag_fastdata_scan(struct mips_ejtag *ejtag_info, int write_t, uint32_
+ 	}
+ 	else
+ 	{
+-		fields[1].in_value = (uint8_t *) data;
++		fields[1].in_value = r;
+ 	}
+ 
+ 	jtag_add_dr_scan(tap, 2, fields, TAP_IDLE);
++
++	if (!write_t)
++	{
++		*data = buf_get_u32(fields[1].in_value, 0, 32);
++	}
++
+ 	keep_alive();
+ 
+ 	return ERROR_OK;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/mips_ejtag.c |   22 +++++++++++++++++++---
+ 1 files changed, 19 insertions(+), 3 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002605.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-890-gba57692
+</A></li>
+	<LI>Next message: <A HREF="002607.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-892-g096fd6b
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2606">[ date ]</a>
+              <a href="thread.html#2606">[ thread ]</a>
+              <a href="subject.html#2606">[ subject ]</a>
+              <a href="author.html#2606">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,258 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-838-gc7a17b8
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-838-gc7a17b8&In-Reply-To=%3Cmailman.54.1331736154.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002568.html">
+   <LINK REL="Next"  HREF="002570.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-838-gc7a17b8</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-838-gc7a17b8&In-Reply-To=%3Cmailman.54.1331736154.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-838-gc7a17b8">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Apr  8 18:26:53 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002568.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-836-gbecfbea
+</A></li>
+        <LI>Next message: <A HREF="002570.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-839-g13cf987
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2569">[ date ]</a>
+              <a href="thread.html#2569">[ thread ]</a>
+              <a href="subject.html#2569">[ subject ]</a>
+              <a href="author.html#2569">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  c7a17b8466d655f024d62fd106701e5042fb7ccc (commit)
+       via  24943498e611649a540d98406288dd6d4889851d (commit)
+      from  becfbeaacdbabecd0d0c6372dcb03505d89db4f3 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit c7a17b8466d655f024d62fd106701e5042fb7ccc
+Author: Ali Lown &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ali at lown.me.uk</A>&gt;
+Date:   Sun Apr 3 22:16:51 2011 +0100
+
+    Buffering for up to 64 bytes in USB Blaster.
+    
+    Uses a global buffer.
+    Add self to acknowledgements.
+
+diff --git a/src/jtag/drivers/usb_blaster.c b/src/jtag/drivers/usb_blaster.c
+index 1e8aa8d..68867ad 100644
+--- a/src/jtag/drivers/usb_blaster.c
++++ b/src/jtag/drivers/usb_blaster.c
+@@ -4,6 +4,10 @@
+  *     (<A HREF="http://www.ixo.de/info/usb_jtag/">http://www.ixo.de/info/usb_jtag/</A>).                                 *
+  *   Some updates by Anthony Liu (2006).                                   *
+  *   Minor updates and cleanup by Catalin Patulea (2009).                  *
++ *   Speed updates by Ali Lown (2011).                                     *
++ *                                                                         *
++ *   Copyright (C) 2011 Ali Lown                                           *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ali at lown.me.uk</A>                                                        *
+  *                                                                         *
+  *   Copyright (C) 2009 Catalin Patulea                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">cat at vv.carleton.ca</A>                                                    *
+@@ -104,8 +108,12 @@ static char *usb_blaster_device_desc;
+ static uint16_t usb_blaster_vid = 0x09fb; /* Altera */
+ static uint16_t usb_blaster_pid = 0x6001; /* USB-Blaster */
+ 
+-/* last output byte in simple bit banging mode */
++/* last output byte in simple bit banging (legacy) mode */
+ static uint8_t out_value;
++/* global output buffer for bit banging */
++#define BUF_LEN 64 //Size of EP1
++static uint8_t out_buffer[BUF_LEN];
++static uint16_t out_count = 0;
+ 
+ #if BUILD_USB_BLASTER_FTD2XX == 1
+ static FT_HANDLE ftdih;
+@@ -195,8 +203,7 @@ usb_blaster_buf_read(uint8_t *buf, unsigned size, uint32_t *bytes_read)
+ }
+ 
+ /* The following code doesn't fully utilize the possibilities of the
+- * USB-Blaster. It writes one byte per JTAG pin state change at a time; it
+- * doesn't even try to buffer data up to the maximum packet size of 64 bytes.
++ * USB-Blaster. It only buffers data up to the maximum packet size of 64 bytes.
+  *
+  * Actually, the USB-Blaster offers a byte-shift mode to transmit up to 504 data
+  * bits (bidirectional) in a single USB packet. A header byte has to be sent as
+@@ -225,8 +232,8 @@ usb_blaster_buf_read(uint8_t *buf, unsigned size, uint32_t *bytes_read)
+  *   Bit 0 (0x01): TCK Output.
+  *
+  * For transmitting a single data bit, you need to write two bytes. Up to 64
+- * bytes can be combined in a single USB packet (but this is not done in the
+- * code below). It isn't possible to read a data without transmitting data.
++ * bytes can be combined in a single USB packet.
++ * It isn't possible to read a data without transmitting data.
+  */
+ 
+ #define TCK			(1 &lt;&lt; 0)
+@@ -241,10 +248,22 @@ usb_blaster_buf_read(uint8_t *buf, unsigned size, uint32_t *bytes_read)
+ 
+ #define READ_TDO	(1 &lt;&lt; 0)
+ 
+-static void usb_blaster_write_data(void)
++static void usb_blaster_write_databuffer(uint8_t* buf, uint16_t len)
+ {
+ 	uint32_t bytes_written;
+-	usb_blaster_buf_write(&amp;out_value, 1, &amp;bytes_written);
++	usb_blaster_buf_write(buf, len, &amp;bytes_written);
++	out_count = 0;
++#ifdef _DEBUG_JTAG_IO_
++	LOG_DEBUG(&quot;---- WROTE %d&quot;,bytes_written);
++#endif
++}
++
++static void usb_blaster_addtowritebuffer(uint8_t value, bool forcewrite)
++{
++	out_buffer[out_count] = value;
++	out_count += 1;
++	if(out_count == BUF_LEN || forcewrite)
++		usb_blaster_write_databuffer(out_buffer, out_count);
+ }
+ 
+ static int usb_blaster_read_data(void)
+@@ -253,8 +272,11 @@ static int usb_blaster_read_data(void)
+ 	uint8_t buf[1];
+ 	uint32_t bytes_read;
+ 
++	if(out_count &gt; 0)
++		usb_blaster_write_databuffer(out_buffer, out_count);
++
+ 	out_value |= READ;
+-	usb_blaster_write_data();
++	usb_blaster_addtowritebuffer(out_value, true);
+ 	out_value &amp;= ~READ;
+ 
+ 	status = usb_blaster_buf_read(buf, 1, &amp;bytes_read);
+@@ -277,7 +299,7 @@ static void usb_blaster_write(int tck, int tms, int tdi)
+ 	if (tdi)
+ 		out_value |= TDI;
+ 
+-	usb_blaster_write_data();
++	usb_blaster_addtowritebuffer(out_value, false);
+ }
+ 
+ static int usb_blaster_speed(int speed)
+@@ -312,7 +334,8 @@ static void usb_blaster_blink(int state)
+ 	out_value = 0x00;
+ 	if(state)
+ 		out_value |= LED;
+-	usb_blaster_write_data();
++
++	usb_blaster_addtowritebuffer(out_value, true);
+ }
+ 
+ static struct bitbang_interface usb_blaster_bitbang = {
+@@ -478,6 +501,9 @@ static int usb_blaster_init(void)
+ 
+ static int usb_blaster_quit(void)
+ {
++	if(out_count &gt; 0)
++		usb_blaster_write_databuffer(out_buffer, out_count);
++
+ #if BUILD_USB_BLASTER_FTD2XX == 1
+ 	FT_STATUS status;
+ 
+@@ -543,12 +569,12 @@ COMMAND_HANDLER(usb_blaster_handle_pin_command)
+ 		if (state == 0)
+ 		{
+ 			out_value &amp;= ~mask;
+-			usb_blaster_write_data();
++			usb_blaster_addtowritebuffer(out_value, true);
+ 		}
+ 		else if (state == 1)
+ 		{
+ 			out_value |= mask;
+-			usb_blaster_write_data();
++			usb_blaster_addtowritebuffer(out_value, true);
+ 		}
+ 		else
+ 		{
+
+commit 24943498e611649a540d98406288dd6d4889851d
+Author: Ali Lown &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ali at lown.me.uk</A>&gt;
+Date:   Sun Apr 3 21:56:14 2011 +0100
+
+    Add support for LED to USB Blaster code.
+
+diff --git a/src/jtag/drivers/usb_blaster.c b/src/jtag/drivers/usb_blaster.c
+index 8330493..1e8aa8d 100644
+--- a/src/jtag/drivers/usb_blaster.c
++++ b/src/jtag/drivers/usb_blaster.c
+@@ -307,10 +307,19 @@ static void usb_blaster_reset(int trst, int srst)
+ 			trst, srst);
+ }
+ 
++static void usb_blaster_blink(int state)
++{
++	out_value = 0x00;
++	if(state)
++		out_value |= LED;
++	usb_blaster_write_data();
++}
++
+ static struct bitbang_interface usb_blaster_bitbang = {
+ 	.read = usb_blaster_read_data,
+ 	.write = usb_blaster_write,
+ 	.reset = usb_blaster_reset,
++	.blink = usb_blaster_blink,
+ };
+ 
+ static int usb_blaster_init(void)
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/drivers/usb_blaster.c |   57 ++++++++++++++++++++++++++++++++-------
+ 1 files changed, 46 insertions(+), 11 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002568.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-836-gbecfbea
+</A></li>
+	<LI>Next message: <A HREF="002570.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-839-g13cf987
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2569">[ date ]</a>
+              <a href="thread.html#2569">[ thread ]</a>
+              <a href="subject.html#2569">[ subject ]</a>
+              <a href="author.html#2569">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

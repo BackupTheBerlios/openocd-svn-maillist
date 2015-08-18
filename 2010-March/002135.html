@@ -1,0 +1,288 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-53-g5e78ddc
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-53-g5e78ddc&In-Reply-To=%3CE1Nn3Cz-0002wb-Bu%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002134.html">
+   <LINK REL="Next"  HREF="002136.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-53-g5e78ddc</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-53-g5e78ddc&In-Reply-To=%3CE1Nn3Cz-0002wb-Bu%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-53-g5e78ddc">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Thu Mar  4 06:02:48 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002134.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-51-g99939c3
+</A></li>
+        <LI>Next message: <A HREF="002136.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-54-g45a528f
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2135">[ date ]</a>
+              <a href="thread.html#2135">[ thread ]</a>
+              <a href="subject.html#2135">[ subject ]</a>
+              <a href="author.html#2135">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  5e78ddcea0d8303c316f687c05dfa78af27109d8 (commit)
+       via  5fdf9535cef7e43f6e99081b6d1f6bd682184803 (commit)
+      from  99939c3c75f3bef44d4cd176e90a6c5fe8b833da (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 5e78ddcea0d8303c316f687c05dfa78af27109d8
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Wed Mar 3 21:01:16 2010 -0800
+
+    NOR: trim range in flash_driver_protect()
+    
+    When the beginning or end of the specified range of sectors
+    already has the requested protection status, don't ask the
+    flash driver to change those sectors.
+    
+    This will among other things turn command sequences like
+    this into the NOPs one would expect:
+    
+    	flash protect_check 0
+    	flash info 0
+    		... reports everything as unprotected ...
+    	flash protect 0 0 1 off
+    
+    That speeds things up (by whatever work was just avoided).
+    
+    Also, with Stellaris (which can't unprotect flash at  page level)
+    this can eliminate some undesirable/false error reports.  (And
+    finishes fixing a bug currently listed in our bug database...)
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/flash/nor/core.c b/src/flash/nor/core.c
+index fc020a8..767006d 100644
+--- a/src/flash/nor/core.c
++++ b/src/flash/nor/core.c
+@@ -54,6 +54,63 @@ int flash_driver_erase(struct flash_bank *bank, int first, int last)
+ int flash_driver_protect(struct flash_bank *bank, int set, int first, int last)
+ {
+ 	int retval;
++	bool updated = false;
++
++	/* NOTE: &quot;first == last&quot; means protect just that sector */
++
++	/* callers may not supply illegal parameters ... */
++	if (first &lt; 0 || first &gt; last || last &gt;= bank-&gt;num_sectors)
++		return ERROR_FAIL;
++
++	/* force &quot;set&quot; to 0/1 */
++	set = !!set;
++
++	/*
++	 * Filter out what trivial nonsense we can, so drivers don't have to.
++	 *
++	 * Don't tell drivers to change to the current state...  it's needless,
++	 * and reducing the amount of work to be done (potentially to nothing)
++	 * speeds at least some things up.
++	 */
++scan:
++	for (int i = first; i &lt; last; i++) {
++		struct flash_sector *sector = bank-&gt;sectors + i;
++
++		/* Only filter requests to protect the already-protected, or
++		 * to unprotect the already-unprotected.  Changing from the
++		 * unknown state (-1) to a known one is unwise but allowed;
++		 * protection status is best checked first.
++		 */
++		if (sector-&gt;is_protected != set)
++			continue;
++
++		/* Shrink this range of sectors from the start; don't overrun
++		 * the end.  Also shrink from the end; don't overun the start.
++		 *
++		 * REVISIT we could handle discontiguous regions by issuing
++		 * more than one driver request.  How much would that matter?
++		 */
++		if (i == first) {
++			updated = true;
++			first++;
++		} else if (i == last) {
++			updated = true;
++			last--;
++		}
++	}
++
++	/* updating the range affects the tests in the scan loop above; so
++	 * re-scan, to make sure we didn't miss anything.
++	 */
++	if (updated) {
++		updated = false;
++		goto scan;
++	}
++
++	/* Single sector, already protected?  Nothing to do! */
++	if (first == last)
++		return ERROR_OK;
++
+ 
+ 	retval = bank-&gt;driver-&gt;protect(bank, set, first, last);
+ 	if (retval != ERROR_OK)
+
+commit 5fdf9535cef7e43f6e99081b6d1f6bd682184803
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Wed Mar 3 20:57:49 2010 -0800
+
+    NOR: invalidate cached state on target resume
+    
+    The NOR infrastructure caches some per-sector state, but
+    it's not used much ... because the cache is not trustworthy.
+    
+    This patch addresses one part of that problem, by ensuring
+    that state cached by NOR drivers gets invalidated once we
+    resume the target -- since targets may then modify sectors.
+    
+    Now if we see sector protection or erase status marked as
+    anything other than &quot;unknown&quot;, we should be able to rely
+    on that as being accurate.  (That is ... if we assume the
+    drivers initialize and update this state correctly.)
+    
+    Another part of that problem is that the cached state isn't
+    much used (being unreliable, it would have been unsafe).
+    Those issues can be addressed in later patches.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/flash/nor/core.c b/src/flash/nor/core.c
+index 2c61519..fc020a8 100644
+--- a/src/flash/nor/core.c
++++ b/src/flash/nor/core.c
+@@ -657,3 +657,34 @@ int flash_write(struct target *target, struct image *image,
+ {
+ 	return flash_write_unlock(target, image, written, erase, false);
+ }
++
++/**
++ * Invalidates cached flash state which a target can change as it runs.
++ *
++ * @param target The target being resumed
++ *
++ * OpenOCD caches some flash state for brief periods.  For example, a sector
++ * that is protected must be unprotected before OpenOCD tries to write it,
++ * Also, a sector that's not erased must be erased before it's written.
++ *
++ * As a rule, OpenOCD and target firmware can both modify the flash, so when
++ * a target starts running, OpenOCD needs to invalidate its cached state.
++ */
++void nor_resume(struct target *target)
++{
++	struct flash_bank *bank;
++
++	for (bank = flash_banks; bank; bank = bank-&gt;next) {
++		int i;
++
++		if (bank-&gt;target != target)
++			continue;
++
++		for (i = 0; i &lt; bank-&gt;num_sectors; i++) {
++			struct flash_sector *sector = bank-&gt;sectors + i;
++
++			sector-&gt;is_erased = -1;
++			sector-&gt;is_protected = -1;
++		}
++	}
++}
+diff --git a/src/flash/nor/core.h b/src/flash/nor/core.h
+index b164b8d..98763b7 100644
+--- a/src/flash/nor/core.h
++++ b/src/flash/nor/core.h
+@@ -122,6 +122,10 @@ int flash_erase_address_range(struct target *target,
+  */
+ int flash_write(struct target *target,
+ 		struct image *image, uint32_t *written, int erase);
++
++/* invalidate cached state (targets may modify their own flash) */
++void nor_resume(struct target *target);
++
+ /**
+  * Forces targets to re-examine their erase/protection state.
+  * This routine must be called when the system may modify the status.
+diff --git a/src/target/target.c b/src/target/target.c
+index 9596302..1eb1435 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -35,6 +35,7 @@
+ 
+ #include &lt;helper/time_support.h&gt;
+ #include &lt;jtag/jtag.h&gt;
++#include &lt;flash/nor/core.h&gt;
+ 
+ #include &quot;target.h&quot;
+ #include &quot;target_type.h&quot;
+@@ -472,6 +473,14 @@ int target_resume(struct target *target, int current, uint32_t address, int hand
+ 	if ((retval = target-&gt;type-&gt;resume(target, current, address, handle_breakpoints, debug_execution)) != ERROR_OK)
+ 		return retval;
+ 
++	/* Invalidate any cached protect/erase/... flash status, since
++	 * almost all targets will now be able modify the flash by
++	 * themselves.  We want flash drivers and infrastructure to
++	 * be able to rely on (non-invalidated) cached state.
++	 *
++	 * REVISIT do the same for NAND ; maybe other flash flavors too...
++	 */
++	nor_resume(target);
+ 	return retval;
+ }
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/core.c |   88 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ src/flash/nor/core.h |    4 ++
+ src/target/target.c  |    9 +++++
+ 3 files changed, 101 insertions(+), 0 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002134.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-51-g99939c3
+</A></li>
+	<LI>Next message: <A HREF="002136.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-54-g45a528f
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2135">[ date ]</a>
+              <a href="thread.html#2135">[ thread ]</a>
+              <a href="subject.html#2135">[ subject ]</a>
+              <a href="author.html#2135">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

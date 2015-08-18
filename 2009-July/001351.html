@@ -1,0 +1,179 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2568 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2568%20-%20trunk/src/target&In-Reply-To=%3C200907262000.n6QK0eED001241%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001350.html">
+   <LINK REL="Next"  HREF="001352.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2568 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2568%20-%20trunk/src/target&In-Reply-To=%3C200907262000.n6QK0eED001241%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2568 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Sun Jul 26 22:00:40 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001350.html">[Openocd-svn] r2567 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001352.html">[Openocd-svn] r2569 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1351">[ date ]</a>
+              <a href="thread.html#1351">[ thread ]</a>
+              <a href="subject.html#1351">[ subject ]</a>
+              <a href="author.html#1351">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-07-26 22:00:39 +0200 (Sun, 26 Jul 2009)
+New Revision: 2568
+
+Modified:
+   trunk/src/target/arm_disassembler.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt; More testcase work:
+
+       A5.3.11 Data processing (shifted register)
+
+The usual kinds of problems; the most noteworthy were that
+the &quot;S&quot;et flags bit was mis-handled in these instructions.
+---
+This is the last patch from a quickie set of tests covering all
+encodings of the instructions with 32-bit opcodes.  There may
+be some corner cases left, plus the instructions that aren't
+yet handled, but the Thumb2 disassembler is no longer just
+&quot;lightly&quot; tested with GCC output ... the new code paths have
+mostly been verified.
+
+Modified: trunk/src/target/arm_disassembler.c
+===================================================================
+--- trunk/src/target/arm_disassembler.c	2009-07-26 19:59:33 UTC (rev 2567)
++++ trunk/src/target/arm_disassembler.c	2009-07-26 20:00:39 UTC (rev 2568)
+@@ -1395,6 +1395,7 @@
+ 	}
+ 	else
+ 	{
++		/* REVISIT:  if reg_imm == 0, display as &quot;MOVS&quot; */
+ 		instruction-&gt;type = ARM_ADD;
+ 		mnemonic = &quot;ADDS&quot;;
+ 	}
+@@ -3017,17 +3018,18 @@
+ 	char *mnemonic;
+ 	char *suffix = &quot;&quot;;
+ 
+-	immed |= (opcode &gt;&gt; 10) &amp; 0x7;
+-	if (opcode &amp; (1 &lt;&lt; 21))
++	immed |= (opcode &gt;&gt; 10) &amp; 0x1c;
++	if (opcode &amp; (1 &lt;&lt; 20))
+ 		suffix = &quot;S&quot;;
+ 
+ 	switch (op) {
+ 	case 0:
+ 		if (rd == 0xf) {
+-			if (!(opcode &amp; (1 &lt;&lt; 21)))
++			if (!(opcode &amp; (1 &lt;&lt; 20)))
+ 				return ERROR_INVALID_ARGUMENTS;
+ 			instruction-&gt;type = ARM_TST;
+ 			mnemonic = &quot;TST&quot;;
++			suffix = &quot;&quot;;
+ 			goto two;
+ 		}
+ 		instruction-&gt;type = ARM_AND;
+@@ -3058,7 +3060,7 @@
+ 				break;
+ 			default:
+ 				if (immed == 0) {
+-					sprintf(cp, &quot;RRX%s.W\tr%d, r%d&quot;,
++					sprintf(cp, &quot;RRX%s\tr%d, r%d&quot;,
+ 						suffix, rd,
+ 						(int) (opcode &amp; 0xf));
+ 					return ERROR_OK;
+@@ -3085,10 +3087,11 @@
+ 		break;
+ 	case 4:
+ 		if (rd == 0xf) {
+-			if (!(opcode &amp; (1 &lt;&lt; 21)))
++			if (!(opcode &amp; (1 &lt;&lt; 20)))
+ 				return ERROR_INVALID_ARGUMENTS;
+ 			instruction-&gt;type = ARM_TEQ;
+ 			mnemonic = &quot;TEQ&quot;;
++			suffix = &quot;&quot;;
+ 			goto two;
+ 		}
+ 		instruction-&gt;type = ARM_EOR;
+@@ -3096,10 +3099,11 @@
+ 		break;
+ 	case 8:
+ 		if (rd == 0xf) {
+-			if (!(opcode &amp; (1 &lt;&lt; 21)))
++			if (!(opcode &amp; (1 &lt;&lt; 20)))
+ 				return ERROR_INVALID_ARGUMENTS;
+ 			instruction-&gt;type = ARM_CMN;
+ 			mnemonic = &quot;CMN&quot;;
++			suffix = &quot;&quot;;
+ 			goto two;
+ 		}
+ 		instruction-&gt;type = ARM_ADD;
+@@ -3119,6 +3123,7 @@
+ 				return ERROR_INVALID_ARGUMENTS;
+ 			instruction-&gt;type = ARM_CMP;
+ 			mnemonic = &quot;CMP&quot;;
++			suffix = &quot;&quot;;
+ 			goto two;
+ 		}
+ 		instruction-&gt;type = ARM_SUB;
+@@ -3146,13 +3151,17 @@
+ 		break;
+ 	case 1:
+ 		suffix = &quot;LSR&quot;;
++		if (immed == 32)
++			immed = 0;
+ 		break;
+ 	case 2:
+ 		suffix = &quot;ASR&quot;;
++		if (immed == 32)
++			immed = 0;
+ 		break;
+ 	case 3:
+ 		if (immed == 0) {
+-			strcpy(cp, &quot;RRX&quot;);
++			strcpy(cp, &quot;, RRX&quot;);
+ 			return ERROR_OK;
+ 		}
+ 		suffix = &quot;ROR&quot;;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001350.html">[Openocd-svn] r2567 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001352.html">[Openocd-svn] r2569 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1351">[ date ]</a>
+              <a href="thread.html#1351">[ thread ]</a>
+              <a href="subject.html#1351">[ subject ]</a>
+              <a href="author.html#1351">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

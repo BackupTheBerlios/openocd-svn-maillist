@@ -1,0 +1,493 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2663 - trunk/src/flash
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2663%20-%20trunk/src/flash&In-Reply-To=%3C200909030823.n838Neh3021012%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001445.html">
+   <LINK REL="Next"  HREF="001447.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2663 - trunk/src/flash</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2663%20-%20trunk/src/flash&In-Reply-To=%3C200909030823.n838Neh3021012%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2663 - trunk/src/flash">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Thu Sep  3 10:23:40 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001445.html">[Openocd-svn] r2662 - trunk/tcl/target
+</A></li>
+        <LI>Next message: <A HREF="001447.html">[Openocd-svn] r2664 - trunk/tcl/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1446">[ date ]</a>
+              <a href="thread.html#1446">[ thread ]</a>
+              <a href="subject.html#1446">[ subject ]</a>
+              <a href="author.html#1446">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-09-03 10:23:39 +0200 (Thu, 03 Sep 2009)
+New Revision: 2663
+
+Added:
+   trunk/src/flash/arm_nandio.c
+   trunk/src/flash/arm_nandio.h
+Modified:
+   trunk/src/flash/Makefile.am
+   trunk/src/flash/davinci_nand.c
+   trunk/src/flash/nand.h
+   trunk/src/flash/orion_nand.c
+Log:
+David Brownell
+
+Abstract the orion_nand_fast_block_write() routine into a separate
+routine -- arm_nandwrite() -- so that other ARM cores can reuse it.
+
+Have davinci_nand do so.  This faster than byte-at-a-time ops by a
+factor of three (!), even given the slowish interactions to support
+hardware ECC (1-bit flavor in that test) each 512 bytes; those could
+be read more efficiently by on-chip code.
+
+NOTE that until there's a generic &quot;ARM algorithm&quot; structure, this
+can't work on newer ARMv6 (like ARM1136) or ARMv7A (like Cortex-A8)
+cores, though the downloaded code itself would work just fine there.
+
+Modified: trunk/src/flash/Makefile.am
+===================================================================
+--- trunk/src/flash/Makefile.am	2009-09-02 17:34:35 UTC (rev 2662)
++++ trunk/src/flash/Makefile.am	2009-09-03 08:23:39 UTC (rev 2663)
+@@ -6,6 +6,7 @@
+ METASOURCES = AUTO
+ noinst_LTLIBRARIES = libflash.la
+ libflash_la_SOURCES = \
++	arm_nandio.c \
+ 	flash.c \
+ 	lpc2000.c \
+ 	cfi.c \
+@@ -38,6 +39,7 @@
+ 	avrf.c
+ 
+ noinst_HEADERS = \
++	arm_nandio.h \
+ 	flash.h \
+ 	lpc2000.h \
+ 	cfi.h \
+
+Added: trunk/src/flash/arm_nandio.c
+===================================================================
+--- trunk/src/flash/arm_nandio.c	2009-09-02 17:34:35 UTC (rev 2662)
++++ trunk/src/flash/arm_nandio.c	2009-09-03 08:23:39 UTC (rev 2663)
+@@ -0,0 +1,131 @@
++/*
++ * Copyright (C) 2009 by Marvell Semiconductors, Inc.
++ * Written by Nicolas Pitre &lt;nico at marvell.com&gt;
++ *
++ * Copyright (C) 2009 by David Brownell
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the
++ * Free Software Foundation, Inc.,
++ * 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++ */
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;arm_nandio.h&quot;
++#include &quot;armv4_5.h&quot;
++
++
++/*
++ * ARM-specific bulk write from buffer to address of 8-bit wide NAND.
++ * For now this only supports ARMv4 and ARMv5 cores.
++ *
++ * Enhancements to target_run_algorithm() could enable:
++ *   - faster writes: on ARMv5+ don't setup/teardown hardware breakpoint
++ *   - ARMv6 and ARMv7 cores in ARM mode
++ *
++ * Different code fragments could handle:
++ *   - Thumb2 cores like Cortex-M (needs different byteswapping)
++ *   - 16-bit wide data (needs different setup too)
++ */
++int arm_nandwrite(struct arm_nand_data *nand, uint8_t *data, int size)
++{
++	target_t		*target = nand-&gt;target;
++	armv4_5_algorithm_t	algo;
++	reg_param_t		reg_params[3];
++	uint32_t		target_buf;
++	int			retval;
++
++	/* Inputs:
++	 *  r0	NAND data address (byte wide)
++	 *  r1	buffer address
++	 *  r2	buffer length
++	 */
++	static const uint32_t code[] = {
++		0xe4d13001,	/* s: ldrb  r3, [r1], #1 */
++		0xe5c03000,	/*    strb  r3, [r0]     */
++		0xe2522001,	/*    subs  r2, r2, #1   */
++		0x1afffffb,	/*    bne   s            */
++
++		/* exit: ARMv4 needs hardware breakpoint */
++		0xe1200070,	/* e: bkpt  #0           */
++	};
++
++	if (!nand-&gt;copy_area) {
++		uint8_t		code_buf[sizeof(code)];
++		unsigned	i;
++
++		/* make sure we have a working area */
++		if (target_alloc_working_area(target,
++				sizeof(code) + nand-&gt;chunk_size,
++				&amp;nand-&gt;copy_area) != ERROR_OK) {
++			LOG_DEBUG(&quot;%s: no %d byte buffer&quot;,
++					__FUNCTION__,
++					(int) sizeof(code) + nand-&gt;chunk_size);
++			return ERROR_NAND_NO_BUFFER;
++		}
++
++		/* buffer code in target endianness */
++		for (i = 0; i &lt; sizeof(code) / 4; i++)
++			target_buffer_set_u32(target, code_buf + i * 4, code[i]);
++
++		/* copy code to work area */
++                retval = target_write_memory(target,
++					nand-&gt;copy_area-&gt;address,
++					4, sizeof(code) / 4, code_buf);
++		if (retval != ERROR_OK)
++			return retval;
++	}
++
++	/* copy data to work area */
++	target_buf = nand-&gt;copy_area-&gt;address + sizeof(code);
++	retval = target_bulk_write_memory(target, target_buf, size / 4, data);
++	if (retval == ERROR_OK &amp;&amp; (size &amp; 3) != 0)
++		retval = target_write_memory(target,
++				target_buf + (size &amp; ~3),
++				1, size &amp; 3, data + (size &amp; ~3));
++	if (retval != ERROR_OK)
++		return retval;
++
++	/* set up algorithm and parameters */
++	algo.common_magic = ARMV4_5_COMMON_MAGIC;
++	algo.core_mode = ARMV4_5_MODE_SVC;
++	algo.core_state = ARMV4_5_STATE_ARM;
++
++	init_reg_param(&amp;reg_params[0], &quot;r0&quot;, 32, PARAM_IN);
++	init_reg_param(&amp;reg_params[1], &quot;r1&quot;, 32, PARAM_IN);
++	init_reg_param(&amp;reg_params[2], &quot;r2&quot;, 32, PARAM_IN);
++
++	buf_set_u32(reg_params[0].value, 0, 32, nand-&gt;data);
++	buf_set_u32(reg_params[1].value, 0, 32, target_buf);
++	buf_set_u32(reg_params[2].value, 0, 32, size);
++
++	/* use alg to write data from work area to NAND chip */
++	retval = target_run_algorithm(target, 0, NULL, 3, reg_params,
++			nand-&gt;copy_area-&gt;address,
++			nand-&gt;copy_area-&gt;address + sizeof(code) - 4,
++			1000, &amp;algo);
++	if (retval != ERROR_OK)
++		LOG_ERROR(&quot;error executing hosted NAND write&quot;);
++
++	destroy_reg_param(&amp;reg_params[0]);
++	destroy_reg_param(&amp;reg_params[1]);
++	destroy_reg_param(&amp;reg_params[2]);
++
++	return retval;
++}
++
++/* REVISIT do the same for bulk *read* too ... */
++
+
+
+Property changes on: trunk/src/flash/arm_nandio.c
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/src/flash/arm_nandio.h
+===================================================================
+--- trunk/src/flash/arm_nandio.h	2009-09-02 17:34:35 UTC (rev 2662)
++++ trunk/src/flash/arm_nandio.h	2009-09-03 08:23:39 UTC (rev 2663)
+@@ -0,0 +1,25 @@
++#ifndef __ARM_NANDIO_H
++#define  __ARM_NANDIO_H
++
++#include &quot;nand.h&quot;
++#include &quot;binarybuffer.h&quot;
++
++struct arm_nand_data {
++	/* target is proxy for some ARM core */
++	struct target_s		*target;
++
++	/* copy_area holds write-to-NAND loop and data to write */
++	struct working_area_s	*copy_area;
++
++	/* chunk_size == page or ECC unit */
++	unsigned		chunk_size;
++
++	/* data == where to write the data */
++	uint32_t		data;
++
++	/* currently implicit:  data width == 8 bits (not 16) */
++};
++
++int arm_nandwrite(struct arm_nand_data *nand, uint8_t *data, int size);
++
++#endif  /* __ARM_NANDIO_H */
+
+
+Property changes on: trunk/src/flash/arm_nandio.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/src/flash/davinci_nand.c
+===================================================================
+--- trunk/src/flash/davinci_nand.c	2009-09-02 17:34:35 UTC (rev 2662)
++++ trunk/src/flash/davinci_nand.c	2009-09-03 08:23:39 UTC (rev 2663)
+@@ -28,7 +28,7 @@
+ #include &quot;config.h&quot;
+ #endif
+ 
+-#include &quot;nand.h&quot;
++#include &quot;arm_nandio.h&quot;
+ 
+ 
+ enum ecc {
+@@ -51,6 +51,9 @@
+ 	uint32_t		cmd;		/* with CLE */
+ 	uint32_t		addr;		/* with ALE */
+ 
++	/* write acceleration */
++	struct arm_nand_data	io;
++
+ 	/* page i/o for the relevant flavor of hardware ECC */
+ 	int (*read_page)(struct nand_device_s *nand, uint32_t page,
+ 			uint8_t *data, uint32_t data_size, uint8_t *oob, uint32_t oob_size);
+@@ -181,7 +184,7 @@
+ 	return ERROR_OK;
+ }
+ 
+-/* REVISIT a bit of native code should let block I/O be MUCH faster */
++/* REVISIT a bit of native code should let block reads be MUCH faster */
+ 
+ static int davinci_read_block_data(struct nand_device_s *nand,
+ 		uint8_t *data, int data_size)
+@@ -223,10 +226,17 @@
+ 	target_t *target = info-&gt;target;
+ 	uint32_t nfdata = info-&gt;data;
+ 	uint32_t tmp;
++	int status;
+ 
+ 	if (!halted(target, &quot;write_block&quot;))
+ 		return ERROR_NAND_OPERATION_FAILED;
+ 
++	/* try the fast way first */
++	status = arm_nandwrite(&amp;info-&gt;io, data, data_size);
++	if (status != ERROR_NAND_NO_BUFFER)
++		return status;
++
++	/* else do it slowly */
+ 	while (data_size &gt;= 4) {
+ 		tmp = le_to_h_u32(data);
+ 		target_write_u32(target, nfdata, tmp);
+@@ -285,6 +295,12 @@
+ 		memset(oob, 0x0ff, oob_size);
+ 	}
+ 
++	/* REVISIT avoid wasting SRAM:  unless nand-&gt;use_raw is set,
++	 * use 512 byte chunks.  Read side support will often want
++	 * to include oob_size ...
++	 */
++	info-&gt;io.chunk_size = nand-&gt;page_size;
++
+ 	status = info-&gt;write_page(nand, page, data, data_size, oob, oob_size);
+ 	free(ooballoc);
+ 	return status;
+@@ -700,6 +716,9 @@
+ 
+ 	nand-&gt;controller_priv = info;
+ 
++	info-&gt;io.target = target;
++	info-&gt;io.data = info-&gt;data;
++
+ 	/* NOTE:  for now we don't do any error correction on read.
+ 	 * Nothing else in OpenOCD currently corrects read errors,
+ 	 * and in any case it's *writing* that we care most about.
+
+Modified: trunk/src/flash/nand.h
+===================================================================
+--- trunk/src/flash/nand.h	2009-09-02 17:34:35 UTC (rev 2662)
++++ trunk/src/flash/nand.h	2009-09-03 08:23:39 UTC (rev 2663)
+@@ -223,5 +223,6 @@
+ #define		ERROR_NAND_OPERATION_NOT_SUPPORTED	(-1103)
+ #define		ERROR_NAND_DEVICE_NOT_PROBED	(-1104)
+ #define		ERROR_NAND_ERROR_CORRECTION_FAILED	(-1105)
++#define		ERROR_NAND_NO_BUFFER			(-1106)
+ 
+ #endif /* NAND_H */
+
+Modified: trunk/src/flash/orion_nand.c
+===================================================================
+--- trunk/src/flash/orion_nand.c	2009-09-02 17:34:35 UTC (rev 2662)
++++ trunk/src/flash/orion_nand.c	2009-09-03 08:23:39 UTC (rev 2663)
+@@ -26,16 +26,16 @@
+ #include &quot;config.h&quot;
+ #endif
+ 
+-#include &quot;nand.h&quot;
++#include &quot;arm_nandio.h&quot;
+ #include &quot;armv4_5.h&quot;
+-#include &quot;binarybuffer.h&quot;
+ 
+ 
+ typedef struct orion_nand_controller_s
+ {
+ 	struct target_s	*target;
+-	working_area_t *copy_area;
+ 
++	struct arm_nand_data	io;
++
+ 	uint32_t		cmd;
+ 	uint32_t		addr;
+ 	uint32_t		data;
+@@ -99,78 +99,14 @@
+ static int orion_nand_fast_block_write(struct nand_device_s *device, uint8_t *data, int size)
+ {
+ 	orion_nand_controller_t *hw = device-&gt;controller_priv;
+-	target_t *target = hw-&gt;target;
+-	armv4_5_algorithm_t algo;
+-	reg_param_t reg_params[3];
+-	uint32_t target_buf;
+ 	int retval;
+ 
+-	static const uint32_t code[] = {
+-		0xe4d13001,	/* ldrb	r3, [r1], #1	*/
+-		0xe5c03000,	/* strb	r3, [r0]	*/
+-		0xe2522001,	/* subs	r2, r2, #1	*/
+-		0x1afffffb,	/* bne	0		*/
+-		0xeafffffe,	/* b	.		*/
+-	};
+-	int code_size = sizeof(code);
++	hw-&gt;io.chunk_size = device-&gt;page_size;
+ 
+-	if (!hw-&gt;copy_area) {
+-		uint8_t code_buf[code_size];
+-		int i;
++	retval = arm_nandwrite(&amp;hw-&gt;io, data, size);
++	if (retval == ERROR_NAND_NO_BUFFER)
++		retval = orion_nand_slow_block_write(device, data, size);
+ 
+-		/* make sure we have a working area */
+-		if (target_alloc_working_area(target,
+-					      code_size + device-&gt;page_size,
+-					      &amp;hw-&gt;copy_area) != ERROR_OK)
+-		{
+-			return orion_nand_slow_block_write(device, data, size);
+-		}
+-
+-		/* copy target instructions to target endianness */
+-		for (i = 0; i &lt; code_size/4; i++)
+-			target_buffer_set_u32(target, code_buf + i*4, code[i]);
+-
+-		/* write code to working area */
+-                retval = target_write_memory(target,
+-					hw-&gt;copy_area-&gt;address,
+-					4, code_size/4, code_buf);
+-		if (retval != ERROR_OK)
+-			return retval;
+-	}
+-
+-	/* copy data to target's memory */
+-	target_buf = hw-&gt;copy_area-&gt;address + code_size;
+-	retval = target_bulk_write_memory(target, target_buf, size/4, data);
+-	if (retval == ERROR_OK &amp;&amp; size &amp; 3) {
+-		retval = target_write_memory(target,
+-					target_buf + (size &amp; ~3),
+-					1, size &amp; 3, data + (size &amp; ~3));
+-	}
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-	algo.common_magic = ARMV4_5_COMMON_MAGIC;
+-	algo.core_mode = ARMV4_5_MODE_SVC;
+-	algo.core_state = ARMV4_5_STATE_ARM;
+-
+-	init_reg_param(&amp;reg_params[0], &quot;r0&quot;, 32, PARAM_IN);
+-	init_reg_param(&amp;reg_params[1], &quot;r1&quot;, 32, PARAM_IN);
+-	init_reg_param(&amp;reg_params[2], &quot;r2&quot;, 32, PARAM_IN);
+-
+-	buf_set_u32(reg_params[0].value, 0, 32, hw-&gt;data);
+-	buf_set_u32(reg_params[1].value, 0, 32, target_buf);
+-	buf_set_u32(reg_params[2].value, 0, 32, size);
+-
+-	retval = target_run_algorithm(target, 0, NULL, 3, reg_params,
+-					hw-&gt;copy_area-&gt;address,
+-					hw-&gt;copy_area-&gt;address + code_size - 4,
+-					1000, &amp;algo);
+-	if (retval != ERROR_OK)
+-		LOG_ERROR(&quot;error executing hosted NAND write&quot;);
+-
+-	destroy_reg_param(&amp;reg_params[0]);
+-	destroy_reg_param(&amp;reg_params[1]);
+-	destroy_reg_param(&amp;reg_params[2]);
+ 	return retval;
+ }
+ 
+@@ -224,6 +160,9 @@
+ 	hw-&gt;cmd = base + (1 &lt;&lt; cle);
+ 	hw-&gt;addr = base + (1 &lt;&lt; ale);
+ 
++	hw-&gt;io.target = hw-&gt;target;
++	hw-&gt;io.data = hw-&gt;data;
++
+ 	return ERROR_OK;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001445.html">[Openocd-svn] r2662 - trunk/tcl/target
+</A></li>
+	<LI>Next message: <A HREF="001447.html">[Openocd-svn] r2664 - trunk/tcl/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1446">[ date ]</a>
+              <a href="thread.html#1446">[ thread ]</a>
+              <a href="subject.html#1446">[ subject ]</a>
+              <a href="author.html#1446">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

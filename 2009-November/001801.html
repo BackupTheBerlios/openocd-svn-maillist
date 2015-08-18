@@ -1,0 +1,428 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-419-g91ac164
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-419-g91ac164&In-Reply-To=%3CE1NAB1D-0001WE-TX%409j8yhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001800.html">
+   <LINK REL="Next"  HREF="001802.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-419-g91ac164</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-419-g91ac164&In-Reply-To=%3CE1NAB1D-0001WE-TX%409j8yhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-419-g91ac164">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Tue Nov 17 00:29:58 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001800.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-415-gb6e0f2e
+</A></li>
+        <LI>Next message: <A HREF="001802.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-425-g51862bb
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1801">[ date ]</a>
+              <a href="thread.html#1801">[ thread ]</a>
+              <a href="subject.html#1801">[ subject ]</a>
+              <a href="author.html#1801">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  91ac164d95e1101120b938c684b78934d23dd51c (commit)
+       via  bf972374011359a1d160b0359e59c4350e78aefe (commit)
+       via  2fb58116a58f7928af75839e65c07f7d55c81500 (commit)
+       via  a7c04a0e49bf436e7930d798732c0827c38135b8 (commit)
+      from  b6e0f2e1c32930b10403d26d39e71225573bcba9 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 91ac164d95e1101120b938c684b78934d23dd51c
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Nov 16 15:29:14 2009 -0800
+
+    ARM: standard disassembler uses Thumb2 entry
+    
+    Tweak &quot;standard&quot; ARM disassembler diagnostics to fail if the target
+    is not &quot;an ARM&quot; (vs. not &quot;an ARMV4/5&quot;), so it makes more sense for
+    cores inheriting this as the &quot;generic&quot; disassembler.
+    
+    Also, to use the Thumb2 entry instead of the original Thumb entry.
+    This makes it work better for both newer cores (which support those
+    added instructions) and for BL and BLX instructions on older cores.
+    (Those instructions are 32-bits, which requires curious state-aware
+    code to go through a 16-bit decode interface...)
+    
+    Plus minor cleanups, notably to have fewer exit paths and to make
+    sure they all return failure codes.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_disassembler.c b/src/target/arm_disassembler.c
+index 35c3520..b93df64 100644
+--- a/src/target/arm_disassembler.c
++++ b/src/target/arm_disassembler.c
+@@ -1784,8 +1784,12 @@ static int evaluate_b_bl_blx_thumb(uint16_t opcode,
+ 	}
+ 
+ 	/* TODO: deal correctly with dual opcode (prefixed) BL/BLX;
+-	 * these are effectively 32-bit instructions even in Thumb1.
+-	 * Might be simplest to always use the Thumb2 decoder.
++	 * these are effectively 32-bit instructions even in Thumb1.  For
++	 * disassembly, it's simplest to always use the Thumb2 decoder.
++	 *
++	 * But some cores will evidently handle them as two instructions,
++	 * where exceptions may occur between the two.  The ETMv3.2+ ID
++	 * register has a bit which exposes this behavior.
+ 	 */
+ 
+ 	snprintf(instruction-&gt;text, 128,
+diff --git a/src/target/armv4_5.c b/src/target/armv4_5.c
+index 334f834..e112e7b 100644
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -439,19 +439,14 @@ COMMAND_HANDLER(handle_armv4_5_disassemble_command)
+ {
+ 	int retval = ERROR_OK;
+ 	struct target *target = get_current_target(cmd_ctx);
+-	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
++	struct arm *arm = target ? target_to_arm(target) : NULL;
+ 	uint32_t address;
+ 	int count = 1;
+-	int i;
+-	struct arm_instruction cur_instruction;
+-	uint32_t opcode;
+-	uint16_t thumb_opcode;
+ 	int thumb = 0;
+ 
+-	if (armv4_5-&gt;common_magic != ARMV4_5_COMMON_MAGIC)
+-	{
+-		command_print(cmd_ctx, &quot;current target isn't an ARMV4/5 target&quot;);
+-		return ERROR_OK;
++	if (!is_arm(arm)) {
++		command_print(cmd_ctx, &quot;current target isn't an ARM&quot;);
++		return ERROR_FAIL;
+ 	}
+ 
+ 	switch (argc) {
+@@ -477,37 +472,38 @@ COMMAND_HANDLER(handle_armv4_5_disassemble_command)
+ usage:
+ 		command_print(cmd_ctx,
+ 			&quot;usage: armv4_5 disassemble &lt;address&gt; [&lt;count&gt; ['thumb']]&quot;);
+-		return ERROR_OK;
+-	}
+-
+-	for (i = 0; i &lt; count; i++)
+-	{
+-		if (thumb)
+-		{
+-			if ((retval = target_read_u16(target, address, &amp;thumb_opcode)) != ERROR_OK)
+-			{
+-				return retval;
+-			}
+-			if ((retval = thumb_evaluate_opcode(thumb_opcode, address, &amp;cur_instruction)) != ERROR_OK)
+-			{
+-				return retval;
+-			}
+-		}
+-		else {
+-			if ((retval = target_read_u32(target, address, &amp;opcode)) != ERROR_OK)
+-			{
+-				return retval;
+-			}
+-			if ((retval = arm_evaluate_opcode(opcode, address, &amp;cur_instruction)) != ERROR_OK)
+-			{
+-				return retval;
+-			}
++		count = 0;
++		retval = ERROR_FAIL;
++	}
++
++	while (count-- &gt; 0) {
++		struct arm_instruction cur_instruction;
++
++		if (thumb) {
++			/* Always use Thumb2 disassembly for best handling
++			 * of 32-bit BL/BLX, and to work with newer cores
++			 * (some ARMv6, all ARMv7) that use Thumb2.
++			 */
++			retval = thumb2_opcode(target, address,
++					&amp;cur_instruction);
++			if (retval != ERROR_OK)
++				break;
++		} else {
++			uint32_t opcode;
++
++			retval = target_read_u32(target, address, &amp;opcode);
++			if (retval != ERROR_OK)
++				break;
++			retval = arm_evaluate_opcode(opcode, address,
++					&amp;cur_instruction) != ERROR_OK;
++			if (retval != ERROR_OK)
++				break;
+ 		}
+ 		command_print(cmd_ctx, &quot;%s&quot;, cur_instruction.text);
+-		address += (thumb) ? 2 : 4;
++		address += cur_instruction.instruction_size;
+ 	}
+ 
+-	return ERROR_OK;
++	return retval;
+ }
+ 
+ int armv4_5_register_commands(struct command_context *cmd_ctx)
+
+commit bf972374011359a1d160b0359e59c4350e78aefe
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Nov 16 15:27:40 2009 -0800
+
+    target: don't include &quot;log.h&quot; from &quot;armv4_5.h&quot;
+    
+    No point in multiple includes, and that file doesn't
+    use its functions any more.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_simulator.c b/src/target/arm_simulator.c
+index a353c13..31163b4 100644
+--- a/src/target/arm_simulator.c
++++ b/src/target/arm_simulator.c
+@@ -29,6 +29,7 @@
+ #include &quot;arm_simulator.h&quot;
+ #include &quot;binarybuffer.h&quot;
+ #include &quot;register.h&quot;
++#include &quot;log.h&quot;
+ 
+ 
+ static uint32_t arm_shift(uint8_t shift, uint32_t Rm,
+diff --git a/src/target/armv4_5.h b/src/target/armv4_5.h
+index 1e3ee42..5fef094 100644
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -27,7 +27,6 @@
+ #define ARMV4_5_H
+ 
+ #include &quot;target.h&quot;
+-#include &quot;log.h&quot;
+ 
+ typedef enum armv4_5_mode
+ {
+
+commit 2fb58116a58f7928af75839e65c07f7d55c81500
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Nov 16 15:27:36 2009 -0800
+
+    ARM: move mode functions out of header
+    
+    They're really too big to inline, at least for code that's
+    not in any performance-critical loops.
+    
+    Also move the associated string table to the rodata section.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/armv4_5.c b/src/target/armv4_5.c
+index 0d890b8..334f834 100644
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -53,13 +53,63 @@ char* armv4_5_core_reg_list[] =
+ 	&quot;cpsr&quot;, &quot;spsr_fiq&quot;, &quot;spsr_irq&quot;, &quot;spsr_svc&quot;, &quot;spsr_abt&quot;, &quot;spsr_und&quot;
+ };
+ 
+-char * armv4_5_mode_strings_list[] =
++static const char *armv4_5_mode_strings_list[] =
+ {
+ 	&quot;Illegal mode value&quot;, &quot;User&quot;, &quot;FIQ&quot;, &quot;IRQ&quot;, &quot;Supervisor&quot;, &quot;Abort&quot;, &quot;Undefined&quot;, &quot;System&quot;
+ };
+ 
+ /* Hack! Yuk! allow -1 index, which simplifies codepaths elsewhere in the code */
+-char** armv4_5_mode_strings = armv4_5_mode_strings_list + 1;
++const char **armv4_5_mode_strings = armv4_5_mode_strings_list + 1;
++
++/** Map PSR mode bits to linear number */
++int armv4_5_mode_to_number(enum armv4_5_mode mode)
++{
++	switch (mode) {
++	case ARMV4_5_MODE_ANY:
++		/* map MODE_ANY to user mode */
++	case ARMV4_5_MODE_USR:
++		return 0;
++	case ARMV4_5_MODE_FIQ:
++		return 1;
++	case ARMV4_5_MODE_IRQ:
++		return 2;
++	case ARMV4_5_MODE_SVC:
++		return 3;
++	case ARMV4_5_MODE_ABT:
++		return 4;
++	case ARMV4_5_MODE_UND:
++		return 5;
++	case ARMV4_5_MODE_SYS:
++		return 6;
++	default:
++		LOG_ERROR(&quot;invalid mode value encountered %d&quot;, mode);
++		return -1;
++	}
++}
++
++/** Map linear number to PSR mode bits. */
++enum armv4_5_mode armv4_5_number_to_mode(int number)
++{
++	switch (number) {
++	case 0:
++		return ARMV4_5_MODE_USR;
++	case 1:
++		return ARMV4_5_MODE_FIQ;
++	case 2:
++		return ARMV4_5_MODE_IRQ;
++	case 3:
++		return ARMV4_5_MODE_SVC;
++	case 4:
++		return ARMV4_5_MODE_ABT;
++	case 5:
++		return ARMV4_5_MODE_UND;
++	case 6:
++		return ARMV4_5_MODE_SYS;
++	default:
++		LOG_ERROR(&quot;mode index out of bounds %d&quot;, number);
++		return ARMV4_5_MODE_ANY;
++	}
++}
+ 
+ char* armv4_5_state_strings[] =
+ {
+diff --git a/src/target/armv4_5.h b/src/target/armv4_5.h
+index ffcd7c0..1e3ee42 100644
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -41,7 +41,10 @@ typedef enum armv4_5_mode
+ 	ARMV4_5_MODE_ANY = -1
+ } armv4_5_mode_t;
+ 
+-extern char** armv4_5_mode_strings;
++int armv4_5_mode_to_number(enum armv4_5_mode mode);
++enum armv4_5_mode armv4_5_number_to_mode(int number);
++
++extern const char **armv4_5_mode_strings;
+ 
+ typedef enum armv4_5_state
+ {
+@@ -136,43 +139,6 @@ struct armv4_5_core_reg
+ struct reg_cache* armv4_5_build_reg_cache(struct target *target,
+ 		struct arm *armv4_5_common);
+ 
+-/* map psr mode bits to linear number */
+-static __inline int armv4_5_mode_to_number(enum armv4_5_mode mode)
+-{
+-	switch (mode)
+-	{
+-		case ARMV4_5_MODE_USR: return 0; break;
+-		case ARMV4_5_MODE_FIQ: return 1; break;
+-		case ARMV4_5_MODE_IRQ: return 2; break;
+-		case ARMV4_5_MODE_SVC: return 3; break;
+-		case ARMV4_5_MODE_ABT: return 4; break;
+-		case ARMV4_5_MODE_UND: return 5; break;
+-		case ARMV4_5_MODE_SYS: return 6; break;
+-		case ARMV4_5_MODE_ANY: return 0; break;	/* map MODE_ANY to user mode */
+-		default:
+-			LOG_ERROR(&quot;invalid mode value encountered %d&quot;, mode);
+-			return -1;
+-	}
+-}
+-
+-/* map linear number to mode bits */
+-static __inline enum armv4_5_mode armv4_5_number_to_mode(int number)
+-{
+-	switch (number)
+-	{
+-		case 0: return ARMV4_5_MODE_USR; break;
+-		case 1: return ARMV4_5_MODE_FIQ; break;
+-		case 2: return ARMV4_5_MODE_IRQ; break;
+-		case 3: return ARMV4_5_MODE_SVC; break;
+-		case 4: return ARMV4_5_MODE_ABT; break;
+-		case 5: return ARMV4_5_MODE_UND; break;
+-		case 6: return ARMV4_5_MODE_SYS; break;
+-		default:
+-			LOG_ERROR(&quot;mode index out of bounds %d&quot;, number);
+-			return ARMV4_5_MODE_ANY;
+-	}
+-};
+-
+ int armv4_5_arch_state(struct target *target);
+ int armv4_5_get_gdb_reg_list(struct target *target,
+ 		struct reg **reg_list[], int *reg_list_size);
+
+commit a7c04a0e49bf436e7930d798732c0827c38135b8
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Nov 16 15:18:55 2009 -0800
+
+    JTAG: no LOG_WARNING() for taps without IDCODE
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index ea723eb..da745d0 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -1064,7 +1064,7 @@ static int jtag_examine_chain(void)
+ 		if ((idcode &amp; 1) == 0)
+ 		{
+ 			/* Zero for LSB indicates a device in bypass */
+-			LOG_WARNING(&quot;TAP %s does not have IDCODE&quot;,
++			LOG_INFO(&quot;TAP %s does not have IDCODE&quot;,
+ 					tap-&gt;dotted_name);
+ 			idcode = 0;
+ 			tap-&gt;hasidcode = false;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/core.c               |    2 +-
+ src/target/arm_disassembler.c |    8 ++-
+ src/target/arm_simulator.c    |    1 +
+ src/target/armv4_5.c          |  118 ++++++++++++++++++++++++++++------------
+ src/target/armv4_5.h          |   43 ++-------------
+ 5 files changed, 94 insertions(+), 78 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001800.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-415-gb6e0f2e
+</A></li>
+	<LI>Next message: <A HREF="001802.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-425-g51862bb
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1801">[ date ]</a>
+              <a href="thread.html#1801">[ thread ]</a>
+              <a href="subject.html#1801">[ subject ]</a>
+              <a href="author.html#1801">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

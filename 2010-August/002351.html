@@ -1,0 +1,280 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-468-g3e71449
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-468-g3e71449&In-Reply-To=%3CE1OiN9i-000207-2i%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002350.html">
+   <LINK REL="Next"  HREF="002352.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-468-g3e71449</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-468-g3e71449&In-Reply-To=%3CE1OiN9i-000207-2i%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-468-g3e71449">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Mon Aug  9 09:52:20 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002350.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-466-g28ddefd
+</A></li>
+        <LI>Next message: <A HREF="002352.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-469-g91305bf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2351">[ date ]</a>
+              <a href="thread.html#2351">[ thread ]</a>
+              <a href="subject.html#2351">[ subject ]</a>
+              <a href="author.html#2351">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  3e71449adec41bf2a9f498d027aae0ba6e83721f (commit)
+       via  1399e5f753256e7b5523f1eb260cdd7e95e80dee (commit)
+      from  28ddefd0659048773fd6066d0265fca76ca036d5 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 3e71449adec41bf2a9f498d027aae0ba6e83721f
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Sun Aug 8 19:21:04 2010 +0200
+
+    arm7/9: fix &quot;reset run + halt&quot;
+    
+    if polling is off, then &quot;reset run + halt&quot; would fail
+    since halt incorrectly assumed the target was in the
+    reset state as it is the internal poll implementation
+    that moves the sw tracking of the target state out
+    of the reset state.
+    
+    To reproduce:
+    
+    &gt; reset run; halt
+    JTAG tap: zy1000.cpu tap/device found: 0x1f0f0f0f (mfg: 0x787, part: 0xf0f0, ver: 0x1)
+    BUG: arm7/9 does not support halt during reset. This is handled in arm7_9_assert_reset()
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index abfb21b..3bbe8b0 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -1074,24 +1074,29 @@ int arm7_9_deassert_reset(struct target *target)
+ 	/* deassert reset lines */
+ 	jtag_add_reset(0, 0);
+ 
++	/* In case polling is disabled, we need to examine the
++	 * target and poll here for this target to work correctly.
++	 *
++	 * Otherwise, e.g. halt will fail afterwards with bogus
++	 * error messages as halt will believe that reset is
++	 * still in effect.
++	 */
++	if ((retval = target_examine_one(target)) != ERROR_OK)
++		return retval;
++
++	if ((retval = target_poll(target)) != ERROR_OK)
++	{
++		return retval;
++	}
++
+ 	enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 	if (target-&gt;reset_halt &amp;&amp; (jtag_reset_config &amp; RESET_SRST_PULLS_TRST) != 0)
+ 	{
+ 		LOG_WARNING(&quot;srst pulls trst - can not reset into halted mode. Issuing halt after reset.&quot;);
+-		/* set up embedded ice registers again */
+-		if ((retval = target_examine_one(target)) != ERROR_OK)
+-			return retval;
+-
+-		if ((retval = target_poll(target)) != ERROR_OK)
+-		{
+-			return retval;
+-		}
+-
+ 		if ((retval = target_halt(target)) != ERROR_OK)
+ 		{
+ 			return retval;
+ 		}
+-
+ 	}
+ 	return retval;
+ }
+diff --git a/src/target/target_type.h b/src/target/target_type.h
+index d3db8b5..10fcd4f 100644
+--- a/src/target/target_type.h
++++ b/src/target/target_type.h
+@@ -2,7 +2,7 @@
+  *   Copyright (C) 2005 by Dominic Rath                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
+  *                                                                         *
+- *   Copyright (C) 2007,2008,2009 &#195;&#152;yvind Harboe                            *
++ *   Copyright (C) 2007-2010 &#195;&#152;yvind Harboe                                 *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
+  *                                                                         *
+  *   Copyright (C) 2008 by Spencer Oliver                                  *
+@@ -73,6 +73,17 @@ struct target_type
+ 	 *
+ 	 */
+ 	int (*assert_reset)(struct target *target);
++	/**
++	 * The implementation is responsible for polling the
++	 * target such that target-&gt;state reflects the
++	 * state correctly.
++	 *
++	 * Otherwise the following would fail, as there will not
++	 * be any &quot;poll&quot; invoked inbetween the &quot;reset run&quot; and
++	 * &quot;halt&quot;.
++	 *
++	 * reset run; halt
++     */
+ 	int (*deassert_reset)(struct target *target);
+ 	int (*soft_reset_halt_imp)(struct target *target);
+ 	int (*soft_reset_halt)(struct target *target);
+
+commit 1399e5f753256e7b5523f1eb260cdd7e95e80dee
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Sun Aug 8 09:14:54 2010 +0200
+
+    target: if polling fails, back off
+    
+    back-off algorithm for polling. Double polling
+    interval up to 5000ms when it fails.
+    
+    when polling succeeds, reset backoff.
+    
+    This avoids flooding logs(as much) when working
+    with conditions where the target polling will fail.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/target.c b/src/target/target.c
+index f178ae3..d7607e3 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -96,6 +96,7 @@ static struct target_type *target_types[] =
+ struct target *all_targets = NULL;
+ static struct target_event_callback *target_event_callbacks = NULL;
+ static struct target_timer_callback *target_timer_callbacks = NULL;
++static const int polling_interval = 100;
+ 
+ static const Jim_Nvp nvp_assert[] = {
+ 	{ .name = &quot;assert&quot;, NVP_ASSERT },
+@@ -862,7 +863,7 @@ static int target_init(struct command_context *cmd_ctx)
+ 		return retval;
+ 
+ 	retval = target_register_timer_callback(&amp;handle_target,
+-			100, 1, cmd_ctx-&gt;interp);
++			polling_interval, 1, cmd_ctx-&gt;interp);
+ 	if (ERROR_OK != retval)
+ 		return retval;
+ 
+@@ -1800,6 +1801,9 @@ static int sense_handler(void)
+ 	return ERROR_OK;
+ }
+ 
++static int backoff_times = 0;
++static int backoff_count = 0;
++
+ /* process target state changes */
+ static int handle_target(void *priv)
+ {
+@@ -1862,6 +1866,14 @@ static int handle_target(void *priv)
+ 		recursive = 0;
+ 	}
+ 
++	if (backoff_times &gt; backoff_count)
++	{
++		/* do not poll this time as we failed previously */
++		backoff_count++;
++		return ERROR_OK;
++	}
++	backoff_count = 0;
++
+ 	/* Poll targets for state changes unless that's globally disabled.
+ 	 * Skip targets that are currently disabled.
+ 	 */
+@@ -1878,17 +1890,26 @@ static int handle_target(void *priv)
+ 			/* polling may fail silently until the target has been examined */
+ 			if ((retval = target_poll(target)) != ERROR_OK)
+ 			{
+-				/* FIX!!!!! If we add a LOG_INFO() here to output a line in GDB
+-				 * *why* we are aborting GDB, then we'll spam telnet when the
+-				 * poll is failing persistently.
+-				 *
+-				 * If we could implement an event that detected the
+-				 * target going from non-pollable to pollable, we could issue
+-				 * an error only upon the transition.
++				/* 100ms polling interval. Increase interval between polling up to 5000ms */
++				if (backoff_times * polling_interval &lt; 5000)
++				{
++					backoff_times *= 2;
++					backoff_times++;
++				}
++				LOG_USER(&quot;Polling target failed, GDB will be halted. Polling again in %dms&quot;, backoff_times * polling_interval);
++
++				/* Tell GDB to halt the debugger. This allows the user to
++				 * run monitor commands to handle the situation.
+ 				 */
+ 				target_call_event_callbacks(target, TARGET_EVENT_GDB_HALT);
+ 				return retval;
+ 			}
++			/* Since we succeeded, we reset backoff count */
++			if (backoff_times &gt; 0)
++			{
++				LOG_USER(&quot;Polling succeeded again&quot;);
++			}
++			backoff_times = 0;
+ 		}
+ 	}
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm7_9_common.c |   25 +++++++++++++++----------
+ src/target/target.c        |   37 +++++++++++++++++++++++++++++--------
+ src/target/target_type.h   |   13 ++++++++++++-
+ 3 files changed, 56 insertions(+), 19 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002350.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-466-g28ddefd
+</A></li>
+	<LI>Next message: <A HREF="002352.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-469-g91305bf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2351">[ date ]</a>
+              <a href="thread.html#2351">[ thread ]</a>
+              <a href="subject.html#2351">[ subject ]</a>
+              <a href="author.html#2351">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,502 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-396-g31f7365
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%200.2.0-396-g31f7365&In-Reply-To=%3CE1N08HX-00022v-3g%409j8yhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001655.html">
+   <LINK REL="Next"  HREF="001657.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-396-g31f7365</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%200.2.0-396-g31f7365&In-Reply-To=%3CE1N08HX-00022v-3g%409j8yhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-396-g31f7365">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Tue Oct 20 08:33:18 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001655.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-392-gaa8a95a
+</A></li>
+        <LI>Next message: <A HREF="001657.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-397-g6eb09d6
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1656">[ date ]</a>
+              <a href="thread.html#1656">[ thread ]</a>
+              <a href="subject.html#1656">[ subject ]</a>
+              <a href="author.html#1656">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  31f73654ae14b9e17f778694ee2a9587d34f5df4 (commit)
+       via  b3ca737be1da12ea1bbdf80d2676ac0c6d270790 (commit)
+       via  0d9f8d3e0de907259ac23871cd56864bd46c02ee (commit)
+       via  78e5f20f6055564081d34bac63b7e725d85834bb (commit)
+      from  aa8a95ad7b37e6b3123ec70c0ddc3d2d9ccb97ec (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 31f73654ae14b9e17f778694ee2a9587d34f5df4
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Oct 19 23:33:08 2009 -0700
+
+    SVF: better spec conformance for STATE switch
+    
+    Don't add extra TCK in current state; exit from RESET had four extras.
+    Only IDLE --&gt; IDLE needs such an extra clock.  (At least one TCK must
+    be issued.)
+    
+    Allow entry to RESET; SVF allows it, so must we (despite those entries
+    being commented out of the statemove table).
+    
+    When entering RESET, always use TLR ... we might end up with extra clocks
+    in reset that way, which is harmless, but we'll never end up in any other
+    state than RESET, which is useful paranoia.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/svf/svf.c b/src/svf/svf.c
+index 5b96971..ecb0ffa 100644
+--- a/src/svf/svf.c
++++ b/src/svf/svf.c
+@@ -316,30 +316,28 @@ static int svf_add_statemove(tap_state_t state_to)
+ 	tap_state_t state_from = cmd_queue_cur_state;
+ 	uint8_t index;
+ 
++	/* when resetting, be paranoid and ignore current state */
++	if (state_to == TAP_RESET) {
++		jtag_add_tlr();
++		return ERROR_OK;
++	}
++
+ 	for (index = 0; index &lt; dimof(svf_statemoves); index++)
+ 	{
+ 		if ((svf_statemoves[index].from == state_from)
+ 			&amp;&amp; (svf_statemoves[index].to == state_to))
+ 		{
+-			if (TAP_RESET == state_from)
+-			{
+-				jtag_add_tlr();
+-				if (svf_statemoves[index].num_of_moves &gt; 1)
+-				{
+-					jtag_add_pathmove(svf_statemoves[index].num_of_moves - 1, svf_statemoves[index].paths + 1);
+-				}
+-			}
++			/* recorded path includes current state ... avoid extra TCKs! */
++			if (svf_statemoves[index].num_of_moves &gt; 1)
++				jtag_add_pathmove(svf_statemoves[index].num_of_moves - 1,
++						svf_statemoves[index].paths + 1);
+ 			else
+-			{
+-				if (svf_statemoves[index].num_of_moves &gt; 0)
+-				{
+-					jtag_add_pathmove(svf_statemoves[index].num_of_moves, svf_statemoves[index].paths);
+-				}
+-			}
++				jtag_add_pathmove(svf_statemoves[index].num_of_moves,
++						svf_statemoves[index].paths);
+ 			return ERROR_OK;
+ 		}
+ 	}
+-	LOG_ERROR(&quot;can not move to %s&quot;, tap_state_svf_name(state_to));
++	LOG_ERROR(&quot;SVF: can not move to %s&quot;, tap_state_svf_name(state_to));
+ 	return ERROR_FAIL;
+ }
+ 
+
+commit b3ca737be1da12ea1bbdf80d2676ac0c6d270790
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Oct 19 22:50:51 2009 -0700
+
+    davinci: add watchdog reset method
+    
+    Lightly tested on dm365.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/tcl/target/davinci.cfg b/tcl/target/davinci.cfg
+index 658e7fe..e1eb48f 100644
+--- a/tcl/target/davinci.cfg
++++ b/tcl/target/davinci.cfg
+@@ -33,7 +33,7 @@ proc mmw {reg setbits clearbits} {
+ #
+ 
+ # PLL version 0x02: tested on dm355
+-# REVISIT:  On dm6446 and dm357 the PLLRST polarity is different.
++# REVISIT:  On dm6446/dm357 the PLLRST polarity is different.
+ proc pll_v02_setup {pll_addr mult config} {
+ 	set pll_ctrl_addr [expr $pll_addr + 0x100]
+ 	set pll_ctrl [mrw $pll_ctrl_addr]
+@@ -174,3 +174,64 @@ proc psc_go {} {
+ 	# wait for PTSTAT.go to clear (again ignoring DSP power domain)
+ 	while { [expr [mrw $ptstat_addr] &amp; 0x01] != 0 } { sleep 1 }
+ }
++
++#
++# A reset using only SRST is a &quot;Warm Reset&quot;, resetting everything in the
++# chip except ARM emulation (and everything _outside_ the chip that hooks
++# up to SRST).  But many boards don't expose SRST via their JTAG connectors
++# (it's not present on TI-14 headers).
++#
++# From the chip-only perspective, a &quot;Max Reset&quot; is a &quot;Warm&quot; reset ... except
++# without any board-wide side effects, since it's triggered using JTAG using
++# either (a) ARM watchdog timer, or (b) ICEpick.
++#
++proc davinci_wdog_reset {} {
++	set timer2_phys 0x01c21c00
++
++	# NOTE -- on entry
++	#   - JTAG communication with the ARM *must* be working OK; this
++	#     may imply using adaptive clocking or disabling WFI-in-idle
++	#   - current target must be the DaVinci ARM
++	#   - that ARM core must be halted
++	#   - timer2 clock is still enabled (PSC 29 on most chips)
++
++	#
++	# Part I -- run regardless of being halted via JTAG
++	#
++	# NOTE:  for now, we assume there's no DSP that could control the
++	# watchdog; or, equivalently, SUSPSRC.TMR2SRC says the watchdog
++	# suspend signal is controlled via ARM emulation suspend.
++	#
++
++	# EMUMGT_CLKSPEED: write FREE bit to run despite emulation halt
++	arm926ejs mww_phys [expr $timer2_phys + 0x28] 0x00004000
++
++	#
++	# Part II -- in case watchdog hasn't been set up
++	#
++
++	# TCR: disable, force internal clock source
++	arm926ejs mww_phys [expr $timer2_phys + 0x20] 0
++
++	# TGCR: reset, force to 64-bit wdog mode, un-reset (&quot;initial&quot; state)
++	arm926ejs mww_phys [expr $timer2_phys + 0x24] 0
++	arm926ejs mww_phys [expr $timer2_phys + 0x24] 0x110b
++
++	# clear counter (TIM12, TIM34) and period (PRD12, PRD34) registers
++	# so watchdog triggers ASAP
++	arm926ejs mww_phys [expr $timer2_phys + 0x10] 0
++	arm926ejs mww_phys [expr $timer2_phys + 0x14] 0
++	arm926ejs mww_phys [expr $timer2_phys + 0x18] 0
++	arm926ejs mww_phys [expr $timer2_phys + 0x1c] 0
++
++	# WDTCR: put into pre-active state, then active
++	arm926ejs mww_phys [expr $timer2_phys + 0x28] 0xa5c64000
++	arm926ejs mww_phys [expr $timer2_phys + 0x28] 0xda7e4000
++
++	#
++	# Part III -- it's ready to rumble
++	#
++
++	# WDTCR: write invalid WDKEY to trigger reset
++	arm926ejs mww_phys [expr $timer2_phys + 0x28] 0x00004000
++}
+
+commit 0d9f8d3e0de907259ac23871cd56864bd46c02ee
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Oct 19 22:50:51 2009 -0700
+
+    jtag_add_statemove() always uses TLR to get to RESET
+    
+    As decided a while back, this isn't a transition we want to chance.
+    Whenever someone wants to got to RESET, force it.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index 415d1e8..7c85839 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -567,12 +567,14 @@ int jtag_add_statemove(tap_state_t goal_state)
+ 		tap_state_name(goal_state));
+ 
+ 
+-	if (goal_state == cur_state)
+-		;	/* nothing to do */
+-	else if (goal_state == TAP_RESET)
+-	{
++	/* If goal is RESET, be paranoid and force that that transition
++	 * (e.g. five TCK cycles, TMS high).  Else trust &quot;cur_state&quot;.
++	 */
++	if (goal_state == TAP_RESET)
+ 		jtag_add_tlr();
+-	}
++	else if (goal_state == cur_state)
++		/* nothing to do */ ;
++
+ 	else if (tap_is_state_stable(cur_state) &amp;&amp; tap_is_state_stable(goal_state))
+ 	{
+ 		unsigned tms_bits  = tap_get_tms_path(cur_state, goal_state);
+
+commit 78e5f20f6055564081d34bac63b7e725d85834bb
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Oct 19 22:50:51 2009 -0700
+
+    SVF/XSVF: comment and whitespace fixes
+    
+    SVF: comment the predefined/default paths; make them static const
+    
+    SVF, XSVF: whitespace fixes, mostly so copyrights display sanely
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/svf/svf.c b/src/svf/svf.c
+index a25b358..5b96971 100644
+--- a/src/svf/svf.c
++++ b/src/svf/svf.c
+@@ -1,22 +1,21 @@
+-/***************************************************************************
+- *	 Copyright (C) 2009 by Simon Qian									   *
+- *	 <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">SimonQian at SimonQian.com</A>											   *
+- *                                                                         *
+- *	 This program is free software; you can redistribute it and/or modify  *
+- *	 it under the terms of the GNU General Public License as published by  *
+- *	 the Free Software Foundation; either version 2 of the License, or	   *
+- *	 (at your option) any later version.								   *
+- *																		   *
+- *	 This program is distributed in the hope that it will be useful,	   *
+- *	 but WITHOUT ANY WARRANTY; without even the implied warranty of		   *
+- *	 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the		   *
+- *	 GNU General Public License for more details.						   *
+- *																		   *
+- *	 You should have received a copy of the GNU General Public License	   *
+- *	 along with this program; if not, write to the						   *
+- *	 Free Software Foundation, Inc.,									   *
+- *	 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.			   *
+- ***************************************************************************/
++/*
++ * Copyright (C) 2009 by Simon Qian
++ * <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">SimonQian at SimonQian.com</A>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along
++ * with this program; if not, write to the Free Software Foundation, Inc.,
++ * 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
++ */
+ 
+ 
+ /* The specification for SVF is available here:
+@@ -98,7 +97,22 @@ typedef struct
+ 	tap_state_t paths[8];
+ }svf_statemove_t;
+ 
+-svf_statemove_t svf_statemoves[] =
++/*
++ * These paths are from the SVF specification for the STATE command, to be
++ * used when the STATE command only includes the final state.  The first
++ * element of the path is the &quot;from&quot; (current) state, and the last one is
++ * the &quot;to&quot; (target) state.
++ *
++ * All specified paths are the shortest ones in the JTAG spec, and are thus
++ * not (!!) exact matches for the paths used elsewhere in OpenOCD.  Note
++ * that PAUSE-to-PAUSE transitions all go through UPDATE and then CAPTURE,
++ * which has specific effects on the various registers; they are not NOPs.
++ *
++ * Paths to RESET are disabled here.  As elsewhere in OpenOCD, and in XSVF
++ * and many SVF implementations, we don't want to risk missing that state.
++ * To get to RESET, always we ignore the current state.
++ */
++static const svf_statemove_t svf_statemoves[] =
+ {
+ 	// from			to				num_of_moves,	paths[8]
+ //	{TAP_RESET,		TAP_RESET,		1,				{TAP_RESET}},
+diff --git a/src/xsvf/xsvf.c b/src/xsvf/xsvf.c
+index b193509..083e6e3 100644
+--- a/src/xsvf/xsvf.c
++++ b/src/xsvf/xsvf.c
+@@ -1,31 +1,30 @@
+-/***************************************************************************
+- *	 Copyright (C) 2005 by Dominic Rath									   *
+- *	 <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>													   *
+- *																		   *
+- *	 Copyright (C) 2007,2008 &#195;&#152;yvind Harboe								   *
+- *	 <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>												   *
+- *																		   *
+- *	 Copyright (C) 2008 Peter Hettkamp									   *
+- *	 <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">peter.hettkamp at htp-tel.de</A>											   *
+- *																		   *
+- *	 Copyright (C) 2009 SoftPLC Corporation. <A HREF="http://softplc.com">http://softplc.com</A>             *
+- *	 Dick Hollenbeck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dick at softplc.com</A>&gt;									   *
+- *                                                                          *
+- *	 This program is free software; you can redistribute it and/or modify   *
+- *	 it under the terms of the GNU General Public License as published by   *
+- *	 the Free Software Foundation; either version 2 of the License, or	   *
+- *	 (at your option) any later version.									   *
+- *																		   *
+- *	 This program is distributed in the hope that it will be useful,		   *
+- *	 but WITHOUT ANY WARRANTY; without even the implied warranty of		   *
+- *	 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the		   *
+- *	 GNU General Public License for more details.						   *
+- *																		   *
+- *	 You should have received a copy of the GNU General Public License	   *
+- *	 along with this program; if not, write to the						   *
+- *	 Free Software Foundation, Inc.,										   *
+- *	 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.			   *
+- ***************************************************************************/
++/*
++ * Copyright (C) 2005 by Dominic Rath
++ * <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>
++ *
++ * Copyright (C) 2007,2008 &#195;&#152;yvind Harboe
++ * <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>
++ *
++ * Copyright (C) 2008 Peter Hettkamp
++ * <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">peter.hettkamp at htp-tel.de</A>
++ *
++ * Copyright (C) 2009 SoftPLC Corporation. <A HREF="http://softplc.com">http://softplc.com</A>
++ * Dick Hollenbeck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dick at softplc.com</A>&gt;
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
++ */
+ 
+ 
+ /* The specification for SVF is available here:
+@@ -186,7 +185,7 @@ static int xsvf_read_buffer(int num_bits, int fd, uint8_t* buf)
+ 
+ static int handle_xsvf_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
+-	uint8_t *dr_out_buf = NULL; 				/* from host to device (TDI) */
++	uint8_t *dr_out_buf = NULL;				/* from host to device (TDI) */
+ 	uint8_t *dr_in_buf = NULL;				/* from device to host (TDO) */
+ 	uint8_t *dr_in_mask = NULL;
+ 
+@@ -197,7 +196,7 @@ static int handle_xsvf_command(struct command_context_s *cmd_ctx, char *cmd, cha
+ 	tap_state_t	xendir = TAP_IDLE;		/* see page 8 of the SVF spec, initial xendir to be TAP_IDLE */
+ 	tap_state_t xenddr = TAP_IDLE;
+ 
+-	uint8_t  		opcode;
++	uint8_t		opcode;
+ 	uint8_t		uc;
+ 	long		file_offset = 0;
+ 
+@@ -206,14 +205,14 @@ static int handle_xsvf_command(struct command_context_s *cmd_ctx, char *cmd, cha
+ 	int		loop_clocks = 0;
+ 	int		loop_usecs = 0;
+ 
+-	int 		do_abort = 0;
+-	int 		unsupported = 0;
+-	int 		tdo_mismatch = 0;
+-	int 		result;
++	int		do_abort = 0;
++	int		unsupported = 0;
++	int		tdo_mismatch = 0;
++	int		result;
+ 	int		verbose = 1;
+ 	char*	filename;
+ 
+-	int 		runtest_requires_tck = 0;	/* a flag telling whether to clock TCK during waits, or simply sleep, controled by virt2 */
++	int		runtest_requires_tck = 0;	/* a flag telling whether to clock TCK during waits, or simply sleep, controled by virt2 */
+ 
+ 
+ 	/* use NULL to indicate a &quot;plain&quot; xsvf file which accounts for
+@@ -500,7 +499,7 @@ static int handle_xsvf_command(struct command_context_s *cmd_ctx, char *cmd, cha
+ 
+ 				LOG_DEBUG(&quot;XSTATE 0x%02X %s&quot;, uc, tap_state_name(mystate));
+ 
+-				/* 	there is no need for the lookahead code that was here since we
++				/*	there is no need for the lookahead code that was here since we
+ 					queue up the jtag commands anyway.  This is a simple way to handle
+ 					the XSTATE.
+ 				*/
+@@ -654,7 +653,7 @@ static int handle_xsvf_command(struct command_context_s *cmd_ctx, char *cmd, cha
+ 		case XCOMMENT:
+ 			{
+ 				unsigned int ndx = 0;
+-				char 	comment[128];
++				char	comment[128];
+ 
+ 				do
+ 				{
+@@ -687,7 +686,7 @@ static int handle_xsvf_command(struct command_context_s *cmd_ctx, char *cmd, cha
+ 
+ 				tap_state_t wait_state;
+ 				tap_state_t end_state;
+-				int 	delay;
++				int	delay;
+ 
+ 				if (read(xsvf_fd, &amp;wait, 1) &lt; 0
+ 				  || read(xsvf_fd, &amp;end, 1) &lt; 0
+@@ -723,7 +722,7 @@ static int handle_xsvf_command(struct command_context_s *cmd_ctx, char *cmd, cha
+ 				*/
+ 
+ 				uint8_t  clock_buf[4];
+-				uint8_t  	usecs_buf[4];
++				uint8_t	usecs_buf[4];
+ 				uint8_t	wait;
+ 				uint8_t	end;
+ 				tap_state_t wait_state;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/core.c        |   12 ++++---
+ src/svf/svf.c          |   82 +++++++++++++++++++++++++++--------------------
+ src/xsvf/xsvf.c        |   77 ++++++++++++++++++++++-----------------------
+ tcl/target/davinci.cfg |   63 ++++++++++++++++++++++++++++++++++++-
+ 4 files changed, 154 insertions(+), 80 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001655.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-392-gaa8a95a
+</A></li>
+	<LI>Next message: <A HREF="001657.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. 0.2.0-397-g6eb09d6
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1656">[ date ]</a>
+              <a href="thread.html#1656">[ thread ]</a>
+              <a href="subject.html#1656">[ subject ]</a>
+              <a href="author.html#1656">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

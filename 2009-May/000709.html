@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1925 - in trunk: doc src/jtag tcl/interface
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1925%20-%20in%20trunk%3A%20doc%20src/jtag%20tcl/interface&In-Reply-To=%3C200905271158.n4RBwKPP000062%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000708.html">
+   <LINK REL="Next"  HREF="000710.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1925 - in trunk: doc src/jtag tcl/interface</H1>
+    <B>ntfreak at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1925%20-%20in%20trunk%3A%20doc%20src/jtag%20tcl/interface&In-Reply-To=%3C200905271158.n4RBwKPP000062%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1925 - in trunk: doc src/jtag tcl/interface">ntfreak at mail.berlios.de
+       </A><BR>
+    <I>Wed May 27 13:58:20 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000708.html">[Openocd-svn] r1924 - trunk/doc/manual
+</A></li>
+        <LI>Next message: <A HREF="000710.html">[Openocd-svn] r1926 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#709">[ date ]</a>
+              <a href="thread.html#709">[ thread ]</a>
+              <a href="subject.html#709">[ subject ]</a>
+              <a href="author.html#709">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: ntfreak
+Date: 2009-05-27 13:58:19 +0200 (Wed, 27 May 2009)
+New Revision: 1925
+
+Added:
+   trunk/tcl/interface/cortino.cfg
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/jtag/ft2232.c
+Log:
+- add support for cortino jtag interface
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-05-27 10:44:03 UTC (rev 1924)
++++ trunk/doc/openocd.texi	2009-05-27 11:58:19 UTC (rev 1925)
+@@ -496,6 +496,8 @@
+ @* Link @url{<A HREF="http://www.hitex.com/stm32-stick">http://www.hitex.com/stm32-stick</A>}
+ @item @b{axm0432_jtag}
+ @* Axiom AXM-0432 Link @url{<A HREF="http://www.axman.com">http://www.axman.com</A>}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @b{cortino}
++@* Link @url{<A HREF="http://www.hitex.com/index.php?id=cortino">http://www.hitex.com/index.php?id=cortino</A>}
+ @end itemize
+ 
+ @section USB JLINK based
+@@ -1471,6 +1473,8 @@
+ OOCDLink
+ @item @b{axm0432_jtag}
+ Axiom AXM-0432
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @b{cortino}
++Hitex Cortino JTAG interface
+ @end itemize
+ 
+ @item @b{ft2232_vid_pid} &lt;@var{vid}&gt; &lt;@var{pid}&gt;
+
+Modified: trunk/src/jtag/ft2232.c
+===================================================================
+--- trunk/src/jtag/ft2232.c	2009-05-27 10:44:03 UTC (rev 1924)
++++ trunk/src/jtag/ft2232.c	2009-05-27 11:58:19 UTC (rev 1925)
+@@ -124,6 +124,7 @@
+ static int	axm0432_jtag_init(void);
+ static int 	sheevaplug_init(void);
+ static int 	icebear_jtag_init(void);
++static int 	cortino_jtag_init(void);
+ 
+ /* reset procedures for supported layouts */
+ static void usbjtag_reset(int trst, int srst);
+@@ -156,8 +157,9 @@
+ 	{ &quot;comstick&quot;,             comstick_init,             comstick_reset,     NULL                    },
+ 	{ &quot;stm32stick&quot;,           stm32stick_init,           stm32stick_reset,   NULL                    },
+ 	{ &quot;axm0432_jtag&quot;,         axm0432_jtag_init,         axm0432_jtag_reset, NULL                    },
+-	{&quot;sheevaplug&quot;,            sheevaplug_init,           sheevaplug_reset,   NULL                    },
++	{ &quot;sheevaplug&quot;,           sheevaplug_init,           sheevaplug_reset,   NULL                    },
+ 	{ &quot;icebear&quot;,              icebear_jtag_init,         icebear_jtag_reset, NULL                    },
++	{ &quot;cortino&quot;,              cortino_jtag_init,         comstick_reset, NULL                        },
+ 	{ NULL,                   NULL,                      NULL,               NULL                    },
+ };
+ 
+@@ -2576,6 +2578,49 @@
+ 	return ERROR_OK;
+ }
+ 
++static int 	cortino_jtag_init(void)
++{
++	u8  buf[3];
++	u32 bytes_written;
++
++	low_output    = 0x08;
++	low_direction = 0x1b;
++
++	/* initialize low byte for jtag */
++	buf[0] = 0x80;          /* command &quot;set data bits low byte&quot; */
++	buf[1] = low_output;    /* value (TMS=1,TCK=0, TDI=0, nOE=0) */
++	buf[2] = low_direction; /* dir (output=1), TCK/TDI/TMS=out, TDO=in, nOE=out */
++	LOG_DEBUG(&quot;%2.2x %2.2x %2.2x&quot;, buf[0], buf[1], buf[2]);
++
++	if ( ( ( ft2232_write(buf, 3, &amp;bytes_written) ) != ERROR_OK ) || (bytes_written != 3) )
++	{
++		LOG_ERROR(&quot;couldn't initialize FT2232 with 'cortino' layout&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	nTRST    = 0x01;
++	nTRSTnOE = 0x00;    /* no output enable for nTRST */
++	nSRST    = 0x02;
++	nSRSTnOE = 0x00;    /* no output enable for nSRST */
++
++	high_output    = 0x03;
++	high_direction = 0x03;
++
++	/* initialize high port */
++	buf[0] = 0x82; /* command &quot;set data bits high byte&quot; */
++	buf[1] = high_output;
++	buf[2] = high_direction;
++	LOG_DEBUG(&quot;%2.2x %2.2x %2.2x&quot;, buf[0], buf[1], buf[2]);
++
++	if ( ( ( ft2232_write(buf, 3, &amp;bytes_written) ) != ERROR_OK ) || (bytes_written != 3) )
++	{
++		LOG_ERROR(&quot;couldn't initialize FT2232 with 'stm32stick' layout&quot;);
++		return ERROR_JTAG_INIT_FAILED;
++	}
++
++	return ERROR_OK;
++}
++
+ static void olimex_jtag_blink(void)
+ {
+ 	/* Olimex ARM-USB-OCD has a LED connected to ACBUS3
+
+Added: trunk/tcl/interface/cortino.cfg
+===================================================================
+--- trunk/tcl/interface/cortino.cfg	2009-05-27 10:44:03 UTC (rev 1924)
++++ trunk/tcl/interface/cortino.cfg	2009-05-27 11:58:19 UTC (rev 1925)
+@@ -0,0 +1,11 @@
++#
++# Hitex Cortino
++#
++# <A HREF="http://www.hitex.com/index.php?id=cortino">http://www.hitex.com/index.php?id=cortino</A>
++#
++
++interface ft2232
++ft2232_device_desc &quot;Cortino&quot;
++ft2232_layout cortino
++ft2232_vid_pid 0x0640 0x0032
++
+
+
+Property changes on: trunk/tcl/interface/cortino.cfg
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000708.html">[Openocd-svn] r1924 - trunk/doc/manual
+</A></li>
+	<LI>Next message: <A HREF="000710.html">[Openocd-svn] r1926 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#709">[ date ]</a>
+              <a href="thread.html#709">[ thread ]</a>
+              <a href="subject.html#709">[ subject ]</a>
+              <a href="author.html#709">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

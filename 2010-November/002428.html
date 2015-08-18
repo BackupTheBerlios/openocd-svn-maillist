@@ -1,0 +1,188 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-585-gaa4c140
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-585-gaa4c140&In-Reply-To=%3CE1PGRI7-0002bk-3Z%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002427.html">
+   <LINK REL="Next"  HREF="002429.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-585-gaa4c140</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-585-gaa4c140&In-Reply-To=%3CE1PGRI7-0002bk-3Z%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-585-gaa4c140">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Thu Nov 11 08:09:49 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002427.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-583-ge7b2958
+</A></li>
+        <LI>Next message: <A HREF="002429.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-586-gc62fb3f
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2428">[ date ]</a>
+              <a href="thread.html#2428">[ thread ]</a>
+              <a href="subject.html#2428">[ subject ]</a>
+              <a href="author.html#2428">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  aa4c140a1214f2b75e43d8d3580a5d06083f46a2 (commit)
+       via  6c04f1e440be1451b1d7599910e377b90b7dc569 (commit)
+      from  e7b2958229c7e0d7e98e130764aa50d1ca9017d3 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit aa4c140a1214f2b75e43d8d3580a5d06083f46a2
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Tue Nov 9 09:14:21 2010 +0100
+
+    cortex_m3: report detected error condition in poll
+    
+    If the CPU crashed at some point, poll will discover this.
+    
+    Previously the poll fn would clear the error and print a warning,
+    rather than propagating the error.
+    
+    The new behavior is to report the error back up, but still
+    clear the error.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index 3f080f1..f2947ad 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -520,7 +520,8 @@ static int cortex_m3_debug_entry(struct target *target)
+ 
+ static int cortex_m3_poll(struct target *target)
+ {
+-	int retval;
++	int detected_failure = ERROR_OK;
++	int retval = ERROR_OK;
+ 	enum target_state prev_target_state = target-&gt;state;
+ 	struct cortex_m3_common *cortex_m3 = target_to_cm3(target);
+ 	struct adiv5_dap *swjdp = &amp;cortex_m3-&gt;armv7m.dap;
+@@ -535,15 +536,18 @@ static int cortex_m3_poll(struct target *target)
+ 
+ 	/* Recover from lockup.  See ARMv7-M architecture spec,
+ 	 * section B1.5.15 &quot;Unrecoverable exception cases&quot;.
+-	 *
+-	 * REVISIT Is there a better way to report and handle this?
+ 	 */
+ 	if (cortex_m3-&gt;dcb_dhcsr &amp; S_LOCKUP) {
+-		LOG_WARNING(&quot;%s -- clearing lockup after double fault&quot;,
++		LOG_ERROR(&quot;%s -- clearing lockup after double fault&quot;,
+ 				target_name(target));
+ 		cortex_m3_write_debug_halt_mask(target, C_HALT, 0);
+ 		target-&gt;debug_reason = DBG_REASON_DBGRQ;
+ 
++		/* We have to execute the rest (the &quot;finally&quot; equivalent, but
++		 * still throw this exception again).
++		 */
++		detected_failure = ERROR_FAIL;
++
+ 		/* refresh status bits */
+ 		retval = mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
+ 		if (retval != ERROR_OK)
+@@ -610,11 +614,14 @@ static int cortex_m3_poll(struct target *target)
+ 		if (cortex_m3-&gt;dcb_dhcsr &amp; S_RETIRE_ST)
+ 		{
+ 			target-&gt;state = TARGET_RUNNING;
+-			return ERROR_OK;
++			retval = ERROR_OK;
+ 		}
+ 	}
+ 
+-	return ERROR_OK;
++	/* Did we detect a failure condition that we cleared? */
++	if (detected_failure != ERROR_OK)
++		retval = detected_failure;
++	return retval;
+ }
+ 
+ static int cortex_m3_halt(struct target *target)
+
+commit 6c04f1e440be1451b1d7599910e377b90b7dc569
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Tue Nov 9 09:17:49 2010 +0100
+
+    target: document that target_poll() will report and clear sticky errors
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/target.h b/src/target/target.h
+index 4a48e5a..ef05e75 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -257,6 +257,18 @@ int target_unregister_event_callback(
+ 		int (*callback)(struct target *target,
+ 				enum target_event event, void *priv),
+ 		void *priv);
++/* Poll the status of the target, detect any error conditions and report them.
++ *
++ * Also note that this fn will clear such error conditions, so a subsequent
++ * invocation will then succeed.
++ *
++ * These error conditions can be &quot;sticky&quot; error conditions. E.g. writing
++ * to memory could be implemented as an open loop and if memory writes
++ * fails, then a note is made of it, the error is sticky, but the memory
++ * write loop still runs to completion. This improves performance in the
++ * normal case as there is no need to verify that every single write succeed,
++ * yet it is possible to detect error condtions.
++ */
+ int target_poll(struct target *target);
+ int target_resume(struct target *target, int current, uint32_t address,
+ 		int handle_breakpoints, int debug_execution);
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/cortex_m3.c |   19 +++++++++++++------
+ src/target/target.h    |   12 ++++++++++++
+ 2 files changed, 25 insertions(+), 6 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002427.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-583-ge7b2958
+</A></li>
+	<LI>Next message: <A HREF="002429.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-586-gc62fb3f
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2428">[ date ]</a>
+              <a href="thread.html#2428">[ thread ]</a>
+              <a href="subject.html#2428">[ subject ]</a>
+              <a href="author.html#2428">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

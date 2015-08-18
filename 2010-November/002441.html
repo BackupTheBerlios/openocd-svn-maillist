@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-614-g17634b3
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-614-g17634b3&In-Reply-To=%3CE1PKRhU-0001Qa-L9%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002440.html">
+   <LINK REL="Next"  HREF="002442.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-614-g17634b3</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-614-g17634b3&In-Reply-To=%3CE1PKRhU-0001Qa-L9%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-614-g17634b3">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Mon Nov 22 09:24:35 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002440.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-613-g6dbe9b7
+</A></li>
+        <LI>Next message: <A HREF="002442.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-615-g8902789
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2441">[ date ]</a>
+              <a href="thread.html#2441">[ thread ]</a>
+              <a href="subject.html#2441">[ subject ]</a>
+              <a href="author.html#2441">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  17634b3760c58239f37d75113425e50fd3756470 (commit)
+      from  6dbe9b71241172193428d9fa77e59945dc455e78 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 17634b3760c58239f37d75113425e50fd3756470
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Mon Nov 22 09:15:47 2010 +0100
+
+    fastload: fix error handling upon running out of memory
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/target.c b/src/target/target.c
+index a282aab..93efa76 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -4964,9 +4964,10 @@ COMMAND_HANDLER(handle_fast_load_image_command)
+ 	struct duration bench;
+ 	duration_start(&amp;bench);
+ 
+-	if (image_open(&amp;image, CMD_ARGV[0], (CMD_ARGC &gt;= 3) ? CMD_ARGV[2] : NULL) != ERROR_OK)
++	retval = image_open(&amp;image, CMD_ARGV[0], (CMD_ARGC &gt;= 3) ? CMD_ARGV[2] : NULL);
++	if (retval != ERROR_OK)
+ 	{
+-		return ERROR_OK;
++		return retval;
+ 	}
+ 
+ 	image_size = 0x0;
+@@ -4975,6 +4976,7 @@ COMMAND_HANDLER(handle_fast_load_image_command)
+ 	fastload = (struct FastLoad *)malloc(sizeof(struct FastLoad)*image.num_sections);
+ 	if (fastload == NULL)
+ 	{
++		command_print(CMD_CTX, &quot;out of memory&quot;);
+ 		image_close(&amp;image);
+ 		return ERROR_FAIL;
+ 	}
+@@ -4986,6 +4988,7 @@ COMMAND_HANDLER(handle_fast_load_image_command)
+ 		{
+ 			command_print(CMD_CTX, &quot;error allocating buffer for section (%d bytes)&quot;,
+ 						  (int)(image.sections[i].size));
++			retval = ERROR_FAIL;
+ 			break;
+ 		}
+ 
+@@ -5021,6 +5024,9 @@ COMMAND_HANDLER(handle_fast_load_image_command)
+ 			if (fastload[i].data == NULL)
+ 			{
+ 				free(buffer);
++				command_print(CMD_CTX, &quot;error allocating buffer for section (%d bytes)&quot;,
++							  length);
++				retval = ERROR_FAIL;
+ 				break;
+ 			}
+ 			memcpy(fastload[i].data, buffer + offset, length);
+@@ -5075,14 +5081,18 @@ COMMAND_HANDLER(handle_fast_load_command)
+ 		command_print(CMD_CTX, &quot;Write to 0x%08x, length 0x%08x&quot;,
+ 					  (unsigned int)(fastload[i].address),
+ 					  (unsigned int)(fastload[i].length));
+-		if (retval == ERROR_OK)
++		retval = target_write_buffer(target, fastload[i].address, fastload[i].length, fastload[i].data);
++		if (retval != ERROR_OK)
+ 		{
+-			retval = target_write_buffer(target, fastload[i].address, fastload[i].length, fastload[i].data);
++			break;
+ 		}
+ 		size += fastload[i].length;
+ 	}
+-	int after = timeval_ms();
+-	command_print(CMD_CTX, &quot;Loaded image %f kBytes/s&quot;, (float)(size/1024.0)/((float)(after-ms)/1000.0));
++	if (retval == ERROR_OK)
++	{
++		int after = timeval_ms();
++		command_print(CMD_CTX, &quot;Loaded image %f kBytes/s&quot;, (float)(size/1024.0)/((float)(after-ms)/1000.0));
++	}
+ 	return retval;
+ }
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/target.c |   22 ++++++++++++++++------
+ 1 files changed, 16 insertions(+), 6 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002440.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-613-g6dbe9b7
+</A></li>
+	<LI>Next message: <A HREF="002442.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-615-g8902789
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2441">[ date ]</a>
+              <a href="thread.html#2441">[ thread ]</a>
+              <a href="subject.html#2441">[ subject ]</a>
+              <a href="author.html#2441">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

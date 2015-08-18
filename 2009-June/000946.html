@@ -1,0 +1,176 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2162 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2162%20-%20trunk/src/jtag&In-Reply-To=%3C200906090840.n598eplx020706%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000945.html">
+   <LINK REL="Next"  HREF="000947.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2162 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2162%20-%20trunk/src/jtag&In-Reply-To=%3C200906090840.n598eplx020706%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2162 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun  9 10:40:51 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000945.html">[Openocd-svn] r2161 - in trunk/src: jtag jtag/rlink jtag/zy1000	target
+</A></li>
+        <LI>Next message: <A HREF="000947.html">[Openocd-svn] r2163 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#946">[ date ]</a>
+              <a href="thread.html#946">[ thread ]</a>
+              <a href="subject.html#946">[ subject ]</a>
+              <a href="author.html#946">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-09 10:40:46 +0200 (Tue, 09 Jun 2009)
+New Revision: 2162
+
+Modified:
+   trunk/src/jtag/core.c
+   trunk/src/jtag/jtag.h
+Log:
+Move the jtag_error helper routines out of header file:
+- Makes jtag_error static, add new get helper function for completeness.
+- Improve and add documentation and style for these helpers.
+
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-06-09 08:40:31 UTC (rev 2161)
++++ trunk/src/jtag/core.c	2009-06-09 08:40:46 UTC (rev 2162)
+@@ -46,10 +46,17 @@
+ static void jtag_add_scan_check(void (*jtag_add_scan)(int in_num_fields, const scan_field_t *in_fields, tap_state_t state),
+ 		int in_num_fields, scan_field_t *in_fields, tap_state_t state);
+ 
+-/* note that this is not marked as static as it must be available from outside core.c for those
+-   that implement the jtag_xxx() minidriver layer
+-*/
+-int jtag_error=ERROR_OK;
++/**
++ * The jtag_error variable is set when an error occurs while executing
++ * the queue.  Application code may set this using jtag_set_error(),
++ * when an error occurs during processing that should be reported during
++ * jtag_execute_queue().
++ *
++ * Tts value may be checked with jtag_get_error() and cleared with
++ * jtag_error_clear().  This value is returned (and cleared) by
++ * jtag_execute_queue().
++ */
++static int jtag_error = ERROR_OK;
+ 
+ char* jtag_event_strings[] =
+ {
+@@ -101,6 +108,24 @@
+ jtag_interface_t *jtag_interface = NULL;
+ int jtag_speed = 0;
+ 
++void jtag_set_error(int error)
++{
++	if ((error == ERROR_OK) || (jtag_error != ERROR_OK))
++		return;
++	jtag_error = error;
++}
++int jtag_get_error(void)
++{
++	return jtag_error;
++}
++int jtag_error_clear(void)
++{
++	int temp = jtag_error;
++	jtag_error = ERROR_OK;
++	return temp;
++}
++
++
+ jtag_tap_t *jtag_all_taps(void)
+ {
+ 	return __jtag_all_taps;
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-06-09 08:40:31 UTC (rev 2161)
++++ trunk/src/jtag/jtag.h	2009-06-09 08:40:46 UTC (rev 2162)
+@@ -578,36 +578,19 @@
+ extern void jtag_execute_queue_noclear(void);
+ 
+ /**
+- * The jtag_error variable is set when an error occurs while executing
+- * the queue.
+- *
+- * This flag can also be set from application code, if an error happens
+- * during processing that should be reported during jtag_execute_queue().
+- *
+- * It is cleared by jtag_execute_queue().
++ * Set the current JTAG core execution error, unless one was set
++ * by a previous call previously.  Driver or application code must
++ * use jtag_error_clear to reset jtag_error once this routine has been
++ * called with a non-zero error code.
+  */
+-extern int jtag_error;
+-
+-static __inline__ void jtag_set_error(int error)
+-{
+-	if ((error==ERROR_OK)||(jtag_error!=ERROR_OK))
+-	{
+-		/* keep first error */
+-		return;
+-	}
+-	jtag_error=error;
+-}
+-
++void jtag_set_error(int error);
++/// @returns The current value of jtag_error
++int jtag_get_error(void);
+ /**
+  * Resets jtag_error to ERROR_OK, returning its previous value.
+  * @returns The previous value of @c jtag_error.
+  */
+-static inline int jtag_error_clear(void)
+-{
+-	int temp = jtag_error;
+-	jtag_error = ERROR_OK;
+-	return temp;
+-}
++int jtag_error_clear(void);
+ 
+ /* can be implemented by hw+sw */
+ extern int jtag_power_dropout(int* dropout);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000945.html">[Openocd-svn] r2161 - in trunk/src: jtag jtag/rlink jtag/zy1000	target
+</A></li>
+	<LI>Next message: <A HREF="000947.html">[Openocd-svn] r2163 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#946">[ date ]</a>
+              <a href="thread.html#946">[ thread ]</a>
+              <a href="subject.html#946">[ subject ]</a>
+              <a href="author.html#946">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,126 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2129 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2129%20-%20trunk/src/jtag&In-Reply-To=%3C200906081312.n58DCKX0006628%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000912.html">
+   <LINK REL="Next"  HREF="000914.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2129 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2129%20-%20trunk/src/jtag&In-Reply-To=%3C200906081312.n58DCKX0006628%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2129 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Mon Jun  8 15:12:20 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000912.html">[Openocd-svn] r2128 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000914.html">[Openocd-svn] r2130 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#913">[ date ]</a>
+              <a href="thread.html#913">[ thread ]</a>
+              <a href="subject.html#913">[ subject ]</a>
+              <a href="author.html#913">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-08 15:12:17 +0200 (Mon, 08 Jun 2009)
+New Revision: 2129
+
+Modified:
+   trunk/src/jtag/jtag.c
+Log:
+Factor interface list to its own command:
+- Add handle_interface_list_command, used by handle_interface_command.
+- Display output of new list to command console.
+- Change first index of displayed drivers to 1; it's only cosmetic.
+
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-08 13:12:12 UTC (rev 2128)
++++ trunk/src/jtag/jtag.c	2009-06-08 13:12:17 UTC (rev 2129)
+@@ -223,6 +223,8 @@
+ int jtag_speed = 0;
+ 
+ /* jtag commands */
++static int handle_interface_list_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc);
+ static int handle_interface_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int handle_jtag_speed_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int handle_jtag_khz_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+@@ -1601,6 +1603,9 @@
+ 
+ 	register_command(cmd_ctx, NULL, &quot;interface&quot;, handle_interface_command,
+ 		COMMAND_CONFIG, &quot;try to configure interface&quot;);
++	register_command(cmd_ctx, NULL,
++		&quot;interface_list&quot;, &amp;handle_interface_list_command,
++		COMMAND_ANY, &quot;list all built-in interfaces&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;jtag_speed&quot;, handle_jtag_speed_command,
+ 		COMMAND_ANY, &quot;(DEPRECATED) set jtag speed (if supported)&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;jtag_khz&quot;, handle_jtag_khz_command,
+@@ -1837,11 +1842,24 @@
+ 	 * didn't match one of the compiled-in interfaces
+ 	 */
+ 	LOG_ERROR(&quot;The specified JTAG interface was not found (%s)&quot;, args[0]);
+-	LOG_ERROR(&quot;The following built-in JTAG interfaces are available:&quot;);
++	handle_interface_list_command(cmd_ctx, cmd, args, argc);
++	return ERROR_JTAG_INVALID_INTERFACE;
++}
++
++static int handle_interface_list_command(struct command_context_s *cmd_ctx,
++		char *cmd, char **args, int argc)
++{
++	if (strcmp(cmd, &quot;interface_list&quot;) == 0 &amp;&amp; argc &gt; 0)
++		return ERROR_COMMAND_SYNTAX_ERROR;
++
++	command_print(cmd_ctx, &quot;The following JTAG interfaces are available:&quot;);
+ 	for (unsigned i = 0; NULL != jtag_interfaces[i]; i++)
+-		LOG_ERROR(&quot;%u: %s&quot;, i, jtag_interfaces[i]-&gt;name);
++	{
++		const char *name = jtag_interfaces[i]-&gt;name;
++		command_print(cmd_ctx, &quot;%u: %s&quot;, i + 1, name);
++	}
+ 
+-	return ERROR_JTAG_INVALID_INTERFACE;
++	return ERROR_OK;
+ }
+ 
+ static int handle_jtag_device_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000912.html">[Openocd-svn] r2128 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000914.html">[Openocd-svn] r2130 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#913">[ date ]</a>
+              <a href="thread.html#913">[ thread ]</a>
+              <a href="subject.html#913">[ subject ]</a>
+              <a href="author.html#913">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

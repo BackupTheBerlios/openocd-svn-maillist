@@ -1,0 +1,145 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-682-g0136977
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-682-g0136977&In-Reply-To=%3CE1PYCtQ-0006zz-B6%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002480.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-682-g0136977</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-682-g0136977&In-Reply-To=%3CE1PYCtQ-0006zz-B6%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-682-g0136977">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Thu Dec 30 08:25:46 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002480.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-681-g50e79d6
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2481">[ date ]</a>
+              <a href="thread.html#2481">[ thread ]</a>
+              <a href="subject.html#2481">[ subject ]</a>
+              <a href="author.html#2481">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  0136977c40e41cdaab5d775c4e370763006ad99c (commit)
+      from  50e79d60ce148f86bc93cc3248c3f6f0f81b3c3e (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 0136977c40e41cdaab5d775c4e370763006ad99c
+Author: Marek Vasut &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">marek.vasut at gmail.com</A>&gt;
+Date:   Thu Dec 30 04:54:24 2010 +0100
+
+    CORTEX A8: Fix broken CPU identification
+    
+    This patch fixes the issue where the OMAP CPU (and possibly others) was mistaken
+    for iMX51 and therefore had misadjusted debug base.
+    
+    Signed-off-by: Marek Vasut &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">marek.vasut at gmail.com</A>&gt;
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index 69a3ce7..7df0d4f 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -1013,10 +1013,11 @@ is_dap_cid_ok(uint32_t cid3, uint32_t cid2, uint32_t cid1, uint32_t cid0)
+ struct broken_cpu {
+ 	uint32_t	dbgbase;
+ 	uint32_t	apid;
++	uint32_t	idcode;
+ 	uint32_t	correct_dbgbase;
+ 	char		*model;
+ } broken_cpus[] = {
+-	{ 0x80000000, 0x04770002, 0x60000000, &quot;imx51&quot; },
++	{ 0x80000000, 0x04770002, 0x1ba00477, 0x60000000, &quot;imx51&quot; },
+ };
+ 
+ int dap_get_debugbase(struct adiv5_dap *dap, int apsel,
+@@ -1025,7 +1026,7 @@ int dap_get_debugbase(struct adiv5_dap *dap, int apsel,
+ 	uint32_t apselold;
+ 	int retval;
+ 	unsigned int i;
+-	uint32_t dbgbase, apid;
++	uint32_t dbgbase, apid, idcode;
+ 
+ 	/* AP address is in bits 31:24 of DP_SELECT */
+ 	if (apsel &gt;= 256)
+@@ -1044,10 +1045,23 @@ int dap_get_debugbase(struct adiv5_dap *dap, int apsel,
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
++	/* Excavate the device ID code */
++	struct jtag_tap *tap = dap-&gt;jtag_info-&gt;tap;
++	while (tap != NULL) {
++		if (tap-&gt;hasidcode) {
++			idcode = tap-&gt;idcode;
++			break;
++		}
++		tap = tap-&gt;next_tap;
++	}
++	if (tap == NULL || !tap-&gt;hasidcode)
++		return ERROR_OK;
++
+ 	/* Some CPUs are messed up, so fixup if needed. */
+ 	for (i = 0; i &lt; sizeof(broken_cpus)/sizeof(struct broken_cpu); i++)
+ 		if (broken_cpus[i].dbgbase == dbgbase &amp;&amp;
+-			broken_cpus[i].apid == apid) {
++			broken_cpus[i].apid == apid &amp;&amp;
++			broken_cpus[i].idcode == idcode) {
+ 			LOG_WARNING(&quot;Found broken CPU (%s), trying to fixup &quot;
+ 				&quot;ROM Table location from 0x%08x to 0x%08x&quot;,
+ 				broken_cpus[i].model, dbgbase,
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm_adi_v5.c |   20 +++++++++++++++++---
+ 1 files changed, 17 insertions(+), 3 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002480.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-681-g50e79d6
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2481">[ date ]</a>
+              <a href="thread.html#2481">[ thread ]</a>
+              <a href="subject.html#2481">[ subject ]</a>
+              <a href="author.html#2481">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

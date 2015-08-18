@@ -1,0 +1,204 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-91-g030ee19
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-91-g030ee19&In-Reply-To=%3CE1NrdeA-0002s9-JR%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002160.html">
+   <LINK REL="Next"  HREF="002162.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-91-g030ee19</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-91-g030ee19&In-Reply-To=%3CE1NrdeA-0002s9-JR%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-91-g030ee19">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Tue Mar 16 21:45:47 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002160.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-90-g679f660
+</A></li>
+        <LI>Next message: <A HREF="002162.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-92-g6f8b859
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2161">[ date ]</a>
+              <a href="thread.html#2161">[ thread ]</a>
+              <a href="subject.html#2161">[ subject ]</a>
+              <a href="author.html#2161">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  030ee192dd9647b10ff0841a671facec9d6b833f (commit)
+      from  679f6602fd1a7e9763bac52f06bbf2db28098d9a (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 030ee192dd9647b10ff0841a671facec9d6b833f
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Mon Mar 1 08:25:18 2010 +0100
+
+    bitbang: add jtag_add_tms_seq support
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/drivers/at91rm9200.c b/src/jtag/drivers/at91rm9200.c
+index abaf3ad..89d7000 100644
+--- a/src/jtag/drivers/at91rm9200.c
++++ b/src/jtag/drivers/at91rm9200.c
+@@ -126,6 +126,7 @@ struct jtag_interface at91rm9200_interface =
+ {
+ 	.name = &quot;at91rm9200&quot;,
+ 
++	.supported = DEBUG_CAP_TMS_SEQ,
+ 	.execute_queue = bitbang_execute_queue,
+ 
+ 	.speed = at91rm9200_speed,
+diff --git a/src/jtag/drivers/bitbang.c b/src/jtag/drivers/bitbang.c
+index 83c2d29..6159ef7 100644
+--- a/src/jtag/drivers/bitbang.c
++++ b/src/jtag/drivers/bitbang.c
+@@ -91,6 +91,31 @@ static void bitbang_state_move(int skip)
+ 	tap_set_state(tap_get_end_state());
+ }
+ 
++
++/**
++ * Clock a bunch of TMS (or SWDIO) transitions, to change the JTAG
++ * (or SWD) state machine.
++ */
++static int bitbang_execute_tms(struct jtag_command *cmd)
++{
++	unsigned	num_bits = cmd-&gt;cmd.tms-&gt;num_bits;
++	const uint8_t	*bits = cmd-&gt;cmd.tms-&gt;bits;
++
++	DEBUG_JTAG_IO(&quot;TMS: %d bits&quot;, num_bits);
++
++	int tms = 0;
++	for (unsigned i = 0; i &lt; num_bits; i++)
++	{
++		tms = ((bits[i/8] &gt;&gt; (i % 8)) &amp; 1);
++		bitbang_interface-&gt;write(0, tms, 0);
++		bitbang_interface-&gt;write(1, tms, 0);
++	}
++	bitbang_interface-&gt;write(CLOCK_IDLE(), tms, 0);
++
++	return ERROR_OK;
++}
++
++
+ static void bitbang_path_move(struct pathmove_command *cmd)
+ {
+ 	int num_states = cmd-&gt;num_states;
+@@ -312,6 +337,9 @@ int bitbang_execute_queue(void)
+ #endif
+ 				jtag_sleep(cmd-&gt;cmd.sleep-&gt;us);
+ 				break;
++			case JTAG_TMS:
++				retval = bitbang_execute_tms(cmd);
++				break;
+ 			default:
+ 				LOG_ERROR(&quot;BUG: unknown JTAG command type encountered&quot;);
+ 				exit(-1);
+diff --git a/src/jtag/drivers/dummy.c b/src/jtag/drivers/dummy.c
+index 1880712..7cb0e33 100644
+--- a/src/jtag/drivers/dummy.c
++++ b/src/jtag/drivers/dummy.c
+@@ -164,6 +164,7 @@ static const struct command_registration dummy_command_handlers[] = {
+ struct jtag_interface dummy_interface = {
+ 		.name = &quot;dummy&quot;,
+ 
++		.supported = DEBUG_CAP_TMS_SEQ,
+ 		.commands = dummy_command_handlers,
+ 
+ 		.execute_queue = &amp;bitbang_execute_queue,
+diff --git a/src/jtag/drivers/ep93xx.c b/src/jtag/drivers/ep93xx.c
+index 61dc76e..0959a56 100644
+--- a/src/jtag/drivers/ep93xx.c
++++ b/src/jtag/drivers/ep93xx.c
+@@ -57,6 +57,7 @@ struct jtag_interface ep93xx_interface =
+ {
+ 	.name = &quot;ep93xx&quot;,
+ 
++	.supported = DEBUG_CAP_TMS_SEQ,
+ 	.execute_queue = bitbang_execute_queue,
+ 
+ 	.speed = ep93xx_speed,
+diff --git a/src/jtag/drivers/parport.c b/src/jtag/drivers/parport.c
+index fa3373b..2323ec5 100644
+--- a/src/jtag/drivers/parport.c
++++ b/src/jtag/drivers/parport.c
+@@ -524,6 +524,7 @@ static const struct command_registration parport_command_handlers[] = {
+ 
+ struct jtag_interface parport_interface = {
+ 	.name = &quot;parport&quot;,
++	.supported = DEBUG_CAP_TMS_SEQ,
+ 	.commands = parport_command_handlers,
+ 
+ 	.init = parport_init,
+diff --git a/src/jtag/drivers/usb_blaster.c b/src/jtag/drivers/usb_blaster.c
+index 3703323..59c5715 100644
+--- a/src/jtag/drivers/usb_blaster.c
++++ b/src/jtag/drivers/usb_blaster.c
+@@ -580,6 +580,7 @@ static const struct command_registration usb_blaster_command_handlers[] = {
+ struct jtag_interface usb_blaster_interface = {
+ 	.name = &quot;usb_blaster&quot;,
+ 	.commands = usb_blaster_command_handlers,
++	.supported = DEBUG_CAP_TMS_SEQ,
+ 
+ 	.execute_queue = bitbang_execute_queue,
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/drivers/at91rm9200.c  |    1 +
+ src/jtag/drivers/bitbang.c     |   28 ++++++++++++++++++++++++++++
+ src/jtag/drivers/dummy.c       |    1 +
+ src/jtag/drivers/ep93xx.c      |    1 +
+ src/jtag/drivers/parport.c     |    1 +
+ src/jtag/drivers/usb_blaster.c |    1 +
+ 6 files changed, 33 insertions(+), 0 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002160.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-90-g679f660
+</A></li>
+	<LI>Next message: <A HREF="002162.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-92-g6f8b859
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2161">[ date ]</a>
+              <a href="thread.html#2161">[ thread ]</a>
+              <a href="subject.html#2161">[ subject ]</a>
+              <a href="author.html#2161">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

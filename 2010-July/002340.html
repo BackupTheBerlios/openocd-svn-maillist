@@ -1,0 +1,224 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-452-ga463670
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-452-ga463670&In-Reply-To=%3CE1OcjeD-0008V6-Q9%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002339.html">
+   <LINK REL="Next"  HREF="002341.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-452-ga463670</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-452-ga463670&In-Reply-To=%3CE1OcjeD-0008V6-Q9%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-452-ga463670">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Sat Jul 24 20:40:26 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002339.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-451-g51d9b56
+</A></li>
+        <LI>Next message: <A HREF="002341.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-453-gf4c1f08
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2340">[ date ]</a>
+              <a href="thread.html#2340">[ thread ]</a>
+              <a href="subject.html#2340">[ subject ]</a>
+              <a href="author.html#2340">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  a463670c312befd86224e74a79aa804ee5fbae03 (commit)
+      from  51d9b56861e1a64629177283fe37f289de932ba5 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit a463670c312befd86224e74a79aa804ee5fbae03
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sat Jul 24 14:38:46 2010 -0400
+
+    &quot;transport select&quot; returns Jim value
+    
+    Make it scriptable, so code can be conditionalized based on
+    what transport is in use for the session.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index 89c9f66..97d2e81 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -2451,7 +2451,7 @@ version of OpenOCD.
+ Select which of the supported transports to use in this OpenOCD session.
+ The transport must be supported by the debug adapter hardware  and by the
+ version of OPenOCD you are using (including the adapter's driver).
+-No arguments: print selected transport..
++No arguments: returns name of session's selected transport.
+ @end deffn
+ 
+ @subsection JTAG Transport
+diff --git a/src/jtag/transport.c b/src/jtag/transport.c
+index d290bd2..503b57b 100644
+--- a/src/jtag/transport.c
++++ b/src/jtag/transport.c
+@@ -46,6 +46,9 @@
+ 
+ #include &quot;transport.h&quot;
+ 
++extern struct command_context *global_cmd_ctx;
++
++
+ /*-----------------------------------------------------------------------*/
+ 
+ /*
+@@ -272,39 +275,26 @@ COMMAND_HANDLER(handle_transport_list)
+ /**
+  * Implements the Tcl &quot;transport select&quot; command, choosing the
+  * transport to be used in this debug session from among the
+- * set supported by the debug adapter being used.
++ * set supported by the debug adapter being used.  Return value
++ * is scriptable (allowing &quot;if swd then...&quot; etc).
+  */
+-COMMAND_HANDLER(handle_transport_select)
++static int jim_transport_select(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+-	int retval = ERROR_OK;;
+-
+-	switch (CMD_ARGC) {
+-	case 0:			/* &quot;select&quot; */
+-		if (session) {
+-			goto show;
+-		}
+-		LOG_ERROR(&quot;session's transport is not selected.&quot;);
+-		return ERROR_FAIL;
+-
+-	case 1:			/* &quot;select FOO&quot; */
+-		if ((session!= NULL) &amp;&amp; strcmp(session-&gt;name, CMD_ARGV[0]) == 0) {
+-			/* NOP */
+-			LOG_DEBUG(&quot;transport '%s' is already selected&quot;,
+-					CMD_ARGV[0]);
+-			return ERROR_OK;
++	switch (argc) {
++	case 1:			/* return/display */
++		if (!session) {
++			LOG_ERROR(&quot;session's transport is not selected.&quot;);
++			return JIM_ERR;
+ 		} else {
+-			/* we can't change this session's transport after-the-fact */
+-			if (session) {
+-				LOG_ERROR(&quot;session's transport is already selected.&quot;);
+-				return ERROR_FAIL;
+-			}
++			Jim_SetResultString(interp, session-&gt;name, -1);
++			return JIM_OK;
+ 		}
+ 		break;
+-
+-	default:		/* select FOO BAR */
+-		/* we only select *one* transport per session */
+-		LOG_ERROR(&quot;may only select one transport!&quot;);
+-		return ERROR_COMMAND_SYNTAX_ERROR;
++	case 2:			/* assign */
++	if (session) {
++		/* can't change session's transport after-the-fact */
++		LOG_ERROR(&quot;session's transport is already selected.&quot;);
++		return JIM_ERR;
+ 	}
+ 
+ 	/* Is this transport supported by our debug adapter?
+@@ -315,24 +305,23 @@ COMMAND_HANDLER(handle_transport_select)
+ 	 */
+ 	if (!allowed_transports) {
+ 		LOG_ERROR(&quot;Debug adapter doesn't support any transports?&quot;);
+-		return ERROR_FAIL;
++		return JIM_ERR;
+ 	}
+ 
+ 	for (unsigned i = 0; allowed_transports[i]; i++) {
+ 
+-		if (strcmp(allowed_transports[i], CMD_ARGV[0]) == 0)
+-			return transport_select(CMD_CTX, CMD_ARGV[0]);
++		if (strcmp(allowed_transports[i], argv[0]-&gt;bytes) == 0)
++		return transport_select(global_cmd_ctx, argv[0]-&gt;bytes);
+ 	}
+ 
+-	LOG_ERROR(&quot;Debug adapter doesn't support '%s' &quot;
+-			&quot;transport?&quot;, CMD_ARGV[0]);
+-	return ERROR_FAIL;
+-
+-
+-show:
+-	/* report the current transport selection */
+-	command_print(CMD_CTX, &quot;%s&quot;, session-&gt;name);
+-	return retval;
++		LOG_ERROR(&quot;Debug adapter doesn't support '%s' &quot;
++			&quot;transport&quot;, argv[0]-&gt;bytes);
++		return JIM_ERR;
++		break;
++	default:
++		Jim_WrongNumArgs(interp, 1, argv, &quot;[too many parameters]&quot;);
++		return JIM_ERR;
++	}
+ }
+ 
+ static const struct command_registration transport_commands[] = {
+@@ -354,7 +343,7 @@ static const struct command_registration transport_commands[] = {
+ 	},
+ 	{
+ 		.name = &quot;select&quot;,
+-		.handler = handle_transport_select,
++		.jim_handler = jim_transport_select,
+ 		.mode = COMMAND_ANY,
+ 		.help = &quot;Select this session's transport&quot;,
+ 		.usage = &quot;[transport_name]&quot;,
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ doc/openocd.texi     |    2 +-
+ src/jtag/transport.c |   71 +++++++++++++++++++++-----------------------------
+ 2 files changed, 31 insertions(+), 42 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002339.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-451-g51d9b56
+</A></li>
+	<LI>Next message: <A HREF="002341.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-453-gf4c1f08
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2340">[ date ]</a>
+              <a href="thread.html#2340">[ thread ]</a>
+              <a href="subject.html#2340">[ subject ]</a>
+              <a href="author.html#2340">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

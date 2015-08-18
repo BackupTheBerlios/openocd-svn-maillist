@@ -1,0 +1,378 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1237 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1237%20-%20trunk/src/jtag&In-Reply-To=%3C200812130705.mBD75gPg029308%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000018.html">
+   <LINK REL="Next"  HREF="000020.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1237 - trunk/src/jtag</H1>
+    <B>kc8apf at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1237%20-%20trunk/src/jtag&In-Reply-To=%3C200812130705.mBD75gPg029308%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1237 - trunk/src/jtag">kc8apf at mail.berlios.de
+       </A><BR>
+    <I>Sat Dec 13 08:05:42 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000018.html">[Openocd-svn] r1236 - in branches/openocd_1_0_branch: . doc	src/flash src/helper src/jtag src/pld src/target	src/target/board src/target/target src/xsvf
+</A></li>
+        <LI>Next message: <A HREF="000020.html">[Openocd-svn] r1238 - in trunk/src: . flash helper jtag server	target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19">[ date ]</a>
+              <a href="thread.html#19">[ thread ]</a>
+              <a href="subject.html#19">[ subject ]</a>
+              <a href="author.html#19">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kc8apf
+Date: 2008-12-13 08:05:38 +0100 (Sat, 13 Dec 2008)
+New Revision: 1237
+
+Modified:
+   trunk/src/jtag/jtag.c
+   trunk/src/jtag/jtag.h
+Log:
+Add JTAG tap events for enable/disable
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2008-12-13 07:02:56 UTC (rev 1236)
++++ trunk/src/jtag/jtag.c	2008-12-13 07:05:38 UTC (rev 1237)
+@@ -110,6 +110,13 @@
+ 	&quot;JTAG controller reset (RESET or TRST)&quot;
+ };
+ 
++const Jim_Nvp nvp_jtag_tap_event[] = {
++	{ .value = JTAG_TAP_EVENT_ENABLE,       .name = &quot;tap-enable&quot; },
++	{ .value = JTAG_TAP_EVENT_DISABLE,      .name = &quot;tap-disable&quot; },
++
++	{ .name = NULL, .value = -1 }
++};
++
+ /* kludge!!!! these are just global variables that the
+  * interface use internally. They really belong
+  * inside the drivers, but we don't want to break
+@@ -1699,8 +1706,106 @@
+ 	return ERROR_OK;
+ }
+ 
++enum jtag_tap_cfg_param {
++	JCFG_EVENT
++};
+ 
++static Jim_Nvp nvp_config_opts[] = {
++	{ .name = &quot;-event&quot;,      .value = JCFG_EVENT },
++
++	{ .name = NULL,          .value = -1 }
++};
++
+ static int
++jtag_tap_configure_cmd( Jim_GetOptInfo *goi,
++		jtag_tap_t * tap)
++{
++	Jim_Nvp *n;
++	Jim_Obj *o;
++	int e;
++
++	/* parse config or cget options */
++	while (goi-&gt;argc &gt; 0) {
++		Jim_SetEmptyResult (goi-&gt;interp);
++
++		e = Jim_GetOpt_Nvp(goi, nvp_config_opts, &amp;n);
++		if (e != JIM_OK) {
++			Jim_GetOpt_NvpUnknown(goi, nvp_config_opts, 0);
++			return e;
++		}
++
++		switch (n-&gt;value) {
++			case JCFG_EVENT:
++				if (goi-&gt;argc == 0) {
++					Jim_WrongNumArgs( goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event ?event-name? ...&quot; );
++					return JIM_ERR;
++				}
++
++				e = Jim_GetOpt_Nvp( goi, nvp_jtag_tap_event, &amp;n );
++				if (e != JIM_OK) {
++					Jim_GetOpt_NvpUnknown(goi, nvp_jtag_tap_event, 1);
++					return e;
++				}
++
++				if (goi-&gt;isconfigure) {
++					if (goi-&gt;argc != 1) {
++						Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event ?event-name? ?EVENT-BODY?&quot;);
++						return JIM_ERR;
++					}
++				} else {
++					if (goi-&gt;argc != 0) {
++						Jim_WrongNumArgs(goi-&gt;interp, goi-&gt;argc, goi-&gt;argv, &quot;-event ?event-name?&quot;);
++						return JIM_ERR;
++					}
++				}
++
++				{
++					jtag_tap_event_action_t *jteap;
++
++					jteap = tap-&gt;event_action;
++					/* replace existing? */
++					while (jteap) {
++						if (jteap-&gt;event == n-&gt;value) {
++							break;
++						}
++						jteap = jteap-&gt;next;
++					}
++
++					if (goi-&gt;isconfigure) {
++						if (jteap == NULL) {
++							/* create new */
++							jteap = calloc(1, sizeof (*jteap));
++						}
++						jteap-&gt;event = n-&gt;value;
++						Jim_GetOpt_Obj( goi, &amp;o);
++						if (jteap-&gt;body) {
++							Jim_DecrRefCount(interp, jteap-&gt;body);
++						}
++						jteap-&gt;body = Jim_DuplicateObj(goi-&gt;interp, o);
++						Jim_IncrRefCount(jteap-&gt;body);
++
++						/* add to head of event list */
++						jteap-&gt;next = tap-&gt;event_action;
++						tap-&gt;event_action = jteap;
++						Jim_SetEmptyResult(goi-&gt;interp);
++					} else {
++						/* get */
++						if (jteap == NULL) {
++							Jim_SetEmptyResult(goi-&gt;interp);
++						} else {
++							Jim_SetResult(goi-&gt;interp, Jim_DuplicateObj(goi-&gt;interp, jteap-&gt;body));
++						}
++					}
++				}
++				/* loop for more */
++				break;
++		}
++	} /* while (goi-&gt;argc) */
++
++	return JIM_OK;
++}
++
++static int
+ jim_newtap_cmd( Jim_GetOptInfo *goi )
+ {
+ 	jtag_tap_t *pTap;
+@@ -1901,6 +2006,7 @@
+ 	Jim_GetOptInfo goi;
+ 	int e;
+ 	Jim_Nvp *n;
++	Jim_Obj *o;
+ 	struct command_context_s *context;
+ 
+ 	enum {
+@@ -1909,7 +2015,9 @@
+ 		JTAG_CMD_NEWTAP,
+ 		JTAG_CMD_TAPENABLE,
+ 		JTAG_CMD_TAPDISABLE,
+-		JTAG_CMD_TAPISENABLED
++		JTAG_CMD_TAPISENABLED,
++		JTAG_CMD_CONFIGURE,
++		JTAG_CMD_CGET
+ 	};
+ 
+ 	const Jim_Nvp jtag_cmds[] = {
+@@ -1919,6 +2027,8 @@
+ 		{ .name = &quot;tapisenabled&quot;     , .value = JTAG_CMD_TAPISENABLED },
+ 		{ .name = &quot;tapenable&quot;     , .value = JTAG_CMD_TAPENABLE },
+ 		{ .name = &quot;tapdisable&quot;    , .value = JTAG_CMD_TAPDISABLE },
++		{ .name = &quot;configure&quot;     , .value = JTAG_CMD_CONFIGURE },
++		{ .name = &quot;cget&quot;          , .value = JTAG_CMD_CGET },
+ 
+ 		{ .name = NULL, .value = -1 },
+ 	};
+@@ -1977,10 +2087,12 @@
+ 				// below
+ 				break;
+ 			case JTAG_CMD_TAPENABLE:
++				jtag_tap_handle_event( t, JTAG_TAP_EVENT_ENABLE);
+ 				e = 1;
+ 				t-&gt;enabled = e;
+ 				break;
+ 			case JTAG_CMD_TAPDISABLE:
++				jtag_tap_handle_event( t, JTAG_TAP_EVENT_DISABLE);
+ 				e = 0;
+ 				t-&gt;enabled = e;
+ 				break;
+@@ -1988,6 +2100,46 @@
+ 			Jim_SetResult( goi.interp, Jim_NewIntObj( goi.interp, e ) );
+ 			return JIM_OK;
+ 		}
++		break;
++
++	case JTAG_CMD_CGET:
++		if( goi.argc &lt; 2 ){
++			Jim_WrongNumArgs( goi.interp, 0, NULL, &quot;?tap-name? -option ...&quot;);
++			return JIM_ERR;
++		}
++
++		{
++			jtag_tap_t *t;
++
++			Jim_GetOpt_Obj(&amp;goi, &amp;o);
++			t = jtag_TapByJimObj( goi.interp, o );
++			if( t == NULL ){
++				return JIM_ERR;
++			}
++
++			goi.isconfigure = 0;
++			return jtag_tap_configure_cmd( &amp;goi, t);
++		}
++		break;
++
++	case JTAG_CMD_CONFIGURE:
++		if( goi.argc &lt; 3 ){
++			Jim_WrongNumArgs( goi.interp, 0, NULL, &quot;?tap-name? -option ?VALUE? ...&quot;);
++			return JIM_ERR;
++		}
++
++		{
++			jtag_tap_t *t;
++
++			Jim_GetOpt_Obj(&amp;goi, &amp;o);
++			t = jtag_TapByJimObj( goi.interp, o );
++			if( t == NULL ){
++				return JIM_ERR;
++			}
++
++			goi.isconfigure = 1;
++			return jtag_tap_configure_cmd( &amp;goi, t);
++		}
+ 	}
+ 
+ 
+@@ -2763,3 +2915,34 @@
+ 	return jtag-&gt;srst_asserted(srst_asserted);
+ }
+ 
++void jtag_tap_handle_event( jtag_tap_t * tap, enum jtag_tap_event e)
++{
++	jtag_tap_event_action_t * jteap;
++	int done;
++
++	jteap = tap-&gt;event_action;
++
++	done = 0;
++	while (jteap) {
++		if (jteap-&gt;event == e) {
++			done = 1;
++			LOG_DEBUG( &quot;JTAG tap: %s event: %d (%s) action: %s\n&quot;,
++					tap-&gt;dotted_name,
++					e,
++					Jim_Nvp_value2name_simple(nvp_jtag_tap_event, e)-&gt;name,
++					Jim_GetString(jteap-&gt;body, NULL) );
++			if (Jim_EvalObj(interp, jteap-&gt;body) != JIM_OK) {
++				Jim_PrintErrorMessage(interp);
++			}
++		}
++
++		jteap = jteap-&gt;next;
++	}
++
++	if (!done) {
++		LOG_DEBUG( &quot;event %d %s - no action&quot;,
++				e,
++				Jim_Nvp_value2name_simple( nvp_jtag_tap_event, e)-&gt;name);
++	}
++}
++
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2008-12-13 07:02:56 UTC (rev 1236)
++++ trunk/src/jtag/jtag.h	2008-12-13 07:05:38 UTC (rev 1237)
+@@ -158,6 +158,9 @@
+ 
+ extern jtag_command_t *jtag_command_queue;
+ 
++// forward declaration
++typedef struct jtag_tap_event_action_s jtag_tap_event_action_t;
++
+ // this is really: typedef jtag_tap_t
+ // But - the typedef is done in &quot;types.h&quot;
+ // due to &quot;forward decloration reasons&quot;
+@@ -178,6 +181,9 @@
+ 	u8 expected_ids_cnt;/* Number of expected identification codes */
+ 	u8 *cur_instr;		/* current instruction */
+ 	int bypass;			/* bypass register selected */
++
++	jtag_tap_event_action_t *event_action;
++
+ 	jtag_tap_t *next_tap;
+ };
+ extern jtag_tap_t *jtag_AllTaps(void);
+@@ -271,8 +277,22 @@
+ 	JTAG_TRST_ASSERTED
+ };
+ 
+-extern char* jtag_event_strings[];
++extern char * jtag_event_strings[];
+ 
++enum jtag_tap_event
++{
++	JTAG_TAP_EVENT_ENABLE,
++	JTAG_TAP_EVENT_DISABLE
++};
++
++extern const Jim_Nvp nvp_jtag_tap_event[];
++
++struct jtag_tap_event_action_s {
++	enum jtag_tap_event event;
++	Jim_Obj *body;
++	jtag_tap_event_action_t *next;
++};
++
+ extern int jtag_trst;
+ extern int jtag_srst;
+ 
+@@ -462,6 +482,8 @@
+ 
+ extern int jtag_verify_capture_ir;
+ 
++void jtag_tap_handle_event( jtag_tap_t * tap, enum jtag_tap_event e);
++
+ /* error codes
+  * JTAG subsystem uses codes between -100 and -199 */
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000018.html">[Openocd-svn] r1236 - in branches/openocd_1_0_branch: . doc	src/flash src/helper src/jtag src/pld src/target	src/target/board src/target/target src/xsvf
+</A></li>
+	<LI>Next message: <A HREF="000020.html">[Openocd-svn] r1238 - in trunk/src: . flash helper jtag server	target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#19">[ date ]</a>
+              <a href="thread.html#19">[ thread ]</a>
+              <a href="subject.html#19">[ subject ]</a>
+              <a href="author.html#19">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

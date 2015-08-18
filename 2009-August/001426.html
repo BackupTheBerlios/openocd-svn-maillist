@@ -1,0 +1,190 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2643 - in trunk: . src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2643%20-%20in%20trunk%3A%20.%20src/target&In-Reply-To=%3C200908271037.n7RAb2b5004114%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001425.html">
+   <LINK REL="Next"  HREF="001427.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2643 - in trunk: . src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2643%20-%20in%20trunk%3A%20.%20src/target&In-Reply-To=%3C200908271037.n7RAb2b5004114%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2643 - in trunk: . src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Thu Aug 27 12:37:02 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001425.html">[Openocd-svn] r2642 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001427.html">[Openocd-svn] r2644 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1426">[ date ]</a>
+              <a href="thread.html#1426">[ thread ]</a>
+              <a href="subject.html#1426">[ subject ]</a>
+              <a href="author.html#1426">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-08-27 12:37:01 +0200 (Thu, 27 Aug 2009)
+New Revision: 2643
+
+Modified:
+   trunk/NEWS
+   trunk/src/target/arm11.c
+Log:
+arm11 hardware step using simulation + breakpoint. Use &quot;hardware_step enable&quot; command to revert to hardware stepping. Ideally we could retire the &quot;hardware_step enable&quot; command once we no longer believe it to be necessary. 
+
+Modified: trunk/NEWS
+===================================================================
+--- trunk/NEWS	2009-08-27 07:37:07 UTC (rev 2642)
++++ trunk/NEWS	2009-08-27 10:37:01 UTC (rev 2643)
+@@ -12,7 +12,8 @@
+ 	&quot;cortex_m3 vector_catch&quot; ... traps certain hardware faults
+ 		without tying up breakpoint resources
+     If you're willing to help debug it:  VERY EARLY Cortex-A8 support
+-    New commands for use with XScale processors: &quot;xscale vector_table&quot; 
++    New commands for use with XScale processors: &quot;xscale vector_table&quot;
++    ARM11 single stepping support for i.MX31 
+ 
+ Flash Layer:
+     The lpc2000 driver handles the new NXP LPC1700 (Cortex-M3) chips
+
+Modified: trunk/src/target/arm11.c
+===================================================================
+--- trunk/src/target/arm11.c	2009-08-27 07:37:07 UTC (rev 2642)
++++ trunk/src/target/arm11.c	2009-08-27 10:37:01 UTC (rev 2643)
+@@ -55,6 +55,7 @@
+ uint32_t		arm11_vcr								= 0;
+ bool	arm11_config_memrw_no_increment			= false;
+ bool	arm11_config_step_irq_enable			= false;
++bool	arm11_config_hardware_step				= false;
+ 
+ #define ARM11_HANDLER(x)	\
+ 	.x				= arm11_##x
+@@ -976,7 +977,6 @@
+ int arm11_step(struct target_s *target, int current, uint32_t address, int handle_breakpoints)
+ {
+ 	FNC_INFO;
+-	int retval;
+ 
+ 	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
+ 		target_state_name(target));
+@@ -995,15 +995,6 @@
+ 	LOG_DEBUG(&quot;STEP PC %08&quot; PRIx32 &quot;%s&quot;, R(PC), !current ? &quot;!&quot; : &quot;&quot;);
+ 
+ 
+-	/* TODO: to implement single stepping on arm11 devices that can't
+-	 * do single stepping in hardware we need to calculate the next
+-	 * pc and set up breakpoints accordingingly. */
+-	uint32_t next_pc;
+-	retval = arm11_simulate_step(target, &amp;next_pc);
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-
+ 	/** \todo TODO: Thumb not supported here */
+ 
+ 	uint32_t	next_instruction;
+@@ -1047,11 +1038,31 @@
+ 
+ 		brp[0].write	= 1;
+ 		brp[0].address	= ARM11_SC7_BVR0;
+-		brp[0].value	= R(PC);
+ 		brp[1].write	= 1;
+ 		brp[1].address	= ARM11_SC7_BCR0;
+-		brp[1].value	= 0x1 | (3 &lt;&lt; 1) | (0x0F &lt;&lt; 5) | (0 &lt;&lt; 14) | (0 &lt;&lt; 16) | (0 &lt;&lt; 20) | (2 &lt;&lt; 21);
+ 
++		if (arm11_config_hardware_step)
++		{
++			/* hardware single stepping be used if possible or is it better to
++			 * always use the same code path? Hardware single stepping is not supported
++			 * on all hardware
++			 */
++			 brp[0].value	= R(PC);
++			 brp[1].value	= 0x1 | (3 &lt;&lt; 1) | (0x0F &lt;&lt; 5) | (0 &lt;&lt; 14) | (0 &lt;&lt; 16) | (0 &lt;&lt; 20) | (2 &lt;&lt; 21);
++		} else
++		{
++			/* sets a breakpoint on the next PC(calculated by simulation),
++			 */
++			uint32_t next_pc;
++			int retval;
++			retval = arm11_simulate_step(target, &amp;next_pc);
++			if (retval != ERROR_OK)
++				return retval;
++				
++			brp[0].value	= next_pc;
++			brp[1].value	= 0x1 | (3 &lt;&lt; 1) | (0x0F &lt;&lt; 5) | (0 &lt;&lt; 14) | (0 &lt;&lt; 16) | (0 &lt;&lt; 20) | (0 &lt;&lt; 21);
++		}
++
+ 		CHECK_RETVAL(arm11_sc7_run(arm11, brp, asizeof(brp)));
+ 
+ 		/* resume */
+@@ -1102,11 +1113,6 @@
+ 
+ 	CHECK_RETVAL(target_call_event_callbacks(target, TARGET_EVENT_HALTED));
+ 
+-	if (R(PC) != next_pc)
+-	{
+-		LOG_WARNING(&quot;next pc != simulated address %08&quot; PRIx32 &quot;!=%08&quot; PRIx32, R(PC), next_pc);
+-	}
+-
+ 	return ERROR_OK;
+ }
+ 
+@@ -1908,6 +1914,7 @@
+ BOOL_WRAPPER(memwrite_error_fatal,		&quot;fatal error mode for memory writes&quot;)
+ BOOL_WRAPPER(memrw_no_increment,		&quot;\&quot;no increment\&quot; mode for memory transfers&quot;)
+ BOOL_WRAPPER(step_irq_enable,			&quot;IRQs while stepping&quot;)
++BOOL_WRAPPER(hardware_step,			&quot;hardware single step&quot;)
+ 
+ int arm11_handle_vcr(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
+@@ -2070,8 +2077,10 @@
+ 	RC_FINAL_BOOL(&quot;no_increment&quot;,			&quot;Don't increment address on multi-read/-write (default: disabled)&quot;,
+ 						memrw_no_increment)
+ 
+-	RC_FINAL_BOOL(&quot;step_irq_enable&quot;,		&quot;Enable interrupts while stepping (default: disabled)&quot;,
+-						step_irq_enable)
++RC_FINAL_BOOL(&quot;step_irq_enable&quot;,		&quot;Enable interrupts while stepping (default: disabled)&quot;,
++					step_irq_enable)
++RC_FINAL_BOOL(&quot;hardware_step&quot;,		&quot;hardware single stepping. By default use simulate + breakpoint. This command is only here to check if simulate + breakpoint implementation is broken.&quot;,
++					hardware_step)
+ 
+ 	RC_FINAL(&quot;vcr&quot;,					&quot;Control (Interrupt) Vector Catch Register&quot;,
+ 						arm11_handle_vcr)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001425.html">[Openocd-svn] r2642 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001427.html">[Openocd-svn] r2644 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1426">[ date ]</a>
+              <a href="thread.html#1426">[ thread ]</a>
+              <a href="subject.html#1426">[ subject ]</a>
+              <a href="author.html#1426">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

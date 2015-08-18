@@ -1,0 +1,221 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2680 - in trunk/src: flash target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2680%20-%20in%20trunk/src%3A%20flash%20target&In-Reply-To=%3C200909090628.n896So8i006902%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001462.html">
+   <LINK REL="Next"  HREF="001464.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2680 - in trunk/src: flash target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2680%20-%20in%20trunk/src%3A%20flash%20target&In-Reply-To=%3C200909090628.n896So8i006902%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2680 - in trunk/src: flash target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep  9 08:28:50 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001462.html">[Openocd-svn] r2679 - trunk/doc
+</A></li>
+        <LI>Next message: <A HREF="001464.html">[Openocd-svn] r2681 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1463">[ date ]</a>
+              <a href="thread.html#1463">[ thread ]</a>
+              <a href="subject.html#1463">[ subject ]</a>
+              <a href="author.html#1463">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-09-09 08:28:49 +0200 (Wed, 09 Sep 2009)
+New Revision: 2680
+
+Modified:
+   trunk/src/flash/arm_nandio.c
+   trunk/src/target/arm7tdmi.c
+   trunk/src/target/arm9tdmi.c
+   trunk/src/target/armv4_5.c
+   trunk/src/target/armv4_5.h
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt; 
+Optionally shave time off the armv4_5 run_algorithm() code:  let
+them terminate using software breakpoints, avoiding roundtrips
+to manage hardware ones.
+
+Enable this by using BKPT to terminate execution instead of &quot;branch
+to here&quot; loops.  Then pass zero as the exit address, except when
+running on an ARMv4 core.  ARM7TDMI, ARM9TDMI, and derived cores
+now set a flag saying they're ARMv4.
+
+Use that mechanism in arm_nandwrite(), for about 3% speedup on a
+DaVinci ARM926 core; not huge, but it helps.  Some other algorithms
+could use this too (mostly flavors of flash operation).
+
+Modified: trunk/src/flash/arm_nandio.c
+===================================================================
+--- trunk/src/flash/arm_nandio.c	2009-09-09 06:27:47 UTC (rev 2679)
++++ trunk/src/flash/arm_nandio.c	2009-09-09 06:28:49 UTC (rev 2680)
+@@ -33,7 +33,6 @@
+  * For now this only supports ARMv4 and ARMv5 cores.
+  *
+  * Enhancements to target_run_algorithm() could enable:
+- *   - faster writes: on ARMv5+ don't setup/teardown hardware breakpoint
+  *   - ARMv6 and ARMv7 cores in ARM mode
+  *
+  * Different code fragments could handle:
+@@ -44,8 +43,10 @@
+ {
+ 	target_t		*target = nand-&gt;target;
+ 	armv4_5_algorithm_t	algo;
++	armv4_5_common_t	*armv4_5 = target-&gt;arch_info;
+ 	reg_param_t		reg_params[3];
+ 	uint32_t		target_buf;
++	uint32_t		exit = 0;
+ 	int			retval;
+ 
+ 	/* Inputs:
+@@ -112,11 +113,13 @@
+ 	buf_set_u32(reg_params[1].value, 0, 32, target_buf);
+ 	buf_set_u32(reg_params[2].value, 0, 32, size);
+ 
++	/* armv4 must exit using a hardware breakpoint */
++	if (armv4_5-&gt;is_armv4)
++		exit = nand-&gt;copy_area-&gt;address + sizeof(code) - 4;
++
+ 	/* use alg to write data from work area to NAND chip */
+ 	retval = target_run_algorithm(target, 0, NULL, 3, reg_params,
+-			nand-&gt;copy_area-&gt;address,
+-			nand-&gt;copy_area-&gt;address + sizeof(code) - 4,
+-			1000, &amp;algo);
++			nand-&gt;copy_area-&gt;address, exit, 1000, &amp;algo);
+ 	if (retval != ERROR_OK)
+ 		LOG_ERROR(&quot;error executing hosted NAND write&quot;);
+ 
+
+Modified: trunk/src/target/arm7tdmi.c
+===================================================================
+--- trunk/src/target/arm7tdmi.c	2009-09-09 06:27:47 UTC (rev 2679)
++++ trunk/src/target/arm7tdmi.c	2009-09-09 06:28:49 UTC (rev 2680)
+@@ -828,6 +828,7 @@
+ 
+ 	arm7tdmi = calloc(1,sizeof(arm7tdmi_common_t));
+ 	arm7tdmi_init_arch_info(target, arm7tdmi, target-&gt;tap);
++	arm7tdmi-&gt;arm7_9_common.armv4_5_common.is_armv4 = true;
+ 
+ 	return ERROR_OK;
+ }
+
+Modified: trunk/src/target/arm9tdmi.c
+===================================================================
+--- trunk/src/target/arm9tdmi.c	2009-09-09 06:27:47 UTC (rev 2679)
++++ trunk/src/target/arm9tdmi.c	2009-09-09 06:28:49 UTC (rev 2680)
+@@ -956,6 +956,7 @@
+ 	arm9tdmi_common_t *arm9tdmi = calloc(1,sizeof(arm9tdmi_common_t));
+ 
+ 	arm9tdmi_init_arch_info(target, arm9tdmi, target-&gt;tap);
++	arm9tdmi-&gt;arm7_9_common.armv4_5_common.is_armv4 = true;
+ 
+ 	return ERROR_OK;
+ }
+
+Modified: trunk/src/target/armv4_5.c
+===================================================================
+--- trunk/src/target/armv4_5.c	2009-09-09 06:27:47 UTC (rev 2679)
++++ trunk/src/target/armv4_5.c	2009-09-09 06:28:49 UTC (rev 2680)
+@@ -532,7 +532,10 @@
+ 		}
+ 		return ERROR_TARGET_TIMEOUT;
+ 	}
+-	if (buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32) != exit_point)
++
++	/* fast exit: ARMv5+ code can use BKPT */
++	if (exit_point &amp;&amp; buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value,
++				0, 32) != exit_point)
+ 	{
+ 		LOG_WARNING(&quot;target reentered debug state, but not at the desired exit point: 0x%4.4&quot; PRIx32 &quot;&quot;,
+ 			buf_get_u32(armv4_5-&gt;core_cache-&gt;reg_list[15].value, 0, 32));
+@@ -570,6 +573,13 @@
+ 	if (armv4_5_mode_to_number(armv4_5-&gt;core_mode)==-1)
+ 		return ERROR_FAIL;
+ 
++	/* armv5 and later can terminate with BKPT instruction; less overhead */
++	if (!exit_point &amp;&amp; armv4_5-&gt;is_armv4)
++	{
++		LOG_ERROR(&quot;ARMv4 target needs HW breakpoint location&quot;);
++		return ERROR_FAIL;
++	}
++
+ 	for (i = 0; i &lt;= 16; i++)
+ 	{
+ 		if (!ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache, armv4_5_algorithm_info-&gt;core_mode, i).valid)
+@@ -626,9 +636,11 @@
+ 		armv4_5-&gt;core_cache-&gt;reg_list[ARMV4_5_CPSR].valid = 1;
+ 	}
+ 
+-	if ((retval = breakpoint_add(target, exit_point, exit_breakpoint_size, BKPT_HARD)) != ERROR_OK)
++	/* terminate using a hardware or (ARMv5+) software breakpoint */
++	if (exit_point &amp;&amp; (retval = breakpoint_add(target, exit_point,
++				exit_breakpoint_size, BKPT_HARD)) != ERROR_OK)
+ 	{
+-		LOG_ERROR(&quot;can't add breakpoint to finish algorithm execution&quot;);
++		LOG_ERROR(&quot;can't add HW breakpoint to terminate algorithm&quot;);
+ 		return ERROR_TARGET_FAILURE;
+ 	}
+ 
+@@ -639,7 +651,8 @@
+ 	int retvaltemp;
+ 	retval = run_it(target, exit_point, timeout_ms, arch_info);
+ 
+-	breakpoint_remove(target, exit_point);
++	if (exit_point)
++		breakpoint_remove(target, exit_point);
+ 
+ 	if (retval != ERROR_OK)
+ 		return retval;
+
+Modified: trunk/src/target/armv4_5.h
+===================================================================
+--- trunk/src/target/armv4_5.h	2009-09-09 06:27:47 UTC (rev 2679)
++++ trunk/src/target/armv4_5.h	2009-09-09 06:28:49 UTC (rev 2680)
+@@ -76,6 +76,7 @@
+ 	reg_cache_t *core_cache;
+ 	enum armv4_5_mode core_mode;
+ 	enum armv4_5_state core_state;
++	bool is_armv4;
+ 	int (*full_context)(struct target_s *target);
+ 	int (*read_core_reg)(struct target_s *target, int num, enum armv4_5_mode mode);
+ 	int (*write_core_reg)(struct target_s *target, int num, enum armv4_5_mode mode, uint32_t value);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001462.html">[Openocd-svn] r2679 - trunk/doc
+</A></li>
+	<LI>Next message: <A HREF="001464.html">[Openocd-svn] r2681 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1463">[ date ]</a>
+              <a href="thread.html#1463">[ thread ]</a>
+              <a href="subject.html#1463">[ subject ]</a>
+              <a href="author.html#1463">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

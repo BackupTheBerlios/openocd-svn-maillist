@@ -1,0 +1,473 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2006 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2006%20-%20trunk/src/jtag&In-Reply-To=%3C200906022315.n52NFLPh000230%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000789.html">
+   <LINK REL="Next"  HREF="000791.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2006 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2006%20-%20trunk/src/jtag&In-Reply-To=%3C200906022315.n52NFLPh000230%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2006 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Wed Jun  3 01:15:21 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000789.html">[Openocd-svn] r2005 - in trunk: doc src/target
+</A></li>
+        <LI>Next message: <A HREF="000791.html">[Openocd-svn] r2007 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#790">[ date ]</a>
+              <a href="thread.html#790">[ thread ]</a>
+              <a href="subject.html#790">[ subject ]</a>
+              <a href="author.html#790">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-03 01:15:12 +0200 (Wed, 03 Jun 2009)
+New Revision: 2006
+
+Added:
+   trunk/src/jtag/minidriver.h
+Modified:
+   trunk/src/jtag/Makefile.am
+   trunk/src/jtag/jtag.c
+   trunk/src/jtag/jtag.h
+   trunk/src/jtag/jtag_driver.c
+   trunk/src/jtag/zy1000.c
+Log:
+Add header file for JTAG minidriver:
+- Wraps all minidriver API functions using API front-ends:
+  - Outlines jtag_add_dr_out() and jtag_alloc_in_value32().
+  - Adds interface_ prefix to existing jtag_alloc_invalue_32 routines.
+  - Re-inline these interface definitions in new header file.
+- Re-inline parts of the (mini)driver implementations in minidriver.h.
+- Replace INCLUDE_JTAG_MINIDRIVER_H with #include directives.
+
+The next patch will finish removing '#ifdef HAVE_JTAG_MINIDRIVER_H'
+from jtag.h.
+
+
+Modified: trunk/src/jtag/Makefile.am
+===================================================================
+--- trunk/src/jtag/Makefile.am	2009-06-02 21:06:12 UTC (rev 2005)
++++ trunk/src/jtag/Makefile.am	2009-06-02 23:15:12 UTC (rev 2006)
+@@ -136,6 +136,7 @@
+ 	$(ARMJTAGEWFILES)
+ 
+ noinst_HEADERS = \
++	minidriver.h \
+ 	bitbang.h \
+ 	jtag.h \
+ 	bitq.h \
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-02 21:06:12 UTC (rev 2005)
++++ trunk/src/jtag/jtag.c	2009-06-02 23:15:12 UTC (rev 2006)
+@@ -28,9 +28,9 @@
+ #include &quot;config.h&quot;
+ #endif
+ 
+-#define INCLUDE_JTAG_MINIDRIVER_H
+ #define INCLUDE_JTAG_INTERFACE_H
+ #include &quot;jtag.h&quot;
++#include &quot;minidriver.h&quot;
+ 
+ #ifdef HAVE_STRINGS_H
+ #include &lt;strings.h&gt;
+@@ -526,6 +526,11 @@
+ 	cmd_queue_cur_state = cmd_queue_end_state;
+ }
+ 
++void jtag_alloc_in_value32(scan_field_t *field)
++{
++	interface_jtag_alloc_in_value32(field);
++}
++
+ void jtag_add_ir_scan_noverify(int in_num_fields, const scan_field_t *in_fields, tap_state_t state)
+ {
+ 	int retval;
+@@ -682,8 +687,20 @@
+ 		jtag_error=retval;
+ }
+ 
++void jtag_add_dr_out(jtag_tap_t* tap,
++		int num_fields, const int* num_bits, const u32* value,
++		tap_state_t end_state)
++{
++	if (end_state != TAP_INVALID)
++		cmd_queue_end_state = end_state;
+ 
++	cmd_queue_cur_state = cmd_queue_end_state;
+ 
++	interface_jtag_add_dr_out(tap,
++			num_fields, num_bits, value,
++			cmd_queue_end_state);
++}
++
+ void jtag_add_tlr(void)
+ {
+ 	jtag_prelude(TAP_RESET);
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-06-02 21:06:12 UTC (rev 2005)
++++ trunk/src/jtag/jtag.h	2009-06-02 23:15:12 UTC (rev 2006)
+@@ -585,18 +585,8 @@
+  * allocation method is used, for the synchronous case the temporary 32 bits come
+  * from the input field itself.
+  */
+-
+-#ifndef HAVE_JTAG_MINIDRIVER_H
+ extern void jtag_alloc_in_value32(scan_field_t *field);
+-#else
+-static __inline__ void jtag_alloc_in_value32(scan_field_t *field)
+-{
+-	field-&gt;in_value=field-&gt;intmp;
+-}
+-#endif
+ 
+-
+-
+ /* This version of jtag_add_dr_scan() uses the check_value/mask fields */
+ extern void jtag_add_dr_scan_check(int num_fields, scan_field_t* fields, tap_state_t endstate);
+ extern void jtag_add_plain_ir_scan(int num_fields, const scan_field_t* fields, tap_state_t endstate);
+@@ -841,61 +831,6 @@
+ #define ERROR_JTAG_NOT_STABLE_STATE  (-105)
+ #define ERROR_JTAG_DEVICE_ERROR      (-107)
+ 
+-#ifdef INCLUDE_JTAG_MINIDRIVER_H
+-
+-extern void interface_jtag_add_scan_check_alloc(scan_field_t *field);
+-
+-extern int interface_jtag_add_ir_scan(
+-		int num_fields, const scan_field_t* fields,
+-		tap_state_t endstate);
+-extern int interface_jtag_add_plain_ir_scan(
+-		int num_fields, const scan_field_t* fields,
+-		tap_state_t endstate);
+-
+-extern int interface_jtag_add_dr_scan(
+-		int num_fields, const scan_field_t* fields,
+-		tap_state_t endstate);
+-extern int interface_jtag_add_plain_dr_scan(
+-		int num_fields, const scan_field_t* fields,
+-		tap_state_t endstate);
+-
+-extern int interface_jtag_add_tlr(void);
+-extern int interface_jtag_add_pathmove(int num_states, const tap_state_t* path);
+-extern int interface_jtag_add_runtest(int num_cycles, tap_state_t endstate);
+-
+-/**
+- * This drives the actual srst and trst pins. srst will always be 0
+- * if jtag_reset_config &amp; RESET_SRST_PULLS_TRST != 0 and ditto for
+- * trst.
+- *
+- * the higher level jtag_add_reset will invoke jtag_add_tlr() if
+- * approperiate
+- */
+-extern int interface_jtag_add_reset(int trst, int srst);
+-extern int interface_jtag_add_end_state(tap_state_t endstate);
+-extern int interface_jtag_add_sleep(u32 us);
+-extern int interface_jtag_add_clocks(int num_cycles);
+-extern int interface_jtag_execute_queue(void);
+-
+-/**
+- * Calls the interface callback to execute the queue.  This routine
+- * is used by the JTAG driver layer and should not be called directly.
+- */
+-extern int default_interface_jtag_execute_queue(void);
+-
+-
+-#endif // INCLUDE_JTAG_MINIDRIVER_H
+-
+-/* this allows JTAG devices to implement the entire jtag_xxx() layer in hw/sw */
+-#ifdef HAVE_JTAG_MINIDRIVER_H
+-/* Here a #define MINIDRIVER() and an inline version of hw fifo interface_jtag_add_dr_out can be defined */
+-#include &quot;jtag_minidriver.h&quot;
+-#else
+-extern void interface_jtag_add_dr_out(jtag_tap_t* tap, int num_fields, const int* num_bits, const u32* value,
+-		tap_state_t end_state);
+-
+-#endif
+-
+ /* jtag_add_dr_out() is a version of jtag_add_dr_scan() which
+  * only scans data out. It operates on 32 bit integers instead
+  * of 8 bit, which makes it a better impedance match with
+@@ -921,18 +856,11 @@
+  * There is no jtag_add_dr_outin() version of this fn that also allows
+  * clocking data back in. Patches gladly accepted!
+  */
+-static __inline__ void jtag_add_dr_out(jtag_tap_t* tap, int num_fields, const int* num_bits, const u32* value,
+-		tap_state_t end_state)
+-{
+-	if (end_state != TAP_INVALID)
+-		cmd_queue_end_state = end_state;
+-	cmd_queue_cur_state = cmd_queue_end_state;
+-	interface_jtag_add_dr_out(tap, num_fields, num_bits, value, cmd_queue_end_state);
+-}
++extern void jtag_add_dr_out(jtag_tap_t* tap,
++		int num_fields, const int* num_bits, const u32* value,
++		tap_state_t end_state);
+ 
+ 
+-
+-
+ /**
+  * Function jtag_add_statemove
+  * moves from the current state to the goal \a state. This needs
+
+Modified: trunk/src/jtag/jtag_driver.c
+===================================================================
+--- trunk/src/jtag/jtag_driver.c	2009-06-02 21:06:12 UTC (rev 2005)
++++ trunk/src/jtag/jtag_driver.c	2009-06-02 23:15:12 UTC (rev 2006)
+@@ -31,9 +31,9 @@
+ #include &quot;config.h&quot;
+ #endif
+ 
+-#define INCLUDE_JTAG_MINIDRIVER_H
+ #define INCLUDE_JTAG_INTERFACE_H
+ #include &quot;jtag.h&quot;
++#include &quot;minidriver.h&quot;
+ #include &quot;command.h&quot;
+ 
+ struct jtag_callback_entry
+@@ -488,12 +488,6 @@
+ 	}
+ }
+ 
+-void interface_jtag_add_scan_check_alloc(scan_field_t *field)
+-{
+-	unsigned num_bytes = TAP_SCAN_BYTES(field-&gt;num_bits);
+-	field-&gt;in_value = (u8 *)cmd_queue_alloc(num_bytes);
+-}
+-
+ int interface_jtag_execute_queue(void)
+ {
+ 	int retval = default_interface_jtag_execute_queue();
+@@ -514,11 +508,6 @@
+ 	return retval;
+ }
+ 
+-void jtag_alloc_in_value32(scan_field_t *field)
+-{
+-	field-&gt;in_value=(u8 *)cmd_queue_alloc(4);
+-}
+-
+ static int jtag_convert_to_callback4(u8 *in, jtag_callback_data_t data1, jtag_callback_data_t data2, jtag_callback_data_t data3)
+ {
+ 	((jtag_callback1_t)data1)(in);
+
+Added: trunk/src/jtag/minidriver.h
+===================================================================
+--- trunk/src/jtag/minidriver.h	2009-06-02 21:06:12 UTC (rev 2005)
++++ trunk/src/jtag/minidriver.h	2009-06-02 23:15:12 UTC (rev 2006)
+@@ -0,0 +1,127 @@
++/***************************************************************************
++ *   Copyright (C) 2005 by Dominic Rath                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
++ *                                                                         *
++ *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
++ *                                                                         *
++ *   Copyright (C) 2009 Zachary T Welch                                    *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>                                                  *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++#ifndef MINIDRIVER_H
++#define MINIDRIVER_H
++
++/* @page jtagminidriver JTAG Mini-Driver
++ *
++ * The JTAG minidriver interface allows the definition of alternate
++ * interface functions, instead of the built-in asynchronous driver
++ * module that is used by the standard JTAG interface drivers.
++ *
++ * In addtion to the functions defined in the c minidriver.h file, the
++ * @c jtag_minidriver.h file must declare the following functions (or
++ * define static inline versions of them):
++ * - jtag_add_callback
++ * - jtag_add_callback4
++ * - interface_jtag_add_dr_out
++ *  
++ * The following core functions are declared in this file for use by
++ * the minidriver and do @b not need to be defined by an implementation:
++ * - default_interface_jtag_execute_queue()
++ */
++
++#ifdef HAVE_JTAG_MINIDRIVER_H
++
++#include &quot;jtag_minidriver.h&quot;
++
++static inline void interface_jtag_alloc_in_value32(scan_field_t *field)
++{
++	field-&gt;in_value = field-&gt;intmp;
++}
++
++static inline void interface_jtag_add_scan_check_alloc(scan_field_t *field)
++{
++	/* We're executing this synchronously, so try to use local storage. */
++	if (field-&gt;num_bits &gt; 32)
++	{
++		unsigned num_bytes = TAP_SCAN_BYTES(field-&gt;num_bits);
++		field-&gt;in_value = (u8 *)malloc(num_bytes);
++		field-&gt;allocated = 1;
++	}
++	else
++		field-&gt;in_value = field-&gt;intmp;
++}
++
++#else
++
++static inline void interface_jtag_alloc_in_value32(scan_field_t *field)
++{
++	field-&gt;in_value = (u8 *)cmd_queue_alloc(4);
++}
++
++static inline void interface_jtag_add_scan_check_alloc(scan_field_t *field)
++{
++	unsigned num_bytes = TAP_SCAN_BYTES(field-&gt;num_bits);
++	field-&gt;in_value = (u8 *)cmd_queue_alloc(num_bytes);
++}
++
++extern void interface_jtag_add_dr_out(jtag_tap_t* tap,
++		int num_fields, const int* num_bits, const u32* value,
++		tap_state_t end_state);
++
++#endif
++
++extern int interface_jtag_add_ir_scan(
++		int num_fields, const scan_field_t* fields,
++		tap_state_t endstate);
++extern int interface_jtag_add_plain_ir_scan(
++		int num_fields, const scan_field_t* fields,
++		tap_state_t endstate);
++
++extern int interface_jtag_add_dr_scan(
++		int num_fields, const scan_field_t* fields,
++		tap_state_t endstate);
++extern int interface_jtag_add_plain_dr_scan(
++		int num_fields, const scan_field_t* fields,
++		tap_state_t endstate);
++
++extern int interface_jtag_add_tlr(void);
++extern int interface_jtag_add_pathmove(int num_states, const tap_state_t* path);
++extern int interface_jtag_add_runtest(int num_cycles, tap_state_t endstate);
++
++/**
++ * This drives the actual srst and trst pins. srst will always be 0
++ * if jtag_reset_config &amp; RESET_SRST_PULLS_TRST != 0 and ditto for
++ * trst.
++ *
++ * the higher level jtag_add_reset will invoke jtag_add_tlr() if
++ * approperiate
++ */
++extern int interface_jtag_add_reset(int trst, int srst);
++extern int interface_jtag_add_end_state(tap_state_t endstate);
++extern int interface_jtag_add_sleep(u32 us);
++extern int interface_jtag_add_clocks(int num_cycles);
++extern int interface_jtag_execute_queue(void);
++
++/**
++ * Calls the interface callback to execute the queue.  This routine
++ * is used by the JTAG driver layer and should not be called directly.
++ */
++extern int default_interface_jtag_execute_queue(void);
++
++
++#endif // MINIDRIVER_H
+
+
+Property changes on: trunk/src/jtag/minidriver.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/src/jtag/zy1000.c
+===================================================================
+--- trunk/src/jtag/zy1000.c	2009-06-02 21:06:12 UTC (rev 2005)
++++ trunk/src/jtag/zy1000.c	2009-06-02 23:15:12 UTC (rev 2006)
+@@ -20,9 +20,9 @@
+ #include &quot;config.h&quot;
+ #endif
+ 
+-#define INCLUDE_JTAG_MINIDRIVER_H
+ #define INCLUDE_JTAG_INTERFACE_H
+ #include &quot;embeddedice.h&quot;
++#include &quot;minidriver.h&quot;
+ #include &quot;bitbang.h&quot;
+ 
+ #include &lt;cyg/hal/hal_io.h&gt;             // low level i/o
+@@ -380,20 +380,7 @@
+ }
+ 
+ 
+-void interface_jtag_add_scan_check_alloc(scan_field_t *field)
+-{
+-	/* We're executing this synchronously, so try to use local storage. */
+-	if (field-&gt;num_bits &gt; 32)
+-	{
+-		unsigned num_bytes = TAP_SCAN_BYTES(field-&gt;num_bits);
+-		field-&gt;in_value = (u8 *)malloc(num_bytes);
+-		field-&gt;allocated = 1;
+-	}
+-	else
+-		field-&gt;in_value = field-&gt;intmp;
+-}
+ 
+-
+ int interface_jtag_execute_queue(void)
+ {
+ 	cyg_uint32 empty;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000789.html">[Openocd-svn] r2005 - in trunk: doc src/target
+</A></li>
+	<LI>Next message: <A HREF="000791.html">[Openocd-svn] r2007 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#790">[ date ]</a>
+              <a href="thread.html#790">[ thread ]</a>
+              <a href="subject.html#790">[ subject ]</a>
+              <a href="author.html#790">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

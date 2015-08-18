@@ -1,0 +1,443 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-432-gddade10
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.2.0-432-gddade10&In-Reply-To=%3CE1N2YaU-0005jG-L2%40cxgxhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001692.html">
+   <LINK REL="Next"  HREF="001687.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-432-gddade10</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.2.0-432-gddade10&In-Reply-To=%3CE1N2YaU-0005jG-L2%40cxgxhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-432-gddade10">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Tue Oct 27 00:02:53 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001692.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-431-g8f3b28f
+</A></li>
+        <LI>Next message: <A HREF="001687.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-433-g4a91b07
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1686">[ date ]</a>
+              <a href="thread.html#1686">[ thread ]</a>
+              <a href="subject.html#1686">[ subject ]</a>
+              <a href="author.html#1686">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  ddade10d4a9309ea252b0a03cde9f757b5c71778 (commit)
+      from  8f3b28ff4199a64d6f7aff1584a48f18661969ae (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit ddade10d4a9309ea252b0a03cde9f757b5c71778
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Oct 26 16:02:45 2009 -0700
+
+    ARM ADIv5: &quot;dap info&quot; gets more readable
+    
+    Make the &quot;dap info&quot; output more comprehensible:
+    
+     - Don't show CIDs unless they're incorrect (only four bits matter)
+     - For CoreSight parts, interpret the part type
+     - Interpret the part number
+     - Show all five PID bytes together
+     - Other minor cleanups
+    
+    Also some whitespace fixes, and shrink a few overlong source lines.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index 90423f4..3364132 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -1007,11 +1007,20 @@ int ahbap_debugport_init(swjdp_common_t *swjdp)
+ 	return ERROR_OK;
+ }
+ 
+-
+-char * class_description[16] ={
+-	&quot;Reserved&quot;,
+-	&quot;ROM table&quot;,&quot;Reserved&quot;,&quot;Reserved&quot;,&quot;Reserved&quot;,&quot;Reserved&quot;,&quot;Reserved&quot;,&quot;Reserved&quot;,&quot;Reserved&quot;,
+-	&quot;CoreSight component&quot;,&quot;Reserved&quot;,&quot;Peripheral Test Block&quot;,&quot;Reserved&quot;,&quot;DESS&quot;,&quot;Generic IP component&quot;,&quot;Non standard layout&quot;};
++/* CID interpretation -- see ARM IHI 0029B section 3 */
++static const char *class_description[16] ={
++	&quot;Reserved&quot;, &quot;ROM table&quot;, &quot;Reserved&quot;, &quot;Reserved&quot;,
++	&quot;Reserved&quot;, &quot;Reserved&quot;, &quot;Reserved&quot;, &quot;Reserved&quot;,
++	&quot;Reserved&quot;, &quot;CoreSight component&quot;, &quot;Reserved&quot;, &quot;Peripheral Test Block&quot;,
++	&quot;Reserved&quot;, &quot;DESS&quot;, &quot;Generic IP component&quot;, &quot;PrimeCell or System component&quot;
++};
++
++static bool
++is_dap_cid_ok(uint32_t cid3, uint32_t cid2, uint32_t cid1, uint32_t cid0)
++{
++	return cid3 == 0xb1 &amp;&amp; cid2 == 0x05
++			&amp;&amp; ((cid1 &amp; 0x0f) == 0) &amp;&amp; cid0 == 0x0d;
++}
+ 
+ int dap_info_command(struct command_context_s *cmd_ctx, swjdp_common_t *swjdp, int apsel)
+ {
+@@ -1058,15 +1067,13 @@ int dap_info_command(struct command_context_s *cmd_ctx, swjdp_common_t *swjdp, i
+ 	{
+ 		uint32_t cid0,cid1,cid2,cid3,memtype,romentry;
+ 		uint16_t entry_offset;
++
+ 		/* bit 16 of apid indicates a memory access port */
+-		if (dbgbase&amp;0x02)
+-		{
++		if (dbgbase &amp; 0x02)
+ 			command_print(cmd_ctx, &quot;\tValid ROM table present&quot;);
+-		}
+ 		else
+-		{
+ 			command_print(cmd_ctx, &quot;\tROM table in legacy format&quot;);
+-		}
++
+ 		/* Now we read ROM table ID registers, ref. ARM IHI 0029B sec  */
+ 		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000) | 0xFF0, &amp;cid0);
+ 		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000) | 0xFF4, &amp;cid1);
+@@ -1074,15 +1081,17 @@ int dap_info_command(struct command_context_s *cmd_ctx, swjdp_common_t *swjdp, i
+ 		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000) | 0xFFC, &amp;cid3);
+ 		mem_ap_read_u32(swjdp, (dbgbase&amp;0xFFFFF000) | 0xFCC, &amp;memtype);
+ 		swjdp_transaction_endcheck(swjdp);
+-		command_print(cmd_ctx, &quot;\tCID3 0x%&quot; PRIx32 &quot;, CID2 0x%&quot; PRIx32 &quot;, CID1 0x%&quot; PRIx32 &quot; CID0, 0x%&quot; PRIx32,cid3,cid2,cid1,cid0);
+-		if (memtype&amp;0x01)
+-		{
++		if (!is_dap_cid_ok(cid3, cid2, cid1, cid0))
++			command_print(cmd_ctx, &quot;\tCID3 0x%2.2&quot; PRIx32
++					&quot;, CID2 0x%2.2&quot; PRIx32
++					&quot;, CID1 0x%2.2&quot; PRIx32
++					&quot;, CID0 0x%2.2&quot; PRIx32,
++					cid3, cid2, cid1, cid0);
++		if (memtype &amp; 0x01)
+ 			command_print(cmd_ctx, &quot;\tMEMTYPE system memory present on bus&quot;);
+-		}
+ 		else
+-		{
+-			command_print(cmd_ctx, &quot;\tMEMTYPE system memory not present. Dedicated debug bus&quot;);
+-		}
++			command_print(cmd_ctx, &quot;\tMEMTYPE System memory not present. &quot;
++					&quot;Dedicated debug bus.&quot;);
+ 
+ 		/* Now we read ROM table entries from dbgbase&amp;0xFFFFF000) | 0x000 until we get 0x00000000 */
+ 		entry_offset = 0;
+@@ -1092,23 +1101,249 @@ int dap_info_command(struct command_context_s *cmd_ctx, swjdp_common_t *swjdp, i
+ 			command_print(cmd_ctx, &quot;\tROMTABLE[0x%x] = 0x%&quot; PRIx32 &quot;&quot;,entry_offset,romentry);
+ 			if (romentry&amp;0x01)
+ 			{
+-				uint32_t c_cid0,c_cid1,c_cid2,c_cid3,c_pid0,c_pid1,c_pid2,c_pid3,c_pid4,component_start;
+-				uint32_t component_base = (uint32_t)((dbgbase&amp;0xFFFFF000) + (int)(romentry&amp;0xFFFFF000));
+-				mem_ap_read_atomic_u32(swjdp, (component_base&amp;0xFFFFF000) | 0xFE0, &amp;c_pid0);
+-				mem_ap_read_atomic_u32(swjdp, (component_base&amp;0xFFFFF000) | 0xFE4, &amp;c_pid1);
+-				mem_ap_read_atomic_u32(swjdp, (component_base&amp;0xFFFFF000) | 0xFE8, &amp;c_pid2);
+-				mem_ap_read_atomic_u32(swjdp, (component_base&amp;0xFFFFF000) | 0xFEC, &amp;c_pid3);
+-				mem_ap_read_atomic_u32(swjdp, (component_base&amp;0xFFFFF000) | 0xFD0, &amp;c_pid4);
+-				mem_ap_read_atomic_u32(swjdp, (component_base&amp;0xFFFFF000) | 0xFF0, &amp;c_cid0);
+-				mem_ap_read_atomic_u32(swjdp, (component_base&amp;0xFFFFF000) | 0xFF4, &amp;c_cid1);
+-				mem_ap_read_atomic_u32(swjdp, (component_base&amp;0xFFFFF000) | 0xFF8, &amp;c_cid2);
+-				mem_ap_read_atomic_u32(swjdp, (component_base&amp;0xFFFFF000) | 0xFFC, &amp;c_cid3);
++				uint32_t c_cid0, c_cid1, c_cid2, c_cid3;
++				uint32_t c_pid0, c_pid1, c_pid2, c_pid3, c_pid4;
++				uint32_t component_start, component_base;
++				unsigned part_num;
++				char *type, *full;
++
++				component_base = (uint32_t)((dbgbase &amp; 0xFFFFF000)
++						+ (int)(romentry &amp; 0xFFFFF000));
++				mem_ap_read_atomic_u32(swjdp,
++						(component_base &amp; 0xFFFFF000) | 0xFE0, &amp;c_pid0);
++				mem_ap_read_atomic_u32(swjdp,
++						(component_base &amp; 0xFFFFF000) | 0xFE4, &amp;c_pid1);
++				mem_ap_read_atomic_u32(swjdp,
++						(component_base &amp; 0xFFFFF000) | 0xFE8, &amp;c_pid2);
++				mem_ap_read_atomic_u32(swjdp,
++						(component_base &amp; 0xFFFFF000) | 0xFEC, &amp;c_pid3);
++				mem_ap_read_atomic_u32(swjdp,
++						(component_base &amp; 0xFFFFF000) | 0xFD0, &amp;c_pid4);
++				mem_ap_read_atomic_u32(swjdp,
++						(component_base &amp; 0xFFFFF000) | 0xFF0, &amp;c_cid0);
++				mem_ap_read_atomic_u32(swjdp,
++						(component_base &amp; 0xFFFFF000) | 0xFF4, &amp;c_cid1);
++				mem_ap_read_atomic_u32(swjdp,
++						(component_base &amp; 0xFFFFF000) | 0xFF8, &amp;c_cid2);
++				mem_ap_read_atomic_u32(swjdp,
++						(component_base &amp; 0xFFFFF000) | 0xFFC, &amp;c_cid3);
+ 				component_start = component_base - 0x1000*(c_pid4 &gt;&gt; 4);
+-				command_print(cmd_ctx, &quot;\t\tComponent base address 0x%&quot; PRIx32 &quot;, pid4 0x%&quot; PRIx32 &quot;, start address 0x%&quot; PRIx32 &quot;&quot;,component_base,c_pid4,component_start);
+-				command_print(cmd_ctx, &quot;\t\tComponent cid1 0x%&quot; PRIx32 &quot;, class is %s&quot;,c_cid1,class_description[(c_cid1 &gt;&gt; 4)&amp;0xF]); /* Se ARM DDI 0314 C Table 2.2 */
+-				command_print(cmd_ctx, &quot;\t\tCID3 0x%&quot; PRIx32 &quot;, CID2 0x%&quot; PRIx32 &quot;, CID1 0x%&quot; PRIx32 &quot;, CID0, 0x%&quot; PRIx32 &quot;&quot;,c_cid3,c_cid2,c_cid1,c_cid0);
+-				command_print(cmd_ctx, &quot;\t\tPID3 0x%&quot; PRIx32 &quot;, PID2 0x%&quot; PRIx32 &quot;, PID1 0x%&quot; PRIx32 &quot;, PID0, 0x%&quot; PRIx32 &quot;&quot;,c_pid3,c_pid2,c_pid1,c_pid0);
+-				/* For CoreSight components,  (c_cid1 &gt;&gt; 4)&amp;0xF == 9 , we also read 0xFC8 DevId and 0xFCC DevType */
++
++				command_print(cmd_ctx, &quot;\t\tComponent base address 0x%&quot; PRIx32
++						&quot;, start address 0x%&quot; PRIx32,
++						component_base, component_start);
++				command_print(cmd_ctx, &quot;\t\tComponent class is 0x%x, %s&quot;,
++						(int) (c_cid1 &gt;&gt; 4) &amp; 0xf,
++						/* See ARM IHI 0029B Table 3-3 */
++						class_description[(c_cid1 &gt;&gt; 4) &amp; 0xf]);
++
++				/* CoreSight component? */
++				if (((c_cid1 &gt;&gt; 4) &amp; 0x0f) == 9) {
++					uint32_t devtype;
++					unsigned minor;
++					char *major = &quot;Reserved&quot;, *subtype = &quot;Reserved&quot;;
++
++					mem_ap_read_atomic_u32(swjdp,
++							(component_base &amp; 0xfffff000) | 0xfcc,
++							&amp;devtype);
++					minor = (devtype &gt;&gt; 4) &amp; 0x0f;
++					switch (devtype &amp; 0x0f) {
++					case 0:
++						major = &quot;Miscellaneous&quot;;
++						switch (minor) {
++						case 0:
++							subtype = &quot;other&quot;;
++							break;
++						case 4:
++							subtype = &quot;Validation component&quot;;
++							break;
++						}
++						break;
++					case 1:
++						major = &quot;Trace Sink&quot;;
++						switch (minor) {
++						case 0:
++							subtype = &quot;other&quot;;
++							break;
++						case 1:
++							subtype = &quot;Port&quot;;
++							break;
++						case 2:
++							subtype = &quot;Buffer&quot;;
++							break;
++						}
++						break;
++					case 2:
++						major = &quot;Trace Link&quot;;
++						switch (minor) {
++						case 0:
++							subtype = &quot;other&quot;;
++							break;
++						case 1:
++							subtype = &quot;Funnel, router&quot;;
++							break;
++						case 2:
++							subtype = &quot;Filter&quot;;
++							break;
++						case 3:
++							subtype = &quot;FIFO, buffer&quot;;
++							break;
++						}
++						break;
++					case 3:
++						major = &quot;Trace Source&quot;;
++						switch (minor) {
++						case 0:
++							subtype = &quot;other&quot;;
++							break;
++						case 1:
++							subtype = &quot;Processor&quot;;
++							break;
++						case 2:
++							subtype = &quot;DSP&quot;;
++							break;
++						case 3:
++							subtype = &quot;Engine/Coprocessor&quot;;
++							break;
++						case 4:
++							subtype = &quot;Bus&quot;;
++							break;
++						}
++						break;
++					case 4:
++						major = &quot;Debug Control&quot;;
++						switch (minor) {
++						case 0:
++							subtype = &quot;other&quot;;
++							break;
++						case 1:
++							subtype = &quot;Trigger Matrix&quot;;
++							break;
++						case 2:
++							subtype = &quot;Debug Auth&quot;;
++							break;
++						}
++						break;
++					case 5:
++						major = &quot;Debug Logic&quot;;
++						switch (minor) {
++						case 0:
++							subtype = &quot;other&quot;;
++							break;
++						case 1:
++							subtype = &quot;Processor&quot;;
++							break;
++						case 2:
++							subtype = &quot;DSP&quot;;
++							break;
++						case 3:
++							subtype = &quot;Engine/Coprocessor&quot;;
++							break;
++						}
++						break;
++					}
++					command_print(cmd_ctx, &quot;\t\tType is 0x%2.2x, %s, %s&quot;,
++							(unsigned) (devtype &amp; 0xff),
++							major, subtype);
++					/* REVISIT also show 0xfc8 DevId */
++				}
++
++				if (!is_dap_cid_ok(cid3, cid2, cid1, cid0))
++					command_print(cmd_ctx, &quot;\t\tCID3 0x%2.2&quot; PRIx32
++							&quot;, CID2 0x%2.2&quot; PRIx32
++							&quot;, CID1 0x%2.2&quot; PRIx32
++							&quot;, CID0 0x%2.2&quot; PRIx32,
++							c_cid3, c_cid2, c_cid1, c_cid0);
++				command_print(cmd_ctx, &quot;\t\tPeripheral ID[4..0] = hex &quot;
++						&quot;%2.2x %2.2x %2.2x %2.2x %2.2x&quot;,
++						(int) c_pid4,
++						(int) c_pid3, (int) c_pid2,
++						(int) c_pid1, (int) c_pid0);
++
++				/* Part number interpretations are from Cortex
++				 * core specs, the CoreSight components TRM
++				 * (ARM DDI 0314H), and ETM specs; also from
++				 * chip observation (e.g. TI SDTI).
++				 */
++				part_num = c_pid0 &amp; 0xff;
++				part_num |= (c_pid1 &amp; 0x0f) &lt;&lt; 8;
++				switch (part_num) {
++				case 0x000:
++					type = &quot;Cortex-M3 NVIC&quot;;
++					full = &quot;(Interrupt Controller)&quot;;
++					break;
++				case 0x001:
++					type = &quot;Cortex-M3 ITM&quot;;
++					full = &quot;(Instrumentation Trace Module)&quot;;
++					break;
++				case 0x002:
++					type = &quot;Cortex-M3 DWT&quot;;
++					full = &quot;(Data Watchpoint and Trace)&quot;;
++					break;
++				case 0x003:
++					type = &quot;Cortex-M3 FBP&quot;;
++					full = &quot;(Flash Patch and Breakpoint)&quot;;
++					break;
++				case 0x00d:
++					type = &quot;CoreSight ETM11&quot;;
++					full = &quot;(Embedded Trace)&quot;;
++					break;
++				// case 0x113: what?
++				case 0x120:		/* from OMAP3 memmap */
++					type = &quot;TI SDTI&quot;;
++					full = &quot;(System Debug Trace Interface)&quot;;
++					break;
++				case 0x343:		/* from OMAP3 memmap */
++					type = &quot;TI DAPCTL&quot;;
++					full = &quot;&quot;;
++					break;
++				case 0x4e0:
++					type = &quot;Cortex-M3 ETM&quot;;
++					full = &quot;(Embedded Trace)&quot;;
++					break;
++				case 0x906:
++					type = &quot;Coresight CTI&quot;;
++					full = &quot;(Cross Trigger)&quot;;
++					break;
++				case 0x907:
++					type = &quot;Coresight ETB&quot;;
++					full = &quot;(Trace Buffer)&quot;;
++					break;
++				case 0x908:
++					type = &quot;Coresight CSTF&quot;;
++					full = &quot;(Trace Funnel)&quot;;
++					break;
++				case 0x910:
++					type = &quot;CoreSight ETM9&quot;;
++					full = &quot;(Embedded Trace)&quot;;
++					break;
++				case 0x912:
++					type = &quot;Coresight TPIU&quot;;
++					full = &quot;(Trace Port Interface Unit)&quot;;
++					break;
++				case 0x921:
++					type = &quot;Cortex-A8 ETM&quot;;
++					full = &quot;(Embedded Trace)&quot;;
++					break;
++				case 0x922:
++					type = &quot;Cortex-A8 CTI&quot;;
++					full = &quot;(Cross Trigger)&quot;;
++					break;
++				case 0x923:
++					type = &quot;Cortex-M3 TPIU&quot;;
++					full = &quot;(Trace Port Interface Unit)&quot;;
++					break;
++				case 0xc08:
++					type = &quot;Cortex-A8 Debug&quot;;
++					full = &quot;(Debug Unit)&quot;;
++					break;
++				default:
++					type = &quot;-*- unrecognized -*-&quot;;
++					full = &quot;&quot;;
++					break;
++				}
++				command_print(cmd_ctx, &quot;\t\tPart is %s %s&quot;,
++						type, full);
+ 			}
+ 			else
+ 			{
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm_adi_v5.c |  301 +++++++++++++++++++++++++++++++++++++++++-----
+ 1 files changed, 268 insertions(+), 33 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001692.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-431-g8f3b28f
+</A></li>
+	<LI>Next message: <A HREF="001687.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-433-g4a91b07
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1686">[ date ]</a>
+              <a href="thread.html#1686">[ thread ]</a>
+              <a href="subject.html#1686">[ subject ]</a>
+              <a href="author.html#1686">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

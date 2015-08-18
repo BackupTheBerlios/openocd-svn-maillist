@@ -1,0 +1,145 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1438 - in trunk/src: flash target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1438%20-%20in%20trunk/src%3A%20flash%20target&In-Reply-To=%3C200904021217.n32CH0js003736%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000221.html">
+   <LINK REL="Next"  HREF="000223.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1438 - in trunk/src: flash target</H1>
+    <B>mlu at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1438%20-%20in%20trunk/src%3A%20flash%20target&In-Reply-To=%3C200904021217.n32CH0js003736%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1438 - in trunk/src: flash target">mlu at mail.berlios.de
+       </A><BR>
+    <I>Thu Apr  2 14:17:00 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000221.html">[Openocd-svn] r1437 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000223.html">[Openocd-svn] r1439 - trunk/src/target/interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#222">[ date ]</a>
+              <a href="thread.html#222">[ thread ]</a>
+              <a href="subject.html#222">[ subject ]</a>
+              <a href="author.html#222">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: mlu
+Date: 2009-04-02 14:16:19 +0200 (Thu, 02 Apr 2009)
+New Revision: 1438
+
+Modified:
+   trunk/src/flash/stm32x.c
+   trunk/src/target/cortex_swjdp.c
+Log:
+Cortex-M3 cleanup and performance patch
+
+Modified: trunk/src/flash/stm32x.c
+===================================================================
+--- trunk/src/flash/stm32x.c	2009-04-02 10:22:22 UTC (rev 1437)
++++ trunk/src/flash/stm32x.c	2009-04-02 12:16:19 UTC (rev 1438)
+@@ -484,7 +484,7 @@
+ {
+ 	stm32x_flash_bank_t *stm32x_info = bank-&gt;driver_priv;
+ 	target_t *target = bank-&gt;target;
+-	u32 buffer_size = 8192;
++	u32 buffer_size = 16384;
+ 	working_area_t *source;
+ 	u32 address = bank-&gt;base + offset;
+ 	reg_param_t reg_params[4];
+
+Modified: trunk/src/target/cortex_swjdp.c
+===================================================================
+--- trunk/src/target/cortex_swjdp.c	2009-04-02 10:22:22 UTC (rev 1437)
++++ trunk/src/target/cortex_swjdp.c	2009-04-02 12:16:19 UTC (rev 1438)
+@@ -183,6 +183,7 @@
+ 
+ 	/* too expensive to call keep_alive() here */
+ 
++#if 0
+ 	/* Danger!!!! BROKEN!!!! */
+ 	scan_inout_check_u32(swjdp, SWJDP_IR_DPACC, DP_CTRL_STAT, DPAP_READ, 0, &amp;ctrlstat);
+ 	/* Danger!!!! BROKEN!!!! Why will jtag_execute_queue() fail here????
+@@ -196,6 +197,8 @@
+ 		LOG_ERROR(&quot;BUG: Why does this fail the first time????&quot;);
+ 	}
+ 	/* Why??? second time it works??? */
++#endif
++
+ 	scan_inout_check_u32(swjdp, SWJDP_IR_DPACC, DP_CTRL_STAT, DPAP_READ, 0, &amp;ctrlstat);
+ 	if ((retval=jtag_execute_queue())!=ERROR_OK)
+ 		return retval;
+@@ -925,7 +928,7 @@
+ 	/* because the DCB_DCRDR is used for the emulated dcc channel
+ 	 * we gave to save/restore the DCB_DCRDR when used */
+ 
+-	ahbap_read_system_atomic_u32(swjdp, DCB_DCRDR, &amp;dcrdr);
++	ahbap_read_system_u32(swjdp, DCB_DCRDR, &amp;dcrdr);
+ 
+ 	swjdp-&gt;trans_mode = TRANS_MODE_COMPOSITE;
+ 
+@@ -937,8 +940,8 @@
+ 	ahbap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, DCB_DCRDR &amp; 0xFFFFFFF0);
+ 	ahbap_read_reg_u32(swjdp, AHBAP_BD0 | (DCB_DCRDR &amp; 0xC), value );
+ 
++	ahbap_write_system_u32(swjdp, DCB_DCRDR, dcrdr);
+ 	retval = swjdp_transaction_endcheck(swjdp);
+-	ahbap_write_system_atomic_u32(swjdp, DCB_DCRDR, dcrdr);
+ 	return retval;
+ }
+ 
+@@ -950,7 +953,7 @@
+ 	/* because the DCB_DCRDR is used for the emulated dcc channel
+ 	 * we gave to save/restore the DCB_DCRDR when used */
+ 
+-	ahbap_read_system_atomic_u32(swjdp, DCB_DCRDR, &amp;dcrdr);
++	ahbap_read_system_u32(swjdp, DCB_DCRDR, &amp;dcrdr);
+ 
+ 	swjdp-&gt;trans_mode = TRANS_MODE_COMPOSITE;
+ 
+@@ -962,8 +965,8 @@
+ 	ahbap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, DCB_DCRSR &amp; 0xFFFFFFF0);
+ 	ahbap_write_reg_u32(swjdp, AHBAP_BD0 | (DCB_DCRSR &amp; 0xC), regnum | DCRSR_WnR );
+ 
++	ahbap_write_system_u32(swjdp, DCB_DCRDR, dcrdr);
+ 	retval = swjdp_transaction_endcheck(swjdp);
+-	ahbap_write_system_atomic_u32(swjdp, DCB_DCRDR, dcrdr);
+ 	return retval;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000221.html">[Openocd-svn] r1437 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000223.html">[Openocd-svn] r1439 - trunk/src/target/interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#222">[ date ]</a>
+              <a href="thread.html#222">[ thread ]</a>
+              <a href="subject.html#222">[ subject ]</a>
+              <a href="author.html#222">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,166 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2107 - in trunk: doc src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2107%20-%20in%20trunk%3A%20doc%20src/target&In-Reply-To=%3C200906080616.n586GsWi030254%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000890.html">
+   <LINK REL="Next"  HREF="000892.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2107 - in trunk: doc src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2107%20-%20in%20trunk%3A%20doc%20src/target&In-Reply-To=%3C200906080616.n586GsWi030254%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2107 - in trunk: doc src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Mon Jun  8 08:16:54 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000890.html">[Openocd-svn] r2106 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000892.html">[Openocd-svn] r2108 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#891">[ date ]</a>
+              <a href="thread.html#891">[ thread ]</a>
+              <a href="subject.html#891">[ subject ]</a>
+              <a href="author.html#891">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-06-08 08:16:43 +0200 (Mon, 08 Jun 2009)
+New Revision: 2107
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/target/target.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;
+
+- Don't let disabled TAPs be set as the current target
+
+ - Improve &quot;targets&quot; output:
+    * Remove undesirable &quot;chain position&quot; number; we discourage using them
+    * TAP and Target column updates:
+       + make them long enough for current usage
+       + improve labels, removing guesswork
+       + &quot;TapName&quot; label patches scan_chain output
+    * Highlight the &quot;current&quot; target
+    * Display &quot;tap disabled&quot; as a new pseudo-state
+    * Update docs accordingly
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-06-08 04:35:19 UTC (rev 2106)
++++ trunk/doc/openocd.texi	2009-06-08 06:16:43 UTC (rev 2107)
+@@ -2117,14 +2117,15 @@
+ This display often has only one CPU; here's what it might
+ look like with more than one:
+ @verbatim
+-    CmdName    Type       Endian     AbsChainPos Name          State
+---  ---------- ---------- ---------- ----------- ------------- ----------
+- 0: rm9200.cpu arm920t    little              2     rm9200.cpu running
+- 1: MyTarget   cortex_m3  little              0     mychip.cpu halted
++    TargetName         Type       Endian TapName            State
++--  ------------------ ---------- ------ ------------------ ------------
++ 0* at91rm9200.cpu     arm920t    little at91rm9200.cpu     running
++ 1  MyTarget           cortex_m3  little mychip.foo         tap-disabled
+ @end verbatim
+ 
+ One member of that list is the @dfn{current target}, which
+ is implicitly referenced by many commands.
++It's the one marked with a @code{*} near the target name.
+ In particular, memory addresses often refer to the address
+ space seen by that current target.
+ Commands like @command{mdw} (memory display words)
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-06-08 04:35:19 UTC (rev 2106)
++++ trunk/src/target/target.c	2009-06-08 06:16:43 UTC (rev 2107)
+@@ -1467,6 +1467,12 @@
+ 			command_print(cmd_ctx,&quot;Target: %s is unknown, try one of:\n&quot;, args[0] );
+ 			goto DumpTargets;
+ 		}
++		if (!target-&gt;tap-&gt;enabled) {
++			command_print(cmd_ctx,&quot;Target: TAP %s is disabled, &quot;
++					&quot;can't be the current target\n&quot;,
++					target-&gt;tap-&gt;dotted_name);
++			return ERROR_FAIL;
++		}
+ 
+ 		cmd_ctx-&gt;current_target = target-&gt;target_number;
+ 		return ERROR_OK;
+@@ -1474,19 +1480,32 @@
+ DumpTargets:
+ 
+ 	target = all_targets;
+-	command_print(cmd_ctx, &quot;    CmdName    Type       Endian     AbsChainPos Name          State     &quot;);
+-	command_print(cmd_ctx, &quot;--  ---------- ---------- ---------- ----------- ------------- ----------&quot;);
++	command_print(cmd_ctx, &quot;    TargetName         Type       Endian TapName            State       &quot;);
++	command_print(cmd_ctx, &quot;--  ------------------ ---------- ------ ------------------ ------------&quot;);
+ 	while (target)
+ 	{
+-		/* XX: abcdefghij abcdefghij abcdefghij abcdefghij */
+-		command_print(cmd_ctx, &quot;%2d: %-10s %-10s %-10s %10d %14s %s&quot;,
++		const char *state;
++		char marker = ' ';
++
++		if (target-&gt;tap-&gt;enabled)
++			state = Jim_Nvp_value2name_simple(nvp_target_state,
++					target-&gt;state)-&gt;name;
++		else
++			state = &quot;tap-disabled&quot;;
++
++		if (cmd_ctx-&gt;current_target == target-&gt;target_number)
++			marker = '*';
++
++		/* keep columns lined up to match the headers above */
++		command_print(cmd_ctx, &quot;%2d%c %-18s %-10s %-6s %-18s %s&quot;,
+ 					  target-&gt;target_number,
++					  marker,
+ 					  target-&gt;cmd_name,
+ 					  target_get_name(target),
+-					  Jim_Nvp_value2name_simple( nvp_target_endian, target-&gt;endianness )-&gt;name,
+-					  target-&gt;tap-&gt;abs_chain_position,
++					  Jim_Nvp_value2name_simple(nvp_target_endian,
++								target-&gt;endianness)-&gt;name,
+ 					  target-&gt;tap-&gt;dotted_name,
+-					  Jim_Nvp_value2name_simple( nvp_target_state, target-&gt;state )-&gt;name );
++					  state);
+ 		target = target-&gt;next;
+ 	}
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000890.html">[Openocd-svn] r2106 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000892.html">[Openocd-svn] r2108 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#891">[ date ]</a>
+              <a href="thread.html#891">[ thread ]</a>
+              <a href="subject.html#891">[ subject ]</a>
+              <a href="author.html#891">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

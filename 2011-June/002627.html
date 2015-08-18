@@ -1,0 +1,158 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-928-g37aaa28
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-928-g37aaa28&In-Reply-To=%3Cmailman.112.1331736155.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002626.html">
+   <LINK REL="Next"  HREF="002628.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-928-g37aaa28</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-928-g37aaa28&In-Reply-To=%3Cmailman.112.1331736155.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-928-g37aaa28">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Jun 24 11:01:56 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002626.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-927-ge7c611d
+</A></li>
+        <LI>Next message: <A HREF="002628.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-938-g5e2637a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2627">[ date ]</a>
+              <a href="thread.html#2627">[ thread ]</a>
+              <a href="subject.html#2627">[ subject ]</a>
+              <a href="author.html#2627">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  37aaa28292baee3592492933beb49d5e8884aa14 (commit)
+      from  e7c611deeac63e585eb61d6c4cdb54d078c2c579 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 37aaa28292baee3592492933beb49d5e8884aa14
+Author: Drasko DRASKOVIC &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">drasko.draskovic at gmail.com</A>&gt;
+Date:   Wed Jun 22 12:45:21 2011 +0200
+
+    Fix load_image for ELF with all p_paddr set to zero
+    
+    So far image_load command tries to load ELF binaries to address
+    discovered by reading p_paddr member of a Program header of an ELF
+    segment.
+    
+    However, ELF specifications says for p_paddr : ...Because System V
+    ignores physical addressing for application programs, this member has
+    unspecified contents for executable files and shared objects.
+    
+    ARM ELF specifiaction goes even further, demanding that this member
+    be set to zero, using the p_vaddr as a segment load address.
+    
+    To avoid the cases to wrong addr where p_paddr is zero,
+    we are now using p_vaddr to as a load destination in case that *all*
+    p_paddr == 0. Basically, this patch re-implements the approach present in
+    BDF's elf.c, which is used by GDB also (so that we can be consistent).
+
+diff --git a/src/target/image.c b/src/target/image.c
+index 454fc6c..21ce11f 100644
+--- a/src/target/image.c
++++ b/src/target/image.c
+@@ -396,6 +396,7 @@ static int image_elf_read_headers(struct image *image)
+ 	size_t read_bytes;
+ 	uint32_t i,j;
+ 	int retval;
++	uint32_t nload,load_to_vaddr=0;
+ 
+ 	elf-&gt;header = malloc(sizeof(Elf32_Ehdr));
+ 
+@@ -471,6 +472,26 @@ static int image_elf_read_headers(struct image *image)
+ 	for (i = 0;i &lt; elf-&gt;segment_count;i++)
+ 		if ((field32(elf, elf-&gt;segments[i].p_type) == PT_LOAD) &amp;&amp; (field32(elf, elf-&gt;segments[i].p_filesz) != 0))
+ 			image-&gt;num_sections++;
++
++	/**
++	 * some ELF linkers produce binaries with *all* the program header
++	 * p_paddr fields zero (there can be however one loadable segment
++	 * that has valid physical address 0x0).
++	 * If we have such a binary with more than
++	 * one PT_LOAD header, then use p_vaddr instead of p_paddr
++	 * (ARM ELF standard demands p_paddr = 0 anyway, and BFD
++	 * library uses this approach to workaround zero-initialized p_paddrs
++	 * when obtaining lma - look at elf.c of BDF)
++	 */
++	for (nload = 0, i = 0; i &lt; elf-&gt;segment_count; i++)
++		if (elf-&gt;segments[i].p_paddr != 0)
++			break;
++		else if ((field32(elf, elf-&gt;segments[i].p_type) == PT_LOAD) &amp;&amp; (field32(elf, elf-&gt;segments[i].p_memsz) != 0))
++			++nload;
++
++	if (i &gt;= elf-&gt;segment_count &amp;&amp; nload &gt; 1)
++		load_to_vaddr = 1;
++
+ 	/* alloc and fill sections array with loadable segments */
+ 	image-&gt;sections = malloc(image-&gt;num_sections * sizeof(struct imagesection));
+ 	for (i = 0,j = 0;i &lt; elf-&gt;segment_count;i++)
+@@ -478,7 +499,10 @@ static int image_elf_read_headers(struct image *image)
+ 		if ((field32(elf, elf-&gt;segments[i].p_type) == PT_LOAD) &amp;&amp; (field32(elf, elf-&gt;segments[i].p_filesz) != 0))
+ 		{
+ 			image-&gt;sections[j].size = field32(elf,elf-&gt;segments[i].p_filesz);
+-			image-&gt;sections[j].base_address = field32(elf,elf-&gt;segments[i].p_paddr);
++			if (load_to_vaddr)
++				image-&gt;sections[j].base_address = field32(elf,elf-&gt;segments[i].p_vaddr);
++			else
++				image-&gt;sections[j].base_address = field32(elf,elf-&gt;segments[i].p_paddr);
+ 			image-&gt;sections[j].private = &amp;elf-&gt;segments[i];
+ 			image-&gt;sections[j].flags = field32(elf,elf-&gt;segments[i].p_flags);
+ 			j++;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/image.c |   26 +++++++++++++++++++++++++-
+ 1 files changed, 25 insertions(+), 1 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002626.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-927-ge7c611d
+</A></li>
+	<LI>Next message: <A HREF="002628.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-938-g5e2637a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2627">[ date ]</a>
+              <a href="thread.html#2627">[ thread ]</a>
+              <a href="subject.html#2627">[ subject ]</a>
+              <a href="author.html#2627">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

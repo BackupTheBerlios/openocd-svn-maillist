@@ -1,0 +1,515 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1498 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1498%20-%20trunk/src/jtag&In-Reply-To=%3C200904211539.n3LFdolD009103%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000281.html">
+   <LINK REL="Next"  HREF="000283.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1498 - trunk/src/jtag</H1>
+    <B>oharboe at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1498%20-%20trunk/src/jtag&In-Reply-To=%3C200904211539.n3LFdolD009103%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1498 - trunk/src/jtag">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Tue Apr 21 17:39:50 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000281.html">[Openocd-svn] r1497 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000283.html">[Openocd-svn] r1499 - trunk/src/target/interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#282">[ date ]</a>
+              <a href="thread.html#282">[ thread ]</a>
+              <a href="subject.html#282">[ subject ]</a>
+              <a href="author.html#282">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-04-21 17:39:49 +0200 (Tue, 21 Apr 2009)
+New Revision: 1498
+
+Modified:
+   trunk/src/jtag/jlink.c
+Log:
+Zach Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt; refactor
+
+Modified: trunk/src/jtag/jlink.c
+===================================================================
+--- trunk/src/jtag/jlink.c	2009-04-21 12:10:29 UTC (rev 1497)
++++ trunk/src/jtag/jlink.c	2009-04-21 15:39:49 UTC (rev 1498)
+@@ -230,31 +230,26 @@
+ {
+ 	int result;
+ 
+-	if (speed &lt;= JLINK_MAX_SPEED)
++	if (speed &gt; JLINK_MAX_SPEED)
+ 	{
+-		/* check for RTCK setting */
+-		if (speed == 0)
+-			speed = -1;
++		LOG_INFO(&quot;Ignoring speed request: %dkHz exceeds %dkHz maximum&quot;,
++				speed, JLINK_MAX_SPEED);
++		return ERROR_OK;
++	}
+ 
+-		usb_out_buffer[0] = EMU_CMD_SET_SPEED;
+-		usb_out_buffer[1] = (speed &gt;&gt; 0) &amp; 0xff;
+-		usb_out_buffer[2] = (speed &gt;&gt; 8) &amp; 0xff;
++	/* check for RTCK setting */
++	if (speed == 0)
++		speed = -1;
+ 
+-		result = jlink_usb_write(jlink_jtag_handle, 3);
++	usb_out_buffer[0] = EMU_CMD_SET_SPEED;
++	usb_out_buffer[1] = (speed &gt;&gt; 0) &amp; 0xff;
++	usb_out_buffer[2] = (speed &gt;&gt; 8) &amp; 0xff;
+ 
+-		if (result == 3)
+-		{
+-			return ERROR_OK;
+-		}
+-		else
+-		{
+-			LOG_ERROR(&quot;J-Link setting speed failed (%d)&quot;, result);
+-			return ERROR_JTAG_DEVICE_ERROR;
+-		}
+-	}
+-	else
++	result = jlink_usb_write(jlink_jtag_handle, 3);
++	if (result != 3)
+ 	{
+-		LOG_INFO(&quot;Requested speed %dkHz exceeds maximum of %dkHz, ignored&quot;, speed, JLINK_MAX_SPEED);
++		LOG_ERROR(&quot;J-Link setting speed failed (%d)&quot;, result);
++		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -485,53 +480,55 @@
+ 	int result;
+ 
+ 	jlink_simple_command(EMU_CMD_GET_STATE);
+-	result = jlink_usb_read(jlink_jtag_handle, 8);
+ 
+-	if (result == 8)
++	result = jlink_usb_read(jlink_jtag_handle, 8);
++	if (result != 8)
+ 	{
+-		int vref = usb_in_buffer[0] + (usb_in_buffer[1] &lt;&lt; 8);
+-		LOG_INFO(&quot;Vref = %d.%d TCK = %d TDI = %d TDO = %d TMS = %d SRST = %d TRST = %d\n&quot;, \
+-			vref / 1000, vref % 1000, \
+-			usb_in_buffer[2], usb_in_buffer[3], usb_in_buffer[4], \
+-			usb_in_buffer[5], usb_in_buffer[6], usb_in_buffer[7]);
+-
+-		if (vref &lt; 1500)
+-		{
+-			LOG_ERROR(&quot;Vref too low. Check Target Power\n&quot;);
+-		}
+-	}
+-	else
+-	{
+ 		LOG_ERROR(&quot;J-Link command EMU_CMD_GET_STATE failed (%d)\n&quot;, result);
++		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
++	int vref = usb_in_buffer[0] + (usb_in_buffer[1] &lt;&lt; 8);
++	LOG_INFO(&quot;Vref = %d.%d TCK = %d TDI = %d TDO = %d TMS = %d SRST = %d TRST = %d\n&quot;, \
++		vref / 1000, vref % 1000, \
++		usb_in_buffer[2], usb_in_buffer[3], usb_in_buffer[4], \
++		usb_in_buffer[5], usb_in_buffer[6], usb_in_buffer[7]);
++
++	if (vref &lt; 1500)
++		LOG_ERROR(&quot;Vref too low. Check Target Power\n&quot;);
++
+ 	return ERROR_OK;
+ }
+ 
+ static int jlink_get_version_info(void)
+ {
+ 	int result;
+-	int len = 0;
++	int len;
+ 
+ 	/* query hardware version */
+ 	jlink_simple_command(EMU_CMD_VERSION);
+-	result = jlink_usb_read(jlink_jtag_handle, 2);
+ 
+-	if (result == 2)
++	result = jlink_usb_read(jlink_jtag_handle, 2);
++	if (2 != result)
+ 	{
+-		len = buf_get_u32(usb_in_buffer, 0, 16);
+-		result = jlink_usb_read(jlink_jtag_handle, len);
++		LOG_ERROR(&quot;J-Link command EMU_CMD_VERSION failed (%d)\n&quot;,
++				result);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
+ 
+-		if (result == len)
+-		{
+-			usb_in_buffer[result] = 0;
+-			LOG_INFO(&quot;%s&quot;, (char *)usb_in_buffer);
+-			return ERROR_OK;
+-		}
++	len = buf_get_u32(usb_in_buffer, 0, 16);
++	result = jlink_usb_read(jlink_jtag_handle, len);
++	if (result != len)
++	{
++		LOG_ERROR(&quot;J-Link command EMU_CMD_VERSION failed (%d)\n&quot;,
++				result);
++		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+-	LOG_ERROR(&quot;J-Link command EMU_CMD_VERSION failed (%d)\n&quot;, result);
+-	return ERROR_JTAG_DEVICE_ERROR;
++	usb_in_buffer[result] = 0;
++	LOG_INFO(&quot;%s&quot;, (char *)usb_in_buffer);
++
++	return ERROR_OK;
+ }
+ 
+ static int jlink_handle_jlink_info_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+@@ -551,7 +548,7 @@
+ /* 2048 is the max value we can use here */
+ #define JLINK_TAP_BUFFER_SIZE 2048
+ 
+-static int tap_length;
++static unsigned tap_length;
+ static u8 tms_buffer[JLINK_TAP_BUFFER_SIZE];
+ static u8 tdi_buffer[JLINK_TAP_BUFFER_SIZE];
+ static u8 tdo_buffer[JLINK_TAP_BUFFER_SIZE];
+@@ -593,40 +590,32 @@
+ 	last_tms = tms;
+ 	int index = tap_length / 8;
+ 
+-	if (index &lt; JLINK_TAP_BUFFER_SIZE)
++	if (index &gt;= JLINK_TAP_BUFFER_SIZE)
+ 	{
+-		int bit_index = tap_length % 8;
+-		u8 bit = 1 &lt;&lt; bit_index;
++		LOG_ERROR(&quot;jlink_tap_append_step: overflow&quot;);
++		exit(-1);
++	}
+ 
+-		if (tms)
+-		{
+-			tms_buffer[index] |= bit;
+-		}
+-		else
+-		{
+-			tms_buffer[index] &amp;= ~bit;
+-		}
++	int bit_index = tap_length % 8;
++	u8 bit = 1 &lt;&lt; bit_index;
+ 
+-		if (tdi)
+-		{
+-			tdi_buffer[index] |= bit;
+-		}
+-		else
+-		{
+-			tdi_buffer[index] &amp;= ~bit;
+-		}
++	if (tms)
++		tms_buffer[index] |= bit;
++	else
++		tms_buffer[index] &amp;= ~bit;
+ 
+-		tap_length++;
+-	}
++	if (tdi)
++		tdi_buffer[index] |= bit;
+ 	else
+-	{
+-		LOG_ERROR(&quot;jlink_tap_append_step, overflow&quot;);
+-	}
++		tdi_buffer[index] &amp;= ~bit;
++
++	tap_length++;
+ }
+ 
+ static void jlink_tap_append_scan(int length, u8 *buffer, scan_command_t *command)
+ {
+-	pending_scan_result_t *pending_scan_result = &amp;pending_scan_results_buffer[pending_scan_results_length];
++	pending_scan_result_t *pending_scan_result =
++		&amp;pending_scan_results_buffer[pending_scan_results_length];
+ 	int i;
+ 
+ 	pending_scan_result-&gt;first = tap_length;
+@@ -636,7 +625,9 @@
+ 
+ 	for (i = 0; i &lt; length; i++)
+ 	{
+-		jlink_tap_append_step((i &lt; length-1 ? 0 : 1), (buffer[i/8] &gt;&gt; (i%8)) &amp; 1);
++		int tms = i &lt; length - 1 ? 0 : 1;
++		int tdi = buffer[i / 8] &amp; (1 &lt;&lt; (i % 8));
++		jlink_tap_append_step(tms, tdi);
+ 	}
+ 	pending_scan_results_length++;
+ }
+@@ -651,82 +642,79 @@
+ 	int i;
+ 	int result;
+ 
+-	if (tap_length &gt; 0)
++	if (!tap_length)
++		return ERROR_OK;
++
++	/* Pad last byte so that tap_length is divisible by 8 */
++	while (tap_length % 8 != 0)
+ 	{
+-		/* Pad last byte so that tap_length is divisible by 8 */
+-		while (tap_length % 8 != 0)
+-		{
+-			/* More of the last TMS value keeps us in the same state,
+-			 * analogous to free-running JTAG interfaces. */
+-			jlink_tap_append_step(last_tms, 0);
+-		}
++		/* More of the last TMS value keeps us in the same state,
++		 * analogous to free-running JTAG interfaces. */
++		jlink_tap_append_step(last_tms, 0);
++	}
+ 
+-		byte_length = tap_length / 8;
++	byte_length = tap_length / 8;
+ 
+-		usb_out_buffer[0] = EMU_CMD_HW_JTAG3;
+-		usb_out_buffer[1] = 0;
+-		usb_out_buffer[2] = (tap_length &gt;&gt; 0) &amp; 0xff;
+-		usb_out_buffer[3] = (tap_length &gt;&gt; 8) &amp; 0xff;
++	usb_out_buffer[0] = EMU_CMD_HW_JTAG3;
++	usb_out_buffer[1] = 0;
++	usb_out_buffer[2] = (tap_length &gt;&gt; 0) &amp; 0xff;
++	usb_out_buffer[3] = (tap_length &gt;&gt; 8) &amp; 0xff;
+ 
+-		tms_offset = 4;
+-		for (i = 0; i &lt; byte_length; i++)
+-		{
+-			usb_out_buffer[tms_offset + i] = tms_buffer[i];
+-		}
++	tms_offset = 4;
++	for (i = 0; i &lt; byte_length; i++)
++	{
++		usb_out_buffer[tms_offset + i] = tms_buffer[i];
++	}
+ 
+-		tdi_offset = tms_offset + byte_length;
+-		for (i = 0; i &lt; byte_length; i++)
+-		{
+-			usb_out_buffer[tdi_offset + i] = tdi_buffer[i];
+-		}
++	tdi_offset = tms_offset + byte_length;
++	for (i = 0; i &lt; byte_length; i++)
++	{
++		usb_out_buffer[tdi_offset + i] = tdi_buffer[i];
++	}
+ 
+-		result = jlink_usb_message(jlink_jtag_handle, 4 + 2 * byte_length, byte_length);
++	result = jlink_usb_message(jlink_jtag_handle, 4 + 2 * byte_length, byte_length);
+ 
+-		if (result == byte_length)
+-		{
+-			for (i = 0; i &lt; byte_length; i++)
+-			{
+-				tdo_buffer[i] = usb_in_buffer[i];
+-			}
++	if (result != byte_length)
++	{
++		LOG_ERROR(&quot;jlink_tap_execute, wrong result %d (expected %d)&quot;,
++				result, byte_length);
++		return ERROR_JTAG_QUEUE_FAILED;
++	}
+ 
+-			for (i = 0; i &lt; pending_scan_results_length; i++)
+-			{
+-				pending_scan_result_t *pending_scan_result = &amp;pending_scan_results_buffer[i];
+-				u8 *buffer = pending_scan_result-&gt;buffer;
+-				int length = pending_scan_result-&gt;length;
+-				int first = pending_scan_result-&gt;first;
+-				scan_command_t *command = pending_scan_result-&gt;command;
++	for (i = 0; i &lt; byte_length; i++)
++		tdo_buffer[i] = usb_in_buffer[i];
+ 
+-				/* Copy to buffer */
+-				buf_set_buf(tdo_buffer, first, buffer, 0, length);
++	for (i = 0; i &lt; pending_scan_results_length; i++)
++	{
++		pending_scan_result_t *pending_scan_result = &amp;pending_scan_results_buffer[i];
++		u8 *buffer = pending_scan_result-&gt;buffer;
++		int length = pending_scan_result-&gt;length;
++		int first = pending_scan_result-&gt;first;
++		scan_command_t *command = pending_scan_result-&gt;command;
+ 
+-				DEBUG_JTAG_IO(&quot;pending scan result, length = %d&quot;, length);
++		/* Copy to buffer */
++		buf_set_buf(tdo_buffer, first, buffer, 0, length);
+ 
++		DEBUG_JTAG_IO(&quot;pending scan result, length = %d&quot;, length);
++
+ #ifdef _DEBUG_USB_COMMS_
+-				jlink_debug_buffer(buffer, byte_length);
++		jlink_debug_buffer(buffer, byte_length);
+ #endif
+ 
+-				if (jtag_read_buffer(buffer, command) != ERROR_OK)
+-				{
+-					jlink_tap_init();
+-					return ERROR_JTAG_QUEUE_FAILED;
+-				}
+-
+-				if (pending_scan_result-&gt;buffer != NULL)
+-				{
+-					free(pending_scan_result-&gt;buffer);
+-				}
+-			}
+-		}
+-		else
++		if (jtag_read_buffer(buffer, command) != ERROR_OK)
+ 		{
+-			LOG_ERROR(&quot;jlink_tap_execute, wrong result %d, expected %d&quot;, result, byte_length);
++			jlink_tap_init();
+ 			return ERROR_JTAG_QUEUE_FAILED;
+ 		}
+ 
+-		jlink_tap_init();
++		if (pending_scan_result-&gt;buffer != NULL)
++		{
++			free(pending_scan_result-&gt;buffer);
++		}
+ 	}
+ 
++	jlink_tap_init();
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -792,59 +780,48 @@
+ 	int result2;
+ 
+ 	result = jlink_usb_write(jlink_jtag, out_length);
+-	if (result == out_length)
++	if (result != out_length)
+ 	{
+-		result = jlink_usb_read(jlink_jtag, in_length);
+-		if (result == in_length || result == in_length+1)
++		LOG_ERROR(&quot;usb_bulk_write failed (requested=%d, result=%d)&quot;,
++				out_length, result);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	result = jlink_usb_read(jlink_jtag, in_length);
++	if ((result != in_length) &amp;&amp; (result != in_length + 1))
++	{
++		LOG_ERROR(&quot;usb_bulk_read failed (requested=%d, result=%d)&quot;,
++				in_length, result);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	if (result == in_length)
++	{
++		/* Must read the result from the EMU too */
++		result2 = jlink_usb_read_emu_result(jlink_jtag);
++		if (1 != result2)
+ 		{
+-			if (result == in_length)
+-			{
+-				/* Must read the result from the EMU too */
+-				result2 = jlink_usb_read_emu_result(jlink_jtag);
+-				if (1 == result2)
+-				{
+-					/* Check the result itself */
+-					if (0 == usb_emu_result_buffer[0])
+-					{
+-						return result;
+-					}
+-					else
+-					{
+-						LOG_ERROR(&quot;jlink_usb_read_emu_result (requested=0, result=%d)&quot;, usb_emu_result_buffer[0]);
+-						return -1;
+-					}
+-				}
+-				else
+-				{
+-					LOG_ERROR(&quot;jlink_usb_read_emu_result len (requested=1, result=%d)&quot;, result2);
+-					return -1;
+-				}
+-			}
+-			else
+-			{
+-				/* Check the result itself */
+-				if (0 == usb_in_buffer[result-1])
+-				{
+-					return result-1;
+-				}
+-				else
+-				{
+-					LOG_ERROR(&quot;jlink_usb_read_emu_result (requested=0, result=%d)&quot;, usb_in_buffer[result]);
+-					return -1;
+-				}
+-			}
++			LOG_ERROR(&quot;jlink_usb_read_emu_result failed &quot;
++				&quot;(requested=1, result=%d)&quot;, result2);
++			return ERROR_JTAG_DEVICE_ERROR;
+ 		}
+-		else
+-		{
+-			LOG_ERROR(&quot;usb_bulk_read failed (requested=%d, result=%d)&quot;, in_length, result);
+-			return -1;
+-		}
++
++		/* Check the result itself */
++		result2 = usb_emu_result_buffer[0];
+ 	}
+ 	else
+ 	{
+-		LOG_ERROR(&quot;usb_bulk_write failed (requested=%d, result=%d)&quot;, out_length, result);
+-		return -1;
++		/* Save the result, then remove it from return value */
++		result2 = usb_in_buffer[result--];
+ 	}
++
++	if (result2)
++	{
++		LOG_ERROR(&quot;jlink_usb_message failed with result=%d)&quot;, result2);
++		return ERROR_JTAG_DEVICE_ERROR;
++	}
++
++	return result;
+ }
+ 
+ /* calls the given usb_bulk_* function, allowing for the data to trickle in with some timeouts  */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000281.html">[Openocd-svn] r1497 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000283.html">[Openocd-svn] r1499 - trunk/src/target/interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#282">[ date ]</a>
+              <a href="thread.html#282">[ thread ]</a>
+              <a href="subject.html#282">[ subject ]</a>
+              <a href="author.html#282">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

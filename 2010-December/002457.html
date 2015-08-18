@@ -1,0 +1,402 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-641-g740b9e2
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-641-g740b9e2&In-Reply-To=%3CE1PQEiO-0004Hu-KK%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002456.html">
+   <LINK REL="Next"  HREF="002458.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-641-g740b9e2</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-641-g740b9e2&In-Reply-To=%3CE1PQEiO-0004Hu-KK%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-641-g740b9e2">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Wed Dec  8 08:45:27 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002456.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-640-g5cd931e
+</A></li>
+        <LI>Next message: <A HREF="002458.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-642-gfa46805
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2457">[ date ]</a>
+              <a href="thread.html#2457">[ thread ]</a>
+              <a href="subject.html#2457">[ subject ]</a>
+              <a href="author.html#2457">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  740b9e25b410c164e661d0334a9ea4168406726b (commit)
+      from  5cd931ed1ccc75bdbaab821686ceff04c3cb002b (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 740b9e25b410c164e661d0334a9ea4168406726b
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Mon Dec 6 09:21:23 2010 +0100
+
+    jtag: getting the JTAG speed can fail
+    
+    If the JTAG speed has not been set, then it has no defined
+    value, add code to propagate the error.
+    
+    No change to actual behavior as no new failure paths have
+    been introduced. This is a no-op patch to make subsequent patches
+    smaller.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index c1b64bb..b895309 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -1384,9 +1384,13 @@ int adapter_init(struct command_context *cmd_ctx)
+ 
+ 	int requested_khz = jtag_get_speed_khz();
+ 	int actual_khz = requested_khz;
+-	int retval = jtag_get_speed_readable(&amp;actual_khz);
++	int jtag_speed_var;
++	int retval = jtag_get_speed(&amp;jtag_speed_var);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = jtag_get_speed_readable(&amp;actual_khz);
+ 	if (ERROR_OK != retval)
+-		LOG_INFO(&quot;adapter-specific clock speed value %d&quot;, jtag_get_speed());
++		LOG_INFO(&quot;adapter-specific clock speed value %d&quot;, jtag_speed_var);
+ 	else if (actual_khz)
+ 	{
+ 		/* Adaptive clocking -- JTAG-specific */
+@@ -1632,30 +1636,33 @@ int jtag_config_rclk(unsigned fallback_speed_khz)
+ 	return (ERROR_OK != retval) ? retval : jtag_set_speed(speed);
+ }
+ 
+-int jtag_get_speed(void)
++int jtag_get_speed(int *speed)
+ {
+-	int speed = 0; /* avoid -O3 warning */
+ 	switch(clock_mode)
+ 	{
+ 		case CLOCK_MODE_SPEED:
+-			speed = jtag_speed;
++			*speed = jtag_speed;
+ 			break;
+ 		case CLOCK_MODE_KHZ:
+-			adapter_khz_to_speed(jtag_get_speed_khz(), &amp;speed);
++			adapter_khz_to_speed(jtag_get_speed_khz(), speed);
+ 			break;
+ 		case CLOCK_MODE_RCLK:
+-			jtag_rclk_to_speed(rclk_fallback_speed_khz, &amp;speed);
++			jtag_rclk_to_speed(rclk_fallback_speed_khz, speed);
+ 			break;
+ 		default:
+ 			LOG_ERROR(&quot;BUG: unknown jtag clock mode&quot;);
+-			break;
++			return ERROR_FAIL;
+ 	}
+-	return speed;
++	return ERROR_OK;
+ }
+ 
+ int jtag_get_speed_readable(int *khz)
+ {
+-	return jtag ? jtag-&gt;speed_div(jtag_get_speed(), khz) : ERROR_OK;
++	int jtag_speed_var;
++	int retval = jtag_get_speed(&amp;jtag_speed_var);
++	if (retval != ERROR_OK)
++		return retval;
++	return jtag ? jtag-&gt;speed_div(jtag_speed_var, khz) : ERROR_OK;
+ }
+ 
+ void jtag_set_verify(bool enable)
+diff --git a/src/jtag/drivers/amt_jtagaccel.c b/src/jtag/drivers/amt_jtagaccel.c
+index fca8cfe..552d04d 100644
+--- a/src/jtag/drivers/amt_jtagaccel.c
++++ b/src/jtag/drivers/amt_jtagaccel.c
+@@ -191,7 +191,8 @@ static void amt_jtagaccel_state_move(void)
+ 
+ 	aw_scan_tms_5 = 0x40 | (tms_scan[0] &amp; 0x1f);
+ 	AMT_AW(aw_scan_tms_5);
+-	int jtag_speed = jtag_get_speed();
++	int retval = jtag_get_speed(&amp;jtag_speed);
++	assert(retval == ERROR_OK);
+ 	if (jtag_speed &gt; 3 || rtck_enabled)
+ 		amt_wait_scan_busy();
+ 
+@@ -249,7 +250,9 @@ static void amt_jtagaccel_scan(bool ir_scan, enum scan_type type, uint8_t *buffe
+ 	uint8_t dr_tdo;
+ 	uint8_t aw_tms_scan;
+ 	uint8_t tms_scan[2];
+-	int jtag_speed = jtag_get_speed();
++	int jtag_speed_var;
++	int retval = jtag_get_speed(&amp;jtag_speed_var);
++	assert(retval == ERROR_OK);
+ 
+ 	if (ir_scan)
+ 		amt_jtagaccel_end_state(TAP_IRSHIFT);
+@@ -267,7 +270,7 @@ static void amt_jtagaccel_scan(bool ir_scan, enum scan_type type, uint8_t *buffe
+ 
+ 		dw_tdi_scan = buf_get_u32(buffer, bit_count, (scan_size - 1) % 8) &amp; 0xff;
+ 		AMT_DW(dw_tdi_scan);
+-		if (jtag_speed &gt; 3 || rtck_enabled)
++		if (jtag_speed_var &gt; 3 || rtck_enabled)
+ 			amt_wait_scan_busy();
+ 
+ 		if ((type == SCAN_IN) || (type == SCAN_IO))
+@@ -285,7 +288,7 @@ static void amt_jtagaccel_scan(bool ir_scan, enum scan_type type, uint8_t *buffe
+ 	{
+ 		dw_tdi_scan = buf_get_u32(buffer, bit_count, 8) &amp; 0xff;
+ 		AMT_DW(dw_tdi_scan);
+-		if (jtag_speed &gt; 3 || rtck_enabled)
++		if (jtag_speed_var &gt; 3 || rtck_enabled)
+ 			amt_wait_scan_busy();
+ 
+ 		if ((type == SCAN_IN) || (type == SCAN_IO))
+@@ -302,7 +305,7 @@ static void amt_jtagaccel_scan(bool ir_scan, enum scan_type type, uint8_t *buffe
+ 	tms_scan[1] = amt_jtagaccel_tap_move[tap_move_ndx(tap_get_state())][tap_move_ndx(tap_get_end_state())][1];
+ 	aw_tms_scan = 0x40 | (tms_scan[0] &amp; 0x1f) | (buf_get_u32(buffer, bit_count, 1) &lt;&lt; 5);
+ 	AMT_AW(aw_tms_scan);
+-	if (jtag_speed &gt; 3 || rtck_enabled)
++	if (jtag_speed_var &gt; 3 || rtck_enabled)
+ 		amt_wait_scan_busy();
+ 
+ 	if ((type == SCAN_IN) || (type == SCAN_IO))
+@@ -316,7 +319,7 @@ static void amt_jtagaccel_scan(bool ir_scan, enum scan_type type, uint8_t *buffe
+ 	{
+ 		aw_tms_scan = 0x40 | (tms_scan[1] &amp; 0x1f);
+ 		AMT_AW(aw_tms_scan);
+-		if (jtag_speed &gt; 3 || rtck_enabled)
++		if (jtag_speed_var &gt; 3 || rtck_enabled)
+ 			amt_wait_scan_busy();
+ 	}
+ 	tap_set_state(tap_get_end_state());
+@@ -502,7 +505,9 @@ static int amt_jtagaccel_init(void)
+ 	aw_control_fsm |= 0x04;
+ 	AMT_AW(aw_control_fsm);
+ 
+-	amt_jtagaccel_speed(jtag_get_speed());
++	int jtag_speed_var;
++	int retval = jtag_get_speed(&amp;jtag_speed_var);
++	amt_jtagaccel_speed(jtag_speed_var);
+ 
+ 	enum reset_types jtag_reset_config = jtag_get_reset_config();
+ 	if (jtag_reset_config &amp; RESET_TRST_OPEN_DRAIN)
+diff --git a/src/jtag/drivers/ft2232.c b/src/jtag/drivers/ft2232.c
+index 928ec1c..77b5880 100644
+--- a/src/jtag/drivers/ft2232.c
++++ b/src/jtag/drivers/ft2232.c
+@@ -2395,7 +2395,11 @@ static int ft2232_init(void)
+ 			return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
+-	ft2232_speed(jtag_get_speed());
++	int jtag_speed_var;
++	int retval = jtag_get_speed(&amp;jtag_speed_var);
++	if (retval != ERROR_OK)
++		return retval;
++	ft2232_speed(jtag_speed_var);
+ 
+ 	buf[0] = 0x85; /* Disconnect TDI/DO to TDO/DI for Loopback */
+ 	if ((retval = ft2232_write(buf, 1, &amp;bytes_written)) != ERROR_OK)
+diff --git a/src/jtag/drivers/gw16012.c b/src/jtag/drivers/gw16012.c
+index cb29d33..1729299 100644
+--- a/src/jtag/drivers/gw16012.c
++++ b/src/jtag/drivers/gw16012.c
+@@ -529,7 +529,11 @@ static int gw16012_init(void)
+ 	gw16012_input(&amp;status_port);
+ 	gw16012_msb = (status_port &amp; 0x80) ^ 0x80;
+ 
+-	gw16012_speed(jtag_get_speed());
++	int jtag_speed_var;
++	int retval = jtag_get_speed(&amp;jtag_speed_var);
++	if (retval != ERROR_OK)
++		return retval;
++	gw16012_speed(jtag_speed_var);
+ 	gw16012_reset(0, 0);
+ 
+ 	return ERROR_OK;
+diff --git a/src/jtag/drivers/jlink.c b/src/jtag/drivers/jlink.c
+index ff389e9..e7e3ced 100644
+--- a/src/jtag/drivers/jlink.c
++++ b/src/jtag/drivers/jlink.c
+@@ -321,7 +321,11 @@ static int jlink_init(void)
+ 	jlink_reset(0, 0);
+ 	jtag_sleep(3000);
+ 	jlink_tap_init();
+-	jlink_speed(jtag_get_speed());
++	int jtag_speed_var;
++	int retval = jtag_get_speed(&amp;jtag_speed_var);
++	if (retval != ERROR_OK)
++		return retval;
++	jlink_speed(jtag_speed_var);
+ 
+ 	/* v5/6 jlink seems to have an issue if the first tap move
+ 	 * is not divisible by 8, so we send a TLR on first power up */
+diff --git a/src/jtag/drivers/parport.c b/src/jtag/drivers/parport.c
+index 2323ec5..3402bc2 100644
+--- a/src/jtag/drivers/parport.c
++++ b/src/jtag/drivers/parport.c
+@@ -384,7 +384,9 @@ static int parport_init(void)
+ 
+ 	bitbang_interface = &amp;parport_bitbang;
+ 
+-	wait_states = jtag_get_speed();
++	int retval = jtag_get_speed(&amp;wait_states);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	return ERROR_OK;
+ }
+@@ -475,7 +477,9 @@ COMMAND_HANDLER(parport_handle_parport_toggling_time_command)
+ 		}
+ 
+ 		parport_toggling_time_ns = ns;
+-		wait_states = jtag_get_speed();
++		int retval = jtag_get_speed(&amp;wait_states);
++		if (retval != ERROR_OK)
++			return retval;
+ 	}
+ 
+ 	command_print(CMD_CTX, &quot;parport toggling time = %&quot; PRIu32 &quot; ns&quot;,
+diff --git a/src/jtag/drivers/presto.c b/src/jtag/drivers/presto.c
+index 10bed27..ca6e9d5 100644
+--- a/src/jtag/drivers/presto.c
++++ b/src/jtag/drivers/presto.c
+@@ -770,7 +770,11 @@ static int presto_jtag_init(void)
+ 	LOG_INFO(&quot;PRESTO open, serial number '%s'&quot;, presto-&gt;serial);
+ 
+ 	/* use JTAG speed setting from configuration file */
+-	presto_jtag_speed(jtag_get_speed());
++	int jtag_speed_var;
++	int retval = jtag_get_speed(&amp;jtag_speed_var);
++	if (retval != ERROR_OK)
++		return retval;
++	presto_jtag_speed(jtag_speed_var);
+ 
+ 	bitq_interface = &amp;presto_bitq;
+ 	return ERROR_OK;
+diff --git a/src/jtag/drivers/rlink.c b/src/jtag/drivers/rlink.c
+index dde117b..a3fad35 100644
+--- a/src/jtag/drivers/rlink.c
++++ b/src/jtag/drivers/rlink.c
+@@ -1771,7 +1771,11 @@ int rlink_init(void)
+ 
+ 	tap_state_queue_init();
+ 	dtc_queue_init();
+-	rlink_speed(jtag_get_speed());
++	int jtag_speed_var;
++	int retval = jtag_get_speed(&amp;jtag_speed_var);
++	if (retval != ERROR_OK)
++		return retval;
++	rlink_speed(jtag_speed_var);
+ 	rlink_reset(0, 0);
+ 
+ 	return ERROR_OK;
+diff --git a/src/jtag/drivers/usb_blaster.c b/src/jtag/drivers/usb_blaster.c
+index 1679040..c9b88f8 100644
+--- a/src/jtag/drivers/usb_blaster.c
++++ b/src/jtag/drivers/usb_blaster.c
+@@ -442,7 +442,11 @@ static int usb_blaster_init(void)
+ 
+ 	bitbang_interface = &amp;usb_blaster_bitbang;
+ 
+-	usb_blaster_speed(jtag_get_speed());
++	int jtag_speed_var;
++	int retval = jtag_get_speed(&amp;jtag_speed_var);
++	if (retval != ERROR_OK)
++		return retval;
++	usb_blaster_speed(jtag_speed_var);
+ 
+ #if 0
+ #if BUILD_USB_BLASTER_FTD2XX == 1
+diff --git a/src/jtag/jtag.h b/src/jtag/jtag.h
+index d6e49e0..db7cd5c 100644
+--- a/src/jtag/jtag.h
++++ b/src/jtag/jtag.h
+@@ -239,7 +239,7 @@ int jtag_call_event_callbacks(enum jtag_event event);
+ 
+ 
+ /// @returns The current JTAG speed setting.
+-int jtag_get_speed(void);
++int jtag_get_speed(int *speed);
+ 
+ /**
+  * Given a @a speed setting, use the interface @c speed_div callback to
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index c8bee2f..69fa4dc 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -1620,7 +1620,11 @@ int zy1000_init(void)
+ 
+ 	 /* deassert resets. Important to avoid infinite loop waiting for SRST to deassert */
+ 	zy1000_reset(0, 0);
+-	zy1000_speed(jtag_get_speed());
++	int jtag_speed_var;
++	int retval = jtag_get_speed(&amp;jtag_speed_var);
++	if (retval != ERROR_OK)
++		return retval;
++	zy1000_speed(jtag_speed_var);
+ 
+ 
+ #if BUILD_ECOSBOARD
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/core.c                  |   27 +++++++++++++++++----------
+ src/jtag/drivers/amt_jtagaccel.c |   19 ++++++++++++-------
+ src/jtag/drivers/ft2232.c        |    6 +++++-
+ src/jtag/drivers/gw16012.c       |    6 +++++-
+ src/jtag/drivers/jlink.c         |    6 +++++-
+ src/jtag/drivers/parport.c       |    8 ++++++--
+ src/jtag/drivers/presto.c        |    6 +++++-
+ src/jtag/drivers/rlink.c         |    6 +++++-
+ src/jtag/drivers/usb_blaster.c   |    6 +++++-
+ src/jtag/jtag.h                  |    2 +-
+ src/jtag/zy1000/zy1000.c         |    6 +++++-
+ 11 files changed, 71 insertions(+), 27 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002456.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-640-g5cd931e
+</A></li>
+	<LI>Next message: <A HREF="002458.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-642-gfa46805
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2457">[ date ]</a>
+              <a href="thread.html#2457">[ thread ]</a>
+              <a href="subject.html#2457">[ subject ]</a>
+              <a href="author.html#2457">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2136 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2136%20-%20trunk/src/jtag&In-Reply-To=%3C200906090116.n591GGfe005811%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000919.html">
+   <LINK REL="Next"  HREF="000921.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2136 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2136%20-%20trunk/src/jtag&In-Reply-To=%3C200906090116.n591GGfe005811%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2136 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun  9 03:16:16 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000919.html">[Openocd-svn] r2135 - trunk/tcl/target
+</A></li>
+        <LI>Next message: <A HREF="000921.html">[Openocd-svn] r2137 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#920">[ date ]</a>
+              <a href="thread.html#920">[ thread ]</a>
+              <a href="subject.html#920">[ subject ]</a>
+              <a href="author.html#920">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-09 03:16:13 +0200 (Tue, 09 Jun 2009)
+New Revision: 2136
+
+Modified:
+   trunk/src/jtag/jtag.c
+Log:
+Move documentation in jtag_add_statemove body to Doxygen block.
+
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-09 01:01:13 UTC (rev 2135)
++++ trunk/src/jtag/jtag.c	2009-06-09 01:16:13 UTC (rev 2136)
+@@ -2569,10 +2569,31 @@
+ }
+ 
+ /**
+- * Function jtag_add_statemove
+- * moves from the current state to the goal \a state. This needs
++ * Moves from the current state to the goal \a state. This needs
+  * to be handled according to the xsvf spec, see the XSTATE command
+  * description.
++ *
++ * From the XSVF spec, pertaining to XSTATE:
++ *
++ * For special states known as stable states (Test-Logic-Reset,
++ * Run-Test/Idle, Pause-DR, Pause- IR), an XSVF interpreter follows
++ * predefined TAP state paths when the starting state is a stable state
++ * and when the XSTATE specifies a new stable state.  See the STATE
++ * command in the [Ref 5] for the TAP state paths between stable
++ * states.
++ *
++ * For non-stable states, XSTATE should specify a state that is only one
++ * TAP state transition distance from the current TAP state to avoid
++ * undefined TAP state paths. A sequence of multiple XSTATE commands can
++ * be issued to transition the TAP through a specific state path.
++ *
++ * @note Unless @a tms_bits holds a path that agrees with [Ref 5] in *
++ * above spec, then this code is not fully conformant to the xsvf spec.
++ * This puts a burden on tap_get_tms_path() function from the xsvf spec.
++ * If in doubt, you should confirm that that burden is being met.
++ *
++ * Otherwise, state must be immediately reachable in one clock cycle,
++ * and does not need to be a stable state.
+  */
+ int jtag_add_statemove(tap_state_t goal_state)
+ {
+@@ -2589,35 +2610,14 @@
+ 		tap_state_name(goal_state) );
+ 
+ 
+-	/*	From the XSVF spec, pertaining to XSTATE:
+-
+-		For special states known as stable states (Test-Logic-Reset,
+-		Run-Test/Idle, Pause-DR, Pause- IR), an XSVF interpreter follows
+-		predefined TAP state paths when the starting state is a stable state and
+-		when the XSTATE specifies a new stable state (see the STATE command in
+-		the [Ref 5] for the TAP state paths between stable states). For
+-		non-stable states, XSTATE should specify a state that is only one TAP
+-		state transition distance from the current TAP state to avoid undefined
+-		TAP state paths. A sequence of multiple XSTATE commands can be issued to
+-		transition the TAP through a specific state path.
+-	*/
+-
+ 	if (goal_state==cur_state )
+ 		;	/* nothing to do */
+-
+ 	else if( goal_state==TAP_RESET )
+ 	{
+ 		jtag_add_tlr();
+ 	}
+-
+ 	else if( tap_is_state_stable(cur_state) &amp;&amp; tap_is_state_stable(goal_state) )
+ 	{
+-		/* 	note: unless tms_bits holds a path that agrees with [Ref 5] in above
+-			spec, then this code is not fully conformant to the xsvf spec.  This
+-			puts a burden on tap_get_tms_path() function from the xsvf spec.
+-			If in doubt, you should confirm that that burden is being met.
+-		*/
+-
+ 		tms_bits  = tap_get_tms_path(cur_state, goal_state);
+ 		tms_count = tap_get_tms_path_len(cur_state, goal_state);
+ 
+@@ -2633,10 +2633,6 @@
+ 
+ 		jtag_add_pathmove(tms_count, moves);
+ 	}
+-
+-	/*	else state must be immediately reachable in one clock cycle, and does not
+-		need to be a stable state.
+-	*/
+ 	else if( tap_state_transition(cur_state, true)  == goal_state
+ 		||   tap_state_transition(cur_state, false) == goal_state )
+ 	{
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000919.html">[Openocd-svn] r2135 - trunk/tcl/target
+</A></li>
+	<LI>Next message: <A HREF="000921.html">[Openocd-svn] r2137 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#920">[ date ]</a>
+              <a href="thread.html#920">[ thread ]</a>
+              <a href="subject.html#920">[ subject ]</a>
+              <a href="author.html#920">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

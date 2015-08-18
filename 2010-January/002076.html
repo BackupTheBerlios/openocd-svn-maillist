@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-166-gf68dff6
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-166-gf68dff6&In-Reply-To=%3CE1Nbaco-0003ox-AO%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002075.html">
+   <LINK REL="Next"  HREF="002077.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-166-gf68dff6</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-166-gf68dff6&In-Reply-To=%3CE1Nbaco-0003ox-AO%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-166-gf68dff6">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Sun Jan 31 15:18:04 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002075.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-165-ge11ce3e
+</A></li>
+        <LI>Next message: <A HREF="002077.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-167-g02731cf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2076">[ date ]</a>
+              <a href="thread.html#2076">[ thread ]</a>
+              <a href="subject.html#2076">[ subject ]</a>
+              <a href="author.html#2076">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  f68dff66904321392c3137db7eb40e8633c2e507 (commit)
+      from  e11ce3e6b00f02eba9a15673a54f5345eba8398b (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit f68dff66904321392c3137db7eb40e8633c2e507
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Thu Jan 21 16:41:54 2010 +0100
+
+    telnet: fix strage blank spaces at beginning of telnet lines
+    
+    Sometimes we saw two strange blank spaces at the beginning
+    of the telnet lines.
+    
+    progress
+      ogress
+    &gt;
+    
+    This patch fixes this problem:
+    
+    progress
+    progress
+    &gt;
+    
+    The code changes are *reasonably* clean, but perhaps it could be
+    made a bit more elegant, but I didn't want to change things after
+    I finished diagnosis/testing &amp; submitting the patch.
+    
+    The problem was that logging can send the text and the newline
+    separately in two different requests and the telnet code would
+    incorrectly remove the prompt from the end of a line.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/server/telnet_server.c b/src/server/telnet_server.c
+index 6f26f0a..94c8943 100644
+--- a/src/server/telnet_server.c
++++ b/src/server/telnet_server.c
+@@ -62,7 +62,6 @@ int telnet_prompt(struct connection *connection)
+ {
+ 	struct telnet_connection *t_con = connection-&gt;priv;
+ 
+-	telnet_write(connection, &quot;\r&quot;, 1); /* the prompt is always placed at the line beginning */
+ 	return telnet_write(connection, t_con-&gt;prompt, strlen(t_con-&gt;prompt));
+ }
+ 
+@@ -116,10 +115,12 @@ void telnet_log_callback(void *priv, const char *file, unsigned line,
+ 	}
+ 
+ 	/* clear the command line */
+-	telnet_write(connection, &quot;\r&quot;, 1);
++	for (i = strlen(t_con-&gt;prompt) + t_con-&gt;line_size; i &gt; 0; i -= 16)
++		telnet_write(connection, &quot;\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b&quot;, i &gt; 16 ? 16 : i);
+ 	for (i = strlen(t_con-&gt;prompt) + t_con-&gt;line_size; i &gt; 0; i -= 16)
+ 		telnet_write(connection, &quot;                &quot;, i &gt; 16 ? 16 : i);
+-	telnet_write(connection, &quot;\r&quot;, 1);
++	for (i = strlen(t_con-&gt;prompt) + t_con-&gt;line_size; i &gt; 0; i -= 16)
++		telnet_write(connection, &quot;\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b&quot;, i &gt; 16 ? 16 : i);
+ 
+ 	/* output the message */
+ 	telnet_outputline(connection, string);
+@@ -160,6 +161,7 @@ int telnet_new_connection(struct connection *connection)
+ 		telnet_write(connection, &quot;\r\n&quot;, 2);
+ 	}
+ 
++	telnet_write(connection, &quot;\r&quot;, 1); /* the prompt is always placed at the line beginning */
+ 	telnet_prompt(connection);
+ 
+ 	/* initialize history */
+@@ -331,6 +333,7 @@ int telnet_input(struct connection *connection)
+ 							if (retval == ERROR_COMMAND_CLOSE_CONNECTION)
+ 								return ERROR_SERVER_REMOTE_CLOSED;
+ 
++							telnet_write(connection, &quot;\r&quot;, 1); /* the prompt is always placed at the line beginning */
+ 							retval = telnet_prompt(connection);
+ 							if (retval == ERROR_SERVER_REMOTE_CLOSED)
+ 								return ERROR_SERVER_REMOTE_CLOSED;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/server/telnet_server.c |    9 ++++++---
+ 1 files changed, 6 insertions(+), 3 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002075.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-165-ge11ce3e
+</A></li>
+	<LI>Next message: <A HREF="002077.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-167-g02731cf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2076">[ date ]</a>
+              <a href="thread.html#2076">[ thread ]</a>
+              <a href="subject.html#2076">[ subject ]</a>
+              <a href="author.html#2076">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

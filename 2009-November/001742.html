@@ -1,0 +1,891 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-99-g2689f58
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-99-g2689f58&In-Reply-To=%3CE1N7QvQ-000285-TJ%40cj8yhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001741.html">
+   <LINK REL="Next"  HREF="001743.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-99-g2689f58</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-99-g2689f58&In-Reply-To=%3CE1N7QvQ-000285-TJ%40cj8yhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-99-g2689f58">zwelch at users.sourceforge.net
+       </A><BR>
+    <I>Mon Nov  9 10:52:39 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001741.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-98-gda3196b
+</A></li>
+        <LI>Next message: <A HREF="001743.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-100-g526347f
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1742">[ date ]</a>
+              <a href="thread.html#1742">[ thread ]</a>
+              <a href="subject.html#1742">[ subject ]</a>
+              <a href="author.html#1742">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  2689f58f2a0afa296a29ab301a4c1665b914caab (commit)
+      from  da3196bf5e52a6d01f27cf228f87e395523cf901 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 2689f58f2a0afa296a29ab301a4c1665b914caab
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sat Nov 7 23:20:33 2009 -0800
+
+    Overhaul time support API
+    
+    This patch changes the duration_* API in several ways.  First, it
+    updates the API to use better names.  Second, string formatting has
+    been removed from the API (with its associated malloc).  Finally, a
+    new function added to convert the time into seconds, which can be
+    used (or formatted) by the caller.  This eliminates hidden calls to
+    malloc that require associated calls to free().
+    
+    This patch also removes the useless extern keyword from prototypes,
+    and it eliminates the duration_t typedef (use 'struct duration').
+    These API also allows proper error checking, as it is possible for
+    gettimeofday to fail in certain circumstances.
+    
+    The consumers have all been chased to use this new API as well, as
+    there were relatively few cases doing this type of measurement.
+    In most cases, the code performs additional checks for errors, but
+    the calling code looks much cleaner in every case.
+
+diff --git a/src/flash/flash.c b/src/flash/flash.c
+index 329ade6..22c6069 100644
+--- a/src/flash/flash.c
++++ b/src/flash/flash.c
+@@ -503,8 +503,6 @@ static int handle_flash_erase_address_command(struct command_context_s *cmd_ctx,
+ 	int retval;
+ 	int address;
+ 	int length;
+-	duration_t duration;
+-	char *duration_text;
+ 
+ 	target_t *target = get_current_target(cmd_ctx);
+ 
+@@ -528,16 +526,16 @@ static int handle_flash_erase_address_command(struct command_context_s *cmd_ctx,
+ 	/* We can't know if we did a resume + halt, in which case we no longer know the erased state */
+ 	flash_set_dirty();
+ 
+-	duration_start_measure(&amp;duration);
++	struct duration bench;
++	duration_start(&amp;bench);
+ 
+-	if ((retval = flash_erase_address_range(target, address, length)) == ERROR_OK)
++	retval = flash_erase_address_range(target, address, length);
++
++	if ((ERROR_OK == retval) &amp;&amp; (duration_measure(&amp;bench) == ERROR_OK))
+ 	{
+-		if ((retval = duration_stop_measure(&amp;duration, &amp;duration_text)) != ERROR_OK)
+-		{
+-			return retval;
+-		}
+-		command_print(cmd_ctx, &quot;erased address 0x%8.8x length %i in %s&quot;, address, length, duration_text);
+-		free(duration_text);
++		command_print(cmd_ctx, &quot;erased address 0x%8.8x (length %i)&quot;
++				&quot; in %fs (%0.3f kb/s)&quot;, address, length,
++				duration_elapsed(&amp;bench), duration_kbps(&amp;bench, length));
+ 	}
+ 
+ 	return retval;
+@@ -613,19 +611,16 @@ static int handle_flash_erase_command(struct command_context_s *cmd_ctx,
+ 			first, last, p-&gt;num_sectors)) != ERROR_OK)
+ 		return retval;
+ 
+-	duration_t duration;
+-	char *duration_text;
+-	duration_start_measure(&amp;duration);
++	struct duration bench;
++	duration_start(&amp;bench);
+ 
+-	if ((retval = flash_driver_erase(p, first, last)) == ERROR_OK) {
+-		if ((retval = duration_stop_measure(&amp;duration,
+-					&amp;duration_text)) != ERROR_OK)
+-			return retval;
+-		command_print(cmd_ctx, &quot;erased sectors %i through %i &quot;
+-				&quot;on flash bank %i in %s&quot;,
+-			(int) first, (int) last, (int) bank_nr,
+-			duration_text);
+-		free(duration_text);
++	retval = flash_driver_erase(p, first, last);
++
++	if ((ERROR_OK == retval) &amp;&amp; (duration_measure(&amp;bench) == ERROR_OK))
++	{
++		command_print(cmd_ctx, &quot;erased sectors %&quot; PRIu32 &quot; &quot;
++				&quot;through %&quot; PRIu32&quot; on flash bank %&quot; PRIu32 &quot; &quot;
++				&quot;in %fs&quot;, first, last, bank_nr, duration_elapsed(&amp;bench));
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -683,10 +678,7 @@ static int handle_flash_write_image_command(struct command_context_s *cmd_ctx, c
+ 	image_t image;
+ 	uint32_t written;
+ 
+-	duration_t duration;
+-	char *duration_text;
+-
+-	int retval, retvaltemp;
++	int retval;
+ 
+ 	if (argc &lt; 1)
+ 	{
+@@ -728,7 +720,8 @@ static int handle_flash_write_image_command(struct command_context_s *cmd_ctx, c
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	duration_start_measure(&amp;duration);
++	struct duration bench;
++	duration_start(&amp;bench);
+ 
+ 	if (argc &gt;= 2)
+ 	{
+@@ -756,23 +749,13 @@ static int handle_flash_write_image_command(struct command_context_s *cmd_ctx, c
+ 		return retval;
+ 	}
+ 
+-	if ((retvaltemp = duration_stop_measure(&amp;duration, &amp;duration_text)) != ERROR_OK)
++	if ((ERROR_OK == retval) &amp;&amp; (duration_measure(&amp;bench) == ERROR_OK))
+ 	{
+-		image_close(&amp;image);
+-		return retvaltemp;
++		command_print(cmd_ctx, &quot;wrote %&quot; PRIu32 &quot; byte from file %s &quot;
++				&quot;in %fs (%0.3f kb/s)&quot;, written, args[0],
++				duration_elapsed(&amp;bench), duration_kbps(&amp;bench, written));
+ 	}
+ 
+-	float speed;
+-
+-	speed = written / 1024.0;
+-	speed /= ((float)duration.duration.tv_sec
+-			+ ((float)duration.duration.tv_usec / 1000000.0));
+-	command_print(cmd_ctx,
+-			&quot;wrote %&quot; PRIu32 &quot; byte from file %s in %s (%f kb/s)&quot;,
+-			written, args[0], duration_text, speed);
+-
+-	free(duration_text);
+-
+ 	image_close(&amp;image);
+ 
+ 	return retval;
+@@ -780,7 +763,7 @@ static int handle_flash_write_image_command(struct command_context_s *cmd_ctx, c
+ 
+ static int handle_flash_fill_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
+-	int err = ERROR_OK, retval;
++	int err = ERROR_OK;
+ 	uint32_t address;
+ 	uint32_t pattern;
+ 	uint32_t count;
+@@ -789,8 +772,6 @@ static int handle_flash_fill_command(struct command_context_s *cmd_ctx, char *cm
+ 	uint32_t wrote = 0;
+ 	uint32_t cur_size = 0;
+ 	uint32_t chunk_count;
+-	char *duration_text;
+-	duration_t duration;
+ 	target_t *target = get_current_target(cmd_ctx);
+ 	uint32_t i;
+ 	uint32_t wordsize;
+@@ -843,7 +824,8 @@ static int handle_flash_fill_command(struct command_context_s *cmd_ctx, char *cm
+ 		exit(-1);
+ 	}
+ 
+-	duration_start_measure(&amp;duration);
++	struct duration bench;
++	duration_start(&amp;bench);
+ 
+ 	for (wrote = 0; wrote &lt; (count*wordsize); wrote += cur_size)
+ 	{
+@@ -872,24 +854,14 @@ static int handle_flash_fill_command(struct command_context_s *cmd_ctx, char *cm
+ 				return ERROR_FAIL;
+ 			}
+ 		}
+-
+ 	}
+ 
+-	if ((retval = duration_stop_measure(&amp;duration, &amp;duration_text)) != ERROR_OK)
++	if (duration_measure(&amp;bench) == ERROR_OK)
+ 	{
+-		return retval;
++		command_print(cmd_ctx, &quot;wrote %&quot; PRIu32 &quot; bytes to 0x%8.8&quot; PRIx32 
++				&quot; in %fs (%0.3f kb/s)&quot;, wrote, address,
++				duration_elapsed(&amp;bench), duration_kbps(&amp;bench, wrote));
+ 	}
+-
+-	float speed;
+-
+-	speed = wrote / 1024.0;
+-	speed /= ((float)duration.duration.tv_sec
+-			+ ((float)duration.duration.tv_usec / 1000000.0));
+-	command_print(cmd_ctx,
+-			&quot;wrote %&quot; PRIu32 &quot; bytes to 0x%8.8&quot; PRIx32 &quot; in %s (%f kb/s)&quot;,
+-			wrote, address, duration_text, speed);
+-
+-	free(duration_text);
+ 	return ERROR_OK;
+ }
+ 
+@@ -898,17 +870,13 @@ static int handle_flash_write_bank_command(struct command_context_s *cmd_ctx, ch
+ 	uint32_t offset;
+ 	uint8_t *buffer;
+ 	uint32_t buf_cnt;
+-
+ 	fileio_t fileio;
+ 
+-	duration_t duration;
+-	char *duration_text;
+-
+-
+ 	if (argc != 3)
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 
+-	duration_start_measure(&amp;duration);
++	struct duration bench;
++	duration_start(&amp;bench);
+ 
+ 	flash_bank_t *p;
+ 	int retval = flash_command_get_bank_by_num(cmd_ctx, args[0], &amp;p);
+@@ -935,24 +903,13 @@ static int handle_flash_write_bank_command(struct command_context_s *cmd_ctx, ch
+ 	free(buffer);
+ 	buffer = NULL;
+ 
+-	int retvaltemp;
+-	if ((retvaltemp = duration_stop_measure(&amp;duration, &amp;duration_text)) != ERROR_OK)
+-	{
+-		fileio_close(&amp;fileio);
+-		return retvaltemp;
+-	}
+-	if (retval == ERROR_OK)
++	if ((ERROR_OK == retval) &amp;&amp; (duration_measure(&amp;bench) == ERROR_OK))
+ 	{
+-		float elapsed = (float)duration.duration.tv_sec;
+-		elapsed += (float)duration.duration.tv_usec / 1000000.0;
+-		float speed = (float)fileio.size / elapsed;
+-		command_print(cmd_ctx,
+-				&quot;wrote  %lld byte from file %s to flash bank %u &quot;
+-				&quot;at offset 0x%8.8&quot; PRIx32 &quot; in %s (%f kb/s)&quot;,
++		command_print(cmd_ctx, &quot;wrote %lld byte from file %s to flash bank %u&quot;
++				&quot; at offset 0x%8.8&quot; PRIx32 &quot; in %fs (%0.3f kb/s)&quot;,
+ 				fileio.size, args[1], p-&gt;bank_number, offset,
+-				duration_text, speed / 1024);
++				duration_elapsed(&amp;bench), duration_kbps(&amp;bench, fileio.size));
+ 	}
+-	free(duration_text);
+ 
+ 	fileio_close(&amp;fileio);
+ 
+diff --git a/src/flash/mflash.c b/src/flash/mflash.c
+index bf759c9..5a392a4 100644
+--- a/src/flash/mflash.c
++++ b/src/flash/mflash.c
+@@ -215,11 +215,11 @@ static int mg_dsk_wait(mg_io_type_wait wait, uint32_t time)
+ 	uint8_t status, error;
+ 	target_t *target = mflash_bank-&gt;target;
+ 	uint32_t mg_task_reg = mflash_bank-&gt;base + MG_REG_OFFSET;
+-	duration_t duration;
+ 	int ret;
+ 	long long t = 0;
+ 
+-	duration_start_measure(&amp;duration);
++	struct duration bench;
++	duration_start(&amp;bench);
+ 
+ 	while (time) {
+ 
+@@ -275,10 +275,11 @@ static int mg_dsk_wait(mg_io_type_wait wait, uint32_t time)
+ 			}
+ 		}
+ 
+-		duration_stop_measure(&amp;duration, NULL);
+-
+-		t = duration.duration.tv_usec/1000;
+-		t += duration.duration.tv_sec*1000;
++		ret = duration_measure(&amp;bench);
++		if (ERROR_OK == ret)
++			t = duration_elapsed(&amp;bench) * 1000.0;
++		else
++			LOG_ERROR(&quot;mflash: duration measurement failed: %d&quot;, ret);
+ 
+ 		if (t &gt; time)
+ 			break;
+@@ -427,14 +428,14 @@ static int mg_mflash_do_read_sects(void *buff, uint32_t sect_num, uint32_t sect_
+ 	int ret;
+ 	target_t *target = mflash_bank-&gt;target;
+ 	uint8_t *buff_ptr = buff;
+-	duration_t duration;
+ 
+ 	if ((ret = mg_dsk_io_cmd(sect_num, sect_cnt, mg_io_cmd_read)) != ERROR_OK)
+ 		return ret;
+ 
+ 	address = mflash_bank-&gt;base + MG_BUFFER_OFFSET;
+ 
+-	duration_start_measure(&amp;duration);
++	struct duration bench;
++	duration_start(&amp;bench);
+ 
+ 	for (i = 0; i &lt; sect_cnt; i++) {
+ 		ret = mg_dsk_wait(mg_io_wait_drq, MG_OEM_DISK_WAIT_TIME_NORMAL);
+@@ -453,11 +454,10 @@ static int mg_mflash_do_read_sects(void *buff, uint32_t sect_num, uint32_t sect_
+ 
+ 		LOG_DEBUG(&quot;mflash: %&quot; PRIu32 &quot; (0x%8.8&quot; PRIx32 &quot;) sector read&quot;, sect_num + i, (sect_num + i) * MG_MFLASH_SECTOR_SIZE);
+ 
+-		duration_stop_measure(&amp;duration, NULL);
+-
+-		if ((duration.duration.tv_sec * 1000 + duration.duration.tv_usec / 1000) &gt; 3000) {
++		ret = duration_measure(&amp;bench);
++		if ((ERROR_OK == ret) &amp;&amp; (duration_elapsed(&amp;bench) &gt; 3)) {
+ 			LOG_INFO(&quot;mflash: read %&quot; PRIu32 &quot;'th sectors&quot;, sect_num + i);
+-			duration_start_measure(&amp;duration);
++			duration_start(&amp;bench);
+ 		}
+ 	}
+ 
+@@ -500,14 +500,14 @@ static int mg_mflash_do_write_sects(void *buff, uint32_t sect_num, uint32_t sect
+ 	int ret;
+ 	target_t *target = mflash_bank-&gt;target;
+ 	uint8_t *buff_ptr = buff;
+-	duration_t duration;
+ 
+ 	if ((ret = mg_dsk_io_cmd(sect_num, sect_cnt, cmd)) != ERROR_OK)
+ 		return ret;
+ 
+ 	address = mflash_bank-&gt;base + MG_BUFFER_OFFSET;
+ 
+-	duration_start_measure(&amp;duration);
++	struct duration bench;
++	duration_start(&amp;bench);
+ 
+ 	for (i = 0; i &lt; sect_cnt; i++) {
+ 		ret = mg_dsk_wait(mg_io_wait_drq, MG_OEM_DISK_WAIT_TIME_NORMAL);
+@@ -526,11 +526,10 @@ static int mg_mflash_do_write_sects(void *buff, uint32_t sect_num, uint32_t sect
+ 
+ 		LOG_DEBUG(&quot;mflash: %&quot; PRIu32 &quot; (0x%8.8&quot; PRIx32 &quot;) sector write&quot;, sect_num + i, (sect_num + i) * MG_MFLASH_SECTOR_SIZE);
+ 
+-		duration_stop_measure(&amp;duration, NULL);
+-
+-		if ((duration.duration.tv_sec * 1000 + duration.duration.tv_usec / 1000) &gt; 3000) {
++		ret = duration_measure(&amp;bench);
++		if ((ERROR_OK == ret) &amp;&amp; (duration_elapsed(&amp;bench) &gt; 3)) {
+ 			LOG_INFO(&quot;mflash: wrote %&quot; PRIu32 &quot;'th sectors&quot;, sect_num + i);
+-			duration_start_measure(&amp;duration);
++			duration_start(&amp;bench);
+ 		}
+ 	}
+ 
+@@ -708,8 +707,6 @@ static int mg_write_cmd(struct command_context_s *cmd_ctx, char *cmd, char **arg
+ 	uint32_t address, buf_cnt, cnt, res, i;
+ 	uint8_t *buffer;
+ 	fileio_t fileio;
+-	duration_t duration;
+-	char *duration_text;
+ 	int ret;
+ 
+ 	if (argc != 3) {
+@@ -731,7 +728,8 @@ static int mg_write_cmd(struct command_context_s *cmd_ctx, char *cmd, char **arg
+ 	cnt = fileio.size / MG_FILEIO_CHUNK;
+ 	res = fileio.size % MG_FILEIO_CHUNK;
+ 
+-	duration_start_measure(&amp;duration);
++	struct duration bench;
++	duration_start(&amp;bench);
+ 
+ 	for (i = 0; i &lt; cnt; i++) {
+ 		if ((ret = fileio_read(&amp;fileio, MG_FILEIO_CHUNK, buffer, &amp;buf_cnt)) !=
+@@ -749,21 +747,19 @@ static int mg_write_cmd(struct command_context_s *cmd_ctx, char *cmd, char **arg
+ 			goto mg_write_cmd_err;
+ 	}
+ 
+-	duration_stop_measure(&amp;duration, &amp;duration_text);
+-
+-	command_print(cmd_ctx, &quot;wrote %lli byte from file %s in %s (%f kB/s)&quot;,
+-		fileio.size, args[1], duration_text,
+-		(float)fileio.size / 1024.0 / ((float)duration.duration.tv_sec + ((float)duration.duration.tv_usec / 1000000.0)));
++	if (duration_measure(&amp;bench) == ERROR_OK)
++	{
++		command_print(cmd_ctx, &quot;wrote %lli byte from file %s &quot;
++				&quot;in %fs (%0.3f kB/s)&quot;, fileio.size, args[1],
++				duration_elapsed(&amp;bench), duration_kbps(&amp;bench, fileio.size));
++	}
+ 
+-	free(duration_text);
+ 	free(buffer);
+ 	fileio_close(&amp;fileio);
+ 
+ 	return ERROR_OK;
+ 
+ mg_write_cmd_err:
+-	duration_stop_measure(&amp;duration, &amp;duration_text);
+-	free(duration_text);
+  	free(buffer);
+ 	fileio_close(&amp;fileio);
+ 
+@@ -775,8 +771,6 @@ static int mg_dump_cmd(struct command_context_s *cmd_ctx, char *cmd, char **args
+ 	uint32_t address, size_written, size, cnt, res, i;
+ 	uint8_t *buffer;
+ 	fileio_t fileio;
+-	duration_t duration;
+-	char *duration_text;
+ 	int ret;
+ 
+ 	if (argc != 4) {
+@@ -799,7 +793,8 @@ static int mg_dump_cmd(struct command_context_s *cmd_ctx, char *cmd, char **args
+ 	cnt = size / MG_FILEIO_CHUNK;
+ 	res = size % MG_FILEIO_CHUNK;
+ 
+-	duration_start_measure(&amp;duration);
++	struct duration bench;
++	duration_start(&amp;bench);
+ 
+ 	for (i = 0; i &lt; cnt; i++) {
+ 		if ((ret = mg_mflash_read(address, buffer, MG_FILEIO_CHUNK)) != ERROR_OK)
+@@ -817,21 +812,20 @@ static int mg_dump_cmd(struct command_context_s *cmd_ctx, char *cmd, char **args
+ 			goto mg_dump_cmd_err;
+ 	}
+ 
+-	duration_stop_measure(&amp;duration, &amp;duration_text);
+-
+-	command_print(cmd_ctx, &quot;dump image (address 0x%8.8&quot; PRIx32 &quot; size %&quot; PRIu32 &quot;) to file %s in %s (%f kB/s)&quot;,
+-				address, size, args[1], duration_text,
+-				(float)size / 1024.0 / ((float)duration.duration.tv_sec + ((float)duration.duration.tv_usec / 1000000.0)));
++	if (duration_measure(&amp;bench) == ERROR_OK)
++	{
++		command_print(cmd_ctx, &quot;dump image (address 0x%8.8&quot; PRIx32 &quot; &quot;
++				&quot;size %&quot; PRIu32 &quot;) to file %s in %fs (%0.3f kB/s)&quot;,
++				address, size, args[1],
++				duration_elapsed(&amp;bench), duration_kbps(&amp;bench, size));
++	}
+ 
+-	free(duration_text);
+ 	free(buffer);
+ 	fileio_close(&amp;fileio);
+ 
+ 	return ERROR_OK;
+ 
+ mg_dump_cmd_err:
+-	duration_stop_measure(&amp;duration, &amp;duration_text);
+-	free(duration_text);
+  	free(buffer);
+ 	fileio_close(&amp;fileio);
+ 
+diff --git a/src/flash/nand.c b/src/flash/nand.c
+index 81a04f7..8f67624 100644
+--- a/src/flash/nand.c
++++ b/src/flash/nand.c
+@@ -1330,8 +1330,6 @@ static int handle_nand_write_command(struct command_context_s *cmd_ctx, char *cm
+ 
+ 	fileio_t fileio;
+ 
+-	duration_t duration;
+-	char *duration_text;
+ 
+ 	if (argc &lt; 3)
+ 	{
+@@ -1372,7 +1370,8 @@ static int handle_nand_write_command(struct command_context_s *cmd_ctx, char *cm
+ 		}
+ 	}
+ 
+-	duration_start_measure(&amp;duration);
++	struct duration bench;
++	duration_start(&amp;bench);
+ 
+ 	if (fileio_open(&amp;fileio, args[1], FILEIO_READ, FILEIO_BINARY) != ERROR_OK)
+ 	{
+@@ -1478,11 +1477,13 @@ static int handle_nand_write_command(struct command_context_s *cmd_ctx, char *cm
+ 	free(page);
+ 	oob = NULL;
+ 	page = NULL;
+-	duration_stop_measure(&amp;duration, &amp;duration_text);
+-	command_print(cmd_ctx, &quot;wrote file %s to NAND flash %s up to offset 0x%8.8&quot; PRIx32 &quot; in %s&quot;,
+-		args[1], args[0], offset, duration_text);
+-	free(duration_text);
+-	duration_text = NULL;
++	if (duration_measure(&amp;bench) == ERROR_OK)
++	{
++		command_print(cmd_ctx, &quot;wrote file %s to NAND flash %s &quot;
++			&quot;up to offset 0x%8.8&quot; PRIx32 &quot; in %fs (%0.3f kb/s)&quot;,
++			args[1], args[0], offset, duration_elapsed(&amp;bench),
++			duration_kbps(&amp;bench, fileio.size));
++	}
+ 
+ 	return ERROR_OK;
+ }
+@@ -1506,8 +1507,6 @@ static int handle_nand_dump_command(struct command_context_s *cmd_ctx, char *cmd
+ 	}
+ 
+ 	fileio_t fileio;
+-	duration_t duration;
+-	char *duration_text;
+ 
+ 	uint8_t *page = NULL;
+ 	uint32_t page_size = 0;
+@@ -1560,7 +1559,8 @@ static int handle_nand_dump_command(struct command_context_s *cmd_ctx, char *cmd
+ 		return ERROR_OK;
+ 	}
+ 
+-	duration_start_measure(&amp;duration);
++	struct duration bench;
++	duration_start(&amp;bench);
+ 
+ 	while (size &gt; 0)
+ 	{
+@@ -1596,10 +1596,12 @@ static int handle_nand_dump_command(struct command_context_s *cmd_ctx, char *cmd
+ 	oob = NULL;
+ 	fileio_close(&amp;fileio);
+ 
+-	duration_stop_measure(&amp;duration, &amp;duration_text);
+-	command_print(cmd_ctx, &quot;dumped %lld byte in %s&quot;, fileio.size, duration_text);
+-	free(duration_text);
+-	duration_text = NULL;
++	if (duration_measure(&amp;bench) == ERROR_OK)
++	{
++		command_print(cmd_ctx, &quot;dumped %lld byte in %fs (%0.3f kb/s)&quot;,
++			fileio.size, duration_elapsed(&amp;bench),
++			duration_kbps(&amp;bench, fileio.size));
++	}
+ 
+ 	return ERROR_OK;
+ }
+diff --git a/src/helper/time_support.c b/src/helper/time_support.c
+index 865f245..9b86e52 100644
+--- a/src/helper/time_support.c
++++ b/src/helper/time_support.c
+@@ -28,7 +28,6 @@
+ #endif
+ 
+ #include &quot;time_support.h&quot;
+-#include &quot;log.h&quot;
+ 
+ 
+ /* calculate difference between two struct timeval values */
+@@ -83,29 +82,30 @@ int timeval_add_time(struct timeval *result, int sec, int usec)
+ 	return 0;
+ }
+ 
+-void duration_start_measure(duration_t *duration)
++int duration_start(struct duration *duration)
+ {
+-	gettimeofday(&amp;duration-&gt;start, NULL);
++	return gettimeofday(&amp;duration-&gt;start, NULL);
+ }
+ 
+-int duration_stop_measure(duration_t *duration, char **text)
++int duration_measure(struct duration *duration)
+ {
+ 	struct timeval end;
++	int retval = gettimeofday(&amp;end, NULL);
++	if (0 == retval)
++		timeval_subtract(&amp;duration-&gt;elapsed, &amp;end, &amp;duration-&gt;start);
++	return retval;
++}
+ 
+-	gettimeofday(&amp;end, NULL);
+-
+-	timeval_subtract(&amp;duration-&gt;duration, &amp;end, &amp;duration-&gt;start);
+-
+-	if (text)
+-	{
+-		float t;
+-		t = duration-&gt;duration.tv_sec;
+-		t += (float)duration-&gt;duration.tv_usec/1000000.0;
+-		*text = malloc(100);
+-		snprintf(*text, 100, &quot;%fs&quot;, t);
+-	}
++float duration_elapsed(struct duration *duration)
++{
++	float t = duration-&gt;elapsed.tv_sec;
++	t += (float)duration-&gt;elapsed.tv_usec / 1000000.0;
++	return t;
++}
+ 
+-	return ERROR_OK;
++float duration_kbps(struct duration *duration, size_t count)
++{
++	return count / (1024.0 * duration_elapsed(duration));
+ }
+ 
+ long long timeval_ms()
+diff --git a/src/helper/time_support.h b/src/helper/time_support.h
+index a803676..9e8e61f 100644
+--- a/src/helper/time_support.h
++++ b/src/helper/time_support.h
+@@ -37,19 +37,27 @@
+ # endif
+ #endif
+ 
+-extern int timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *y);
+-extern int timeval_add(struct timeval *result, struct timeval *x, struct timeval *y);
+-extern int timeval_add_time(struct timeval *result, int sec, int usec);
+-/* gettimeofday() timeval in 64 bit ms */
+-extern long long timeval_ms(void);
++int timeval_subtract(struct timeval *result, struct timeval *x, struct timeval *y);
++int timeval_add(struct timeval *result, struct timeval *x, struct timeval *y);
++int timeval_add_time(struct timeval *result, int sec, int usec);
+ 
+-typedef struct duration_s
++/// @returns gettimeofday() timeval as 64-bit in ms
++long long timeval_ms(void);
++
++struct duration
+ {
+ 	struct timeval start;
+-	struct timeval duration;
+-} duration_t;
++	struct timeval elapsed;
++};
++
++/// Update the duration-&gt;start field to start the @a duration measurement.
++int duration_start(struct duration *duration);
++/// Update the duration-&gt;elapsed field to finish the @a duration measurment.
++int duration_measure(struct duration *duration);
+ 
+-extern void duration_start_measure(duration_t *duration);
+-extern int duration_stop_measure(duration_t *duration, char **text);
++/// @returns Elapsed time in seconds.
++float duration_elapsed(struct duration *duration);
++/// @returns KB/sec for the elapsed @a duration and @a count bytes.
++float duration_kbps(struct duration *duration, size_t count);
+ 
+ #endif /* TIME_SUPPORT_H */
+diff --git a/src/target/target.c b/src/target/target.c
+index 5eec09c..3e4c00d 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -2507,20 +2507,17 @@ static int handle_load_image_command(struct command_context_s *cmd_ctx, char *cm
+ 	uint32_t min_address = 0;
+ 	uint32_t max_address = 0xffffffff;
+ 	int i;
+-	int retvaltemp;
+-
+ 	image_t image;
+ 
+-	duration_t duration;
+-	char *duration_text;
+-
+ 	int retval = parse_load_image_command_args(cmd_ctx, args, argc,
+ 			&amp;image, &amp;min_address, &amp;max_address);
+ 	if (ERROR_OK != retval)
+ 		return retval;
+ 
+ 	target_t *target = get_current_target(cmd_ctx);
+-	duration_start_measure(&amp;duration);
++
++	struct duration bench;
++	duration_start(&amp;bench);
+ 
+ 	if (image_open(&amp;image, args[0], (argc &gt;= 3) ? args[2] : NULL) != ERROR_OK)
+ 	{
+@@ -2580,20 +2577,13 @@ static int handle_load_image_command(struct command_context_s *cmd_ctx, char *cm
+ 		free(buffer);
+ 	}
+ 
+-	if ((retvaltemp = duration_stop_measure(&amp;duration, &amp;duration_text)) != ERROR_OK)
++	if ((ERROR_OK == retval) &amp;&amp; (duration_measure(&amp;bench) == ERROR_OK))
+ 	{
+-		image_close(&amp;image);
+-		return retvaltemp;
++		command_print(cmd_ctx, &quot;downloaded %&quot; PRIu32 &quot; bytes &quot;
++				&quot;in %fs (%0.3f kb/s)&quot;, image_size,
++				duration_elapsed(&amp;bench), duration_kbps(&amp;bench, image_size));
+ 	}
+ 
+-	if (retval == ERROR_OK)
+-	{
+-		command_print(cmd_ctx, &quot;downloaded %u byte in %s&quot;,
+-					  (unsigned int)image_size,
+-					  duration_text);
+-	}
+-	free(duration_text);
+-
+ 	image_close(&amp;image);
+ 
+ 	return retval;
+@@ -2607,8 +2597,6 @@ static int handle_dump_image_command(struct command_context_s *cmd_ctx, char *cm
+ 	uint8_t buffer[560];
+ 	int retvaltemp;
+ 
+-	duration_t duration;
+-	char *duration_text;
+ 
+ 	target_t *target = get_current_target(cmd_ctx);
+ 
+@@ -2628,7 +2616,8 @@ static int handle_dump_image_command(struct command_context_s *cmd_ctx, char *cm
+ 		return ERROR_OK;
+ 	}
+ 
+-	duration_start_measure(&amp;duration);
++	struct duration bench;
++	duration_start(&amp;bench);
+ 
+ 	int retval = ERROR_OK;
+ 	while (size &gt; 0)
+@@ -2654,14 +2643,11 @@ static int handle_dump_image_command(struct command_context_s *cmd_ctx, char *cm
+ 	if ((retvaltemp = fileio_close(&amp;fileio)) != ERROR_OK)
+ 		return retvaltemp;
+ 
+-	if ((retvaltemp = duration_stop_measure(&amp;duration, &amp;duration_text)) != ERROR_OK)
+-		return retvaltemp;
+-
+-	if (retval == ERROR_OK)
++	if ((ERROR_OK == retval) &amp;&amp; (duration_measure(&amp;bench) == ERROR_OK))
+ 	{
+-		command_print(cmd_ctx, &quot;dumped %lld byte in %s&quot;,
+-				fileio.size, duration_text);
+-		free(duration_text);
++		command_print(cmd_ctx,
++				&quot;dumped %lld bytes in %fs (%0.3f kb/s)&quot;, fileio.size,
++				duration_elapsed(&amp;bench), duration_kbps(&amp;bench, fileio.size));
+ 	}
+ 
+ 	return retval;
+@@ -2673,15 +2659,12 @@ static int handle_verify_image_command_internal(struct command_context_s *cmd_ct
+ 	uint32_t buf_cnt;
+ 	uint32_t image_size;
+ 	int i;
+-	int retval, retvaltemp;
++	int retval;
+ 	uint32_t checksum = 0;
+ 	uint32_t mem_checksum = 0;
+ 
+ 	image_t image;
+ 
+-	duration_t duration;
+-	char *duration_text;
+-
+ 	target_t *target = get_current_target(cmd_ctx);
+ 
+ 	if (argc &lt; 1)
+@@ -2695,7 +2678,8 @@ static int handle_verify_image_command_internal(struct command_context_s *cmd_ct
+ 		return ERROR_FAIL;
+ 	}
+ 
+-	duration_start_measure(&amp;duration);
++	struct duration bench;
++	duration_start(&amp;bench);
+ 
+ 	if (argc &gt;= 2)
+ 	{
+@@ -2802,20 +2786,12 @@ static int handle_verify_image_command_internal(struct command_context_s *cmd_ct
+ 		image_size += buf_cnt;
+ 	}
+ done:
+-
+-	if ((retvaltemp = duration_stop_measure(&amp;duration, &amp;duration_text)) != ERROR_OK)
+-	{
+-		image_close(&amp;image);
+-		return retvaltemp;
+-	}
+-
+-	if (retval == ERROR_OK)
++	if ((ERROR_OK == retval) &amp;&amp; (duration_measure(&amp;bench) == ERROR_OK))
+ 	{
+-		command_print(cmd_ctx, &quot;verified %u bytes in %s&quot;,
+-					  (unsigned int)image_size,
+-					  duration_text);
++		command_print(cmd_ctx, &quot;verified %&quot; PRIu32 &quot; bytes &quot;
++				&quot;in %fs (%0.3f kb/s)&quot;, image_size,
++				duration_elapsed(&amp;bench), duration_kbps(&amp;bench, image_size));
+ 	}
+-	free(duration_text);
+ 
+ 	image_close(&amp;image);
+ 
+@@ -4672,15 +4648,13 @@ static int handle_fast_load_image_command(struct command_context_s *cmd_ctx, cha
+ 
+ 	image_t image;
+ 
+-	duration_t duration;
+-	char *duration_text;
+-
+ 	int retval = parse_load_image_command_args(cmd_ctx, args, argc,
+ 			&amp;image, &amp;min_address, &amp;max_address);
+ 	if (ERROR_OK != retval)
+ 		return retval;
+ 
+-	duration_start_measure(&amp;duration);
++	struct duration bench;
++	duration_start(&amp;bench);
+ 
+ 	if (image_open(&amp;image, args[0], (argc &gt;= 3) ? args[2] : NULL) != ERROR_OK)
+ 	{
+@@ -4753,13 +4727,16 @@ static int handle_fast_load_image_command(struct command_context_s *cmd_ctx, cha
+ 		free(buffer);
+ 	}
+ 
+-	duration_stop_measure(&amp;duration, &amp;duration_text);
+-	if (retval == ERROR_OK)
++	if ((ERROR_OK == retval) &amp;&amp; (duration_measure(&amp;bench) == ERROR_OK))
+ 	{
+-		command_print(cmd_ctx, &quot;Loaded %u bytes in %s&quot;, (unsigned int)image_size, duration_text);
+-		command_print(cmd_ctx, &quot;NB!!! image has not been loaded to target, issue a subsequent 'fast_load' to do so.&quot;);
++		command_print(cmd_ctx, &quot;Loaded %&quot; PRIu32 &quot; bytes &quot;
++				&quot;in %fs (%0.3f kb/s)&quot;, image_size, 
++				duration_elapsed(&amp;bench), duration_kbps(&amp;bench, image_size));
++
++		command_print(cmd_ctx,
++				&quot;WARNING: image has not been loaded to target!&quot;
++				&quot;You can issue a 'fast_load' to finish loading.&quot;);
+ 	}
+-	free(duration_text);
+ 
+ 	image_close(&amp;image);
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/flash.c         |  117 ++++++++++++++------------------------------
+ src/flash/mflash.c        |   74 +++++++++++++---------------
+ src/flash/nand.c          |   32 +++++++------
+ src/helper/time_support.c |   34 +++++++-------
+ src/helper/time_support.h |   28 +++++++----
+ src/target/target.c       |   83 ++++++++++++--------------------
+ 6 files changed, 153 insertions(+), 215 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001741.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-98-gda3196b
+</A></li>
+	<LI>Next message: <A HREF="001743.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-100-g526347f
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1742">[ date ]</a>
+              <a href="thread.html#1742">[ thread ]</a>
+              <a href="subject.html#1742">[ subject ]</a>
+              <a href="author.html#1742">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

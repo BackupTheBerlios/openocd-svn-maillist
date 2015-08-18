@@ -1,0 +1,550 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-761-gfa93174
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-761-gfa93174&In-Reply-To=%3Cmailman.8.1331736153.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002522.html">
+   <LINK REL="Next"  HREF="002524.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-761-gfa93174</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-761-gfa93174&In-Reply-To=%3Cmailman.8.1331736153.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-761-gfa93174">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Thu Feb 17 09:27:39 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002522.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-760-g01edbc2
+</A></li>
+        <LI>Next message: <A HREF="002524.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-762-g578294d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2523">[ date ]</a>
+              <a href="thread.html#2523">[ thread ]</a>
+              <a href="subject.html#2523">[ subject ]</a>
+              <a href="author.html#2523">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  fa93174a56c0aca1201bebf88795d6fe31c18aa1 (commit)
+      from  01edbc2c3f3f2927ec7b7a1ec2b602dca760512b (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit fa93174a56c0aca1201bebf88795d6fe31c18aa1
+Author: Luca Ellero &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lroluk at gmail.com</A>&gt;
+Date:   Mon Feb 14 21:46:53 2011 +0000
+
+    arm_adi_v5: add/move apsel member in struct adiv5_dap
+    
+    This patch tries to make some order in &quot;apsel&quot; mess.
+    &quot;dap apsel&quot; command was quite useless (and broken) by itself.
+    With this patch we can use it to select between AHB or APB memory access
+    (previous patch 05ab8bdb813acdcd74afa71d6656c2df816cb230 was somehow broken).
+    
+    - moves member apsel (in struct adiv5_dap) to ap_current
+    - adds apsel member
+    
+    this strange choice is made trying to keep coherence in &quot;dap apsel&quot; command
+     and to keep compatibility with other code (for example cortex_a8).
+    
+    Signed-off-by: Luca Ellero &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">lroluk at gmail.com</A>&gt;
+
+diff --git a/src/target/adi_v5_jtag.c b/src/target/adi_v5_jtag.c
+index 48b4a7b..75461c3 100644
+--- a/src/target/adi_v5_jtag.c
++++ b/src/target/adi_v5_jtag.c
+@@ -392,7 +392,7 @@ static int jtag_ap_q_bankselect(struct adiv5_dap *dap, unsigned reg)
+ 		return ERROR_OK;
+ 	dap-&gt;ap_bank_value = select_ap_bank;
+ 
+-	select_ap_bank |= dap-&gt;apsel;
++	select_ap_bank |= dap-&gt;ap_current;
+ 
+ 	return jtag_dp_q_write(dap, DP_SELECT, select_ap_bank);
+ }
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index 4a3cfbb..480472f 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -100,13 +100,13 @@ static uint32_t max_tar_block_size(uint32_t tar_autoincr_block, uint32_t address
+  * @param apsel Number of the AP to (implicitly) use with further
+  *	transactions.  This normally identifies a MEM-AP.
+  */
+-void dap_ap_select(struct adiv5_dap *dap,uint8_t apsel)
++void dap_ap_select(struct adiv5_dap *dap,uint8_t ap)
+ {
+-	uint32_t select_apsel = (apsel &lt;&lt; 24) &amp; 0xFF000000;
++	uint32_t new_ap = (ap &lt;&lt; 24) &amp; 0xFF000000;
+ 
+-	if (select_apsel != dap-&gt;apsel)
++	if (new_ap != dap-&gt;ap_current)
+ 	{
+-		dap-&gt;apsel = select_apsel;
++		dap-&gt;ap_current = new_ap;
+ 		/* Switching AP invalidates cached values.
+ 		 * Values MUST BE UPDATED BEFORE AP ACCESS.
+ 		 */
+@@ -885,73 +885,73 @@ int mem_ap_read_buf_u8(struct adiv5_dap *dap, uint8_t *buffer,
+ /*--------------------------------------------------------------------*/
+ /*          Wrapping function with selection of AP                    */
+ /*--------------------------------------------------------------------*/
+-int mem_ap_sel_read_u32(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_read_u32(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint32_t address, uint32_t *value)
+ {
+-	dap_ap_select(swjdp, apsel);
++	dap_ap_select(swjdp, ap);
+ 	return mem_ap_read_u32(swjdp, address, value);
+ }
+ 
+-int mem_ap_sel_write_u32(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_write_u32(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint32_t address, uint32_t value)
+ {
+-	dap_ap_select(swjdp, apsel);
++	dap_ap_select(swjdp, ap);
+ 	return mem_ap_write_u32(swjdp, address, value);
+ }
+ 
+-int mem_ap_sel_read_atomic_u32(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_read_atomic_u32(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint32_t address, uint32_t *value)
+ {
+-	dap_ap_select(swjdp, apsel);
++	dap_ap_select(swjdp, ap);
+ 	return mem_ap_read_atomic_u32(swjdp, address, value);
+ }
+ 
+-int mem_ap_sel_write_atomic_u32(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_write_atomic_u32(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint32_t address, uint32_t value)
+ {
+-	dap_ap_select(swjdp, apsel);
++	dap_ap_select(swjdp, ap);
+ 	return mem_ap_write_atomic_u32(swjdp, address, value);
+ }
+ 
+-int mem_ap_sel_read_buf_u8(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_read_buf_u8(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint8_t *buffer, int count, uint32_t address)
+ {
+-	dap_ap_select(swjdp, apsel);
++	dap_ap_select(swjdp, ap);
+ 	return mem_ap_read_buf_u8(swjdp, buffer, count, address);
+ }
+ 
+-int mem_ap_sel_read_buf_u16(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_read_buf_u16(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint8_t *buffer, int count, uint32_t address)
+ {
+-	dap_ap_select(swjdp, apsel);
++	dap_ap_select(swjdp, ap);
+ 	return mem_ap_read_buf_u16(swjdp, buffer, count, address);
+ }
+ 
+-int mem_ap_sel_read_buf_u32(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_read_buf_u32(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint8_t *buffer, int count, uint32_t address)
+ {
+-	dap_ap_select(swjdp, apsel);
++	dap_ap_select(swjdp, ap);
+ 	return mem_ap_read_buf_u32(swjdp, buffer, count, address);
+ }
+ 
+-int mem_ap_sel_write_buf_u8(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_write_buf_u8(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint8_t *buffer, int count, uint32_t address)
+ {
+-	dap_ap_select(swjdp, apsel);
++	dap_ap_select(swjdp, ap);
+ 	return mem_ap_write_buf_u8(swjdp, buffer, count, address);
+ }
+ 
+-int mem_ap_sel_write_buf_u16(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_write_buf_u16(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint8_t *buffer, int count, uint32_t address)
+ {
+-	dap_ap_select(swjdp, apsel);
++	dap_ap_select(swjdp, ap);
+ 	return mem_ap_write_buf_u16(swjdp, buffer, count, address);
+ }
+ 
+-int mem_ap_sel_write_buf_u32(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_write_buf_u32(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint8_t *buffer, int count, uint32_t address)
+ {
+-	dap_ap_select(swjdp, apsel);
++	dap_ap_select(swjdp, ap);
+ 	return mem_ap_write_buf_u32(swjdp, buffer, count, address);
+ }
+ 
+@@ -999,7 +999,7 @@ int ahbap_debugport_init(struct adiv5_dap *dap)
+ 	 * Should we probe, or take a hint from the caller?
+ 	 * Presumably we can ignore the possibility of multiple APs.
+ 	 */
+-	dap-&gt;apsel = !0;
++	dap-&gt;ap_current = !0;
+ 	dap_ap_select(dap, 0);
+ 
+ 	/* DP initialization */
+@@ -1093,20 +1093,20 @@ struct broken_cpu {
+ 	{ 0x80000000, 0x04770002, 0x1ba00477, 0x60000000, &quot;imx51&quot; },
+ };
+ 
+-int dap_get_debugbase(struct adiv5_dap *dap, int apsel,
++int dap_get_debugbase(struct adiv5_dap *dap, int ap,
+ 			uint32_t *out_dbgbase, uint32_t *out_apid)
+ {
+-	uint32_t apselold;
++	uint32_t ap_old;
+ 	int retval;
+ 	unsigned int i;
+ 	uint32_t dbgbase, apid, idcode;
+ 
+ 	/* AP address is in bits 31:24 of DP_SELECT */
+-	if (apsel &gt;= 256)
++	if (ap &gt;= 256)
+ 		return ERROR_INVALID_ARGUMENTS;
+ 
+-	apselold = dap-&gt;apsel;
+-	dap_ap_select(dap, apsel);
++	ap_old = dap-&gt;ap_current;
++	dap_ap_select(dap, ap);
+ 
+ 	retval = dap_queue_ap_read(dap, AP_REG_BASE, &amp;dbgbase);
+ 	if (retval != ERROR_OK)
+@@ -1143,7 +1143,7 @@ int dap_get_debugbase(struct adiv5_dap *dap, int apsel,
+ 			break;
+ 		}
+ 
+-	dap_ap_select(dap, apselold);
++	dap_ap_select(dap, ap_old);
+ 
+ 	/* The asignment happens only here to prevent modification of these
+ 	 * values before they are certain. */
+@@ -1153,18 +1153,18 @@ int dap_get_debugbase(struct adiv5_dap *dap, int apsel,
+ 	return ERROR_OK;
+ }
+ 
+-int dap_lookup_cs_component(struct adiv5_dap *dap, int apsel,
++int dap_lookup_cs_component(struct adiv5_dap *dap, int ap,
+ 			uint32_t dbgbase, uint8_t type, uint32_t *addr)
+ {
+-	uint32_t apselold;
++	uint32_t ap_old;
+ 	uint32_t romentry, entry_offset = 0, component_base, devtype;
+ 	int retval = ERROR_FAIL;
+ 
+-	if (apsel &gt;= 256)
++	if (ap &gt;= 256)
+ 		return ERROR_INVALID_ARGUMENTS;
+ 
+-	apselold = dap-&gt;apsel;
+-	dap_ap_select(dap, apsel);
++	ap_old = dap-&gt;ap_current;
++	dap_ap_select(dap, ap);
+ 
+ 	do
+ 	{
+@@ -1189,26 +1189,26 @@ int dap_lookup_cs_component(struct adiv5_dap *dap, int apsel,
+ 		entry_offset += 4;
+ 	} while (romentry &gt; 0);
+ 
+-	dap_ap_select(dap, apselold);
++	dap_ap_select(dap, ap_old);
+ 
+ 	return retval;
+ }
+ 
+ static int dap_info_command(struct command_context *cmd_ctx,
+-		struct adiv5_dap *dap, int apsel)
++		struct adiv5_dap *dap, int ap)
+ {
+ 	int retval;
+ 	uint32_t dbgbase, apid;
+ 	int romtable_present = 0;
+ 	uint8_t mem_ap;
+-	uint32_t apselold;
++	uint32_t ap_old;
+ 
+-	retval = dap_get_debugbase(dap, apsel, &amp;dbgbase, &amp;apid);
++	retval = dap_get_debugbase(dap, ap, &amp;dbgbase, &amp;apid);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+-	apselold = dap-&gt;apsel;
+-	dap_ap_select(dap, apsel);
++	ap_old = dap-&gt;ap_current;
++	dap_ap_select(dap, ap);
+ 
+ 	/* Now we read ROM table ID registers, ref. ARM IHI 0029B sec  */
+ 	mem_ap = ((apid&amp;0x10000) &amp;&amp; ((apid&amp;0x0F) != 0));
+@@ -1240,7 +1240,7 @@ static int dap_info_command(struct command_context *cmd_ctx,
+ 	}
+ 	else
+ 	{
+-		command_print(cmd_ctx, &quot;No AP found at this apsel 0x%x&quot;, apsel);
++		command_print(cmd_ctx, &quot;No AP found at this ap 0x%x&quot;, ap);
+ 	}
+ 
+ 	romtable_present = ((mem_ap) &amp;&amp; (dbgbase != 0xFFFFFFFF));
+@@ -1602,7 +1602,7 @@ static int dap_info_command(struct command_context *cmd_ctx,
+ 	{
+ 		command_print(cmd_ctx, &quot;\tNo ROM table present&quot;);
+ 	}
+-	dap_ap_select(dap, apselold);
++	dap_ap_select(dap, ap_old);
+ 
+ 	return ERROR_OK;
+ }
+@@ -1634,10 +1634,9 @@ COMMAND_HANDLER(dap_baseaddr_command)
+ 	struct arm *arm = target_to_arm(target);
+ 	struct adiv5_dap *dap = arm-&gt;dap;
+ 
+-	uint32_t apsel, apselsave, baseaddr;
++	uint32_t apsel, baseaddr;
+ 	int retval;
+ 
+-	apselsave = dap-&gt;apsel;
+ 	switch (CMD_ARGC) {
+ 	case 0:
+ 		apsel = dap-&gt;apsel;
+@@ -1652,8 +1651,7 @@ COMMAND_HANDLER(dap_baseaddr_command)
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	if (apselsave != apsel)
+-		dap_ap_select(dap, apsel);
++	dap_ap_select(dap, apsel);
+ 
+ 	/* NOTE:  assumes we're talking to a MEM-AP, which
+ 	 * has a base address.  There are other kinds of AP,
+@@ -1669,9 +1667,6 @@ COMMAND_HANDLER(dap_baseaddr_command)
+ 
+ 	command_print(CMD_CTX, &quot;0x%8.8&quot; PRIx32, baseaddr);
+ 
+-	if (apselsave != apsel)
+-		dap_ap_select(dap, apselsave);
+-
+ 	return retval;
+ }
+ 
+@@ -1724,7 +1719,9 @@ COMMAND_HANDLER(dap_apsel_command)
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
++	dap-&gt;apsel = apsel;
+ 	dap_ap_select(dap, apsel);
++
+ 	retval = dap_queue_ap_read(dap, AP_REG_IDR, &amp;apid);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -1744,10 +1741,9 @@ COMMAND_HANDLER(dap_apid_command)
+ 	struct arm *arm = target_to_arm(target);
+ 	struct adiv5_dap *dap = arm-&gt;dap;
+ 
+-	uint32_t apsel, apselsave, apid;
++	uint32_t apsel, apid;
+ 	int retval;
+ 
+-	apselsave = dap-&gt;apsel;
+ 	switch (CMD_ARGC) {
+ 	case 0:
+ 		apsel = dap-&gt;apsel;
+@@ -1762,8 +1758,7 @@ COMMAND_HANDLER(dap_apid_command)
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	if (apselsave != apsel)
+-		dap_ap_select(dap, apsel);
++	dap_ap_select(dap, apsel);
+ 
+ 	retval = dap_queue_ap_read(dap, AP_REG_IDR, &amp;apid);
+ 	if (retval != ERROR_OK)
+@@ -1773,8 +1768,6 @@ COMMAND_HANDLER(dap_apid_command)
+ 		return retval;
+ 
+ 	command_print(CMD_CTX, &quot;0x%8.8&quot; PRIx32, apid);
+-	if (apselsave != apsel)
+-		dap_ap_select(dap, apselsave);
+ 
+ 	return retval;
+ }
+diff --git a/src/target/arm_adi_v5.h b/src/target/arm_adi_v5.h
+index b6c16b7..03a75f4 100644
+--- a/src/target/arm_adi_v5.h
++++ b/src/target/arm_adi_v5.h
+@@ -141,13 +141,16 @@ struct adiv5_dap
+ 	/* Control config */
+ 	uint32_t dp_ctrl_stat;
+ 
++
++	uint32_t apsel;
++
+ 	/**
+ 	 * Cache for DP_SELECT bits identifying the current AP.  A DAP may
+ 	 * connect to multiple APs, such as one MEM-AP for general access,
+ 	 * another reserved for accessing debug modules, and a JTAG-DP.
+ 	 * &quot;-1&quot; indicates no cached value.
+ 	 */
+-	uint32_t apsel;
++	uint32_t ap_current;
+ 
+ 	/**
+ 	 * Cache for DP_SELECT bits identifying the current four-word AP
+@@ -344,11 +347,11 @@ static inline int dap_run(struct adiv5_dap *dap)
+ /** Accessor for currently selected DAP-AP number (0..255) */
+ static inline uint8_t dap_ap_get_select(struct adiv5_dap *swjdp)
+ {
+-	return (uint8_t)(swjdp -&gt;apsel &gt;&gt; 24);
++	return (uint8_t)(swjdp -&gt;ap_current &gt;&gt; 24);
+ }
+ 
+ /* AP selection applies to future AP transactions */
+-void dap_ap_select(struct adiv5_dap *dap,uint8_t apsel);
++void dap_ap_select(struct adiv5_dap *dap,uint8_t ap);
+ 
+ /* Queued AP transactions */
+ int dap_setup_accessport(struct adiv5_dap *swjdp,
+@@ -382,30 +385,30 @@ int mem_ap_write_buf_u32(struct adiv5_dap *swjdp,
+ 
+ 
+ /* Queued MEM-AP memory mapped single word transfers with selection of ap */
+-int mem_ap_sel_read_u32(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_read_u32(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint32_t address, uint32_t *value);
+-int mem_ap_sel_write_u32(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_write_u32(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint32_t address, uint32_t value);
+ 
+ /* Synchronous MEM-AP memory mapped single word transfers with selection of ap */
+-int mem_ap_sel_read_atomic_u32(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_read_atomic_u32(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint32_t address, uint32_t *value);
+-int mem_ap_sel_write_atomic_u32(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_write_atomic_u32(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint32_t address, uint32_t value);
+ 
+ /* MEM-AP memory mapped bus block transfers with selection of ap */
+-int mem_ap_sel_read_buf_u8(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_read_buf_u8(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint8_t *buffer, int count, uint32_t address);
+-int mem_ap_sel_read_buf_u16(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_read_buf_u16(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint8_t *buffer, int count, uint32_t address);
+-int mem_ap_sel_read_buf_u32(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_read_buf_u32(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint8_t *buffer, int count, uint32_t address);
+ 
+-int mem_ap_sel_write_buf_u8(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_write_buf_u8(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint8_t *buffer, int count, uint32_t address);
+-int mem_ap_sel_write_buf_u16(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_write_buf_u16(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint8_t *buffer, int count, uint32_t address);
+-int mem_ap_sel_write_buf_u32(struct adiv5_dap *swjdp, uint8_t apsel,
++int mem_ap_sel_write_buf_u32(struct adiv5_dap *swjdp, uint8_t ap,
+ 		uint8_t *buffer, int count, uint32_t address);
+ 
+ 
+@@ -414,11 +417,11 @@ int mem_ap_sel_write_buf_u32(struct adiv5_dap *swjdp, uint8_t apsel,
+ int ahbap_debugport_init(struct adiv5_dap *swjdp);
+ 
+ /* Probe the AP for ROM Table location */
+-int dap_get_debugbase(struct adiv5_dap *dap, int apsel,
++int dap_get_debugbase(struct adiv5_dap *dap, int ap,
+ 			uint32_t *dbgbase, uint32_t *apid);
+ 
+ /* Lookup CoreSight component */
+-int dap_lookup_cs_component(struct adiv5_dap *dap, int apsel,
++int dap_lookup_cs_component(struct adiv5_dap *dap, int ap,
+ 			uint32_t dbgbase, uint8_t type, uint32_t *addr);
+ 
+ struct target;
+diff --git a/src/target/cortex_a9.c b/src/target/cortex_a9.c
+index 95bb07f..ce72ecd 100644
+--- a/src/target/cortex_a9.c
++++ b/src/target/cortex_a9.c
+@@ -1462,7 +1462,7 @@ static int cortex_a9_read_phys_memory(struct target *target,
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 	int retval = ERROR_INVALID_ARGUMENTS;
+-	uint8_t apsel = dap_ap_get_select(swjdp);
++	uint8_t apsel = swjdp-&gt;apsel;
+ 
+ 	LOG_DEBUG(&quot;Reading memory at real address 0x%x; size %d; count %d&quot;, address, size, count);
+ 
+@@ -1591,15 +1591,16 @@ static int cortex_a9_write_phys_memory(struct target *target,
+ 	struct armv7a_common *armv7a = target_to_armv7a(target);
+ 	struct adiv5_dap *swjdp = &amp;armv7a-&gt;dap;
+ 	int retval = ERROR_INVALID_ARGUMENTS;
++	uint8_t apsel = swjdp-&gt;apsel;
+ 
+ 	LOG_DEBUG(&quot;Writing memory to real address 0x%x; size %d; count %d&quot;, address, size, count);
+ 
+ 	if (count &amp;&amp; buffer) {
+-		uint8_t apsel = dap_ap_get_select(swjdp);
+ 
+ 		if ( apsel == swjdp_memoryap ) {
+ 
+ 			/* write memory through AHB-AP */
++
+ 			switch (size) {
+ 				case 4:
+ 					retval = mem_ap_sel_write_buf_u32(swjdp, swjdp_memoryap,
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/adi_v5_jtag.c |    2 +-
+ src/target/arm_adi_v5.c  |  107 +++++++++++++++++++++------------------------
+ src/target/arm_adi_v5.h  |   33 ++++++++------
+ src/target/cortex_a9.c   |    5 +-
+ 4 files changed, 72 insertions(+), 75 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002522.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-760-g01edbc2
+</A></li>
+	<LI>Next message: <A HREF="002524.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-762-g578294d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2523">[ date ]</a>
+              <a href="thread.html#2523">[ thread ]</a>
+              <a href="subject.html#2523">[ subject ]</a>
+              <a href="author.html#2523">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-168-g82f2492
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-168-g82f2492&In-Reply-To=%3CE1NbkZZ-0000Qr-Kc%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002079.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-168-g82f2492</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-168-g82f2492&In-Reply-To=%3CE1NbkZZ-0000Qr-Kc%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-168-g82f2492">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Mon Feb  1 01:55:23 CET 2010</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002079.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-169-g91e3268
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2078">[ date ]</a>
+              <a href="thread.html#2078">[ thread ]</a>
+              <a href="subject.html#2078">[ subject ]</a>
+              <a href="author.html#2078">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  82f2492138e053d5e3577e83b80cab8d41c0d08b (commit)
+      from  02731cf78b3663739e3755295a4239f2658a3fdc (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 82f2492138e053d5e3577e83b80cab8d41c0d08b
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sun Jan 31 14:16:53 2010 -0800
+
+    ADIv5: more messaging cleanup, docs
+    
+    When the TAR cache was explicitly invalidated, don't bother
+    printing it; the actual hardware status is more informative.
+    
+    Provide some doxygen for the MEM-AP setup routine.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_adi_v5.c b/src/target/arm_adi_v5.c
+index bfa5cb4..4089567 100644
+--- a/src/target/arm_adi_v5.c
++++ b/src/target/arm_adi_v5.c
+@@ -334,7 +334,10 @@ int jtagdp_transaction_endcheck(struct swjdp_common *swjdp)
+ 		{
+ 			uint32_t mem_ap_csw, mem_ap_tar;
+ 
+-			/* Maybe print information about last MEM-AP access */
++			/* Maybe print information about last intended
++			 * MEM-AP access; but not if autoincrementing.
++			 * *Real* CSW and TAR values are always shown.
++			 */
+ 			if (swjdp-&gt;ap_tar_value != (uint32_t) -1)
+ 				LOG_DEBUG(&quot;MEM-AP Cached values: &quot;
+ 					&quot;ap_bank 0x%&quot; PRIx32
+@@ -343,8 +346,6 @@ int jtagdp_transaction_endcheck(struct swjdp_common *swjdp)
+ 					swjdp-&gt;dp_select_value,
+ 					swjdp-&gt;ap_csw_value,
+ 					swjdp-&gt;ap_tar_value);
+-			else
+-				LOG_ERROR(&quot;Invalid MEM-AP TAR cache!&quot;);
+ 
+ 			if (ctrlstat &amp; SSTICKYORUN)
+ 				LOG_ERROR(&quot;JTAG-DP OVERRUN - check clock, &quot;
+@@ -463,12 +464,21 @@ int dap_ap_read_reg_u32(struct swjdp_common *swjdp, uint32_t reg_addr, uint32_t
+ 	return ERROR_OK;
+ }
+ 
+-/***************************************************************************
+- *                                                                         *
+- * AHB-AP access to memory and system registers on AHB bus                 *
+- *                                                                         *
+-***************************************************************************/
+-
++/**
++ * Set up transfer parameters for the currently selected MEM-AP.
++ * Subsequent transfers using registers like AP_REG_DRW or AP_REG_BD2
++ * initiate data reads or writes using memory or peripheral addresses.
++ * If the CSW is configured for it, the TAR may be automatically
++ * incremented after each transfer.
++ *
++ * @todo Rename to reflect it being specifically a MEM-AP function.
++ *
++ * @param swjdp The DAP connected to the MEM-AP.
++ * @param csw MEM-AP Control/Status Word (CSW) register to assign.  If this
++ *	matches the cached value, the register is not changed.
++ * @param tar MEM-AP Transfer Address Register (TAR) to assign.  If this
++ *	matches the cached address, the register is not changed.
++ */
+ int dap_setup_accessport(struct swjdp_common *swjdp, uint32_t csw, uint32_t tar)
+ {
+ 	csw = csw | CSW_DBGSWENABLE | CSW_MASTER_DEBUG | CSW_HPROT;
+@@ -484,11 +494,9 @@ int dap_setup_accessport(struct swjdp_common *swjdp, uint32_t csw, uint32_t tar)
+ 		dap_ap_write_reg_u32(swjdp, AP_REG_TAR, tar);
+ 		swjdp-&gt;ap_tar_value = tar;
+ 	}
++	/* Disable TAR cache when autoincrementing */
+ 	if (csw &amp; CSW_ADDRINC_MASK)
+-	{
+-		/* Do not cache TAR value when autoincrementing */
+ 		swjdp-&gt;ap_tar_value = -1;
+-	}
+ 	return ERROR_OK;
+ }
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm_adi_v5.c |   32 ++++++++++++++++++++------------
+ 1 files changed, 20 insertions(+), 12 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002079.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-169-g91e3268
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2078">[ date ]</a>
+              <a href="thread.html#2078">[ thread ]</a>
+              <a href="subject.html#2078">[ subject ]</a>
+              <a href="author.html#2078">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

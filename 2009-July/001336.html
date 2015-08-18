@@ -1,0 +1,208 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2553 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2553%20-%20trunk/src/target&In-Reply-To=%3C200907212005.n6LK56k1011728%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001335.html">
+   <LINK REL="Next"  HREF="001337.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2553 - trunk/src/target</H1>
+    <B>ntfreak at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2553%20-%20trunk/src/target&In-Reply-To=%3C200907212005.n6LK56k1011728%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2553 - trunk/src/target">ntfreak at mail.berlios.de
+       </A><BR>
+    <I>Tue Jul 21 22:05:06 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001335.html">[Openocd-svn] r2552 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001337.html">[Openocd-svn] r2554 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1336">[ date ]</a>
+              <a href="thread.html#1336">[ thread ]</a>
+              <a href="subject.html#1336">[ subject ]</a>
+              <a href="author.html#1336">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: ntfreak
+Date: 2009-07-21 22:05:05 +0200 (Tue, 21 Jul 2009)
+New Revision: 2553
+
+Modified:
+   trunk/src/target/arm_disassembler.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Minor updates to the Thumb2 disassembly:
+
+ - Bugfixes:
+    * Distinguish branch from misc via &quot;!=&quot; not &quot;==&quot;
+    * MRS register shift is 8 bits (vs MSR being 16)
+ - Format tweaks:
+    * CPS needed tab (not space)
+    * add commma before some shifts
+    * add space after comma in LDM/STM
+    * use &quot;.W&quot; width spec on various instructions
+
+Modified: trunk/src/target/arm_disassembler.c
+===================================================================
+--- trunk/src/target/arm_disassembler.c	2009-07-21 20:03:17 UTC (rev 2552)
++++ trunk/src/target/arm_disassembler.c	2009-07-21 20:05:05 UTC (rev 2553)
+@@ -2080,7 +2080,7 @@
+ 				(opcode &amp; 0x80) ? &quot;BE&quot; : &quot;LE&quot;);
+ 	else /* ASSUME (opcode &amp; 0x0fe0) == 0x0660 */
+ 		snprintf(instruction-&gt;text, 128,
+-				&quot;0x%8.8&quot; PRIx32 &quot;  0x%4.4x    \tCPSI%c %s%s%s&quot;,
++				&quot;0x%8.8&quot; PRIx32 &quot;  0x%4.4x    \tCPSI%c\t%s%s%s&quot;,
+ 				address, opcode,
+ 				(opcode &amp; 0x0010) ? 'D' : 'E',
+ 				(opcode &amp; 0x0004) ? &quot;A&quot; : &quot;&quot;,
+@@ -2522,7 +2522,7 @@
+ 	case 0x4:
+ 		goto undef;
+ 	case 0:
+-		if (((opcode &gt;&gt; 23) &amp; 0x07) == 0x07)
++		if (((opcode &gt;&gt; 23) &amp; 0x07) != 0x07)
+ 			return t2ev_cond_b(opcode, address, instruction, cp);
+ 		if (opcode &amp; (1 &lt;&lt; 26))
+ 			goto undef;
+@@ -2541,7 +2541,7 @@
+ 		return t2ev_misc(opcode, address, instruction, cp);
+ 	case 0x3e:
+ 	case 0x3f:
+-		sprintf(cp, &quot;MRS\tr%d, %s&quot;, (opcode &gt;&gt; 16) &amp; 0x0f,
++		sprintf(cp, &quot;MRS\tr%d, %s&quot;, (opcode &gt;&gt; 8) &amp; 0x0f,
+ 				special_name(opcode &amp; 0xff));
+ 		return ERROR_OK;
+ 	}
+@@ -2560,6 +2560,7 @@
+ 	unsigned func;
+ 	bool one = false;
+ 	char *suffix = &quot;&quot;;
++	char *suffix2 = &quot;&quot;;
+ 
+ 	/* ARMv7-M: A5.3.2 Modified immediate constants */
+ 	func = (opcode &gt;&gt; 11) &amp; 0x0e;
+@@ -2597,6 +2598,7 @@
+ 			mnemonic = &quot;TST&quot;;
+ 			one = true;
+ 			suffix = &quot;&quot;;
++			suffix2 = &quot;.W&quot;;
+ 			rd = rn;
+ 		} else {
+ 			instruction-&gt;type = ARM_AND;
+@@ -2612,6 +2614,7 @@
+ 			instruction-&gt;type = ARM_MOV;
+ 			mnemonic = &quot;MOV&quot;;
+ 			one = true;
++			suffix2 = &quot;.W&quot;;
+ 		} else {
+ 			instruction-&gt;type = ARM_ORR;
+ 			mnemonic = &quot;ORR&quot;;
+@@ -2649,6 +2652,7 @@
+ 		} else {
+ 			instruction-&gt;type = ARM_ADD;
+ 			mnemonic = &quot;ADD&quot;;
++			suffix2 = &quot;.W&quot;;
+ 		}
+ 		break;
+ 	case 10:
+@@ -2670,21 +2674,24 @@
+ 			instruction-&gt;type = ARM_SUB;
+ 			mnemonic = &quot;SUB&quot;;
+ 		}
++		suffix2 = &quot;.W&quot;;
+ 		break;
+ 	case 14:
+ 		instruction-&gt;type = ARM_RSB;
+ 		mnemonic = &quot;RSB&quot;;
++		suffix2 = &quot;.W&quot;;
+ 		break;
+ 	default:
+ 		return ERROR_INVALID_ARGUMENTS;
+ 	}
+ 
+ 	if (one)
+-		sprintf(cp, &quot;%s\tr%d, #%d\t; %#8.8x&quot;,
+-				mnemonic, rd, immed, immed);
++		sprintf(cp, &quot;%s%s\tr%d, #%d\t; %#8.8x&quot;,
++				mnemonic, suffix2 ,rd, immed, immed);
+ 	else
+-		sprintf(cp, &quot;%s%s\tr%d, r%d, #%d\t; %#8.8x&quot;,
+-				mnemonic, suffix, rd, rn, immed, immed);
++		sprintf(cp, &quot;%s%s%s\tr%d, r%d, #%d\t; %#8.8x&quot;,
++				mnemonic, suffix, suffix2,
++				rd, rn, immed, immed);
+ 
+ 	return ERROR_OK;
+ }
+@@ -2959,13 +2966,13 @@
+ 		if (rn == 13 &amp;&amp; t)
+ 			sprintf(cp, &quot;POP\t&quot;);
+ 		else
+-			sprintf(cp, &quot;LDM\tr%d%s, &quot;, rn, t ? &quot;!&quot; : &quot;&quot;);
++			sprintf(cp, &quot;LDM.W\tr%d%s, &quot;, rn, t ? &quot;!&quot; : &quot;&quot;);
+ 		break;
+ 	case 4:
+ 		if (rn == 13 &amp;&amp; t)
+ 			sprintf(cp, &quot;PUSH\t&quot;);
+ 		else
+-			sprintf(cp, &quot;STM\tr%d%s, &quot;, rn, t ? &quot;!&quot; : &quot;&quot;);
++			sprintf(cp, &quot;STM.W\tr%d%s, &quot;, rn, t ? &quot;!&quot; : &quot;&quot;);
+ 		break;
+ 	case 5:
+ 		sprintf(cp, &quot;LDMB\tr%d%s, &quot;, rn, t ? &quot;!&quot; : &quot;&quot;);
+@@ -2980,7 +2987,7 @@
+ 		if ((registers &amp; 1) == 0)
+ 			continue;
+ 		registers &amp;= ~1;
+-		sprintf(cp, &quot;r%d%s&quot;, t, registers ? &quot;,&quot; : &quot;&quot;);
++		sprintf(cp, &quot;r%d%s&quot;, t, registers ? &quot;, &quot; : &quot;&quot;);
+ 		cp = strchr(cp, 0);
+ 	}
+ 	*cp++ = '}';
+@@ -3139,7 +3146,7 @@
+ 		suffix = &quot;ROR&quot;;
+ 		break;
+ 	}
+-	sprintf(cp, &quot; %s #%d&quot;, suffix, immed ? immed : 32);
++	sprintf(cp, &quot;, %s #%d&quot;, suffix, immed ? immed : 32);
+ 	return ERROR_OK;
+ 
+ two:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001335.html">[Openocd-svn] r2552 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001337.html">[Openocd-svn] r2554 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1336">[ date ]</a>
+              <a href="thread.html#1336">[ thread ]</a>
+              <a href="subject.html#1336">[ subject ]</a>
+              <a href="author.html#1336">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

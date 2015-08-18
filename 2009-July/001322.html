@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2539 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2539%20-%20trunk/src/target&In-Reply-To=%3C200907152348.n6FNmvhF021728%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001321.html">
+   <LINK REL="Next"  HREF="001323.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2539 - trunk/src/target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2539%20-%20trunk/src/target&In-Reply-To=%3C200907152348.n6FNmvhF021728%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2539 - trunk/src/target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul 16 01:48:57 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001321.html">[Openocd-svn] r2538 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001323.html">[Openocd-svn] r2540 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1322">[ date ]</a>
+              <a href="thread.html#1322">[ thread ]</a>
+              <a href="subject.html#1322">[ subject ]</a>
+              <a href="author.html#1322">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-07-16 01:48:54 +0200 (Thu, 16 Jul 2009)
+New Revision: 2539
+
+Modified:
+   trunk/src/target/arm_disassembler.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+More instructions decoded:
+
+	A5.3.5 Load/store multiple 
+
+The preferred PUSH/POP syntax is shown when appropriate.
+
+
+Modified: trunk/src/target/arm_disassembler.c
+===================================================================
+--- trunk/src/target/arm_disassembler.c	2009-07-15 23:48:43 UTC (rev 2538)
++++ trunk/src/target/arm_disassembler.c	2009-07-15 23:48:54 UTC (rev 2539)
+@@ -2940,6 +2940,55 @@
+ 	return ERROR_OK;
+ }
+ 
++static int t2ev_ldm_stm(uint32_t opcode, uint32_t address,
++		arm_instruction_t *instruction, char *cp)
++{
++	int rn = (opcode &gt;&gt; 16) &amp; 0xf;
++	int op = (opcode &gt;&gt; 22) &amp; 0x6;
++	int t = (opcode &gt;&gt; 21) &amp; 1;
++	unsigned registers = opcode &amp; 0xffff;
++
++	if (opcode &amp; (1 &lt;&lt; 20))
++		op |= 1;
++
++	switch (op) {
++	case 2:
++		sprintf(cp, &quot;STMB\tr%d%s, &quot;, rn, t ? &quot;!&quot; : &quot;&quot;);
++		break;
++	case 3:
++		if (rn == 13 &amp;&amp; t)
++			sprintf(cp, &quot;POP\t&quot;);
++		else
++			sprintf(cp, &quot;LDM\tr%d%s, &quot;, rn, t ? &quot;!&quot; : &quot;&quot;);
++		break;
++	case 4:
++		if (rn == 13 &amp;&amp; t)
++			sprintf(cp, &quot;PUSH\t&quot;);
++		else
++			sprintf(cp, &quot;STM\tr%d%s, &quot;, rn, t ? &quot;!&quot; : &quot;&quot;);
++		break;
++	case 5:
++		sprintf(cp, &quot;LDMB\tr%d%s, &quot;, rn, t ? &quot;!&quot; : &quot;&quot;);
++		break;
++	default:
++		return ERROR_INVALID_ARGUMENTS;
++	}
++
++	cp = strchr(cp, 0);
++	*cp++ = '{';
++	for (t = 0; registers; t++, registers &gt;&gt;= 1) {
++		if ((registers &amp; 1) == 0)
++			continue;
++		registers &amp;= ~1;
++		sprintf(cp, &quot;r%d%s&quot;, t, registers ? &quot;,&quot; : &quot;&quot;);
++		cp = strchr(cp, 0);
++	}
++	*cp++ = '}';
++	*cp++ = 0;
++
++	return ERROR_OK;
++}
++
+ /*
+  * REVISIT for Thumb2 instructions, instruction-&gt;type and friends aren't
+  * always set.  That means eventual arm_simulate_step() support for Thumb2
+@@ -2999,6 +3048,10 @@
+ 	else if ((opcode &amp; 0x18008000) == 0x10008000)
+ 		retval = t2ev_b_misc(opcode, address, instruction, cp);
+ 
++	/* ARMv7-M: A5.3.5 Load/store multiple */
++	else if ((opcode &amp; 0x1e400000) == 0x08000000)
++		retval = t2ev_ldm_stm(opcode, address, instruction, cp);
++
+ 	/* ARMv7-M: A5.3.10 Store single data item */
+ 	else if ((opcode &amp; 0x1f100000) == 0x18000000)
+ 		retval = t2ev_store_single(opcode, address, instruction, cp);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001321.html">[Openocd-svn] r2538 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001323.html">[Openocd-svn] r2540 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1322">[ date ]</a>
+              <a href="thread.html#1322">[ thread ]</a>
+              <a href="subject.html#1322">[ subject ]</a>
+              <a href="author.html#1322">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

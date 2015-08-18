@@ -1,0 +1,293 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-445-g959b373
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-445-g959b373&In-Reply-To=%3CE1NAPWs-0006lK-BU%40fxgxhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001807.html">
+   <LINK REL="Next"  HREF="001809.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-445-g959b373</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-445-g959b373&In-Reply-To=%3CE1NAPWs-0006lK-BU%40fxgxhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-445-g959b373">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Tue Nov 17 15:59:36 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001807.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-441-gb888b63
+</A></li>
+        <LI>Next message: <A HREF="001809.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-446-gf478865
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1808">[ date ]</a>
+              <a href="thread.html#1808">[ thread ]</a>
+              <a href="subject.html#1808">[ subject ]</a>
+              <a href="author.html#1808">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  959b373f8cdc2c1ad11c67c6916f88f48769438f (commit)
+       via  741cd3c3ab172e6231fc5ed2d099993d59315f74 (commit)
+       via  ca32f25638408df8a9c18522da43f6e8adcdb5cb (commit)
+       via  83104648e6a1834244eb1b1bb6324f729532906c (commit)
+      from  b888b63fe9bee26e567a645f6ceb10d66bfff785 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 959b373f8cdc2c1ad11c67c6916f88f48769438f
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Tue Nov 17 11:03:55 2009 +0100
+
+    jtag_registers: Avalon bridge flushing tweaks
+    
+    The code is now much more explicit. It flushes every
+    N writes. For now flush every time, but tinkering with
+    the bridge FIFO size and how often we flush clearly
+    points in the direction of the Avalon write FIFO full
+    being the culprit.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/zy1000/jtag_minidriver.h b/src/jtag/zy1000/jtag_minidriver.h
+index 3fe16ef..afbea13 100644
+--- a/src/jtag/zy1000/jtag_minidriver.h
++++ b/src/jtag/zy1000/jtag_minidriver.h
+@@ -30,8 +30,19 @@ int  diag_printf(const char *fmt, ...);
+ #define ZY1000_POKE(a, b) HAL_WRITE_UINT32(a, b); diag_printf(&quot;poke 0x%08x,0x%08x\n&quot;, a, b)
+ #define ZY1000_PEEK(a, b) HAL_READ_UINT32(a, b); diag_printf(&quot;peek 0x%08x = 0x%08x\n&quot;, a, b)
+ #else
+-#define ZY1000_POKE(a, b) HAL_WRITE_UINT32(a, b)
+ #define ZY1000_PEEK(a, b) HAL_READ_UINT32(a, b)
++#define ZY1000_POKE(a, b) HAL_WRITE_UINT32(a, b);\
++ {/* This will flush the bridge FIFO. Overflowed bridge FIFO fails. We must \
++ flush every &quot;often&quot;. No precise system has been found, but 4 seems solid. \
++  */ \
++ static int overflow_counter = 0; \
++   if (++overflow_counter &gt;= 1) \
++   { \
++	   /* clear FIFO */ \
++	   cyg_uint32 empty; ZY1000_PEEK(ZY1000_JTAG_BASE + 0x10, empty); \
++	   overflow_counter = 0; \
++   } \
++ }
+ #endif
+ 
+ // FIFO empty?
+
+commit 741cd3c3ab172e6231fc5ed2d099993d59315f74
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Tue Nov 17 11:00:02 2009 +0100
+
+    zy1000: revC UART forwarding
+    
+    Name of serial device differs between revB/C.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/ecosboard.c b/src/ecosboard.c
+index 0cbba3e..120b3f9 100644
+--- a/src/ecosboard.c
++++ b/src/ecosboard.c
+@@ -1,5 +1,5 @@
+ /***************************************************************************
+- *   Copyright (C) 2007-2008 by &#195;&#152;yvind Harboe                              *
++ *   Copyright (C) 2007-2009 by &#195;&#152;yvind Harboe                              *
+  *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+@@ -81,6 +81,14 @@
+ #include &lt;stdio.h&gt;
+ 
+ 
++#ifdef CYGPKG_HAL_NIOS2
++#define ZY1000_SER_DEV &quot;/dev/uart_0&quot;
++#else
++#define ZY1000_SER_DEV &quot;/dev/ser0&quot;
++
++#endif
++
++
+ #define MAX_IFS 64
+ #if defined(CYGPKG_NET_FREEBSD_STACK)
+ #include &lt;tftp_support.h&gt;
+@@ -684,7 +692,7 @@ static void zylinjtag_uart(cyg_addrword_t data)
+ 		int oldopts = fcntl(session, F_GETFL, 0);
+ 		fcntl(session, F_SETFL, oldopts | O_NONBLOCK); //
+ 
+-		int serHandle = open(&quot;/dev/ser0&quot;, O_RDWR | O_NONBLOCK);
++		int serHandle = open(ZY1000_SER_DEV, O_RDWR | O_NONBLOCK);
+ 		if (serHandle &lt; 0)
+ 		{
+ 			close(session);
+@@ -886,10 +894,10 @@ int handle_uart_command(struct command_context *cmd_ctx, char *cmd,
+ 	int err;
+ 	cyg_io_handle_t serial_handle;
+ 
+-	err = cyg_io_lookup(&quot;/dev/ser0&quot;, &amp;serial_handle);
++	err = cyg_io_lookup(ZY1000_SER_DEV, &amp;serial_handle);
+ 	if (err != ENOERR)
+ 	{
+-		LOG_ERROR(&quot;/dev/ser0 not found\n&quot;);
++		LOG_ERROR(&quot;Could not open serial port\n&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 
+
+commit ca32f25638408df8a9c18522da43f6e8adcdb5cb
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Fri Nov 13 13:54:20 2009 +0100
+
+    zy1000: add version command to print FPGA version and timestamps
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index f2a5aa9..a509aee 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -28,6 +28,8 @@
+ #include &lt;cyg/hal/hal_io.h&gt;             // low level i/o
+ #include &lt;cyg/hal/hal_diag.h&gt;
+ 
++#include &lt;time.h&gt;
++
+ #define ZYLIN_VERSION GIT_ZY1000_VERSION
+ #define ZYLIN_DATE __DATE__
+ #define ZYLIN_TIME __TIME__
+@@ -257,9 +259,8 @@ int handle_power_command(struct command_context *cmd_ctx, char *cmd, char **args
+ /* Give TELNET a way to find out what version this is */
+ static int jim_zy1000_version(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+-	if ((argc &lt; 1) || (argc &gt; 2))
++	if ((argc &lt; 1) || (argc &gt; 3))
+ 		return JIM_ERR;
+-	char buff[128];
+ 	const char *version_str = NULL;
+ 
+ 	if (argc == 1)
+@@ -268,6 +269,9 @@ static int jim_zy1000_version(Jim_Interp *interp, int argc, Jim_Obj *const *argv
+ 	} else
+ 	{
+ 		const char *str = Jim_GetString(argv[1], NULL);
++		const char *str2 = NULL;
++		if (argc &gt; 2)
++			str2 = Jim_GetString(argv[2], NULL);
+ 		if (strcmp(&quot;openocd&quot;, str) == 0)
+ 		{
+ 			version_str = ZYLIN_OPENOCD;
+@@ -292,6 +296,29 @@ static int jim_zy1000_version(Jim_Interp *interp, int argc, Jim_Obj *const *argv
+ 			version_str=&quot;b&quot;;
+ #endif
+ 		}
++#ifdef CYGPKG_HAL_NIOS2
++		else if (strcmp(&quot;fpga&quot;, str) == 0)
++		{
++
++			/* return a list of 32 bit integers to describe the expected
++			 * and actual FPGA
++			 */
++			static char *fpga_id = &quot;0x12345678 0x12345678 0x12345678 0x12345678&quot;;
++			cyg_uint32 id, timestamp;
++			HAL_READ_UINT32(SYSID_BASE, id);
++			HAL_READ_UINT32(SYSID_BASE+4, timestamp);
++			sprintf(fpga_id, &quot;0x%08x 0x%08x 0x%08x 0x%08x&quot;, id, timestamp, SYSID_ID, SYSID_TIMESTAMP);
++			version_str = fpga_id;
++			if ((argc&gt;2) &amp;&amp; (strcmp(&quot;time&quot;, str2) == 0))
++			{
++			    time_t last_mod = timestamp;
++			    char * t = ctime (&amp;last_mod) ;
++			    t[strlen(t)-1] = 0;
++			    version_str = t;
++			}
++		}
++#endif
++
+ 		else
+ 		{
+ 			return JIM_ERR;
+
+commit 83104648e6a1834244eb1b1bb6324f729532906c
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Thu Nov 12 10:10:11 2009 +0100
+
+    zy1000: fix bug when running on non-arm CPU
+    
+    Shifting by more than 32 is undefined for 32 bit integers according
+    to the C standard. Robust solution is conditional code.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index 9a5d2e7..f2a5aa9 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -509,7 +509,14 @@ static __inline void scanFields(int num_fields, const struct scan_field *fields,
+ 				}
+ 			}
+ 			/* mask away unused bits for easier debugging */
+-			value&amp;=~(((uint32_t)0xffffffff) &lt;&lt; k);
++			if (k &lt; 32)
++			{
++				value&amp;=~(((uint32_t)0xffffffff) &lt;&lt; k);
++			} else
++			{
++				/* Shifting by &gt;= 32 is not defined by the C standard
++				 * and will in fact shift by &amp;0x1f bits on nios */
++			}
+ 
+ 			shiftValueInner(shiftState, pause_state, k, value);
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/ecosboard.c                   |   16 +++++++++++---
+ src/jtag/zy1000/jtag_minidriver.h |   13 +++++++++++-
+ src/jtag/zy1000/zy1000.c          |   40 ++++++++++++++++++++++++++++++++++--
+ 3 files changed, 61 insertions(+), 8 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001807.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-441-gb888b63
+</A></li>
+	<LI>Next message: <A HREF="001809.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-446-gf478865
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1808">[ date ]</a>
+              <a href="thread.html#1808">[ thread ]</a>
+              <a href="subject.html#1808">[ subject ]</a>
+              <a href="author.html#1808">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

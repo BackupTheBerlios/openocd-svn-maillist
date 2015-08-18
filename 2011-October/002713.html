@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-120-g80c20a1
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-120-g80c20a1&In-Reply-To=%3Cmailman.198.1331736158.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002712.html">
+   <LINK REL="Next"  HREF="002714.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-120-g80c20a1</H1>
+    <B>OpenOCD-Gerrit</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.5.0-120-g80c20a1&In-Reply-To=%3Cmailman.198.1331736158.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-120-g80c20a1">openocd-gerrit at users.sourceforge.net
+       </A><BR>
+    <I>Mon Oct 17 14:33:10 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002712.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-119-gea295bd
+</A></li>
+        <LI>Next message: <A HREF="002714.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-121-g2f6bdac
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2713">[ date ]</a>
+              <a href="thread.html#2713">[ thread ]</a>
+              <a href="subject.html#2713">[ subject ]</a>
+              <a href="author.html#2713">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  80c20a186b49b30575bc9a1e1316ab0acf502512 (commit)
+      from  ea295bd694250b077b780cfd506cf4d7f6fd1471 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 80c20a186b49b30575bc9a1e1316ab0acf502512
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Fri Oct 14 14:55:17 2011 +0200
+
+    target_request: add target_got_message() that can be used to improve DCC performance
+    
+    API change to allow implementing a back-off algorithm for
+    polling hardware.
+    
+    Change-Id: I6cbe8b4534c8dfeb8442305171ea96b5481c1f17
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+    Reviewed-on: <A HREF="http://openocd.zylin.com/26">http://openocd.zylin.com/26</A>
+    Reviewed-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvindharboe at gmail.com</A>&gt;
+    Tested-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvindharboe at gmail.com</A>&gt;
+
+diff --git a/src/target/target_request.c b/src/target/target_request.c
+index ec3d48e..3cdca5e 100644
+--- a/src/target/target_request.c
++++ b/src/target/target_request.c
+@@ -36,6 +36,15 @@
+ #include &quot;trace.h&quot;
+ 
+ 
++static bool got_message = false;
++
++bool target_got_message(void)
++{
++	bool t = got_message;
++	got_message = false;
++	return t;
++}
++
+ static int charmsg_mode = 0;
+ 
+ static int target_asciimsg(struct target *target, uint32_t length)
+@@ -118,6 +127,9 @@ int target_request(struct target *target, uint32_t request)
+ {
+ 	target_req_cmd_t target_req_cmd = request &amp; 0xff;
+ 
++	/* Record that we got a target message for back-off algorithm */
++	got_message = true;
++
+ 	if (charmsg_mode) {
+ 		target_charmsg(target, target_req_cmd);
+ 		return ERROR_OK;
+diff --git a/src/target/target_request.h b/src/target/target_request.h
+index e50c425..740645e 100644
+--- a/src/target/target_request.h
++++ b/src/target/target_request.h
+@@ -47,5 +47,12 @@ int target_request(struct target *target, uint32_t request);
+ int delete_debug_msg_receiver(struct command_context *cmd_ctx,
+ 		struct target *target);
+ int target_request_register_commands(struct command_context *cmd_ctx);
++/**
++ * Read and clear the flag as to whether we got a message.
++ *
++ * This is used to implement the back-off algorithm on
++ * sleeping in idle mode.
++ */
++bool target_got_message(void);
+ 
+ #endif /* TARGET_REQUEST_H */
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/target_request.c |   12 ++++++++++++
+ src/target/target_request.h |    7 +++++++
+ 2 files changed, 19 insertions(+), 0 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002712.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-119-gea295bd
+</A></li>
+	<LI>Next message: <A HREF="002714.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.5.0-121-g2f6bdac
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2713">[ date ]</a>
+              <a href="thread.html#2713">[ thread ]</a>
+              <a href="subject.html#2713">[ subject ]</a>
+              <a href="author.html#2713">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

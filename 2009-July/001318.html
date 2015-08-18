@@ -1,0 +1,129 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2535 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2535%20-%20trunk/src/target&In-Reply-To=%3C200907152348.n6FNmUkK021670%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001317.html">
+   <LINK REL="Next"  HREF="001319.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2535 - trunk/src/target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2535%20-%20trunk/src/target&In-Reply-To=%3C200907152348.n6FNmUkK021670%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2535 - trunk/src/target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul 16 01:48:30 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001317.html">[Openocd-svn] r2534 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001319.html">[Openocd-svn] r2536 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1318">[ date ]</a>
+              <a href="thread.html#1318">[ thread ]</a>
+              <a href="subject.html#1318">[ subject ]</a>
+              <a href="author.html#1318">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-07-16 01:48:27 +0200 (Thu, 16 Jul 2009)
+New Revision: 2535
+
+Modified:
+   trunk/src/target/arm_disassembler.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Make disassembly of the Thumb load-literal instruction show the
+address of the literal being loaded (so users can avoid doing
+that math themselves).  Add and use an Align(PC,4) utility.
+
+
+Modified: trunk/src/target/arm_disassembler.c
+===================================================================
+--- trunk/src/target/arm_disassembler.c	2009-07-15 23:48:21 UTC (rev 2534)
++++ trunk/src/target/arm_disassembler.c	2009-07-15 23:48:27 UTC (rev 2535)
+@@ -1678,6 +1678,12 @@
+ 	return ERROR_OK;
+ }
+ 
++/* PC-relative data addressing is word-aligned even with Thumb */
++static inline uint32_t thumb_alignpc4(uint32_t addr)
++{
++	return (addr + 4) &amp; ~3;
++}
++
+ int evaluate_load_literal_thumb(uint16_t opcode, uint32_t address, arm_instruction_t *instruction)
+ {
+ 	uint32_t immediate;
+@@ -1685,17 +1691,20 @@
+ 
+ 	instruction-&gt;type = ARM_LDR;
+ 	immediate = opcode &amp; 0x000000ff;
++	immediate *= 4;
+ 
+-	snprintf(instruction-&gt;text, 128,
+-		&quot;0x%8.8&quot; PRIx32 &quot;  0x%4.4x    \tLDR\tr%i, [pc, #%#&quot; PRIx32 &quot;]&quot;,
+-		address, opcode, Rd, immediate*4);
+-
+ 	instruction-&gt;info.load_store.Rd = Rd;
+ 	instruction-&gt;info.load_store.Rn = 15 /*PC*/;
+ 	instruction-&gt;info.load_store.index_mode = 0; /*offset*/
+ 	instruction-&gt;info.load_store.offset_mode = 0; /*immediate*/
+-	instruction-&gt;info.load_store.offset.offset = immediate*4;
++	instruction-&gt;info.load_store.offset.offset = immediate;
+ 
++	snprintf(instruction-&gt;text, 128,
++		&quot;0x%8.8&quot; PRIx32 &quot;  0x%4.4x    \t&quot;
++		&quot;LDR\tr%i, [pc, #%#&quot; PRIx32 &quot;]\t; %#8.8x&quot;,
++		address, opcode, Rd, immediate,
++		thumb_alignpc4(address) + immediate);
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -2753,8 +2762,7 @@
+ 	return ERROR_OK;
+ 
+ do_adr:
+-	address &amp;= ~0x03;
+-	address += 4;
++	address = thumb_alignpc4(address);
+ 	if (add)
+ 		address += immed;
+ 	else
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001317.html">[Openocd-svn] r2534 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001319.html">[Openocd-svn] r2536 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1318">[ date ]</a>
+              <a href="thread.html#1318">[ thread ]</a>
+              <a href="subject.html#1318">[ subject ]</a>
+              <a href="author.html#1318">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

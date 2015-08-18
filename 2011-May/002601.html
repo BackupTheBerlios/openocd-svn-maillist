@@ -1,0 +1,698 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-885-g212db44
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-885-g212db44&In-Reply-To=%3Cmailman.86.1331736154.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002600.html">
+   <LINK REL="Next"  HREF="002602.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-885-g212db44</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-885-g212db44&In-Reply-To=%3Cmailman.86.1331736154.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-885-g212db44">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Wed May 25 22:05:27 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002600.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-883-g6d6837f
+</A></li>
+        <LI>Next message: <A HREF="002602.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-886-g73988ae
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2601">[ date ]</a>
+              <a href="thread.html#2601">[ thread ]</a>
+              <a href="subject.html#2601">[ subject ]</a>
+              <a href="author.html#2601">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  212db44fcf56de16baaa6ee78e2f459e185db653 (commit)
+       via  a57daf23db62738754c309dfcda0f4f3cfa62fa6 (commit)
+      from  6d6837f988cbce26de0195ad69736241501cdb0e (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 212db44fcf56de16baaa6ee78e2f459e185db653
+Author: Alan Bowman &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">alan.michael.bowman at gmail.com</A>&gt;
+Date:   Mon May 23 20:37:58 2011 +0100
+
+    Report actual current thread
+
+diff --git a/src/rtos/rtos.c b/src/rtos/rtos.c
+index 9eed08e..818a979 100644
+--- a/src/rtos/rtos.c
++++ b/src/rtos/rtos.c
+@@ -453,7 +453,17 @@ int gdb_thread_packet(struct connection *connection, struct target *target, char
+ 	}
+ 	else if (strstr(packet, &quot;qC&quot;))
+ 	{
+-		gdb_put_packet(connection, &quot;QC0&quot;, 3);
++		if( target-&gt;rtos!=NULL )
++		{
++			char buffer[15];
++			int size;
++			size = snprintf(buffer, 15, &quot;QC%08X&quot;, (int)target-&gt;rtos-&gt;current_thread);
++			gdb_put_packet(connection, buffer, size);
++		}
++		else
++		{
++			gdb_put_packet(connection, &quot;QC0&quot;, 3);
++		}
+ 		return ERROR_OK;
+ 	}
+ 	else if ( packet[0] == 'T' ) // Is thread alive?
+
+commit a57daf23db62738754c309dfcda0f4f3cfa62fa6
+Author: Alan Bowman &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">alan.michael.bowman at gmail.com</A>&gt;
+Date:   Mon May 23 20:32:00 2011 +0100
+
+    Add eCos/Cortex RTOS support
+
+diff --git a/src/rtos/Makefile.am b/src/rtos/Makefile.am
+index 12368d2..fba9d47 100644
+--- a/src/rtos/Makefile.am
++++ b/src/rtos/Makefile.am
+@@ -23,7 +23,7 @@ include $(top_srcdir)/common.mk
+ METASOURCES = AUTO
+ noinst_LTLIBRARIES = librtos.la
+ noinst_HEADERS = rtos.h
+-librtos_la_SOURCES = rtos.c rtos_standard_stackings.c FreeRTOS.c ThreadX.c
++librtos_la_SOURCES = rtos.c rtos_standard_stackings.c rtos_ecos_stackings.c FreeRTOS.c ThreadX.c eCos.c
+ 
+ 
+ librtos_la_CFLAGS =
+diff --git a/src/rtos/eCos.c b/src/rtos/eCos.c
+new file mode 100644
+index 0000000..c26b66a
+--- /dev/null
++++ b/src/rtos/eCos.c
+@@ -0,0 +1,427 @@
++/***************************************************************************
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &lt;helper/time_support.h&gt;
++#include &lt;jtag/jtag.h&gt;
++#include &quot;target/target.h&quot;
++#include &quot;target/target_type.h&quot;
++#include &quot;rtos.h&quot;
++#include &quot;helper/log.h&quot;
++#include &quot;rtos_ecos_stackings.h&quot;
++
++static int eCos_detect_rtos( struct target* target );
++static int eCos_create( struct target* target );
++static int eCos_update_threads( struct rtos* rtos);
++static int eCos_get_thread_reg_list(struct rtos *rtos, int64_t thread_id, char ** hex_reg_list );
++static int eCos_get_symbol_list_to_lookup(symbol_table_elem_t * symbol_list[]);
++
++struct eCos_thread_state
++{
++	int value;
++	char * desc;
++};
++
++
++struct eCos_thread_state eCos_thread_states[] =
++{
++    { 0,  &quot;Ready&quot; },
++    { 1,  &quot;Sleeping&quot; },
++    { 2,  &quot;Countsleep&quot; },
++    { 4,  &quot;Suspended&quot; },
++    { 8,  &quot;Creating&quot; },
++    { 16,  &quot;Exited&quot; }
++};
++
++#define ECOS_NUM_STATES (sizeof(eCos_thread_states)/sizeof(struct eCos_thread_state))
++
++struct eCos_params
++{
++	char *                               target_name;
++	unsigned char                        pointer_width;
++	unsigned char                        thread_stack_offset;
++	unsigned char                        thread_name_offset;
++	unsigned char                        thread_state_offset;
++	unsigned char                        thread_next_offset;
++	unsigned char                        thread_uniqueid_offset;
++	const struct rtos_register_stacking* stacking_info;
++};
++
++const struct eCos_params eCos_params_list[] =
++{
++	{ &quot;cortex_m3&quot;,                       // target_name
++          4,                                 // pointer_width;
++          0x0c,                              // thread_stack_offset;
++          0x9c,                              // thread_name_offset;
++          0x3c,                              // thread_state_offset;
++          0xa0,                              // thread_next_offset
++          0x4c,                              // thread_uniqueid_offset
++          &amp;rtos_eCos_Cortex_M3_stacking      // stacking_info
++	}
++
++};
++
++#define ECOS_NUM_PARAMS ((int)(sizeof(eCos_params_list)/sizeof(struct eCos_params)))
++
++enum eCos_symbol_values
++{
++	eCos_VAL_thread_list     	= 0,
++	eCos_VAL_current_thread_ptr	= 1
++};
++
++static char* eCos_symbol_list[] =
++{
++		&quot;Cyg_Thread::thread_list&quot;,
++		&quot;Cyg_Scheduler_Base::current_thread&quot;,
++		NULL
++};
++
++
++
++#define ECOS_NUM_SYMBOLS (sizeof(eCos_symbol_list)/sizeof(char*))
++
++
++const struct rtos_type eCos_rtos =
++{
++	.name                      = &quot;eCos&quot;,
++
++	.detect_rtos               = eCos_detect_rtos,
++	.create                    = eCos_create,
++	.update_threads            = eCos_update_threads,
++	.get_thread_reg_list       = eCos_get_thread_reg_list,
++	.get_symbol_list_to_lookup = eCos_get_symbol_list_to_lookup,
++
++};
++
++static int eCos_update_threads( struct rtos* rtos)
++{
++	int retval;
++	int tasks_found = 0;
++	int thread_list_size = 0;
++	const struct eCos_params* param;
++
++	if ( rtos == NULL )
++	{
++		return -1;
++	}
++
++	if (rtos-&gt;rtos_specific_params == NULL )
++	{
++		return -3;
++	}
++
++	param = (const struct eCos_params*) rtos-&gt;rtos_specific_params;
++
++	if ( rtos-&gt;symbols == NULL )
++	{
++		LOG_OUTPUT(&quot;No symbols for eCos\r\n&quot;);
++		return -4;
++	}
++
++	if ( rtos-&gt;symbols[eCos_VAL_thread_list].address == 0 )
++	{
++		LOG_OUTPUT(&quot;Don't have the thread list head\r\n&quot;);
++		return -2;
++	}
++
++
++	// wipe out previous thread details if any
++	if ( rtos-&gt;thread_details != NULL )
++	{
++		int j;
++		for( j = 0; j &lt; rtos-&gt;thread_count; j++ )
++		{
++			if ( rtos-&gt;thread_details[j].display_str != NULL )
++			{
++				free( rtos-&gt;thread_details[j].display_str );
++				rtos-&gt;thread_details[j].display_str = NULL;
++			}
++			if ( rtos-&gt;thread_details[j].thread_name_str != NULL )
++			{
++				free( rtos-&gt;thread_details[j].thread_name_str );
++				rtos-&gt;thread_details[j].thread_name_str = NULL;
++			}
++			if ( rtos-&gt;thread_details[j].extra_info_str != NULL )
++			{
++				free( rtos-&gt;thread_details[j].extra_info_str );
++				rtos-&gt;thread_details[j].extra_info_str = NULL;
++			}
++		}
++		free( rtos-&gt;thread_details );
++		rtos-&gt;thread_details = NULL;
++	}
++
++
++	// determine the number of current threads
++	uint32_t thread_list_head = rtos-&gt;symbols[eCos_VAL_thread_list].address;
++	uint32_t thread_index;
++	target_read_buffer( rtos-&gt;target, thread_list_head, param-&gt;pointer_width, (uint8_t *) &amp;thread_index );
++	uint32_t first_thread = thread_index;
++	do
++	{
++		thread_list_size++;
++		retval = target_read_buffer( rtos-&gt;target, thread_index + param-&gt;thread_next_offset, param-&gt;pointer_width, (uint8_t *) &amp;thread_index );
++	} while( thread_index!=first_thread );
++
++	// read the current thread id
++	uint32_t current_thread_addr;
++	retval = target_read_buffer( rtos-&gt;target, rtos-&gt;symbols[eCos_VAL_current_thread_ptr].address, 4, (uint8_t *)&amp;current_thread_addr);
++	rtos-&gt;current_thread = 0;
++	retval = target_read_buffer( rtos-&gt;target, current_thread_addr + param-&gt;thread_uniqueid_offset, 2, (uint8_t *)&amp;rtos-&gt;current_thread);
++	if ( retval != ERROR_OK )
++	{
++		LOG_OUTPUT(&quot;Could not read eCos current thread from target\r\n&quot;);
++		return retval;
++	}
++
++	if ( ( thread_list_size  == 0 ) || ( rtos-&gt;current_thread == 0 ) )
++	{
++		// Either : No RTOS threads - there is always at least the current execution though
++		// OR     : No current thread - all threads suspended - show the current execution of idling
++		char tmp_str[] = &quot;Current Execution&quot;;
++		thread_list_size++;
++		tasks_found++;
++		rtos-&gt;thread_details = (struct thread_detail*) malloc( sizeof( struct thread_detail ) * thread_list_size );
++		rtos-&gt;thread_details-&gt;threadid = 1;
++		rtos-&gt;thread_details-&gt;exists = true;
++		rtos-&gt;thread_details-&gt;display_str = NULL;
++		rtos-&gt;thread_details-&gt;extra_info_str = NULL;
++		rtos-&gt;thread_details-&gt;thread_name_str = (char*) malloc( sizeof(tmp_str) );
++		strcpy( rtos-&gt;thread_details-&gt;thread_name_str, tmp_str );
++
++
++		if ( thread_list_size == 0 )
++		{
++			rtos-&gt;thread_count = 1;
++			return ERROR_OK;
++		}
++	}
++	else
++	{
++		// create space for new thread details
++		rtos-&gt;thread_details = (struct thread_detail*) malloc( sizeof( struct thread_detail ) * thread_list_size );
++	}
++
++	// loop over all threads
++	thread_index = first_thread;
++	do
++	{
++
++		#define ECOS_THREAD_NAME_STR_SIZE (200)
++		char tmp_str[ECOS_THREAD_NAME_STR_SIZE];
++		unsigned int i = 0;
++		uint32_t name_ptr = 0;
++		uint32_t prev_thread_ptr;
++
++		// Save the thread pointer
++		uint16_t thread_id;
++		retval = target_read_buffer( rtos-&gt;target, thread_index + param-&gt;thread_uniqueid_offset, 2, (uint8_t *)&amp;thread_id);
++		if ( retval != ERROR_OK )
++		{
++			LOG_OUTPUT(&quot;Could not read eCos thread id from target\r\n&quot;);
++			return retval;
++		}
++		rtos-&gt;thread_details[tasks_found].threadid = thread_id;
++
++		// read the name pointer
++		retval = target_read_buffer( rtos-&gt;target, thread_index + param-&gt;thread_name_offset, param-&gt;pointer_width, (uint8_t *)&amp;name_ptr);
++		if ( retval != ERROR_OK )
++		{
++			LOG_OUTPUT(&quot;Could not read eCos thread name pointer from target\r\n&quot;);
++			return retval;
++		}
++
++		// Read the thread name
++		retval = target_read_buffer( rtos-&gt;target, name_ptr, ECOS_THREAD_NAME_STR_SIZE, (uint8_t *)&amp;tmp_str);
++		if ( retval != ERROR_OK )
++		{
++			LOG_OUTPUT(&quot;Error reading thread name from eCos target\r\n&quot;);
++			return retval;
++		}
++		tmp_str[ECOS_THREAD_NAME_STR_SIZE-1] = '\x00';
++
++		if ( tmp_str[0] == '\x00' )
++		{
++			strcpy(tmp_str,&quot;No Name&quot;);
++		}
++
++		rtos-&gt;thread_details[tasks_found].thread_name_str = (char*)malloc( strlen(tmp_str)+1 );
++		strcpy( rtos-&gt;thread_details[tasks_found].thread_name_str, tmp_str );
++
++		// Read the thread status
++		int64_t thread_status = 0;
++		retval = target_read_buffer( rtos-&gt;target, thread_index + param-&gt;thread_state_offset, 4, (uint8_t *)&amp;thread_status);
++		if ( retval != ERROR_OK )
++		{
++			LOG_OUTPUT(&quot;Error reading thread state from eCos target\r\n&quot;);
++			return retval;
++		}
++
++		for( i = 0; (i &lt; ECOS_NUM_STATES) &amp;&amp; (eCos_thread_states[i].value!=thread_status); i++ )
++		{
++		}
++
++		char * state_desc;
++		if  (i &lt; ECOS_NUM_STATES)
++		{
++			state_desc = eCos_thread_states[i].desc;
++		}
++		else
++		{
++			state_desc = &quot;Unknown state&quot;;
++		}
++
++		rtos-&gt;thread_details[tasks_found].extra_info_str = (char*)malloc( strlen(state_desc)+1 );
++		strcpy( rtos-&gt;thread_details[tasks_found].extra_info_str, state_desc );
++
++		rtos-&gt;thread_details[tasks_found].exists = true;
++
++		rtos-&gt;thread_details[tasks_found].display_str = NULL;
++
++
++		tasks_found++;
++		prev_thread_ptr = thread_index;
++
++		// Get the location of the next thread structure.
++		thread_index = rtos-&gt;symbols[eCos_VAL_thread_list].address;
++		retval = target_read_buffer( rtos-&gt;target, prev_thread_ptr + param-&gt;thread_next_offset, param-&gt;pointer_width, (uint8_t *) &amp;thread_index );
++		if ( retval != ERROR_OK )
++		{
++			LOG_OUTPUT(&quot;Error reading next thread pointer in eCos thread list\r\n&quot;);
++			return retval;
++		}
++	}
++	while( thread_index!=first_thread );
++
++	rtos-&gt;thread_count = tasks_found;
++	return 0;
++}
++
++static int eCos_get_thread_reg_list(struct rtos *rtos, int64_t thread_id, char ** hex_reg_list )
++{
++
++	int retval;
++	const struct eCos_params* param;
++
++	*hex_reg_list = NULL;
++
++	if ( rtos == NULL )
++	{
++		return -1;
++	}
++
++	if ( thread_id == 0 )
++	{
++		return -2;
++	}
++
++	if (rtos-&gt;rtos_specific_params == NULL )
++	{
++		return -3;
++	}
++
++	param = (const struct eCos_params*) rtos-&gt;rtos_specific_params;
++
++
++	// Find the thread with that thread id
++	uint16_t id=0;
++	uint32_t thread_list_head = rtos-&gt;symbols[eCos_VAL_thread_list].address;
++	uint32_t thread_index;
++	target_read_buffer( rtos-&gt;target, thread_list_head, param-&gt;pointer_width, (uint8_t *) &amp;thread_index );
++	bool done=false;
++	while(!done)
++	{
++		retval = target_read_buffer( rtos-&gt;target, thread_index + param-&gt;thread_uniqueid_offset, 2, (uint8_t*)&amp;id);
++		if ( retval != ERROR_OK )
++		{
++			LOG_OUTPUT(&quot;Error reading unique id from eCos thread\r\n&quot;);
++			return retval;
++		}
++
++		if( id==thread_id )
++		{
++			done=true;
++			break;
++		}
++		target_read_buffer( rtos-&gt;target, thread_index + param-&gt;thread_next_offset, param-&gt;pointer_width, (uint8_t *) &amp;thread_index );
++	}
++
++	if(done)
++	{
++		// Read the stack pointer
++		int64_t stack_ptr = 0;
++		retval = target_read_buffer( rtos-&gt;target, thread_index + param-&gt;thread_stack_offset, param-&gt;pointer_width, (uint8_t*)&amp;stack_ptr);
++		if ( retval != ERROR_OK )
++		{
++			LOG_OUTPUT(&quot;Error reading stack frame from eCos thread\r\n&quot;);
++			return retval;
++		}
++
++		return rtos_generic_stack_read( rtos-&gt;target, param-&gt;stacking_info, stack_ptr, hex_reg_list );
++	}
++
++	return -1;
++}
++
++
++
++static int eCos_get_symbol_list_to_lookup(symbol_table_elem_t * symbol_list[])
++{
++	unsigned int i;
++	*symbol_list = (symbol_table_elem_t *) malloc( sizeof( symbol_table_elem_t ) * ECOS_NUM_SYMBOLS );
++
++	for( i = 0; i &lt; ECOS_NUM_SYMBOLS; i++ )
++	{
++		(*symbol_list)[i].symbol_name = eCos_symbol_list[i];
++	}
++
++	return 0;
++}
++
++static int eCos_detect_rtos( struct target* target )
++{
++	if ( ( target-&gt;rtos-&gt;symbols != NULL ) &amp;&amp;
++		 ( target-&gt;rtos-&gt;symbols[eCos_VAL_thread_list].address != 0 ) )
++	{
++		// looks like eCos
++		return 1;
++	}
++	return 0;
++}
++
++static int eCos_create( struct target* target )
++{
++	int i = 0;
++	while ( ( i &lt; ECOS_NUM_PARAMS ) &amp;&amp; ( 0 != strcmp( eCos_params_list[i].target_name, target-&gt;type-&gt;name ) ) )
++	{
++		i++;
++	}
++	if ( i &gt;= ECOS_NUM_PARAMS )
++	{
++		LOG_OUTPUT(&quot;Could not find target in eCos compatability list\r\n&quot;);
++		return -1;
++	}
++
++	target-&gt;rtos-&gt;rtos_specific_params = (void*) &amp;eCos_params_list[i];
++	target-&gt;rtos-&gt;current_thread = 0;
++	target-&gt;rtos-&gt;thread_details = NULL;
++	return 0;
++}
+diff --git a/src/rtos/rtos.c b/src/rtos/rtos.c
+index 3cdd912..9eed08e 100644
+--- a/src/rtos/rtos.c
++++ b/src/rtos/rtos.c
+@@ -38,11 +38,13 @@ static int str_to_hex( char* hex_dst, char* src );
+ /* RTOSs */
+ extern struct rtos_type FreeRTOS_rtos;
+ extern struct rtos_type ThreadX_rtos;
++extern struct rtos_type eCos_rtos;
+ 
+ static struct rtos_type *rtos_types[] =
+ {
+ 	&amp;ThreadX_rtos,
+ 	&amp;FreeRTOS_rtos,
++	&amp;eCos_rtos,
+ 	NULL
+ };
+ 
+diff --git a/src/rtos/rtos_ecos_stackings.c b/src/rtos/rtos_ecos_stackings.c
+new file mode 100644
+index 0000000..a81b477
+--- /dev/null
++++ b/src/rtos/rtos_ecos_stackings.c
+@@ -0,0 +1,63 @@
++/***************************************************************************
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;rtos.h&quot;
++
++static const struct stack_register_offset rtos_eCos_Cortex_M3_stack_offsets [] =
++{ { 0x0c, 32 },       // r0
++  { 0x10, 32 },       // r1
++  { 0x14, 32 },       // r2
++  { 0x18, 32 },       // r3
++  { 0x1c, 32 },       // r4
++  { 0x20, 32 },       // r5
++  { 0x24, 32 },       // r6
++  { 0x28, 32 },       // r7
++  { 0x2c, 32 },       // r8
++  { 0x30, 32 },       // r9
++  { 0x34, 32 },       // r10
++  { 0x38, 32 },       // r11
++  { 0x3c, 32 },       // r12
++  { -2,   32 },       // sp
++  { -1,   32 },       // lr
++  { 0x40, 32 },       // pc
++  { -1,   96 },       // FPA1
++  { -1,   96 },       // FPA2
++  { -1,   96 },       // FPA3
++  { -1,   96 },       // FPA4
++  { -1,   96 },       // FPA5
++  { -1,   96 },       // FPA6
++  { -1,   96 },       // FPA7
++  { -1,   96 },       // FPA8
++  { -1,   32 },       // FPS
++  { -1,   32 },       // xPSR
++};
++
++
++const struct rtos_register_stacking rtos_eCos_Cortex_M3_stacking =
++{
++          0x44,                                 // stack_registers_size
++          -1,                                   // stack_growth_direction
++          26,                                   // num_output_registers
++          rtos_eCos_Cortex_M3_stack_offsets     // register_offsets
++};
++
++
+diff --git a/src/rtos/rtos_ecos_stackings.h b/src/rtos/rtos_ecos_stackings.h
+new file mode 100644
+index 0000000..82f0855
+--- /dev/null
++++ b/src/rtos/rtos_ecos_stackings.h
+@@ -0,0 +1,30 @@
++/***************************************************************************
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++#ifndef INCLUDED_RTOS_STANDARD_STACKINGS_H_
++#define INCLUDED_RTOS_STANDARD_STACKINGS_H_
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;rtos.h&quot;
++
++extern const struct rtos_register_stacking rtos_eCos_Cortex_M3_stacking;
++
++#endif //ifndef INCLUDED_RTOS_STANDARD_STACKINGS_H_
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/rtos/Makefile.am                               |    2 +-
+ src/rtos/eCos.c                                    |  427 ++++++++++++++++++++
+ src/rtos/rtos.c                                    |   14 +-
+ ..._standard_stackings.c =&gt; rtos_ecos_stackings.c} |   42 +-
+ ..._standard_stackings.h =&gt; rtos_ecos_stackings.h} |    4 +-
+ 5 files changed, 462 insertions(+), 27 deletions(-)
+ create mode 100644 src/rtos/eCos.c
+ copy src/rtos/{rtos_standard_stackings.c =&gt; rtos_ecos_stackings.c} (67%)
+ copy src/rtos/{rtos_standard_stackings.h =&gt; rtos_ecos_stackings.h} (86%)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002600.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-883-g6d6837f
+</A></li>
+	<LI>Next message: <A HREF="002602.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-886-g73988ae
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2601">[ date ]</a>
+              <a href="thread.html#2601">[ thread ]</a>
+              <a href="subject.html#2601">[ subject ]</a>
+              <a href="author.html#2601">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

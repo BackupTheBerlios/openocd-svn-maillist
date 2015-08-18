@@ -1,0 +1,551 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1804 - in trunk: doc src/flash src/target	src/target/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1804%20-%20in%20trunk%3A%20doc%20src/flash%20src/target%0A%09src/target/target&In-Reply-To=%3C200905180444.n4I4iafQ025868%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000587.html">
+   <LINK REL="Next"  HREF="000589.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1804 - in trunk: doc src/flash src/target	src/target/target</H1>
+    <B>kc8apf at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1804%20-%20in%20trunk%3A%20doc%20src/flash%20src/target%0A%09src/target/target&In-Reply-To=%3C200905180444.n4I4iafQ025868%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1804 - in trunk: doc src/flash src/target	src/target/target">kc8apf at mail.berlios.de
+       </A><BR>
+    <I>Mon May 18 06:44:36 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000587.html">[Openocd-svn] r1803 - trunk/doc
+</A></li>
+        <LI>Next message: <A HREF="000589.html">[Openocd-svn] r1805 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#588">[ date ]</a>
+              <a href="thread.html#588">[ thread ]</a>
+              <a href="subject.html#588">[ subject ]</a>
+              <a href="author.html#588">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kc8apf
+Date: 2009-05-18 06:44:28 +0200 (Mon, 18 May 2009)
+New Revision: 1804
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/flash/ecos.c
+   trunk/src/flash/flash.c
+   trunk/src/flash/lpc3180_nand_controller.c
+   trunk/src/flash/mflash.c
+   trunk/src/flash/orion_nand.c
+   trunk/src/flash/s3c24xx_nand.c
+   trunk/src/target/etb.c
+   trunk/src/target/etm.c
+   trunk/src/target/etm_dummy.c
+   trunk/src/target/image.c
+   trunk/src/target/target.c
+   trunk/src/target/target.h
+   trunk/src/target/target/ti_dm355.cfg
+   trunk/src/target/xscale.c
+Log:
+Consolidate target selection code into single get_target() that handles both names and numbers.  Provided by David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-05-18 04:40:11 UTC (rev 1803)
++++ trunk/doc/openocd.texi	2009-05-18 04:44:28 UTC (rev 1804)
+@@ -881,6 +881,8 @@
+ At no time should the name ``target0'' (the default target name if
+ none was specified) be used. The name ``target0'' is a hard coded name
+ - the next target on the board will be some other number.
++In the same way, avoid using target numbers even when they are
++permitted; use the right target name(s) for your board.
+ 
+ The user (or board file) should reasonably be able to:
+ 
+@@ -1702,7 +1704,8 @@
+ @item @b{Note: Deprecated} - Index Numbers
+ @* Prior to 28/nov/2008, JTAG taps where numbered from 0..N this
+ feature is still present, however its use is highly discouraged and
+-should not be counted upon.
++should not be counted upon.  Update all of your scripts to use
++TAP names rather than numbers.
+ @item @b{Multiple chips}
+ @* If your board has multiple chips, you should be
+ able to @b{source} two configuration files, in the proper order, and
+@@ -2045,8 +2048,8 @@
+ @itemize @bullet
+ @item @b{NAME}
+ @* Is the name of the debug target. By convention it should be the tap
+-DOTTED.NAME, this name is also used to create the target object
+-command.
++DOTTED.NAME.  This name is also used to create the target object
++command, and in other places the target needs to be identified.
+ @item @b{TYPE}
+ @* Specifies the target type, i.e.: ARM7TDMI, or Cortex-M3. Currently supported targets are:
+ @comment START types
+@@ -2254,7 +2257,7 @@
+ 
+ @example
+ @b{flash bank} &lt;@var{driver}&gt; &lt;@var{base}&gt; &lt;@var{size}&gt; &lt;@var{chip_width}&gt;
+-&lt;@var{bus_width}&gt; &lt;@var{target#}&gt; [@var{driver_options ...}]
++&lt;@var{bus_width}&gt; &lt;@var{target}&gt; [@var{driver_options ...}]
+ @end example
+ @cindex flash bank
+ @*Configures a flash bank at &lt;@var{base}&gt; of &lt;@var{size}&gt; bytes and &lt;@var{chip_width}&gt;
+@@ -2274,8 +2277,9 @@
+ on the flash chip.
+ 
+ @b{flash bank cfi} &lt;@var{base}&gt; &lt;@var{size}&gt; &lt;@var{chip_width}&gt; &lt;@var{bus_width}&gt;
+-&lt;@var{target#}&gt; [@var{jedec_probe}|@var{x16_as_x8}]
+-@*CFI flashes require the number of the target they're connected to as an additional
++&lt;@var{target}&gt; [@var{jedec_probe}|@var{x16_as_x8}]
++@*CFI flashes require the name or number of the target they're connected to
++as an additional
+ argument. The CFI driver makes use of a working area (specified for the target)
+ to significantly speed up operation. 
+ 
+@@ -2289,12 +2293,13 @@
+ @subsubsection lpc2000 options
+ @cindex lpc2000 options
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{flash bank lpc2000} &lt;@var{base}&gt; &lt;@var{size}&gt; 0 0 &lt;@var{target#}&gt; &lt;@var{variant}&gt;
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{flash bank lpc2000} &lt;@var{base}&gt; &lt;@var{size}&gt; 0 0 &lt;@var{target}&gt; &lt;@var{variant}&gt;
+ &lt;@var{clock}&gt; [@var{calc_checksum}]
+ @*LPC flashes don't require the chip and bus width to be specified. Additional
+ parameters are the &lt;@var{variant}&gt;, which may be @var{lpc2000_v1} (older LPC21xx and LPC22xx)
+-or @var{lpc2000_v2} (LPC213x, LPC214x, LPC210[123], LPC23xx and LPC24xx), the number
+-of the target this flash belongs to (first is 0), the frequency at which the core
++or @var{lpc2000_v2} (LPC213x, LPC214x, LPC210[123], LPC23xx and LPC24xx),
++the name or number of the target this flash belongs to (first is 0),
++the frequency at which the core
+ is currently running (in kHz - must be an integral number), and the optional keyword
+ @var{calc_checksum}, telling the driver to calculate a valid checksum for the exception
+ vector table. 
+@@ -2303,20 +2308,20 @@
+ @subsubsection at91sam7 options
+ @cindex at91sam7 options
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{flash bank at91sam7} 0 0 0 0 &lt;@var{target#}&gt;
+-@*AT91SAM7 flashes only require the @var{target#}, all other values are looked up after
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{flash bank at91sam7} 0 0 0 0 &lt;@var{target}&gt;
++@*AT91SAM7 flashes only require the @var{target}, all other values are looked up after
+ reading the chip-id and type. 
+ 
+ @subsubsection str7 options
+ @cindex str7 options
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{flash bank str7x} &lt;@var{base}&gt; &lt;@var{size}&gt; 0 0 &lt;@var{target#}&gt; &lt;@var{variant}&gt;
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{flash bank str7x} &lt;@var{base}&gt; &lt;@var{size}&gt; 0 0 &lt;@var{target}&gt; &lt;@var{variant}&gt;
+ @*variant can be either STR71x, STR73x or STR75x. 
+ 
+ @subsubsection str9 options
+ @cindex str9 options
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{flash bank str9x} &lt;@var{base}&gt; &lt;@var{size}&gt; 0 0 &lt;@var{target#}&gt;
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{flash bank str9x} &lt;@var{base}&gt; &lt;@var{size}&gt; 0 0 &lt;@var{target}&gt;
+ @*The str9 needs the flash controller to be configured prior to Flash programming, e.g.
+ @example
+ str9x flash_config 0 4 2 0 0x80000
+@@ -2325,7 +2330,7 @@
+ 
+ @subsubsection str9 options (str9xpec driver)
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{flash bank str9xpec} &lt;@var{base}&gt; &lt;@var{size}&gt; 0 0 &lt;@var{target#}&gt;
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{flash bank str9xpec} &lt;@var{base}&gt; &lt;@var{size}&gt; 0 0 &lt;@var{target}&gt;
+ @*Before using the flash commands the turbo mode must be enabled using str9xpec
+ @option{enable_turbo} &lt;@var{num&gt;.}
+ 
+@@ -2335,25 +2340,25 @@
+ @subsubsection Stellaris (LM3Sxxx) options
+ @cindex Stellaris (LM3Sxxx) options
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{flash bank stellaris} &lt;@var{base}&gt; &lt;@var{size}&gt; 0 0 &lt;@var{target#}&gt;
+-@*Stellaris flash plugin only require the @var{target#}. 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{flash bank stellaris} &lt;@var{base}&gt; &lt;@var{size}&gt; 0 0 &lt;@var{target}&gt;
++@*Stellaris flash plugin only require the @var{target}.
+ 
+ @subsubsection stm32x options
+ @cindex stm32x options
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{flash bank stm32x} &lt;@var{base}&gt; &lt;@var{size}&gt; 0 0 &lt;@var{target#}&gt;
+-@*stm32x flash plugin only require the @var{target#}. 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{flash bank stm32x} &lt;@var{base}&gt; &lt;@var{size}&gt; 0 0 &lt;@var{target}&gt;
++@*stm32x flash plugin only require the @var{target}.
+ 
+ @subsubsection aduc702x options
+ @cindex aduc702x options
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{flash bank aduc702x} 0 0 0 0 &lt;@var{target#}&gt;
+-@*The aduc702x flash plugin works with Analog Devices model numbers ADUC7019 through ADUC7028.  The setup command only requires the @var{target#} argument (all devices in this family have the same memory layout).
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{flash bank aduc702x} 0 0 0 0 &lt;@var{target}&gt;
++@*The aduc702x flash plugin works with Analog Devices model numbers ADUC7019 through ADUC7028.  The setup command only requires the @var{target} argument (all devices in this family have the same memory layout).
+ 
+ @subsection mFlash Configuration
+ @cindex mFlash Configuration
+ @b{mflash bank} &lt;@var{soc}&gt; &lt;@var{base}&gt; &lt;@var{chip_width}&gt; &lt;@var{bus_width}&gt;
+-&lt;@var{RST pin}&gt; &lt;@var{WP pin}&gt; &lt;@var{DPD pin}&gt; &lt;@var{target #}&gt;
++&lt;@var{RST pin}&gt; &lt;@var{WP pin}&gt; &lt;@var{DPD pin}&gt; &lt;@var{target}&gt;
+ @cindex mflash bank
+ @*Configures a mflash for &lt;@var{soc}&gt; host bank at
+ &lt;@var{base}&gt;. &lt;@var{chip_width}&gt; and &lt;@var{bus_width}&gt; are bytes
+
+Modified: trunk/src/flash/ecos.c
+===================================================================
+--- trunk/src/flash/ecos.c	2009-05-18 04:40:11 UTC (rev 1803)
++++ trunk/src/flash/ecos.c	2009-05-18 04:44:28 UTC (rev 1804)
+@@ -164,10 +164,10 @@
+ 		bank-&gt;sectors[i].is_protected = 0;
+ 	}
+ 
+-	info-&gt;target = get_target_by_num(strtoul(args[5], NULL, 0));
++	info-&gt;target = get_target(args[5]);
+ 	if (info-&gt;target == NULL)
+ 	{
+-		LOG_ERROR(&quot;no target '%i' configured&quot;, (int)strtoul(args[5], NULL, 0));
++		LOG_ERROR(&quot;target '%s' not defined&quot;, args[5]);
+ 		return ERROR_FAIL;
+ 	}
+ 	return ERROR_OK;
+
+Modified: trunk/src/flash/flash.c
+===================================================================
+--- trunk/src/flash/flash.c	2009-05-18 04:40:11 UTC (rev 1803)
++++ trunk/src/flash/flash.c	2009-05-18 04:44:28 UTC (rev 1804)
+@@ -261,9 +261,9 @@
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	if ((target = get_target_by_num(strtoul(args[5], NULL, 0))) == NULL)
++	if ((target = get_target(args[5])) == NULL)
+ 	{
+-		LOG_ERROR(&quot;target %lu not defined&quot;, strtoul(args[5], NULL, 0));
++		LOG_ERROR(&quot;target '%s' not defined&quot;, args[5]);
+ 		return ERROR_FAIL;
+ 	}
+ 
+
+Modified: trunk/src/flash/lpc3180_nand_controller.c
+===================================================================
+--- trunk/src/flash/lpc3180_nand_controller.c	2009-05-18 04:40:11 UTC (rev 1803)
++++ trunk/src/flash/lpc3180_nand_controller.c	2009-05-18 04:44:28 UTC (rev 1804)
+@@ -71,10 +71,10 @@
+ 	lpc3180_info = malloc(sizeof(lpc3180_nand_controller_t));
+ 	device-&gt;controller_priv = lpc3180_info;
+ 
+-	lpc3180_info-&gt;target = get_target_by_num(strtoul(args[1], NULL, 0));
++	lpc3180_info-&gt;target = get_target(args[1]);
+ 	if (!lpc3180_info-&gt;target)
+ 	{
+-		LOG_ERROR(&quot;no target '%s' configured&quot;, args[1]);
++		LOG_ERROR(&quot;target '%s' not defined&quot;, args[1]);
+ 		return ERROR_NAND_DEVICE_INVALID;
+ 	}
+ 
+
+Modified: trunk/src/flash/mflash.c
+===================================================================
+--- trunk/src/flash/mflash.c	2009-05-18 04:40:11 UTC (rev 1803)
++++ trunk/src/flash/mflash.c	2009-05-18 04:44:28 UTC (rev 1804)
+@@ -795,9 +795,9 @@
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	if ((target = get_target_by_num(strtoul(args[7], NULL, 0))) == NULL)
++	if ((target = get_target(args[7])) == NULL)
+ 	{
+-		LOG_ERROR(&quot;target %lu not defined&quot;, strtoul(args[7], NULL, 0));
++		LOG_ERROR(&quot;target '%s' not defined&quot;, args[7]);
+ 		return ERROR_FAIL;
+ 	}
+ 
+
+Modified: trunk/src/flash/orion_nand.c
+===================================================================
+--- trunk/src/flash/orion_nand.c	2009-05-18 04:40:11 UTC (rev 1803)
++++ trunk/src/flash/orion_nand.c	2009-05-18 04:44:28 UTC (rev 1804)
+@@ -210,9 +210,9 @@
+ 	}
+ 
+ 	device-&gt;controller_priv = hw;
+-	hw-&gt;target = get_target_by_num(strtoul(args[1], NULL, 0));
++	hw-&gt;target = get_target(args[1]);
+ 	if (!hw-&gt;target) {
+-		LOG_ERROR(&quot;no target '%s' configured&quot;, args[1]);
++		LOG_ERROR(&quot;target '%s' not defined&quot;, args[1]);
+ 		free(hw);
+ 		return ERROR_NAND_DEVICE_INVALID;
+ 	}
+
+Modified: trunk/src/flash/s3c24xx_nand.c
+===================================================================
+--- trunk/src/flash/s3c24xx_nand.c	2009-05-18 04:40:11 UTC (rev 1803)
++++ trunk/src/flash/s3c24xx_nand.c	2009-05-18 04:44:28 UTC (rev 1804)
+@@ -46,12 +46,12 @@
+ 
+ 	device-&gt;controller_priv = s3c24xx_info;
+ 
+-	s3c24xx_info-&gt;target = get_target_by_num(strtoul(args[1], NULL, 0));
++	s3c24xx_info-&gt;target = get_target(args[1]);
+ 	if (s3c24xx_info-&gt;target == NULL) {
+-		LOG_ERROR(&quot;no target '%s' configured&quot;, args[1]);
++		LOG_ERROR(&quot;target '%s' not defined&quot;, args[1]);
+ 		return NULL;
+ 	}
+-		
++
+ 	return s3c24xx_info;
+ }
+ 
+
+Modified: trunk/src/target/etb.c
+===================================================================
+--- trunk/src/target/etb.c	2009-05-18 04:40:11 UTC (rev 1803)
++++ trunk/src/target/etb.c	2009-05-18 04:44:28 UTC (rev 1804)
+@@ -372,11 +372,11 @@
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	target = get_target_by_num(strtoul(args[0], NULL, 0));
++	target = get_target(args[0]);
+ 
+ 	if (!target)
+ 	{
+-		LOG_ERROR(&quot;target number '%s' not defined&quot;, args[0]);
++		LOG_ERROR(&quot;target '%s' not defined&quot;, args[0]);
+ 		return ERROR_FAIL;
+ 	}
+ 
+
+Modified: trunk/src/target/etm.c
+===================================================================
+--- trunk/src/target/etm.c	2009-05-18 04:40:11 UTC (rev 1803)
++++ trunk/src/target/etm.c	2009-05-18 04:44:28 UTC (rev 1804)
+@@ -1205,11 +1205,10 @@
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	target = get_target_by_num(strtoul(args[0], NULL, 0));
+-
++	target = get_target(args[0]);
+ 	if (!target)
+ 	{
+-		LOG_ERROR(&quot;target number '%s' not defined&quot;, args[0]);
++		LOG_ERROR(&quot;target '%s' not defined&quot;, args[0]);
+ 		return ERROR_FAIL;
+ 	}
+ 
+
+Modified: trunk/src/target/etm_dummy.c
+===================================================================
+--- trunk/src/target/etm_dummy.c	2009-05-18 04:40:11 UTC (rev 1803)
++++ trunk/src/target/etm_dummy.c	2009-05-18 04:44:28 UTC (rev 1804)
+@@ -31,11 +31,11 @@
+ 	armv4_5_common_t *armv4_5;
+ 	arm7_9_common_t *arm7_9;
+ 
+-	target = get_target_by_num(strtoul(args[0], NULL, 0));
++	target = get_target(args[0]);
+ 
+ 	if (!target)
+ 	{
+-		LOG_ERROR(&quot;target number '%s' not defined&quot;, args[0]);
++		LOG_ERROR(&quot;target '%s' not defined&quot;, args[0]);
+ 		return ERROR_FAIL;
+ 	}
+ 
+
+Modified: trunk/src/target/image.c
+===================================================================
+--- trunk/src/target/image.c	2009-05-18 04:40:11 UTC (rev 1803)
++++ trunk/src/target/image.c	2009-05-18 04:44:28 UTC (rev 1804)
+@@ -711,10 +711,11 @@
+ 	}
+ 	else if (image-&gt;type == IMAGE_MEMORY)
+ 	{
+-		target_t *target = get_target_by_num(strtoul(url, NULL, 0));
+-		if (target==NULL)
++		target_t *target = get_target(url);
++
++		if (target == NULL)
+ 		{
+-			LOG_ERROR(&quot;Target '%s' does not exist&quot;, url);
++			LOG_ERROR(&quot;target '%s' not defined&quot;, url);
+ 			return ERROR_FAIL;
+ 		}
+ 
+
+Modified: trunk/src/target/target/ti_dm355.cfg
+===================================================================
+--- trunk/src/target/target/ti_dm355.cfg	2009-05-18 04:40:11 UTC (rev 1803)
++++ trunk/src/target/target/ti_dm355.cfg	2009-05-18 04:44:28 UTC (rev 1804)
+@@ -56,8 +56,5 @@
+ arm7_9 dcc_downloads enable
+ 
+ # trace setup
+-# FIXME we ought to be able to say &quot;... config $_TARGETNAME ...&quot;
+-# (not &quot;config 0&quot;) facilitating additional targets (e.g. other chips)
+-etm config 0 16 normal full etb
+-etb config 0 $_CHIPNAME.etb
+-
++etm config $_TARGETNAME 16 normal full etb
++etb config $_TARGETNAME $_CHIPNAME.etb
+
+Modified: trunk/src/target/target.c
+===================================================================
+--- trunk/src/target/target.c	2009-05-18 04:40:11 UTC (rev 1803)
++++ trunk/src/target/target.c	2009-05-18 04:44:28 UTC (rev 1804)
+@@ -320,8 +320,36 @@
+ 	*buffer = value;
+ }
+ 
++/* return a pointer to a configured target; id is name or number */
++target_t *get_target(const char *id)
++{
++	target_t *target;
++	char *endptr;
++	int num;
++
++	/* try as tcltarget name */
++	for (target = all_targets; target; target = target-&gt;next) {
++		if (target-&gt;cmd_name == NULL)
++			continue;
++		if (strcmp(id, target-&gt;cmd_name) == 0)
++			return target;
++	}
++
++	/* no match, try as number */
++	num = strtoul(id, &amp;endptr, 0);
++	if (*endptr != 0)
++		return NULL;
++
++	for (target = all_targets; target; target = target-&gt;next) {
++		if (target-&gt;target_number == num)
++			return target;
++	}
++
++	return NULL;
++}
++
+ /* returns a pointer to the n-th configured target */
+-target_t* get_target_by_num(int num)
++static target_t *get_target_by_num(int num)
+ {
+ 	target_t *target = all_targets;
+ 
+@@ -1333,35 +1361,16 @@
+ 
+ static int handle_targets_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
+ {
+-	char *cp;
+ 	target_t *target = all_targets;
+ 
+ 	if (argc == 1)
+ 	{
+-		/* try as tcltarget name */
+-		for( target = all_targets ; target ; target = target-&gt;next ){
+-		  if( target-&gt;cmd_name ){
+-			if( 0 == strcmp( args[0], target-&gt;cmd_name ) ){
+-				/* MATCH */
+-				goto Match;
+-			}
+-		  }
+-		}
+-		/* no match, try as number */
+-
+-		int num = strtoul(args[0], &amp;cp, 0 );
+-		if( *cp != 0 ){
+-			/* then it was not a number */
+-			command_print( cmd_ctx, &quot;Target: %s unknown, try one of:\n&quot;, args[0] );
++		target = get_target(args[0]);
++		if (target == NULL) {
++			command_print(cmd_ctx,&quot;Target: %s is unknown, try one of:\n&quot;, args[0] );
+ 			goto DumpTargets;
+ 		}
+ 
+-		target = get_target_by_num( num );
+-		if( target == NULL ){
+-			command_print(cmd_ctx,&quot;Target: %s is unknown, try one of:\n&quot;, args[0] );
+-			goto DumpTargets;
+-		}
+-	Match:
+ 		cmd_ctx-&gt;current_target = target-&gt;target_number;
+ 		return ERROR_OK;
+ 	}
+
+Modified: trunk/src/target/target.h
+===================================================================
+--- trunk/src/target/target.h	2009-05-18 04:40:11 UTC (rev 1803)
++++ trunk/src/target/target.h	2009-05-18 04:44:28 UTC (rev 1804)
+@@ -371,7 +371,7 @@
+ 
+ extern target_t* get_current_target(struct command_context_s *cmd_ctx);
+ extern int get_num_by_target(target_t *query_target);
+-extern target_t* get_target_by_num(int num);
++extern target_t *get_target(const char *id);
+ 
+ extern int target_write_buffer(struct target_s *target, u32 address, u32 size, u8 *buffer);
+ extern int target_read_buffer(struct target_s *target, u32 address, u32 size, u8 *buffer);
+
+Modified: trunk/src/target/xscale.c
+===================================================================
+--- trunk/src/target/xscale.c	2009-05-18 04:40:11 UTC (rev 1803)
++++ trunk/src/target/xscale.c	2009-05-18 04:44:28 UTC (rev 1804)
+@@ -3147,9 +3147,9 @@
+ 		return ERROR_OK;
+ 	}
+ 
+-	if ((target = get_target_by_num(strtoul(args[0], NULL, 0))) == NULL)
++	if ((target = get_target(args[0])) == NULL)
+ 	{
+-		LOG_ERROR(&quot;no target '%s' configured&quot;, args[0]);
++		LOG_ERROR(&quot;target '%s' not defined&quot;, args[0]);
+ 		return ERROR_FAIL;
+ 	}
+ 
+@@ -3187,9 +3187,10 @@
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	if ((target = get_target_by_num(strtoul(args[0], NULL, 0))) == NULL)
++	target = get_target(args[0]);
++	if (target == NULL)
+ 	{
+-		LOG_ERROR(&quot;no target '%s' configured&quot;, args[0]);
++		LOG_ERROR(&quot;target '%s' not defined&quot;, args[0]);
+ 		return ERROR_FAIL;
+ 	}
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000587.html">[Openocd-svn] r1803 - trunk/doc
+</A></li>
+	<LI>Next message: <A HREF="000589.html">[Openocd-svn] r1805 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#588">[ date ]</a>
+              <a href="thread.html#588">[ thread ]</a>
+              <a href="subject.html#588">[ subject ]</a>
+              <a href="author.html#588">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

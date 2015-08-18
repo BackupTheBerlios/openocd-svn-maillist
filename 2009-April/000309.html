@@ -1,0 +1,222 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1525 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1525%20-%20trunk/src/jtag&In-Reply-To=%3C200904241810.n3OIA7WK022395%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000308.html">
+   <LINK REL="Next"  HREF="000310.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1525 - trunk/src/jtag</H1>
+    <B>oharboe at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1525%20-%20trunk/src/jtag&In-Reply-To=%3C200904241810.n3OIA7WK022395%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1525 - trunk/src/jtag">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Fri Apr 24 20:10:07 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000308.html">[Openocd-svn] r1524 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000310.html">[Openocd-svn] r1526 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#309">[ date ]</a>
+              <a href="thread.html#309">[ thread ]</a>
+              <a href="subject.html#309">[ subject ]</a>
+              <a href="author.html#309">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-04-24 20:10:04 +0200 (Fri, 24 Apr 2009)
+New Revision: 1525
+
+Modified:
+   trunk/src/jtag/jlink.c
+   trunk/src/jtag/jtag.c
+   trunk/src/jtag/jtag.h
+Log:
+add jtag_debug_state_machine
+
+Modified: trunk/src/jtag/jlink.c
+===================================================================
+--- trunk/src/jtag/jlink.c	2009-04-24 16:24:55 UTC (rev 1524)
++++ trunk/src/jtag/jlink.c	2009-04-24 18:10:04 UTC (rev 1525)
+@@ -114,6 +114,8 @@
+ static void jlink_debug_buffer(u8 *buffer, int length);
+ #endif
+ 
++static enum tap_state jlink_last_state = TAP_RESET;
++
+ static jlink_jtag_t* jlink_jtag_handle;
+ 
+ /***************************************************************************/
+@@ -681,6 +683,9 @@
+ 	memcpy(usb_out_buffer + 4, tms_buffer, byte_length);
+ 	memcpy(usb_out_buffer + 4 + byte_length, tdi_buffer, byte_length);
+ 
++	jlink_last_state = jtag_debug_state_machine(tms_buffer, tdi_buffer,
++			tap_length, jlink_last_state);
++
+ 	result = jlink_usb_message(jlink_jtag_handle, 4 + 2 * byte_length, byte_length);
+ 	if (result != byte_length)
+ 	{
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-04-24 16:24:55 UTC (rev 1524)
++++ trunk/src/jtag/jtag.c	2009-04-24 18:10:04 UTC (rev 1525)
+@@ -3283,4 +3283,89 @@
+ 	return TAP_INVALID;
+ }
+ 
++#ifdef _DEBUG_JTAG_IO_
++
++#define JTAG_DEBUG_STATE_APPEND(buf, len, bit) \
++		do { buf[len] = bit ? '1' : '0'; } while(0)
++#define JTAG_DEBUG_STATE_PRINT(a, b, astr, bstr) \
++		DEBUG_JTAG_IO(&quot;TAP/SM: %9s -&gt; %5s\tTMS: %s\tTDI: %s&quot;, \
++			tap_state_name(a), tap_state_name(b), astr, bstr)
++
++tap_state_t jtag_debug_state_machine(const void *tms_buf, const void *tdi_buf,
++		unsigned tap_bits, tap_state_t next_state)
++{
++	const u8 *tms_buffer;
++	const u8 *tdi_buffer;
++	unsigned tap_bytes;
++	unsigned cur_byte;
++	unsigned cur_bit;
++
++	unsigned tap_out_bits;
++	char tms_str[33];
++	char tdi_str[33];
++
++	tap_state_t last_state;
++
++	// set startstate (and possibly last, if tap_bits == 0) 
++	last_state = next_state;
++	DEBUG_JTAG_IO(&quot;TAP/SM: START state: %s&quot;, tap_state_name(next_state));
++
++	tms_buffer = (const u8 *)tms_buf;
++	tdi_buffer = (const u8 *)tdi_buf;
++
++	tap_bytes = TAP_SCAN_BYTES(tap_bits);
++	DEBUG_JTAG_IO(&quot;TAP/SM: TMS bits: %u (bytes: %u)&quot;, tap_bits, tap_bytes);
++
++	tap_out_bits = 0;
++	for(cur_byte = 0; cur_byte &lt; tap_bytes; cur_byte++)
++	{
++		for(cur_bit = 0; cur_bit &lt; 8; cur_bit++)
++		{
++			// make sure we do not run off the end of the buffers
++			unsigned tap_bit = cur_byte * 8 + cur_bit;
++			if (tap_bit == tap_bits)
++				break;
++
++			// check and save TMS bit
++			tap_bit = !!(tms_buffer[cur_byte] &amp; (1 &lt;&lt; cur_bit));
++			JTAG_DEBUG_STATE_APPEND(tms_str, tap_out_bits, tap_bit);
++
++			// use TMS bit to find the next TAP state
++			next_state = tap_state_transition(last_state, tap_bit);
++
++			// check and store TDI bit
++			tap_bit = !!(tdi_buffer[cur_byte] &amp; (1 &lt;&lt; cur_bit));
++			JTAG_DEBUG_STATE_APPEND(tdi_str, tap_out_bits, tap_bit);
++
++			// increment TAP bits
++			tap_out_bits++;
++
++			// Only show TDO bits on state transitions, or
++			// after some number of bits in the same state.
++			if ((next_state == last_state) &amp;&amp; (tap_out_bits &lt; 32))
++				continue;
++
++			// terminate strings and display state transition
++			tms_str[tap_out_bits] = tdi_str[tap_out_bits] = 0;
++			JTAG_DEBUG_STATE_PRINT(last_state, next_state, tms_str, tdi_str);
++
++			// reset state
++			last_state = next_state;
++			tap_out_bits = 0;
++		}
++	}
++
++	if (tap_out_bits)
++	{
++		// terminate strings and display state transition
++		tms_str[tap_out_bits] = tdi_str[tap_out_bits] = 0;
++		JTAG_DEBUG_STATE_PRINT(last_state, next_state, tms_str, tdi_str);
++	}
++
++	DEBUG_JTAG_IO(&quot;TAP/SM: FINAL state: %s&quot;, tap_state_name(next_state));
++
++	return next_state;
++}
++#endif // _DEBUG_JTAG_IO_
++
+ /*-----&lt;/Cable Helper API&gt;--------------------------------------*/
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-04-24 16:24:55 UTC (rev 1524)
++++ trunk/src/jtag/jtag.h	2009-04-24 18:10:04 UTC (rev 1525)
+@@ -206,6 +206,25 @@
+  */
+ const char* tap_state_name(tap_state_t state);
+ 
++#ifdef _DEBUG_JTAG_IO_
++/**
++ * @brief Prints verbose TAP state transitions for the given TMS/TDI buffers.
++ * @param tms_buf must points to a buffer containing the TMS bitstream.
++ * @param tdi_buf must points to a buffer containing the TDI bitstream.
++ * @param tap_len must specify the length of the TMS/TDI bitstreams.
++ * @param start_tap_state must specify the current TAP state.
++ * @returns the final TAP state; pass as @a start_tap_state in following call.
++ */
++tap_state_t jtag_debug_state_machine(const void *tms_buf, const void *tdi_buf,
++		unsigned tap_len, tap_state_t start_tap_state);
++#else
++static inline tap_state_t jtag_debug_state_machine(const void *tms_buf,
++		const void *tdi_buf, unsigned tap_len, tap_state_t start_tap_state)
++{
++	return start_tap_state;
++}
++#endif // _DEBUG_JTAG_IO_
++
+ /*-----&lt;/Cable Helper API&gt;------------------------------------------*/
+ 
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000308.html">[Openocd-svn] r1524 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000310.html">[Openocd-svn] r1526 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#309">[ date ]</a>
+              <a href="thread.html#309">[ thread ]</a>
+              <a href="subject.html#309">[ subject ]</a>
+              <a href="author.html#309">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

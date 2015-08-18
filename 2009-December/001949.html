@@ -1,0 +1,580 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-925-g75c706c
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-925-g75c706c&In-Reply-To=%3CE1NJEtG-0002eW-9T%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001948.html">
+   <LINK REL="Next"  HREF="001950.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-925-g75c706c</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-925-g75c706c&In-Reply-To=%3CE1NJEtG-0002eW-9T%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-925-g75c706c">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Sat Dec 12 00:27:11 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001948.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-922-g0858946
+</A></li>
+        <LI>Next message: <A HREF="001950.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-927-g75892bf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1949">[ date ]</a>
+              <a href="thread.html#1949">[ thread ]</a>
+              <a href="subject.html#1949">[ subject ]</a>
+              <a href="author.html#1949">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  75c706cc043183d98592dbe3c6f170d627849d0f (commit)
+       via  838d41af29c0b703fd55ebb5c3aebcb4e0bea460 (commit)
+       via  cfd79e96a6436cea427245a2c2f18fd52001898b (commit)
+      from  08589462adf3f81b480faacecb8352428212a2f5 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 75c706cc043183d98592dbe3c6f170d627849d0f
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Dec 11 15:26:10 2009 -0800
+
+    ARM DPM: support updating HW breakpoints
+    
+    Abstract the DPM breakpoint and watchpoint data structures to
+    have a shared core for housekeeping.
+    
+    Abstract the code updating the watchpoint registers so that it
+    can be used to update breakpoint registers.  Then do so, when
+    something has set up the breakpoint state used by this code.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_dpm.c b/src/target/arm_dpm.c
+index bd9c5d1..0908ca9 100644
+--- a/src/target/arm_dpm.c
++++ b/src/target/arm_dpm.c
+@@ -277,6 +277,51 @@ fail:
+ 	return retval;
+ }
+ 
++/* Avoid needless I/O ... leave breakpoints and watchpoints alone
++ * unless they're removed, or need updating because of single-stepping
++ * or running debugger code.
++ */
++static int dpm_maybe_update_bpwp(struct arm_dpm *dpm, bool bpwp,
++		struct dpm_bpwp *xp, int *set_p)
++{
++	int retval = ERROR_OK;
++	bool disable;
++
++	if (!set_p) {
++		if (!xp-&gt;dirty)
++			goto done;
++		xp-&gt;dirty = false;
++		/* removed or startup; we must disable it */
++		disable = true;
++	} else if (bpwp) {
++		if (!xp-&gt;dirty)
++			goto done;
++		/* disabled, but we must set it */
++		xp-&gt;dirty = disable = false;
++		*set_p = true;
++	} else {
++		if (!*set_p)
++			goto done;
++		/* set, but we must temporarily disable it */
++		xp-&gt;dirty = disable = true;
++		*set_p = false;
++	}
++
++	if (disable)
++		retval = dpm-&gt;bpwp_disable(dpm, xp-&gt;number);
++	else
++		retval = dpm-&gt;bpwp_enable(dpm, xp-&gt;number,
++				xp-&gt;address, xp-&gt;control);
++
++	if (retval != ERROR_OK)
++		LOG_ERROR(&quot;%s: can't %s HW bp/wp %d&quot;,
++				disable ? &quot;disable&quot; : &quot;enable&quot;,
++				target_name(dpm-&gt;arm-&gt;target),
++				xp-&gt;number);
++done:
++	return retval;
++}
++
+ /**
+  * Writes all modified core registers for all processor modes.  In normal
+  * operation this is called on exit from halting debug state.
+@@ -296,47 +341,22 @@ int arm_dpm_write_dirty_registers(struct arm_dpm *dpm, bool bpwp)
+ 	if (retval != ERROR_OK)
+ 		goto done;
+ 
++	/* enable/disable hardware breakpoints */
++	for (unsigned i = 0; i &lt; dpm-&gt;nbp; i++) {
++		struct dpm_bp *dbp = dpm-&gt;dbp + i;
++		struct breakpoint *bp = dbp-&gt;bp;
++
++		retval = dpm_maybe_update_bpwp(dpm, bpwp, &amp;dbp-&gt;bpwp,
++				bp ? &amp;bp-&gt;set : NULL);
++	}
++
+ 	/* enable/disable watchpoints */
+ 	for (unsigned i = 0; i &lt; dpm-&gt;nwp; i++) {
+ 		struct dpm_wp *dwp = dpm-&gt;dwp + i;
+ 		struct watchpoint *wp = dwp-&gt;wp;
+-		bool disable;
+-
+-		/* Avoid needless I/O ... leave watchpoints alone
+-		 * unless they're removed, or need updating because
+-		 * of single-stepping or running debugger code.
+-		 */
+-		if (!wp) {
+-			if (!dwp-&gt;dirty)
+-				continue;
+-			dwp-&gt;dirty = false;
+-			/* removed or startup; we must disable it */
+-			disable = true;
+-		} else if (bpwp) {
+-			if (!dwp-&gt;dirty)
+-				continue;
+-			/* disabled, but we must set it */
+-			dwp-&gt;dirty = disable = false;
+-			wp-&gt;set = true;
+-		} else {
+-			if (!wp-&gt;set)
+-				continue;
+-			/* set, but we must temporarily disable it */
+-			dwp-&gt;dirty = disable = true;
+-			wp-&gt;set = false;
+-		}
+-
+-		if (disable)
+-			retval = dpm-&gt;bpwp_disable(dpm, 16 + i);
+-		else
+-			retval = dpm-&gt;bpwp_enable(dpm, 16 + i,
+-					wp-&gt;address &amp; ~3, dwp-&gt;control);
+ 
+-		if (retval != ERROR_OK)
+-			LOG_ERROR(&quot;%s: can't %s HW watchpoint %d&quot;,
+-					target_name(arm-&gt;target),
+-					disable ? &quot;disable&quot; : &quot;enable&quot;,
+-					i);
++		retval = dpm_maybe_update_bpwp(dpm, bpwp, &amp;dwp-&gt;bpwp,
++				wp ? &amp;wp-&gt;set : NULL);
+ 	}
+ 
+ 	/* NOTE:  writes to breakpoint and watchpoint registers might
+@@ -696,8 +716,9 @@ static int dpm_watchpoint_setup(struct arm_dpm *dpm, unsigned index,
+ 	 */
+ 
+ 	dpm-&gt;dwp[index].wp = wp;
+-	dpm-&gt;dwp[index].control = control;
+-	dpm-&gt;dwp[index].dirty = true;
++	dpm-&gt;dwp[index].bpwp.address = addr &amp; ~3;
++	dpm-&gt;dwp[index].bpwp.control = control;
++	dpm-&gt;dwp[index].bpwp.dirty = true;
+ 
+ 	/* hardware is updated in write_dirty_registers() */
+ 	return ERROR_OK;
+@@ -731,7 +752,7 @@ static int dpm_remove_watchpoint(struct target *target, struct watchpoint *wp)
+ 	for (unsigned i = 0; i &lt; dpm-&gt;nwp; i++) {
+ 		if (dpm-&gt;dwp[i].wp == wp) {
+ 			dpm-&gt;dwp[i].wp = NULL;
+-			dpm-&gt;dwp[i].dirty = true;
++			dpm-&gt;dwp[i].bpwp.dirty = true;
+ 
+ 			/* hardware is updated in write_dirty_registers() */
+ 			retval = ERROR_OK;
+@@ -869,10 +890,14 @@ int arm_dpm_initialize(struct arm_dpm *dpm)
+ 	if (dpm-&gt;bpwp_disable) {
+ 		unsigned i;
+ 
+-		for (i = 0; i &lt; dpm-&gt;nbp; i++)
++		for (i = 0; i &lt; dpm-&gt;nbp; i++) {
++			dpm-&gt;dbp[i].bpwp.number = i;
+ 			(void) dpm-&gt;bpwp_disable(dpm, i);
+-		for (i = 0; i &lt; dpm-&gt;nwp; i++)
++		}
++		for (i = 0; i &lt; dpm-&gt;nwp; i++) {
++			dpm-&gt;dwp[i].bpwp.number = 16 + i;
+ 			(void) dpm-&gt;bpwp_disable(dpm, 16 + i);
++		}
+ 	} else
+ 		LOG_WARNING(&quot;%s: can't disable breakpoints and watchpoints&quot;,
+ 			target_name(dpm-&gt;arm-&gt;target));
+diff --git a/src/target/arm_dpm.h b/src/target/arm_dpm.h
+index 135e3db..5d75ed4 100644
+--- a/src/target/arm_dpm.h
++++ b/src/target/arm_dpm.h
+@@ -31,24 +31,22 @@
+  * registers are compatible.
+  */
+ 
+-struct dpm_bp {
+-	struct breakpoint *bp;
+-	/* bp-&gt;address == breakpoint value register
+-	 * control == breakpoint control register
+-	 */
++struct dpm_bpwp {
++	unsigned number;
++	uint32_t address;
+ 	uint32_t control;
+ 	/* true if hardware state needs flushing */
+ 	bool dirty;
+ };
+ 
++struct dpm_bp {
++	struct breakpoint *bp;
++	struct dpm_bpwp bpwp;
++};
++
+ struct dpm_wp {
+ 	struct watchpoint *wp;
+-	/* wp-&gt;address == watchpoint value register
+-	 * control == watchpoint control register
+-	 */
+-	uint32_t control;
+-	/* true if hardware state needs flushing */
+-	bool dirty;
++	struct dpm_bpwp bpwp;
+ };
+ 
+ /**
+
+commit 838d41af29c0b703fd55ebb5c3aebcb4e0bea460
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Dec 11 15:24:08 2009 -0800
+
+    ARM: disassembly fixes for LDC/STC/MRRC/MCRR
+    
+    Properly detect all of these, including the &quot;2&quot; variants;
+    and bugfix parameter display for LDC and STC.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm_disassembler.c b/src/target/arm_disassembler.c
+index 5c8ad6a..770c5e9 100644
+--- a/src/target/arm_disassembler.c
++++ b/src/target/arm_disassembler.c
+@@ -288,8 +288,13 @@ static int evaluate_ldc_stc_mcrr_mrrc(uint32_t opcode,
+ 			mnemonic = &quot;MRRC&quot;;
+ 		}
+ 
+-		snprintf(instruction-&gt;text, 128, &quot;0x%8.8&quot; PRIx32 &quot;\t0x%8.8&quot; PRIx32 &quot;\t%s%s p%i, %x, r%i, r%i, c%i&quot;,
+-				 address, opcode, mnemonic, COND(opcode), cp_num, cp_opcode, Rd, Rn, CRm);
++		snprintf(instruction-&gt;text, 128,
++				&quot;0x%8.8&quot; PRIx32 &quot;\t0x%8.8&quot; PRIx32
++				&quot;\t%s%s%s p%i, %x, r%i, r%i, c%i&quot;,
++				 address, opcode, mnemonic,
++				((opcode &amp; 0xf0000000) == 0xf0000000)
++						? &quot;2&quot; : COND(opcode),
++				 COND(opcode), cp_num, cp_opcode, Rd, Rn, CRm);
+ 	}
+ 	else /* LDC or STC */
+ 	{
+@@ -300,7 +305,7 @@ static int evaluate_ldc_stc_mcrr_mrrc(uint32_t opcode,
+ 
+ 		CRd = (opcode &amp; 0xf000) &gt;&gt; 12;
+ 		Rn = (opcode &amp; 0xf0000) &gt;&gt; 16;
+-		offset = (opcode &amp; 0xff);
++		offset = (opcode &amp; 0xff) &lt;&lt; 2;
+ 
+ 		/* load/store */
+ 		if (opcode &amp; 0x00100000)
+@@ -318,19 +323,27 @@ static int evaluate_ldc_stc_mcrr_mrrc(uint32_t opcode,
+ 		N = (opcode &amp; 0x00400000) &gt;&gt; 22;
+ 
+ 		/* addressing modes */
+-		if ((opcode &amp; 0x01200000) == 0x01000000) /* immediate offset */
+-			snprintf(addressing_mode, 32, &quot;[r%i, #%s0x%2.2x*4]&quot;, Rn, (U) ? &quot;&quot; : &quot;-&quot;, offset);
+-		else if ((opcode &amp; 0x01200000) == 0x01200000) /* immediate pre-indexed */
+-			snprintf(addressing_mode, 32, &quot;[r%i, #%s0x%2.2x*4]!&quot;, Rn, (U) ? &quot;&quot; : &quot;-&quot;, offset);
+-		else if ((opcode &amp; 0x01200000) == 0x00200000) /* immediate post-indexed */
+-			snprintf(addressing_mode, 32, &quot;[r%i], #%s0x%2.2x*4&quot;, Rn, (U) ? &quot;&quot; : &quot;-&quot;, offset);
++		if ((opcode &amp; 0x01200000) == 0x01000000) /* offset */
++			snprintf(addressing_mode, 32, &quot;[r%i, #%s%d]&quot;,
++					Rn, U ? &quot;&quot; : &quot;-&quot;, offset);
++		else if ((opcode &amp; 0x01200000) == 0x01200000) /* pre-indexed */
++			snprintf(addressing_mode, 32, &quot;[r%i, #%s%d]!&quot;,
++					Rn, U ? &quot;&quot; : &quot;-&quot;, offset);
++		else if ((opcode &amp; 0x01200000) == 0x00200000) /* post-indexed */
++			snprintf(addressing_mode, 32, &quot;[r%i], #%s%d&quot;,
++					Rn, U ? &quot;&quot; : &quot;-&quot;, offset);
+ 		else if ((opcode &amp; 0x01200000) == 0x00000000) /* unindexed */
+-			snprintf(addressing_mode, 32, &quot;[r%i], #0x%2.2x&quot;, Rn, offset);
++			snprintf(addressing_mode, 32, &quot;[r%i], {%d}&quot;,
++					Rn, offset &gt;&gt; 2);
+ 
+-		snprintf(instruction-&gt;text, 128, &quot;0x%8.8&quot; PRIx32 &quot;\t0x%8.8&quot; PRIx32 &quot;\t%s%s%s p%i, c%i, %s&quot;,
+-				 address, opcode, mnemonic, ((opcode &amp; 0xf0000000) == 0xf0000000) ? COND(opcode) : &quot;2&quot;,
+-				 (N) ? &quot;L&quot; : &quot;&quot;,
+-				 cp_num, CRd, addressing_mode);
++		snprintf(instruction-&gt;text, 128, &quot;0x%8.8&quot; PRIx32
++				&quot;\t0x%8.8&quot; PRIx32
++				&quot;\t%s%s%s p%i, c%i, %s&quot;,
++				address, opcode, mnemonic,
++				((opcode &amp; 0xf0000000) == 0xf0000000)
++						? &quot;2&quot; : COND(opcode),
++				(opcode &amp; (1 &lt;&lt; 22)) ? &quot;L&quot; : &quot;&quot;,
++				cp_num, CRd, addressing_mode);
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -1638,7 +1651,8 @@ static int evaluate_data_proc(uint32_t opcode,
+ 	return ERROR_OK;
+ }
+ 
+-int arm_evaluate_opcode(uint32_t opcode, uint32_t address, struct arm_instruction *instruction)
++int arm_evaluate_opcode(uint32_t opcode, uint32_t address,
++		struct arm_instruction *instruction)
+ {
+ 	/* clear fields, to avoid confusion */
+ 	memset(instruction, 0, sizeof(struct arm_instruction));
+@@ -1760,7 +1774,7 @@ int arm_evaluate_opcode(uint32_t opcode, uint32_t address, struct arm_instructio
+ 	}
+ 
+ 	/* catch opcodes with [27:25] = b110 */
+-	if ((opcode &amp; 0x0e000000) == 0x0a000000)
++	if ((opcode &amp; 0x0e000000) == 0x0c000000)
+ 	{
+ 		/* Coprocessor load/store and double register transfers */
+ 		return evaluate_ldc_stc_mcrr_mrrc(opcode, address, instruction);
+@@ -1782,7 +1796,8 @@ int arm_evaluate_opcode(uint32_t opcode, uint32_t address, struct arm_instructio
+ 			return evaluate_cdp_mcr_mrc(opcode, address, instruction);
+ 	}
+ 
+-	LOG_ERROR(&quot;should never reach this point&quot;);
++	LOG_ERROR(&quot;ARM: should never reach this point (opcode=%08x)&quot;,
++			(unsigned) opcode);
+ 	return -1;
+ }
+ 
+@@ -2796,7 +2811,7 @@ int thumb_evaluate_opcode(uint16_t opcode, uint32_t address, struct arm_instruct
+ 		}
+ 	}
+ 
+-	LOG_ERROR(&quot;should never reach this point (opcode=%04x)&quot;,opcode);
++	LOG_ERROR(&quot;Thumb: should never reach this point (opcode=%04x)&quot;, opcode);
+ 	return -1;
+ }
+ 
+
+commit cfd79e96a6436cea427245a2c2f18fd52001898b
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Dec 11 15:24:08 2009 -0800
+
+    ARM11: minor cleanup, mostly ITR comments
+    
+    ITR register handling seemed to be giving me problems, so I updated
+    the comments to better say what the code is trying to do ... and to
+    note the preconditions (one of which seems to be an issue) as listed
+    in the ARM1136 TRM.
+    
+    Also removed the unused &quot;ARM11_TAP_DEFAULT&quot; from the ITR scan code;
+    all the callers already specify an exit path, since this register
+    isn't usable with such vague semantics.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 7b29f53..7c747c0 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -1012,27 +1012,25 @@ static int arm11_write_memory_inner(struct target *target,
+ 		}
+ 
+ 	case 4: {
++		/* increment:		STC p14,c5,[R0],#4 */
++		/* no increment:	STC p14,c5,[R0]*/
+ 		uint32_t instr = !no_increment ? 0xeca05e01 : 0xed805e00;
+ 
+ 		/** \todo TODO: buffer cast to uint32_t* causes alignment warnings */
+ 		uint32_t *words = (uint32_t*)buffer;
+ 
++		/* &quot;burst&quot; here just means trusting each instruction executes
++		 * fully before we run the next one:  per-word roundtrips, to
++		 * check the Ready flag, are not used.
++		 */
+ 		if (!burst)
+-		{
+-			/* STC p14,c5,[R0],#4 */
+-			/* STC p14,c5,[R0]*/
+-			retval = arm11_run_instr_data_to_core(arm11, instr, words, count);
+-			if (retval != ERROR_OK)
+-				return retval;
+-		}
++			retval = arm11_run_instr_data_to_core(arm11,
++					instr, words, count);
+ 		else
+-		{
+-			/* STC p14,c5,[R0],#4 */
+-			/* STC p14,c5,[R0]*/
+-			retval = arm11_run_instr_data_to_core_noack(arm11, instr, words, count);
+-			if (retval != ERROR_OK)
+-				return retval;
+-		}
++			retval = arm11_run_instr_data_to_core_noack(arm11,
++					instr, words, count);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		break;
+ 	}
+@@ -1309,7 +1307,7 @@ static const struct command_registration arm11_mw_command_handlers[] = {
+ 		.name = &quot;burst&quot;,
+ 		.handler = &amp;arm11_handle_bool_memwrite_burst,
+ 		.mode = COMMAND_ANY,
+-		.help = &quot;Enable/Disable non-standard but fast burst mode&quot;
++		.help = &quot;Enable/Disable potentially risky fast burst mode&quot;
+ 			&quot; (default: enabled)&quot;,
+ 	},
+ 	{
+diff --git a/src/target/arm11_dbgtap.c b/src/target/arm11_dbgtap.c
+index 9ad5662..554d6e2 100644
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -230,22 +230,23 @@ int arm11_add_debug_SCAN_N(struct arm11_common *arm11,
+ 	return jtag_execute_queue();
+ }
+ 
+-/** Write an instruction into the ITR register
++/**
++ * Queue a DR scan of the ITR register.  Caller must have selected
++ * scan chain 4 (ITR), possibly using ITRSEL.
+  *
+  * \param arm11		Target state variable.
+  * \param inst		An ARM11 processor instruction/opcode.
+- * \param flag		Optional parameter to retrieve the InstCompl flag
+- *					(this will be written when the JTAG chain is executed).
+- * \param state		Pass the final TAP state or ARM11_TAP_DEFAULT for the default
+- *					value (Run-Test/Idle).
++ * \param flag		Optional parameter to retrieve the Ready flag;
++ *	this address will be written when the JTAG chain is scanned.
++ * \param state		The TAP state to enter after the DR scan.
+  *
+- * \remarks			By default this ends with Run-Test/Idle state
+- *					and causes the instruction to be executed. If
+- *					a subsequent write to DTR is needed before
+- *					executing the instruction then TAP_DRPAUSE should be
+- *					passed to \p state.
++ * Going through the TAP_DRUPDATE state writes ITR only if Ready was
++ * previously set.  Only the Ready flag is readable by the scan.
+  *
+- * \remarks			This adds to the JTAG command queue but does \em not execute it.
++ * An instruction loaded into ITR is executed when going through the
++ * TAP_IDLE state only if Ready was previously set and the debug state
++ * is properly set up.  Depending on the instruction, you may also need
++ * to ensure that the rDTR is ready before that Run-Test/Idle state.
+  */
+ static void arm11_add_debug_INST(struct arm11_common * arm11,
+ 		uint32_t inst, uint8_t * flag, tap_state_t state)
+@@ -257,7 +258,7 @@ static void arm11_add_debug_INST(struct arm11_common * arm11,
+ 	arm11_setup_field(arm11, 32,    &amp;inst,	NULL, itr + 0);
+ 	arm11_setup_field(arm11, 1,	    NULL,	flag, itr + 1);
+ 
+-	arm11_add_dr_scan_vc(ARRAY_SIZE(itr), itr, state == ARM11_TAP_DEFAULT ? TAP_IDLE : state);
++	arm11_add_dr_scan_vc(ARRAY_SIZE(itr), itr, state);
+ }
+ 
+ /**
+@@ -374,7 +375,11 @@ int arm11_run_instr_data_finish(struct arm11_common * arm11)
+ 
+ 
+ 
+-/** Execute one or multiple instructions via ITR
++/**
++ * Execute one or more instructions via ITR.
++ * Caller guarantees that processor is in debug state, that DSCR_ITR_EN
++ * is set, the ITR Ready flag is set (as seen on the previous entry to
++ * TAP_DRCAPTURE), and the DSCR sticky abort flag is clear.
+  *
+  * \pre arm11_run_instr_data_prepare() /  arm11_run_instr_data_finish() block
+  *
+@@ -444,6 +449,10 @@ int arm11_run_instr_no_data1(struct arm11_common * arm11, uint32_t opcode)
+ /** Execute one instruction via ITR repeatedly while
+  *  passing data to the core via DTR on each execution.
+  *
++ * Caller guarantees that processor is in debug state, that DSCR_ITR_EN
++ * is set, the ITR Ready flag is set (as seen on the previous entry to
++ * TAP_DRCAPTURE), and the DSCR sticky abort flag is clear.
++ *
+  *  The executed instruction \em must read data from DTR.
+  *
+  * \pre arm11_run_instr_data_prepare() /  arm11_run_instr_data_finish() block
+@@ -570,6 +579,10 @@ static const tap_state_t arm11_MOVE_DRPAUSE_IDLE_DRPAUSE_with_delay[] =
+ /** Execute one instruction via ITR repeatedly while
+  *  passing data to the core via DTR on each execution.
+  *
++ * Caller guarantees that processor is in debug state, that DSCR_ITR_EN
++ * is set, the ITR Ready flag is set (as seen on the previous entry to
++ * TAP_DRCAPTURE), and the DSCR sticky abort flag is clear.
++ *
+  *  No Ready check during transmission.
+  *
+  *  The executed instruction \em must read data from DTR.
+@@ -678,6 +691,10 @@ int arm11_run_instr_data_to_core1(struct arm11_common * arm11, uint32_t opcode,
+ /** Execute one instruction via ITR repeatedly while
+  *  reading data from the core via DTR on each execution.
+  *
++ * Caller guarantees that processor is in debug state, that DSCR_ITR_EN
++ * is set, the ITR Ready flag is set (as seen on the previous entry to
++ * TAP_DRCAPTURE), and the DSCR sticky abort flag is clear.
++ *
+  *  The executed instruction \em must write data to DTR.
+  *
+  * \pre arm11_run_instr_data_prepare() /  arm11_run_instr_data_finish() block
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm11.c            |   28 +++++------
+ src/target/arm11_dbgtap.c     |   43 +++++++++++-----
+ src/target/arm_disassembler.c |   51 +++++++++++++-------
+ src/target/arm_dpm.c          |  107 +++++++++++++++++++++++++----------------
+ src/target/arm_dpm.h          |   20 ++++----
+ 5 files changed, 151 insertions(+), 98 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001948.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-922-g0858946
+</A></li>
+	<LI>Next message: <A HREF="001950.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-927-g75892bf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1949">[ date ]</a>
+              <a href="thread.html#1949">[ thread ]</a>
+              <a href="subject.html#1949">[ subject ]</a>
+              <a href="author.html#1949">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

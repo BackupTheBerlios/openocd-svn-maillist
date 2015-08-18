@@ -1,0 +1,320 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-776-g0eed61b
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-776-g0eed61b&In-Reply-To=%3Cmailman.18.1331736153.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002534.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-776-g0eed61b</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-776-g0eed61b&In-Reply-To=%3Cmailman.18.1331736153.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-776-g0eed61b">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Wed Mar  2 19:07:30 CET 2011</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002534.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-782-gdf500c5
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2533">[ date ]</a>
+              <a href="thread.html#2533">[ thread ]</a>
+              <a href="subject.html#2533">[ subject ]</a>
+              <a href="author.html#2533">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  0eed61b7c4cb31338562db426cea0d1a999e0d9f (commit)
+       via  b992dd58f1bef87c35e942efef6070915dc74a37 (commit)
+       via  99cd373019c51af9f623b71fa17b3f3aa29e1b73 (commit)
+       via  2ed3f5554768791d29e017825a8866677ed4a533 (commit)
+      from  e5677ce9e523550f0de36d77b46461645a764cb3 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 0eed61b7c4cb31338562db426cea0d1a999e0d9f
+Author: Jean-Christophe PLAGNIOL-VILLARD &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">plagnioj at jcrosoft.com</A>&gt;
+Date:   Mon Feb 28 20:40:47 2011 +0100
+
+    jlink: add jlink_pid to specify the pid to use
+    
+    this will allow us to use multiple jlink at the same time as when
+    the USB-Address is specified the PID change from 0x0101 to
+    (0x101 + usb_adress)
+    
+    Signed-off-by: Jean-Christophe PLAGNIOL-VILLARD &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">plagnioj at jcrosoft.com</A>&gt;
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index 5b12386..353daa4 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -2323,6 +2323,8 @@ Segger jlink USB adapter
+ @c     dumps status
+ @c command:	jlink hw_jtag (2|3)
+ @c     sets version 2 or 3
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at c</A> command:	 jlink pid
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at c</A>     set the pid of the interface we want to use
+ @end deffn
+ 
+ @deffn {Interface Driver} {parport}
+diff --git a/src/jtag/drivers/jlink.c b/src/jtag/drivers/jlink.c
+index 8a2c5ab..faecab2 100644
+--- a/src/jtag/drivers/jlink.c
++++ b/src/jtag/drivers/jlink.c
+@@ -136,6 +136,10 @@ static enum tap_state jlink_last_state = TAP_RESET;
+ 
+ static struct jlink* jlink_handle;
+ 
++/* pid could be specified at runtime */
++static uint16_t vids[] = { VID, 0 };
++static uint16_t pids[] = { PID, 0 };
++
+ /***************************************************************************/
+ /* External interface implementation */
+ 
+@@ -621,6 +625,21 @@ static int jlink_get_version_info(void)
+ 	return ERROR_OK;
+ }
+ 
++COMMAND_HANDLER(jlink_pid_command)
++{
++	if (CMD_ARGC != 1)
++	{
++		LOG_ERROR(&quot;Need exactly one argument to jlink_pid&quot;);
++		return ERROR_FAIL;
++	}
++
++	pids[0] = strtoul(CMD_ARGV[0], NULL, 16);
++	pids[1] = 0;
++	vids[1] = 0;
++
++	return ERROR_OK;
++}
++
+ COMMAND_HANDLER(jlink_handle_jlink_info_command)
+ {
+ 	if (jlink_get_version_info() == ERROR_OK)
+@@ -670,6 +689,12 @@ static const struct command_registration jlink_subcommand_handlers[] = {
+ 		.help = &quot;access J-Link HW JTAG command version&quot;,
+ 		.usage = &quot;[2|3]&quot;,
+ 	},
++	{
++		.name = &quot;pid&quot;,
++		.handler = &amp;jlink_pid_command,
++		.mode = COMMAND_CONFIG,
++		.help = &quot;set the pid of the interface we want to use&quot;,
++	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
+@@ -871,8 +896,6 @@ static struct jlink* jlink_usb_open()
+ {
+ 	usb_init();
+ 
+-	const uint16_t vids[] = { VID, 0 };
+-	const uint16_t pids[] = { PID, 0 };
+ 	struct usb_dev_handle *dev;
+ 	if (jtag_usb_open(vids, pids, &amp;dev) != ERROR_OK)
+ 		return NULL;
+
+commit b992dd58f1bef87c35e942efef6070915dc74a37
+Author: Jean-Christophe PLAGNIOL-VILLARD &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">plagnioj at jcrosoft.com</A>&gt;
+Date:   Mon Feb 28 20:40:46 2011 +0100
+
+    jlink: switch commands to subcommands
+    
+    Signed-off-by: Jean-Christophe PLAGNIOL-VILLARD &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">plagnioj at jcrosoft.com</A>&gt;
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index 7772d78..5b12386 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -2319,9 +2319,9 @@ This is a write-once setting.
+ 
+ @deffn {Interface Driver} {jlink}
+ Segger jlink USB adapter
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at c</A> command:	jlink_info
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at c</A> command:	jlink info
+ @c     dumps status
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at c</A> command:	jlink_hw_jtag (2|3)
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at c</A> command:	jlink hw_jtag (2|3)
+ @c     sets version 2 or 3
+ @end deffn
+ 
+diff --git a/src/jtag/drivers/jlink.c b/src/jtag/drivers/jlink.c
+index b182b61..8a2c5ab 100644
+--- a/src/jtag/drivers/jlink.c
++++ b/src/jtag/drivers/jlink.c
+@@ -656,15 +656,15 @@ COMMAND_HANDLER(jlink_handle_jlink_hw_jtag_command)
+ 	return ERROR_OK;
+ }
+ 
+-static const struct command_registration jlink_command_handlers[] = {
++static const struct command_registration jlink_subcommand_handlers[] = {
+ 	{
+-		.name = &quot;jlink_info&quot;,
++		.name = &quot;info&quot;,
+ 		.handler = &amp;jlink_handle_jlink_info_command,
+ 		.mode = COMMAND_EXEC,
+ 		.help = &quot;show jlink info&quot;,
+ 	},
+ 	{
+-		.name = &quot;jlink_hw_jtag&quot;,
++		.name = &quot;hw_jtag&quot;,
+ 		.handler = &amp;jlink_handle_jlink_hw_jtag_command,
+ 		.mode = COMMAND_EXEC,
+ 		.help = &quot;access J-Link HW JTAG command version&quot;,
+@@ -673,6 +673,16 @@ static const struct command_registration jlink_command_handlers[] = {
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
++static const struct command_registration jlink_command_handlers[] = {
++	{
++		.name = &quot;jlink&quot;,
++		.mode = COMMAND_ANY,
++		.help = &quot;perform jlink management&quot;,
++		.chain = jlink_subcommand_handlers,
++	},
++	COMMAND_REGISTRATION_DONE
++};
++
+ struct jtag_interface jlink_interface = {
+ 	.name = &quot;jlink&quot;,
+ 	.commands = jlink_command_handlers,
+
+commit 99cd373019c51af9f623b71fa17b3f3aa29e1b73
+Author: Jean-Christophe PLAGNIOL-VILLARD &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">plagnioj at jcrosoft.com</A>&gt;
+Date:   Mon Feb 28 20:40:45 2011 +0100
+
+    jlink: harmonise the device name to J-Link
+    
+    Signed-off-by: Jean-Christophe PLAGNIOL-VILLARD &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">plagnioj at jcrosoft.com</A>&gt;
+
+diff --git a/src/jtag/drivers/jlink.c b/src/jtag/drivers/jlink.c
+index f1b9711..b182b61 100644
+--- a/src/jtag/drivers/jlink.c
++++ b/src/jtag/drivers/jlink.c
+@@ -580,7 +580,7 @@ static int jlink_get_version_info(void)
+ 	}
+ 
+ 	jlink_caps = buf_get_u32(usb_in_buffer, 0, 32);
+-	LOG_INFO(&quot;JLink caps 0x%x&quot;, (unsigned)jlink_caps);
++	LOG_INFO(&quot;J-Link caps 0x%x&quot;, (unsigned)jlink_caps);
+ 
+ 	if (jlink_caps &amp; (1 &lt;&lt; EMU_CAP_GET_HW_VERSION))
+ 	{
+@@ -599,7 +599,7 @@ static int jlink_get_version_info(void)
+ 		if (major_revision &gt;= 5)
+ 			jlink_hw_jtag_version = 3;
+ 
+-		LOG_INFO(&quot;JLink hw version %i&quot;, (int)jlink_hw_version);
++		LOG_INFO(&quot;J-Link hw version %i&quot;, (int)jlink_hw_version);
+ 	}
+ 
+ 	if (jlink_caps &amp; (1 &lt;&lt; EMU_CAP_GET_MAX_BLOCK_SIZE))
+@@ -615,7 +615,7 @@ static int jlink_get_version_info(void)
+ 		}
+ 
+ 		jlink_max_size = buf_get_u32(usb_in_buffer, 0, 32);
+-		LOG_INFO(&quot;JLink max mem block %i&quot;, (int)jlink_max_size);
++		LOG_INFO(&quot;J-Link max mem block %i&quot;, (int)jlink_max_size);
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -636,7 +636,7 @@ COMMAND_HANDLER(jlink_handle_jlink_hw_jtag_command)
+ {
+ 	switch (CMD_ARGC) {
+ 	case 0:
+-		command_print(CMD_CTX, &quot;jlink hw jtag  %i&quot;, jlink_hw_jtag_version);
++		command_print(CMD_CTX, &quot;J-Link hw jtag  %i&quot;, jlink_hw_jtag_version);
+ 		break;
+ 	case 1: {
+ 		int request_version = atoi(CMD_ARGV[0]);
+
+commit 2ed3f5554768791d29e017825a8866677ed4a533
+Author: Jean-Christophe PLAGNIOL-VILLARD &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">plagnioj at jcrosoft.com</A>&gt;
+Date:   Mon Feb 28 20:40:44 2011 +0100
+
+    jlink: add new PID and VID
+    
+    The default pid of the segger is 0x0101
+    But when you change the USB Address it will also
+    
+    pid = ( usb_address &gt; 0x4) ? 0x0101 : (0x101 + usb_address)
+    
+    Signed-off-by: Jean-Christophe PLAGNIOL-VILLARD &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">plagnioj at jcrosoft.com</A>&gt;
+
+diff --git a/src/jtag/drivers/jlink.c b/src/jtag/drivers/jlink.c
+index bc5448d..f1b9711 100644
+--- a/src/jtag/drivers/jlink.c
++++ b/src/jtag/drivers/jlink.c
+@@ -37,8 +37,14 @@
+ <A HREF="http://www.segger.com/cms/admin/uploads/productDocs/RM08001_JLinkUSBProtocol.pdf">http://www.segger.com/cms/admin/uploads/productDocs/RM08001_JLinkUSBProtocol.pdf</A>
+  */
+ 
+-#define VID 0x1366
+-#define PID 0x0101
++/*
++ * The default pid of the segger is 0x0101
++ * But when you change the USB Address it will also
++ *
++ * pid = ( usb_address &gt; 0x4) ? 0x0101 : (0x101 + usb_address)
++ */
++#define VID 0x1366, 0x1366, 0x1366, 0x1366
++#define PID 0x0101, 0x0102, 0x0103, 0x0104
+ 
+ #define JLINK_WRITE_ENDPOINT	0x02
+ #define JLINK_READ_ENDPOINT		0x81
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ doc/openocd.texi         |    6 +++-
+ src/jtag/drivers/jlink.c |   61 +++++++++++++++++++++++++++++++++++++--------
+ 2 files changed, 54 insertions(+), 13 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002534.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-782-gdf500c5
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2533">[ date ]</a>
+              <a href="thread.html#2533">[ thread ]</a>
+              <a href="subject.html#2533">[ subject ]</a>
+              <a href="author.html#2533">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

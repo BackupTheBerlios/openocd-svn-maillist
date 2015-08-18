@@ -1,0 +1,203 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-469-g94dba42
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-469-g94dba42&In-Reply-To=%3CE1NAtL8-0002Cn-UK%40cj8yhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001818.html">
+   <LINK REL="Next"  HREF="001820.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-469-g94dba42</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-469-g94dba42&In-Reply-To=%3CE1NAtL8-0002Cn-UK%40cj8yhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-469-g94dba42">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Wed Nov 18 23:49:29 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001818.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-468-gf5093e1
+</A></li>
+        <LI>Next message: <A HREF="001820.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-470-gf0c9e89
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1819">[ date ]</a>
+              <a href="thread.html#1819">[ thread ]</a>
+              <a href="subject.html#1819">[ subject ]</a>
+              <a href="author.html#1819">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  94dba423137d25fbe898fe7b04c451c6225a0079 (commit)
+      from  f5093e160534c269b8bc3590f5809ed3baead56f (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 94dba423137d25fbe898fe7b04c451c6225a0079
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Wed Nov 18 14:49:22 2009 -0800
+
+    ARM: add a default full_context() method
+    
+    If the core doesn't provide an optimized version of this
+    method, provide one without core-specific optimizations.
+    Use this to make Cortex-A8 support the &quot;arm reg&quot; command.
+    
+    Related: make the two register access methods properly static,
+    have the &quot;set&quot; log a &quot;not halted&quot; error too, and make sure
+    that the &quot;valid&quot; flag is set on successful reads.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/armv4_5.c b/src/target/armv4_5.c
+index 562dc1f..a4c704e 100644
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -299,7 +299,7 @@ static void arm_gdb_dummy_init(void)
+ 	register_init_dummy(&amp;arm_gdb_dummy_fps_reg);
+ }
+ 
+-int armv4_5_get_core_reg(struct reg *reg)
++static int armv4_5_get_core_reg(struct reg *reg)
+ {
+ 	int retval;
+ 	struct armv4_5_core_reg *armv4_5 = reg-&gt;arch_info;
+@@ -311,13 +311,14 @@ int armv4_5_get_core_reg(struct reg *reg)
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
+-	/* retval = armv4_5-&gt;armv4_5_common-&gt;full_context(target); */
+ 	retval = armv4_5-&gt;armv4_5_common-&gt;read_core_reg(target, armv4_5-&gt;num, armv4_5-&gt;mode);
++	if (retval == ERROR_OK)
++		reg-&gt;valid = 1;
+ 
+ 	return retval;
+ }
+ 
+-int armv4_5_set_core_reg(struct reg *reg, uint8_t *buf)
++static int armv4_5_set_core_reg(struct reg *reg, uint8_t *buf)
+ {
+ 	struct armv4_5_core_reg *armv4_5 = reg-&gt;arch_info;
+ 	struct target *target = armv4_5-&gt;target;
+@@ -326,6 +327,7 @@ int armv4_5_set_core_reg(struct reg *reg, uint8_t *buf)
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
++		LOG_ERROR(&quot;Target not halted&quot;);
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
+@@ -1038,6 +1040,21 @@ int arm_blank_check_memory(struct target *target,
+ 	return ERROR_OK;
+ }
+ 
++static int arm_full_context(struct target *target)
++{
++	struct armv4_5_common_s *armv4_5 = target_to_armv4_5(target);
++	unsigned num_regs = armv4_5-&gt;core_cache-&gt;num_regs;
++	struct reg *reg = armv4_5-&gt;core_cache-&gt;reg_list;
++	int retval = ERROR_OK;
++
++	for (; num_regs &amp;&amp; retval == ERROR_OK; num_regs--, reg++) {
++		if (reg-&gt;valid)
++			continue;
++		retval = armv4_5_get_core_reg(reg);
++	}
++	return retval;
++}
++
+ int armv4_5_init_arch_info(struct target *target, struct arm *armv4_5)
+ {
+ 	target-&gt;arch_info = armv4_5;
+@@ -1049,5 +1066,9 @@ int armv4_5_init_arch_info(struct target *target, struct arm *armv4_5)
+ 	/* core_type may be overridden by subtype logic */
+ 	armv4_5-&gt;core_type = ARMV4_5_MODE_ANY;
+ 
++	/* default full_context() has no core-specific optimizations */
++	if (!armv4_5-&gt;full_context &amp;&amp; armv4_5-&gt;read_core_reg)
++		armv4_5-&gt;full_context = arm_full_context;
++
+ 	return ERROR_OK;
+ }
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index b69f182..37e5e3e 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -1456,10 +1456,6 @@ int cortex_a8_init_arch_info(struct target *target,
+ 	struct arm *armv4_5 = &amp;armv7a-&gt;armv4_5_common;
+ 	struct swjdp_common *swjdp = &amp;armv7a-&gt;swjdp_info;
+ 
+-	/* REVISIT v7a setup should be in a v7a-specific routine */
+-	armv4_5_init_arch_info(target, armv4_5);
+-	armv7a-&gt;common_magic = ARMV7_COMMON_MAGIC;
+-
+ 	/* Setup struct cortex_a8_common */
+ 	cortex_a8-&gt;common_magic = CORTEX_A8_COMMON_MAGIC;
+ 	armv4_5-&gt;arch_info = armv7a;
+@@ -1503,12 +1499,10 @@ LOG_DEBUG(&quot; &quot;);
+ 
+ 	armv4_5-&gt;read_core_reg = cortex_a8_read_core_reg;
+ 	armv4_5-&gt;write_core_reg = cortex_a8_write_core_reg;
+-//	armv4_5-&gt;full_context = arm7_9_full_context;
+ 
+-//	armv4_5-&gt;load_core_reg_u32 = cortex_a8_load_core_reg_u32;
+-//	armv4_5-&gt;store_core_reg_u32 = cortex_a8_store_core_reg_u32;
+-//	armv4_5-&gt;read_core_reg = armv4_5_read_core_reg; /* this is default */
+-//	armv4_5-&gt;write_core_reg = armv4_5_write_core_reg;
++	/* REVISIT v7a setup should be in a v7a-specific routine */
++	armv4_5_init_arch_info(target, armv4_5);
++	armv7a-&gt;common_magic = ARMV7_COMMON_MAGIC;
+ 
+ 	target_register_timer_callback(cortex_a8_handle_target_request, 1, 1, target);
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/armv4_5.c   |   27 ++++++++++++++++++++++++---
+ src/target/cortex_a8.c |   12 +++---------
+ 2 files changed, 27 insertions(+), 12 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001818.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-468-gf5093e1
+</A></li>
+	<LI>Next message: <A HREF="001820.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-470-gf0c9e89
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1819">[ date ]</a>
+              <a href="thread.html#1819">[ thread ]</a>
+              <a href="subject.html#1819">[ subject ]</a>
+              <a href="author.html#1819">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

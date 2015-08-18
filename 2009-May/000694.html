@@ -1,0 +1,248 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1910 - in trunk: doc src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1910%20-%20in%20trunk%3A%20doc%20src/jtag&In-Reply-To=%3C200905242113.n4OLDYYf011374%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000693.html">
+   <LINK REL="Next"  HREF="000695.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1910 - in trunk: doc src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1910%20-%20in%20trunk%3A%20doc%20src/jtag&In-Reply-To=%3C200905242113.n4OLDYYf011374%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1910 - in trunk: doc src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Sun May 24 23:13:34 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000693.html">[Openocd-svn] r1909 - in trunk: doc src/server
+</A></li>
+        <LI>Next message: <A HREF="000695.html">[Openocd-svn] r1911 - trunk/src/flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#694">[ date ]</a>
+              <a href="thread.html#694">[ thread ]</a>
+              <a href="subject.html#694">[ subject ]</a>
+              <a href="author.html#694">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-05-24 23:13:29 +0200 (Sun, 24 May 2009)
+New Revision: 1910
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/jtag/ft2232.c
+   trunk/src/jtag/jtag.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Doc (mostly) update for jtag_khz:
+ - switch to @deffn syntax
+ - add entry for &quot;jtag_rclk&quot;
+ - move deprecated &quot;jtag_speed&quot; into collection of deprecated calls
+
+And for ft2232, don't be the only adapter to *log* an error if RTCK
+is requested; it's already reported properly, like any other nonfatal
+command parameter.  &quot;jtag_rclk&quot; just works as expected, without any
+scarey messages.
+
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-05-24 21:08:42 UTC (rev 1909)
++++ trunk/doc/openocd.texi	2009-05-24 21:13:29 UTC (rev 1910)
+@@ -1493,54 +1493,59 @@
+ Currently, there are no options available for the ep93xx interface.
+ 
+ @section JTAG Speed
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at itemize</A> @bullet
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{jtag_khz} &lt;@var{reset speed kHz}&gt;
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at cindex</A> jtag_khz
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at anchor</A>{JTAG Speed}
++JTAG clock setup is part of system setup.
++It @emph{does not belong with interface setup} since any interface
++only knows a few of the constraints for the JTAG clock speed.
++Sometimes the JTAG speed is
++changed during the target initialization process: (1) slow at
++reset, (2) program the CPU clocks, (3) run fast.
++Both the &quot;slow&quot; and &quot;fast&quot; clock rates are functions of the
++oscillators used, the chip, the board design, and sometimes
++power management software that may be active.
+ 
+-It is debatable if this command belongs here - or in a board
+-configuration file. In fact, in some situations the JTAG speed is
+-changed during the target initialisation process (i.e.: (1) slow at
+-reset, (2) program the CPU clocks, (3) run fast)
++The speed used during reset can be adjusted using pre_reset
++and post_reset event handlers.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at xref</A>{Target Events}.
+ 
+-Speed 0 (khz) selects RTCK method. A non-zero speed is in KHZ. Hence: 3000 is 3mhz. 
++If your system supports adaptive clocking (RTCK), configuring
++JTAG to use that is probably the most robust approach.
++However, it introduces delays to synchronize clocks; so it
++may not be the fastest solution.
+ 
+-Not all interfaces support ``rtck''. If the interface device can not
+-support the rate asked for, or can not translate from kHz to
+-jtag_speed, then an error is returned.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at b</A>{NOTE:} Script writers should consider using @command{jtag_rclk}
++instead of @command{jtag_khz}.
+ 
+-Make sure the JTAG clock is no more than @math{1/6th  CPU-Clock}. This is
+-especially true for synthesized cores (-S). Also see RTCK.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> {Command} jtag_khz max_speed_kHz
++A non-zero speed is in KHZ. Hence: 3000 is 3mhz.
++JTAG interfaces usually support a limited number of
++speeds.  The speed actually used won't be faster
++than the speed specified.
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at b</A>{NOTE: Script writers} If the target chip requires/uses RTCK -
+-please use the command: 'jtag_rclk FREQ'. This Tcl proc (in
+-startup.tcl) attempts to enable RTCK, if that fails it falls back to
+-the specified frequency.
++As a rule of thumb, if you specify a clock rate make
++sure the JTAG clock is no more than @math{1/6th CPU-Clock}.
++This is especially true for synthesized cores (ARMxxx-S).
+ 
++Speed 0 (khz) selects RTCK method.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at xref</A>{FAQ RTCK}.
++If your system uses RTCK, you won't need to change the
++JTAG clocking after setup.
++Not all interfaces, boards, or targets support ``rtck''.
++If the interface device can not
++support it, an error is returned when you try to use RTCK.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at defun</A> jtag_rclk fallback_speed_kHz
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at cindex</A> RTCK
++This Tcl proc (defined in startup.tcl) attempts to enable RTCK/RCLK.
++If that fails (maybe the interface, board, or target doesn't
++support it), falls back to the specified frequency.
+ @example
+-    # Fall back to 3mhz if RCLK is not supported
+-    jtag_rclk 3000
++# Fall back to 3mhz if RTCK is not supported
++jtag_rclk 3000
+ @end example
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> defun
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> @b{DEPRECATED} @b{jtag_speed} - please use jtag_khz above.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at cindex</A> jtag_speed
+-@*Limit the maximum speed of the JTAG interface. Usually, a value of zero means maximum
+-speed. The actual effect of this option depends on the JTAG interface used. 
+-
+-The speed used during reset can be adjusted using setting jtag_speed during
+-pre_reset and post_reset events.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at itemize</A> @minus
+-
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> wiggler: maximum speed / @var{number}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> ft2232: 6MHz / (@var{number}+1)
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> amt jtagaccel: 8 / 2**@var{number}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> jlink: maximum speed in kHz (0-12000), 0 will use RTCK
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at item</A> rlink: 24MHz / @var{number}, but only for certain values of @var{number}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at comment</A> end speed list.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> itemize
+-
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at comment</A> END command list
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">- at end</A> itemize
+-
+ @node Reset Configuration
+ @chapter Reset Configuration
+ @cindex Reset Configuration
+@@ -3696,6 +3701,20 @@
+ @item @b{flash auto_erase}
+ @cindex flash auto_erase
+ @*use @option{flash write_image} command passing @option{erase} as the first parameter. @xref{flash write_image}.
++
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> @b{jtag_speed} value
++@*@xref{JTAG Speed}.
++Usually, a value of zero means maximum
++speed. The actual effect of this option depends on the JTAG interface used.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at itemize</A> @minus
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> wiggler: maximum speed / @var{number}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> ft2232: 6MHz / (@var{number}+1)
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> amt jtagaccel: 8 / 2**@var{number}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> jlink: maximum speed in kHz (0-12000), 0 will use RTCK
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at item</A> rlink: 24MHz / @var{number}, but only for certain values of @var{number}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at comment</A> end speed list.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> itemize
++
+ @item @b{load_binary}
+ @cindex load_binary
+ @*use @option{load_image} command with same args. @xref{load_image}.
+@@ -3724,6 +3743,7 @@
+ @cindex faq
+ @enumerate
+ @item @b{RTCK, also known as: Adaptive Clocking - What is it?}
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at anchor</A>{FAQ RTCK}
+ @cindex RTCK
+ @cindex adaptive clocking
+ @*
+
+Modified: trunk/src/jtag/ft2232.c
+===================================================================
+--- trunk/src/jtag/ft2232.c	2009-05-24 21:08:42 UTC (rev 1909)
++++ trunk/src/jtag/ft2232.c	2009-05-24 21:13:29 UTC (rev 1910)
+@@ -446,7 +446,7 @@
+ {
+ 	if (khz==0)
+ 	{
+-		LOG_ERROR(&quot;RCLK not supported&quot;);
++		LOG_DEBUG(&quot;RTCK not supported&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-05-24 21:08:42 UTC (rev 1909)
++++ trunk/src/jtag/jtag.c	2009-05-24 21:13:29 UTC (rev 1910)
+@@ -2315,9 +2315,10 @@
+ 	register_command(cmd_ctx, NULL, &quot;interface&quot;, handle_interface_command,
+ 		COMMAND_CONFIG, &quot;try to configure interface&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;jtag_speed&quot;, handle_jtag_speed_command,
+-		COMMAND_ANY, &quot;set jtag speed (if supported)&quot;);
++		COMMAND_ANY, &quot;(DEPRECATED) set jtag speed (if supported)&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;jtag_khz&quot;, handle_jtag_khz_command,
+-		COMMAND_ANY, &quot;same as jtag_speed, except it takes maximum khz as arguments. 0 KHz = RTCK.&quot;);
++		COMMAND_ANY, &quot;set maximum jtag speed (if supported); &quot;
++		&quot;parameter is maximum khz, or 0 for adaptive clocking (RTCK).&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;jtag_device&quot;, handle_jtag_device_command,
+ 		COMMAND_CONFIG, &quot;jtag_device &lt;ir_length&gt; &lt;ir_expected&gt; &lt;ir_mask&gt;&quot;);
+ 	register_command(cmd_ctx, NULL, &quot;reset_config&quot;, handle_reset_config_command,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000693.html">[Openocd-svn] r1909 - in trunk: doc src/server
+</A></li>
+	<LI>Next message: <A HREF="000695.html">[Openocd-svn] r1911 - trunk/src/flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#694">[ date ]</a>
+              <a href="thread.html#694">[ thread ]</a>
+              <a href="subject.html#694">[ subject ]</a>
+              <a href="author.html#694">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

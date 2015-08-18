@@ -1,0 +1,141 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2566 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2566%20-%20trunk/src/target&In-Reply-To=%3C200907261958.n6QJwP38000966%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001348.html">
+   <LINK REL="Next"  HREF="001350.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2566 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2566%20-%20trunk/src/target&In-Reply-To=%3C200907261958.n6QJwP38000966%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2566 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Sun Jul 26 21:58:25 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001348.html">[Openocd-svn] r2565 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001350.html">[Openocd-svn] r2567 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1349">[ date ]</a>
+              <a href="thread.html#1349">[ thread ]</a>
+              <a href="subject.html#1349">[ subject ]</a>
+              <a href="author.html#1349">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-07-26 21:58:25 +0200 (Sun, 26 Jul 2009)
+New Revision: 2566
+
+Modified:
+   trunk/src/target/arm_disassembler.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt; More fixes from test cases:
+
+       A5.3.8 Load halfword, unallocated memory hints
+
+It's mostly the usual sort of bitmasking goofage and getting the
+width specs right.  In one case an older x86 GCC generated bad code
+unless I structred a conditional differently (sigh).
+
+Modified: trunk/src/target/arm_disassembler.c
+===================================================================
+--- trunk/src/target/arm_disassembler.c	2009-07-26 19:56:58 UTC (rev 2565)
++++ trunk/src/target/arm_disassembler.c	2009-07-26 19:58:25 UTC (rev 2566)
+@@ -3517,7 +3517,7 @@
+ 	int rn = (opcode &gt;&gt; 16) &amp; 0xf;
+ 	int rt = (opcode &gt;&gt; 12) &amp; 0xf;
+ 	int op2 = (opcode &gt;&gt; 6) &amp; 0x3f;
+-	char *sign = (opcode &amp; (1 &lt; 24)) ? &quot;S&quot; : &quot;&quot;;
++	char *sign = &quot;&quot;;
+ 	unsigned immed;
+ 
+ 	if (rt == 0xf) {
+@@ -3525,6 +3525,9 @@
+ 		return ERROR_OK;
+ 	}
+ 
++	if (opcode &amp; (1 &lt;&lt; 24))
++		sign = &quot;S&quot;;
++
+ 	if ((opcode &amp; (1 &lt;&lt; 23)) == 0) {
+ 		if (rn == 0xf) {
+ ldrh_literal:
+@@ -3547,16 +3550,16 @@
+ 			return ERROR_OK;
+ 		}
+ 		if ((op2 &amp; 0x3c) == 0x38) {
+-			immed = (opcode &gt;&gt; 4) &amp; 0x3;
++			immed = opcode &amp; 0xff;
+ 			sprintf(cp, &quot;LDR%sHT\tr%d, [r%d, #%d]\t; %#2.2x&quot;,
+ 					sign, rt, rn, immed, immed);
+ 			return ERROR_OK;
+ 		}
+ 		if ((op2 &amp; 0x3c) == 0x30 || (op2 &amp; 0x24) == 0x24) {
+-			char *p1 = &quot;]&quot;, *p2 = &quot;&quot;;
++			char *p1 = &quot;&quot;, *p2 = &quot;]&quot;;
+ 
+ 			immed = opcode &amp; 0xff;
+-			if (opcode &amp; 0x200)
++			if (!(opcode &amp; 0x200))
+ 				immed = -immed;
+ 
+ 			/* two indexed modes will write back rn */
+@@ -3577,8 +3580,9 @@
+ 			goto ldrh_literal;
+ 
+ 		immed = opcode &amp; 0xfff;
+-		sprintf(cp, &quot;LDR%sH.W\tr%d, [r%d, #%d]\t; %#6.6x&quot;,
+-				sign, rt, rn, immed, immed);
++		sprintf(cp, &quot;LDR%sH%s\tr%d, [r%d, #%d]\t; %#6.6x&quot;,
++				sign, *sign ? &quot;&quot; : &quot;.W&quot;,
++				rt, rn, immed, immed);
+ 		return ERROR_OK;
+ 	}
+ 
+@@ -3653,7 +3657,7 @@
+ 		retval = t2ev_load_word(opcode, address, instruction, cp);
+ 
+ 	/* ARMv7-M: A5.3.8 Load halfword, unallocated memory hints */
+-	else if ((opcode &amp; 0x1e700000) == 0x18e00000)
++	else if ((opcode &amp; 0x1e700000) == 0x18300000)
+ 		retval = t2ev_load_halfword(opcode, address, instruction, cp);
+ 
+ 	/* ARMv7-M: A5.3.9 Load byte, memory hints */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001348.html">[Openocd-svn] r2565 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001350.html">[Openocd-svn] r2567 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1349">[ date ]</a>
+              <a href="thread.html#1349">[ thread ]</a>
+              <a href="subject.html#1349">[ subject ]</a>
+              <a href="author.html#1349">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

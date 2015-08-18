@@ -1,0 +1,239 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-14-g98788d7
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-14-g98788d7&In-Reply-To=%3CE1N5ywd-0002zN-2U%409j8yhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001726.html">
+   <LINK REL="Next"  HREF="001728.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-14-g98788d7</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-14-g98788d7&In-Reply-To=%3CE1N5ywd-0002zN-2U%409j8yhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-14-g98788d7">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Thu Nov  5 10:47:54 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001726.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-13-g16b4b8c
+</A></li>
+        <LI>Next message: <A HREF="001728.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-15-gafed39c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1727">[ date ]</a>
+              <a href="thread.html#1727">[ thread ]</a>
+              <a href="subject.html#1727">[ subject ]</a>
+              <a href="author.html#1727">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  98788d7a75b4321c96845a8fbf814f254a6cf153 (commit)
+      from  16b4b8cf5453660c849546ebf8a0c3a5a082329e (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 98788d7a75b4321c96845a8fbf814f254a6cf153
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Thu Nov 5 01:47:44 2009 -0800
+
+    watchpoint_add() cleanup
+    
+    Fail watchpoint_add() if it's the same address but the
+    parameters are different ... don't just assume having
+    the same address means the same watchpoint!  (Note that
+    overlapping watchpoints aren't detected...)
+    
+    Handle unrecognized return codes more sanely; don't exit()!
+    And describe command params right.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/breakpoints.c b/src/target/breakpoints.c
+index 8898651..dd672b9 100644
+--- a/src/target/breakpoints.c
++++ b/src/target/breakpoints.c
+@@ -178,54 +178,61 @@ breakpoint_t* breakpoint_find(target_t *target, uint32_t address)
+ 	return NULL;
+ }
+ 
+-int watchpoint_add(target_t *target, uint32_t address, uint32_t length, enum watchpoint_rw rw, uint32_t value, uint32_t mask)
++int watchpoint_add(target_t *target, uint32_t address, uint32_t length,
++		enum watchpoint_rw rw, uint32_t value, uint32_t mask)
+ {
+ 	watchpoint_t *watchpoint = target-&gt;watchpoints;
+ 	watchpoint_t **watchpoint_p = &amp;target-&gt;watchpoints;
+ 	int retval;
++	char *reason;
+ 
+ 	while (watchpoint)
+ 	{
+-		if (watchpoint-&gt;address == address)
++		if (watchpoint-&gt;address == address) {
++			if (watchpoint-&gt;length != length
++					|| watchpoint-&gt;value != value
++					|| watchpoint-&gt;mask != mask
++					|| watchpoint-&gt;rw != rw) {
++				LOG_ERROR(&quot;address 0x%8.8&quot; PRIx32
++						&quot;already has watchpoint %d&quot;,
++						address, watchpoint-&gt;unique_id);
++				return ERROR_FAIL;
++			}
++
++			/* ignore duplicate watchpoint */
+ 			return ERROR_OK;
++		}
+ 		watchpoint_p = &amp;watchpoint-&gt;next;
+ 		watchpoint = watchpoint-&gt;next;
+ 	}
+ 
+-	(*watchpoint_p) = malloc(sizeof(watchpoint_t));
++	(*watchpoint_p) = calloc(1, sizeof(watchpoint_t));
+ 	(*watchpoint_p)-&gt;address = address;
+ 	(*watchpoint_p)-&gt;length = length;
+ 	(*watchpoint_p)-&gt;value = value;
+ 	(*watchpoint_p)-&gt;mask = mask;
+ 	(*watchpoint_p)-&gt;rw = rw;
+-	(*watchpoint_p)-&gt;set = 0;
+-	(*watchpoint_p)-&gt;next = NULL;
+ 	(*watchpoint_p)-&gt;unique_id = bpwp_unique_id++;
+ 
+-	if ((retval = target_add_watchpoint(target, *watchpoint_p)) != ERROR_OK)
+-	{
+-		switch (retval)
+-		{
+-			case ERROR_TARGET_RESOURCE_NOT_AVAILABLE:
+-				LOG_INFO(&quot;can't add %s watchpoint, resource not available (WPID: %d)&quot;,
+-					 watchpoint_rw_strings[(*watchpoint_p)-&gt;rw],
+-					 (*watchpoint_p)-&gt;unique_id );
+-				free (*watchpoint_p);
+-				*watchpoint_p = NULL;
+-				return retval;
+-				break;
+-			case ERROR_TARGET_NOT_HALTED:
+-				LOG_INFO(&quot;can't add watchpoint while target is running (WPID: %d)&quot;,
+-						 (*watchpoint_p)-&gt;unique_id );
+-				free (*watchpoint_p);
+-				*watchpoint_p = NULL;
+-				return retval;
+-				break;
+-			default:
+-				LOG_ERROR(&quot;unknown error&quot;);
+-				exit(-1);
+-				break;
+-		}
++	retval = target_add_watchpoint(target, *watchpoint_p);
++	switch (retval) {
++	case ERROR_OK:
++		break;
++	case ERROR_TARGET_RESOURCE_NOT_AVAILABLE:
++		reason = &quot;resource not available&quot;;
++		goto bye;
++	case ERROR_TARGET_NOT_HALTED:
++		reason = &quot;target running&quot;;
++		goto bye;
++	default:
++		reason = &quot;unrecognized error&quot;;
++bye:
++		LOG_ERROR(&quot;can't add %s watchpoint at 0x%8.8&quot; PRIx32 &quot;, %s&quot;,
++			 watchpoint_rw_strings[(*watchpoint_p)-&gt;rw],
++			 address, reason);
++		free (*watchpoint_p);
++		*watchpoint_p = NULL;
++		return retval;
+ 	}
+ 
+ 	LOG_DEBUG(&quot;added %s watchpoint at 0x%8.8&quot; PRIx32 &quot; of length 0x%8.8x (WPID: %d)&quot;,
+diff --git a/src/target/breakpoints.h b/src/target/breakpoints.h
+index b75aae6..9145966 100644
+--- a/src/target/breakpoints.h
++++ b/src/target/breakpoints.h
+@@ -49,7 +49,7 @@ typedef struct breakpoint_s
+ typedef struct watchpoint_s
+ {
+ 	uint32_t address;
+-	int length;
++	uint32_t length;
+ 	uint32_t mask;
+ 	uint32_t value;
+ 	enum watchpoint_rw rw;
+diff --git a/src/target/cortex_m3.c b/src/target/cortex_m3.c
+index eb37add..51481a9 100644
+--- a/src/target/cortex_m3.c
++++ b/src/target/cortex_m3.c
+@@ -1199,7 +1199,7 @@ cortex_m3_add_watchpoint(struct target_s *target, watchpoint_t *watchpoint)
+ 	unsigned mask;
+ 
+ 	for (mask = 0; mask &lt; 16; mask++) {
+-		if ((1 &lt;&lt; mask) == watchpoint-&gt;length)
++		if ((1u &lt;&lt; mask) == watchpoint-&gt;length)
+ 			break;
+ 	}
+ 	if (mask == 16) {
+diff --git a/src/target/target.c b/src/target/target.c
+index 2a66fcf..55fc2c8 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -2988,7 +2988,8 @@ static int handle_wp_command(struct command_context_s *cmd_ctx, char *cmd, char
+ 		break;
+ 
+ 	default:
+-		command_print(cmd_ctx, &quot;usage: wp &lt;address&gt; &lt;length&gt; [r/w/a] [value] [mask]&quot;);
++		command_print(cmd_ctx, &quot;usage: wp [address length &quot;
++				&quot;[(r|w|a) [value [mask]]]]&quot;);
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/breakpoints.c |   65 +++++++++++++++++++++++++--------------------
+ src/target/breakpoints.h |    2 +-
+ src/target/cortex_m3.c   |    2 +-
+ src/target/target.c      |    3 +-
+ 4 files changed, 40 insertions(+), 32 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001726.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-13-g16b4b8c
+</A></li>
+	<LI>Next message: <A HREF="001728.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-15-gafed39c
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1727">[ date ]</a>
+              <a href="thread.html#1727">[ thread ]</a>
+              <a href="subject.html#1727">[ subject ]</a>
+              <a href="author.html#1727">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

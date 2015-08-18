@@ -1,0 +1,302 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1629 - in trunk/src: jtag target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1629%20-%20in%20trunk/src%3A%20jtag%20target&In-Reply-To=%3C200905070629.n476T9pm002010%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000412.html">
+   <LINK REL="Next"  HREF="000414.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1629 - in trunk/src: jtag target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1629%20-%20in%20trunk/src%3A%20jtag%20target&In-Reply-To=%3C200905070629.n476T9pm002010%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1629 - in trunk/src: jtag target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Thu May  7 08:29:09 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000412.html">[Openocd-svn] r1628 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="000414.html">[Openocd-svn] r1630 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#413">[ date ]</a>
+              <a href="thread.html#413">[ thread ]</a>
+              <a href="subject.html#413">[ subject ]</a>
+              <a href="author.html#413">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-05-07 08:29:08 +0200 (Thu, 07 May 2009)
+New Revision: 1629
+
+Modified:
+   trunk/src/jtag/jtag.c
+   trunk/src/jtag/jtag.h
+   trunk/src/jtag/zy1000.c
+   trunk/src/target/arm7tdmi.c
+Log:
+added template for removing in_handler 
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-05-07 01:26:56 UTC (rev 1628)
++++ trunk/src/jtag/jtag.c	2009-05-07 06:29:08 UTC (rev 1629)
+@@ -42,6 +42,8 @@
+ #include &lt;strings.h&gt;
+ #endif
+ 
++static void jtag_execute_queue_noclear(void);
++
+ /* note that this is not marked as static as it must be available from outside jtag.c for those
+    that implement the jtag_xxx() minidriver layer
+ */
+@@ -670,6 +672,12 @@
+ 		jtag_error=retval;
+ }
+ 
++void jtag_add_dr_scan_now(int num_fields, scan_field_t *fields, tap_state_t state)
++{
++	jtag_add_dr_scan(num_fields, fields, state);
++	jtag_execute_queue_noclear();
++}
++
+ int MINIDRIVER(interface_jtag_add_dr_scan)(int num_fields, scan_field_t *fields, tap_state_t state)
+ {
+ 	int j;
+@@ -1438,13 +1446,21 @@
+ 	return retval;
+ }
+ 
+-int jtag_execute_queue(void)
++static void jtag_execute_queue_noclear(void)
+ {
+ 	int retval=interface_jtag_execute_queue();
+-	if (retval==ERROR_OK)
++	/* we keep the first error */
++	if ((jtag_error==ERROR_OK)&amp;&amp;(retval!=ERROR_OK))
+ 	{
+-		retval=jtag_error;
++		jtag_error=retval;
+ 	}
++}
++
++int jtag_execute_queue(void)
++{
++	int retval;
++	jtag_execute_queue_noclear();
++	retval=jtag_error;
+ 	jtag_error=ERROR_OK;
+ 	return retval;
+ }
+@@ -1485,10 +1501,10 @@
+ 	field.tap = NULL;
+ 	field.num_bits = sizeof(idcode_buffer) * 8;
+ 	field.out_value = idcode_buffer;
+-	
++
+ 	field.in_value = idcode_buffer;
+-	
+-	
++
++
+ 	field.in_handler = NULL;
+ 
+ 	for (i = 0; i &lt; JTAG_MAX_CHAIN_SIZE; i++)
+@@ -1662,10 +1678,7 @@
+ 	field.tap = NULL;
+ 	field.num_bits = total_ir_length;
+ 	field.out_value = ir_test;
+-	
+ 	field.in_value = ir_test;
+-	
+-	
+ 	field.in_handler = NULL;
+ 
+ 	jtag_add_plain_ir_scan(1, &amp;field, TAP_RESET);
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-05-07 01:26:56 UTC (rev 1628)
++++ trunk/src/jtag/jtag.h	2009-05-07 06:29:08 UTC (rev 1629)
+@@ -561,6 +561,10 @@
+ extern void jtag_add_ir_scan(int num_fields, scan_field_t* fields, tap_state_t endstate);
+ extern int  interface_jtag_add_ir_scan(int num_fields, scan_field_t* fields, tap_state_t endstate);
+ extern void jtag_add_dr_scan(int num_fields, scan_field_t* fields, tap_state_t endstate);
++/* same as jtag_add_dr_scan but the scan is executed immediately. sets jtag_error if there
++ * was a failure.
++ */
++extern void jtag_add_dr_scan_now(int num_fields, scan_field_t* fields, tap_state_t endstate);
+ extern int  interface_jtag_add_dr_scan(int num_fields, scan_field_t* fields, tap_state_t endstate);
+ extern void jtag_add_plain_ir_scan(int num_fields, scan_field_t* fields, tap_state_t endstate);
+ extern int  interface_jtag_add_plain_ir_scan(int num_fields, scan_field_t* fields, tap_state_t endstate);
+@@ -696,6 +700,16 @@
+  */
+ extern int            jtag_execute_queue(void);
+ 
++/* this flag is set when an error occurs while executing the queue. cleared
++ * by jtag_execute_queue()
++ *
++ * this flag can also be set from application code if some error happens
++ * during processing that should be reported during jtag_execute_queue().
++ */
++extern int jtag_error;
++
++
++
+ /* can be implemented by hw+sw */
+ extern int            interface_jtag_execute_queue(void);
+ extern int            jtag_power_dropout(int* dropout);
+
+Modified: trunk/src/jtag/zy1000.c
+===================================================================
+--- trunk/src/jtag/zy1000.c	2009-05-07 01:26:56 UTC (rev 1628)
++++ trunk/src/jtag/zy1000.c	2009-05-07 06:29:08 UTC (rev 1629)
+@@ -39,8 +39,6 @@
+ #define ZYLIN_OPENOCD_VERSION &quot;Zylin JTAG ZY1000 &quot; ZYLIN_VERSION &quot; &quot; ZYLIN_DATE &quot; &quot; ZYLIN_TIME
+ const char *zylin_config_dir=&quot;/config/settings&quot;;
+ 
+-extern int jtag_error;
+-
+ /* low level command set
+  */
+ int zy1000_read(void);
+
+Modified: trunk/src/target/arm7tdmi.c
+===================================================================
+--- trunk/src/target/arm7tdmi.c	2009-05-07 01:26:56 UTC (rev 1628)
++++ trunk/src/target/arm7tdmi.c	2009-05-07 06:29:08 UTC (rev 1629)
+@@ -5,6 +5,9 @@
+  *   Copyright (C) 2008 by Spencer Oliver                                  *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">spen at spen-soft.co.uk</A>                                                  *
+  *                                                                         *
++ *   Copyright (C) 2007,2008 &#216;yvind Harboe                                 *
++ *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
++ *                                                                         *
+  *   This program is free software; you can redistribute it and/or modify  *
+  *   it under the terms of the GNU General Public License as published by  *
+  *   the Free Software Foundation; either version 2 of the License, or     *
+@@ -111,22 +114,14 @@
+ 		fields[0].tap = arm7_9-&gt;jtag_info.tap;
+ 		fields[0].num_bits = 1;
+ 		fields[0].out_value = NULL;
+-		
+ 		fields[0].in_value = &breakpoint;
+-		
+-		
+ 		fields[0].in_handler = NULL;
+-		
+ 
+ 		fields[1].tap = arm7_9-&gt;jtag_info.tap;
+ 		fields[1].num_bits = 32;
+ 		fields[1].out_value = NULL;
+-		
+ 		fields[1].in_value = databus;
+-		
+-		
+ 		fields[1].in_handler = NULL;
+-		
+ 
+ 		if((retval = arm_jtag_scann(&amp;arm7_9-&gt;jtag_info, 0x1)) != ERROR_OK)
+ 		{
+@@ -198,25 +193,24 @@
+ 	fields[0].tap = jtag_info-&gt;tap;
+ 	fields[0].num_bits = 1;
+ 	fields[0].out_value = NULL;
+-	
+ 	fields[0].in_value = NULL;
+-	
+-	
+ 	fields[0].in_handler = NULL;
+-	
+ 
++
+ 	fields[1].tap = jtag_info-&gt;tap;
+ 	fields[1].num_bits = 32;
+ 	fields[1].out_value = NULL;
+-	
+-	fields[1].in_value = NULL;
+-	fields[1].in_handler = arm_jtag_buf_to_u32_flip; /* deprecated! invoke this from user code! */
+-	fields[1].in_handler_priv = in;
+-	
+-	
++	u8 tmp[4];
++	fields[1].in_value = tmp;
++	fields[1].in_handler = NULL;
+ 
+-	jtag_add_dr_scan(2, fields, TAP_INVALID);
++	jtag_add_dr_scan_now(2, fields, TAP_INVALID);
+ 
++	if (jtag_error==ERROR_OK)
++	{
++		*in=flip_u32(le_to_h_u32(tmp), 32);
++	}
++
+ 	jtag_add_runtest(0, TAP_INVALID);
+ 
+ #ifdef _DEBUG_INSTRUCTION_EXECUTION_
+@@ -259,17 +253,13 @@
+ 	fields[0].tap = jtag_info-&gt;tap;
+ 	fields[0].num_bits = 1;
+ 	fields[0].out_value = NULL;
+-	
+ 	fields[0].in_value = NULL;
+-	
+-	
+ 	fields[0].in_handler = NULL;
+-	
+ 
++
+ 	fields[1].tap = jtag_info-&gt;tap;
+ 	fields[1].num_bits = 32;
+ 	fields[1].out_value = NULL;
+-	
+ 	fields[1].in_value = NULL;
+ 	switch (size)
+ 	{
+@@ -284,9 +274,9 @@
+ 			break;
+ 	}
+ 	fields[1].in_handler_priv = in;
+-	
+-	
+ 
++
++
+ 	jtag_add_dr_scan(2, fields, TAP_INVALID);
+ 
+ 	jtag_add_runtest(0, TAP_INVALID);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000412.html">[Openocd-svn] r1628 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="000414.html">[Openocd-svn] r1630 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#413">[ date ]</a>
+              <a href="thread.html#413">[ thread ]</a>
+              <a href="subject.html#413">[ subject ]</a>
+              <a href="author.html#413">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

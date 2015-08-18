@@ -1,0 +1,523 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-137-ged81249
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-137-ged81249&In-Reply-To=%3CE1Nut20-0001CG-HF%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002193.html">
+   <LINK REL="Next"  HREF="002195.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-137-ged81249</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-137-ged81249&In-Reply-To=%3CE1Nut20-0001CG-HF%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-137-ged81249">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Thu Mar 25 20:47:51 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002193.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-136-ged6756f
+</A></li>
+        <LI>Next message: <A HREF="002195.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-138-g27b98c2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2194">[ date ]</a>
+              <a href="thread.html#2194">[ thread ]</a>
+              <a href="subject.html#2194">[ subject ]</a>
+              <a href="author.html#2194">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  ed81249129d4b43159843712efa408660cf4c03d (commit)
+      from  ed6756fb23fc7383ec7a4a831a8750a6cf5eaa4e (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit ed81249129d4b43159843712efa408660cf4c03d
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Thu Mar 4 19:58:42 2010 +0100
+
+    zy1000: dev tool
+    
+    first cut peek/poke over tcp/ip, used for debug/research
+    purposes only. Long term JTAG over TCP/IP might be an
+    offshoot. The performance is usable for development/testing
+    purposes.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/zy1000/jtag_minidriver.h b/src/jtag/zy1000/jtag_minidriver.h
+index 43d0c97..d556699 100644
+--- a/src/jtag/zy1000/jtag_minidriver.h
++++ b/src/jtag/zy1000/jtag_minidriver.h
+@@ -38,8 +38,11 @@ int  diag_printf(const char *fmt, ...);
+ #else
+ 
+ /* redirect this to TCP/IP */
+-#define ZY1000_PEEK(a, b) b = 1;
+-#define ZY1000_POKE(a, b)
++#define ZY1000_JTAG_BASE 0
++extern void zy1000_tcpout(uint32_t address, uint32_t data);
++extern uint32_t zy1000_tcpin(uint32_t address);
++#define ZY1000_PEEK(a, b) b=zy1000_tcpin(a)
++#define ZY1000_POKE(a, b) zy1000_tcpout(a, b)
+ 
+ #endif
+ 
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index 907b965..80731aa 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -50,6 +50,7 @@
+ #include &lt;jtag/interface.h&gt;
+ #include &lt;time.h&gt;
+ 
++#include &lt;netinet/tcp.h&gt;
+ 
+ #if BUILD_ECOSBOARD
+ #include &quot;zy1000_version.h&quot;
+@@ -262,6 +263,18 @@ COMMAND_HANDLER(handle_power_command)
+ 	return ERROR_OK;
+ }
+ 
++#if !BUILD_ECOSBOARD
++static char *tcp_server = &quot;notspecified&quot;;
++static int jim_zy1000_server(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 2)
++		return JIM_ERR;
++
++	tcp_server = strdup(Jim_GetString(argv[1], NULL));
++
++	return JIM_OK;
++}
++#endif
+ 
+ #if BUILD_ECOSBOARD
+ /* Give TELNET a way to find out what version this is */
+@@ -415,25 +428,6 @@ zylinjtag_Jim_Command_powerstatus(Jim_Interp *interp,
+ 
+ 
+ 
+-
+-int zy1000_init(void)
+-{
+-#if BUILD_ECOSBOARD
+-	LOG_USER(&quot;%s&quot;, ZYLIN_OPENOCD_VERSION);
+-#endif
+-
+-	ZY1000_POKE(ZY1000_JTAG_BASE + 0x10, 0x30); // Turn on LED1 &amp; LED2
+-
+-	setPower(true); // on by default
+-
+-
+-	 /* deassert resets. Important to avoid infinite loop waiting for SRST to deassert */
+-	zy1000_reset(0, 0);
+-	zy1000_speed(jtag_get_speed());
+-
+-	return ERROR_OK;
+-}
+-
+ int zy1000_quit(void)
+ {
+ 
+@@ -710,12 +704,6 @@ int interface_jtag_add_clocks(int num_cycles)
+ 	return zy1000_jtag_add_clocks(num_cycles, cmd_queue_cur_state, cmd_queue_cur_state);
+ }
+ 
+-int interface_jtag_add_sleep(uint32_t us)
+-{
+-	jtag_sleep(us);
+-	return ERROR_OK;
+-}
+-
+ int interface_add_tms_seq(unsigned num_bits, const uint8_t *seq, enum tap_state state)
+ {
+ 	/*wait for the fifo to be empty*/
+@@ -967,6 +955,14 @@ static const struct command_registration zy1000_commands[] = {
+ 		.help = &quot;Print version info for zy1000.&quot;,
+ 		.usage = &quot;['openocd'|'zy1000'|'date'|'time'|'pcb'|'fpga']&quot;,
+ 	},
++#else
++	{
++		.name = &quot;zy1000_server&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = jim_zy1000_server,
++		.help = &quot;Tcpip address for ZY1000 server.&quot;,
++		.usage = &quot;address&quot;,
++	},
+ #endif
+ 	{
+ 		.name = &quot;powerstatus&quot;,
+@@ -987,6 +983,320 @@ static const struct command_registration zy1000_commands[] = {
+ };
+ 
+ 
++static int tcp_ip = -1;
++
++/* Write large packets if we can */
++static size_t out_pos;
++static uint8_t out_buffer[16384];
++static size_t in_pos;
++static size_t in_write;
++static uint8_t in_buffer[16384];
++
++static bool flush_writes(void)
++{
++	bool ok = (write(tcp_ip, out_buffer, out_pos) == (int)out_pos);
++	out_pos = 0;
++	return ok;
++}
++
++static bool writeLong(uint32_t l)
++{
++	int i;
++	for (i = 0; i &lt; 4; i++)
++	{
++		uint8_t c = (l &gt;&gt; (i*8))&amp;0xff;
++		out_buffer[out_pos++] = c;
++		if (out_pos &gt;= sizeof(out_buffer))
++		{
++			if (!flush_writes())
++			{
++				return false;
++			}
++		}
++	}
++	return true;
++}
++
++static bool readLong(uint32_t *out_data)
++{
++	if (out_pos &gt; 0)
++	{
++		if (!flush_writes())
++		{
++			return false;
++		}
++	}
++
++	uint32_t data = 0;
++	int i;
++	for (i = 0; i &lt; 4; i++)
++	{
++		uint8_t c;
++		if (in_pos == in_write)
++		{
++			/* read more */
++			int t;
++			t = read(tcp_ip, in_buffer, sizeof(in_buffer));
++			if (t &lt; 1)
++			{
++				return false;
++			}
++			in_write = (size_t) t;
++			in_pos = 0;
++		}
++		c = in_buffer[in_pos++];
++
++		data |= (c &lt;&lt; (i*8));
++	}
++	*out_data = data;
++	return true;
++}
++
++enum ZY1000_CMD
++{
++	ZY1000_CMD_POKE = 0x0,
++	ZY1000_CMD_PEEK = 0x8,
++	ZY1000_CMD_SLEEP = 0x1,
++};
++
++
++#if !BUILD_ECOSBOARD
++
++#include &lt;sys/socket.h&gt; /* for socket(), connect(), send(), and recv() */
++#include &lt;arpa/inet.h&gt;  /* for sockaddr_in and inet_addr() */
++
++/* We initialize this late since we need to know the server address
++ * first.
++ */
++static void tcpip_open(void)
++{
++	if (tcp_ip &gt;= 0)
++		return;
++
++	struct sockaddr_in echoServAddr; /* Echo server address */
++
++	/* Create a reliable, stream socket using TCP */
++	if ((tcp_ip = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) &lt; 0)
++	{
++		fprintf(stderr, &quot;Failed to connect to zy1000 server\n&quot;);
++		exit(-1);
++	}
++
++	/* Construct the server address structure */
++	memset(&amp;echoServAddr, 0, sizeof(echoServAddr)); /* Zero out structure */
++	echoServAddr.sin_family = AF_INET; /* Internet address family */
++	echoServAddr.sin_addr.s_addr = inet_addr(tcp_server); /* Server IP address */
++	echoServAddr.sin_port = htons(7777); /* Server port */
++
++	/* Establish the connection to the echo server */
++	if (connect(tcp_ip, (struct sockaddr *) &amp;echoServAddr, sizeof(echoServAddr)) &lt; 0)
++	{
++		fprintf(stderr, &quot;Failed to connect to zy1000 server\n&quot;);
++		exit(-1);
++	}
++
++	int flag = 1;
++	setsockopt(tcp_ip,	/* socket affected */
++			IPPROTO_TCP,		/* set option at TCP level */
++			TCP_NODELAY,		/* name of option */
++			(char *)&amp;flag,		/* the cast is historical cruft */
++			sizeof(int));		/* length of option value */
++
++}
++
++
++/* send a poke */
++void zy1000_tcpout(uint32_t address, uint32_t data)
++{
++	tcpip_open();
++	if (!writeLong((ZY1000_CMD_POKE &lt;&lt; 24) | address)||
++			!writeLong(data))
++	{
++		fprintf(stderr, &quot;Could not write to zy1000 server\n&quot;);
++		exit(-1);
++	}
++}
++
++uint32_t zy1000_tcpin(uint32_t address)
++{
++	tcpip_open();
++	uint32_t data;
++	if (!writeLong((ZY1000_CMD_PEEK &lt;&lt; 24) | address)||
++			!readLong(&amp;data))
++	{
++		fprintf(stderr, &quot;Could not read from zy1000 server\n&quot;);
++		exit(-1);
++	}
++	return data;
++}
++
++int interface_jtag_add_sleep(uint32_t us)
++{
++	tcpip_open();
++	if (!writeLong((ZY1000_CMD_SLEEP &lt;&lt; 24))||
++			!writeLong(us))
++	{
++		fprintf(stderr, &quot;Could not read from zy1000 server\n&quot;);
++		exit(-1);
++	}
++	return ERROR_OK;
++}
++
++
++#endif
++
++#if BUILD_ECOSBOARD
++static char tcpip_stack[2048];
++
++static cyg_thread tcpip_thread_object;
++static cyg_handle_t tcpip_thread_handle;
++
++/* Infinite loop peeking &amp; poking */
++static void tcpipserver(void)
++{
++	for (;;)
++	{
++		uint32_t address;
++		if (!readLong(&amp;address))
++			return;
++		enum ZY1000_CMD c = (address &gt;&gt; 24) &amp; 0xff;
++		address &amp;= 0xffffff;
++		switch (c)
++		{
++			case ZY1000_CMD_POKE:
++			{
++				uint32_t data;
++				if (!readLong(&amp;data))
++					return;
++				address &amp;= ~0x80000000;
++				ZY1000_POKE(address + ZY1000_JTAG_BASE, data);
++				break;
++			}
++			case ZY1000_CMD_PEEK:
++			{
++				uint32_t data;
++				ZY1000_PEEK(address + ZY1000_JTAG_BASE, data);
++				if (!writeLong(data))
++					return;
++				break;
++			}
++			case ZY1000_CMD_SLEEP:
++			{
++				uint32_t data;
++				if (!readLong(&amp;data))
++					return;
++				jtag_sleep(data);
++				break;
++			}
++			default:
++				return;
++		}
++	}
++}
++
++
++static void tcpip_server(cyg_addrword_t data)
++{
++	int so_reuseaddr_option = 1;
++
++	int fd;
++	if ((fd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
++	{
++		LOG_ERROR(&quot;error creating socket: %s&quot;, strerror(errno));
++		exit(-1);
++	}
++
++	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (void*) &amp;so_reuseaddr_option,
++			sizeof(int));
++
++	struct sockaddr_in sin;
++	unsigned int address_size;
++	address_size = sizeof(sin);
++	memset(&amp;sin, 0, sizeof(sin));
++	sin.sin_family = AF_INET;
++	sin.sin_addr.s_addr = INADDR_ANY;
++	sin.sin_port = htons(7777);
++
++	if (bind(fd, (struct sockaddr *) &amp;sin, sizeof(sin)) == -1)
++	{
++		LOG_ERROR(&quot;couldn't bind to socket: %s&quot;, strerror(errno));
++		exit(-1);
++	}
++
++	if (listen(fd, 1) == -1)
++	{
++		LOG_ERROR(&quot;couldn't listen on socket: %s&quot;, strerror(errno));
++		exit(-1);
++	}
++
++
++	for (;;)
++	{
++		tcp_ip = accept(fd, (struct sockaddr *) &amp;sin, &amp;address_size);
++		if (tcp_ip &lt; 0)
++		{
++			continue;
++		}
++
++		int flag = 1;
++		setsockopt(tcp_ip,	/* socket affected */
++				IPPROTO_TCP,		/* set option at TCP level */
++				TCP_NODELAY,		/* name of option */
++				(char *)&amp;flag,		/* the cast is historical cruft */
++				sizeof(int));		/* length of option value */
++
++		bool save_poll = jtag_poll_get_enabled();
++
++		/* polling will screw up the &quot;connection&quot; */
++		jtag_poll_set_enabled(false);
++
++		tcpipserver();
++
++		jtag_poll_set_enabled(save_poll);
++
++		close(tcp_ip);
++
++	}
++	close(fd);
++
++}
++
++int interface_jtag_add_sleep(uint32_t us)
++{
++	jtag_sleep(us);
++	return ERROR_OK;
++}
++
++#endif
++
++
++int zy1000_init(void)
++{
++#if BUILD_ECOSBOARD
++	LOG_USER(&quot;%s&quot;, ZYLIN_OPENOCD_VERSION);
++#endif
++
++	ZY1000_POKE(ZY1000_JTAG_BASE + 0x10, 0x30); // Turn on LED1 &amp; LED2
++
++	setPower(true); // on by default
++
++
++	 /* deassert resets. Important to avoid infinite loop waiting for SRST to deassert */
++	zy1000_reset(0, 0);
++	zy1000_speed(jtag_get_speed());
++
++
++#if BUILD_ECOSBOARD
++	cyg_thread_create(1, tcpip_server, (cyg_addrword_t) 0, &quot;tcip/ip server&quot;,
++			(void *) tcpip_stack, sizeof(tcpip_stack),
++			&amp;tcpip_thread_handle, &amp;tcpip_thread_object);
++	cyg_thread_resume(tcpip_thread_handle);
++#endif
++
++	return ERROR_OK;
++}
++
++
+ 
+ struct jtag_interface zy1000_interface =
+ {
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/zy1000/jtag_minidriver.h |    7 +-
+ src/jtag/zy1000/zy1000.c          |  360 ++++++++++++++++++++++++++++++++++---
+ 2 files changed, 340 insertions(+), 27 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002193.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-136-ged6756f
+</A></li>
+	<LI>Next message: <A HREF="002195.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-138-g27b98c2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2194">[ date ]</a>
+              <a href="thread.html#2194">[ thread ]</a>
+              <a href="subject.html#2194">[ subject ]</a>
+              <a href="author.html#2194">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,213 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-31-g9d167d6
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-31-g9d167d6&In-Reply-To=%3CE1NR0wv-0005oR-M7%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="001995.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-31-g9d167d6</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-31-g9d167d6&In-Reply-To=%3CE1NR0wv-0005oR-M7%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-31-g9d167d6">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Sat Jan  2 11:11:07 CET 2010</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="001995.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-37-g4ed5b45
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1994">[ date ]</a>
+              <a href="thread.html#1994">[ thread ]</a>
+              <a href="subject.html#1994">[ subject ]</a>
+              <a href="author.html#1994">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  9d167d62f2eadf81e0028e471e05154c9aabbbfb (commit)
+       via  be01786186951b42d8aa8b8968ac1615e080a9c7 (commit)
+       via  668f20d0abc22765dda6dd5d094eb79bea321ace (commit)
+      from  384e9193e99d54d6cafb979b6b2e1fd8e3fbd200 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 9d167d62f2eadf81e0028e471e05154c9aabbbfb
+Author: Dean Glazeski &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dnglaze at gmail.com</A>&gt;
+Date:   Thu Dec 31 16:01:32 2009 -0600
+
+    Fix usage/help search for subcommands.
+    
+    This makes it so that the usage/help command properly uses the whole command,
+    including subcommand, in the search for help information.  This previously
+    caused erroneous output from the usage command handler.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index e55f9e7..b4e31ea 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -960,18 +960,45 @@ static COMMAND_HELPER(command_help_show, struct command *c, unsigned n,
+ COMMAND_HANDLER(handle_help_command)
+ {
+ 	bool full = strcmp(CMD_NAME, &quot;help&quot;) == 0;
+-
++	int retval;
+ 	struct command *c = CMD_CTX-&gt;commands;
++	char *match = NULL;
+ 
+-	const char *match = &quot;&quot;;
+ 	if (CMD_ARGC == 0)
+ 		match = &quot;&quot;;
+-	else if (CMD_ARGC == 1)
+-		match = CMD_ARGV[0]; 
+-	else
++	else if (CMD_ARGC &gt;= 1) {
++		unsigned i;
++
++		for (i = 0; i &lt; CMD_ARGC; ++i) {
++			if (NULL != match) {
++				char *prev = match;
++
++				match = alloc_printf(&quot;%s %s&quot;, match,
++						CMD_ARGV[i]);
++				free(prev);
++				if (NULL == match) {
++					LOG_ERROR(&quot;unable to build &quot;
++							&quot;search string&quot;);
++					return -ENOMEM;
++				}
++			} else {
++				match = alloc_printf(&quot;%s&quot;, CMD_ARGV[i]);
++				if (NULL == match) {
++					LOG_ERROR(&quot;unable to build &quot;
++							&quot;search string&quot;);
++					return -ENOMEM;
++				}
++			}
++		}
++	} else
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+-		
+-	return CALL_COMMAND_HANDLER(command_help_show_list, c, 0, full, match);
++
++	retval = CALL_COMMAND_HANDLER(command_help_show_list,
++			c, 0, full, match);
++
++	if (CMD_ARGC &gt;= 1)
++		free(match);
++	return retval;
+ }
+ 
+ static int command_unknown_find(unsigned argc, Jim_Obj *const *argv,
+
+commit be01786186951b42d8aa8b8968ac1615e080a9c7
+Author: Dean Glazeski &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dnglaze at gmail.com</A>&gt;
+Date:   Fri Jan 1 19:58:38 2010 -0600
+
+    Add the current command to the command information
+    
+    I wanted to make it so I can be ignorant of a commands invocation string, so
+    I tried to use CMD_CURRENT (aka cmd-&gt;current) which is supposed to house a
+    pointer to the current command. &#194;&#160;It turns out that this wasn't being set.
+    
+    This patch adds the current command structure to the command invocation
+    structure before sending it along to the command handler.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index b991544..e55f9e7 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -580,6 +580,7 @@ static int run_command(struct command_context *context,
+ 
+ 	struct command_invocation cmd = {
+ 			.ctx = context,
++			.current = c,
+ 			.name = c-&gt;name,
+ 			.argc = num_words - 1,
+ 			.argv = words + 1,
+
+commit 668f20d0abc22765dda6dd5d094eb79bea321ace
+Author: Antonio Borneo &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">borneo.antonio at gmail.com</A>&gt;
+Date:   Thu Dec 31 20:19:26 2009 +0800
+
+    Added ST FlashLINK interface config file.
+    
+    The relevant cable config is already in OpenOCD, but not a config for
+    the JTAG adapter.  I have tested with FlashLINK on ARM926.
+    
+    Signed-off-by: Antonio Borneo &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">borneo.antonio at gmail.com</A>&gt;
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/tcl/interface/flashlink.cfg b/tcl/interface/flashlink.cfg
+new file mode 100644
+index 0000000..4b00de9
+--- /dev/null
++++ b/tcl/interface/flashlink.cfg
+@@ -0,0 +1,10 @@
++#
++# ST FlashLINK JTAG parallel cable
++#
++# <A HREF="http://www.st.com/mcu/contentid-94-80-FL_101.html">http://www.st.com/mcu/contentid-94-80-FL_101.html</A>
++# <A HREF="http://www.st.com/stonline/products/literature/um/7889.pdf">http://www.st.com/stonline/products/literature/um/7889.pdf</A>
++#
++
++interface parport
++parport_port 0
++parport_cable flashlink
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/helper/command.c        |   42 +++++++++++++++++++++++++++++++++++-------
+ tcl/interface/flashlink.cfg |   10 ++++++++++
+ 2 files changed, 45 insertions(+), 7 deletions(-)
+ create mode 100644 tcl/interface/flashlink.cfg
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="001995.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-37-g4ed5b45
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1994">[ date ]</a>
+              <a href="thread.html#1994">[ thread ]</a>
+              <a href="subject.html#1994">[ subject ]</a>
+              <a href="author.html#1994">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

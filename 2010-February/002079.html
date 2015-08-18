@@ -1,0 +1,219 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-169-g91e3268
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-169-g91e3268&In-Reply-To=%3CE1Nbvdt-0002mU-8e%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002078.html">
+   <LINK REL="Next"  HREF="002080.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-169-g91e3268</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-169-g91e3268&In-Reply-To=%3CE1Nbvdt-0002mU-8e%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-169-g91e3268">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Mon Feb  1 13:44:17 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002078.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-168-g82f2492
+</A></li>
+        <LI>Next message: <A HREF="002080.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-170-gbef37ce
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2079">[ date ]</a>
+              <a href="thread.html#2079">[ thread ]</a>
+              <a href="subject.html#2079">[ subject ]</a>
+              <a href="author.html#2079">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  91e3268737b578a182cb661d60551657f799ab3c (commit)
+      from  82f2492138e053d5e3577e83b80cab8d41c0d08b (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 91e3268737b578a182cb661d60551657f799ab3c
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Sun Jan 31 21:02:06 2010 +0100
+
+    gdb: restore behavior from 0.3.1 for srst_asserted and power_restore
+    
+    srst_asserted and power_restore can now be overriden to do
+    nothing. By default they will &quot;reset init&quot; the targets and
+    halt gdb.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/startup.tcl b/src/jtag/startup.tcl
+index ab215ba..4e6d5fc 100644
+--- a/src/jtag/startup.tcl
++++ b/src/jtag/startup.tcl
+@@ -30,8 +30,18 @@ proc init_reset { mode } {
+ # documented nor supported except on ZY1000.
+ 
+ proc power_restore {} {
+-	puts &quot;Sensed power restore.&quot;
++	puts &quot;Sensed power restore, running reset init and halting GDB.&quot;
+ 	reset init
++	
++	# Halt GDB so user can deal with a detected power restore.
++	#
++	# After GDB is halted, then output is no longer forwarded
++	# to the GDB console.
++	set targets [target names]	
++	foreach t $targets {
++		# New event script.
++		$t invoke-event arp_halt_gdb
++	}	
+ }
+ 
+ add_help_text power_restore &quot;Overridable procedure run when power restore is detected. Runs 'reset init' by default.&quot;
+@@ -46,9 +56,20 @@ proc power_dropout {} {
+ # documented nor supported except on ZY1000.
+ 
+ proc srst_deasserted {} {
+-	puts &quot;Sensed nSRST deasserted.&quot;
++	puts &quot;Sensed nSRST deasserted, running reset init and halting GDB.&quot;
+ 	reset init
++
++	# Halt GDB so user can deal with a detected reset.
++	#
++	# After GDB is halted, then output is no longer forwarded
++	# to the GDB console.
++	set targets [target names]	
++	foreach t $targets {
++		# New event script.
++		$t invoke-event arp_halt_gdb
++	}		
+ }
++
+ add_help_text srst_deasserted &quot;Overridable procedure run when srst deassert is detected. Runs 'reset init' by default.&quot;
+ 
+ proc srst_asserted {} {
+diff --git a/src/target/target.c b/src/target/target.c
+index 1eb65a6..2522408 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -1739,15 +1739,6 @@ static int sense_handler(void)
+ 	return ERROR_OK;
+ }
+ 
+-static void target_call_event_callbacks_all(enum target_event e) {
+-	struct target *target;
+-	target = all_targets;
+-	while (target) {
+-		target_call_event_callbacks(target, e);
+-		target = target-&gt;next;
+-	}
+-}
+-
+ /* process target state changes */
+ static int handle_target(void *priv)
+ {
+@@ -1767,8 +1758,7 @@ static int handle_target(void *priv)
+ 		int did_something = 0;
+ 		if (runSrstAsserted)
+ 		{
+-			LOG_INFO(&quot;Waking up GDB, srst asserted detected.&quot;);
+-			target_call_event_callbacks_all(TARGET_EVENT_GDB_HALT);
++			LOG_INFO(&quot;srst asserted detected, running srst_asserted proc.&quot;);
+ 			Jim_Eval(interp, &quot;srst_asserted&quot;);
+ 			did_something = 1;
+ 		}
+@@ -1779,8 +1769,7 @@ static int handle_target(void *priv)
+ 		}
+ 		if (runPowerDropout)
+ 		{
+-			LOG_INFO(&quot;Waking up GDB, power dropout detected.&quot;);
+-			target_call_event_callbacks_all(TARGET_EVENT_GDB_HALT);
++			LOG_INFO(&quot;Power dropout detected, running power_dropout proc.&quot;);
+ 			Jim_Eval(interp, &quot;power_dropout&quot;);
+ 			did_something = 1;
+ 		}
+@@ -4065,6 +4054,21 @@ static int jim_target_examine(Jim_Interp *interp, int argc, Jim_Obj *const *argv
+ 	return JIM_OK;
+ }
+ 
++static int jim_target_halt_gdb(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++{
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv, &quot;[no parameters]&quot;);
++		return JIM_ERR;
++	}
++	struct target *target = Jim_CmdPrivData(interp);
++
++	if (target_call_event_callbacks(target, TARGET_EVENT_GDB_HALT) != ERROR_OK)
++		return JIM_ERR;
++
++	return JIM_OK;
++}
++
+ static int jim_target_poll(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+ 	if (argc != 1)
+@@ -4346,6 +4350,12 @@ static const struct command_registration target_instance_command_handlers[] = {
+ 		.help = &quot;used internally for reset processing&quot;,
+ 	},
+ 	{
++		.name = &quot;arp_halt_gdb&quot;,
++		.mode = COMMAND_EXEC,
++		.jim_handler = jim_target_halt_gdb,
++		.help = &quot;used internally for reset processing to halt GDB&quot;,
++	},
++	{
+ 		.name = &quot;arp_poll&quot;,
+ 		.mode = COMMAND_EXEC,
+ 		.jim_handler = jim_target_poll,
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/startup.tcl |   25 +++++++++++++++++++++++--
+ src/target/target.c  |   36 +++++++++++++++++++++++-------------
+ 2 files changed, 46 insertions(+), 15 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002078.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-168-g82f2492
+</A></li>
+	<LI>Next message: <A HREF="002080.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-170-gbef37ce
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2079">[ date ]</a>
+              <a href="thread.html#2079">[ thread ]</a>
+              <a href="subject.html#2079">[ subject ]</a>
+              <a href="author.html#2079">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

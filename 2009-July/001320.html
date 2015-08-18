@@ -1,0 +1,194 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2537 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2537%20-%20trunk/src/target&In-Reply-To=%3C200907152348.n6FNmeYq021697%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001319.html">
+   <LINK REL="Next"  HREF="001321.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2537 - trunk/src/target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2537%20-%20trunk/src/target&In-Reply-To=%3C200907152348.n6FNmeYq021697%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2537 - trunk/src/target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul 16 01:48:40 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001319.html">[Openocd-svn] r2536 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001321.html">[Openocd-svn] r2538 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1320">[ date ]</a>
+              <a href="thread.html#1320">[ thread ]</a>
+              <a href="subject.html#1320">[ subject ]</a>
+              <a href="author.html#1320">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-07-16 01:48:37 +0200 (Thu, 16 Jul 2009)
+New Revision: 2537
+
+Modified:
+   trunk/src/target/arm_disassembler.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+More Thumb2 32-bit opcode support:
+
+	 A5.3.10 Store single data item 
+
+Byte, word, halfword.  Offset, pre-index, post-index.  And
+a &quot;make like you're unprivileged&quot; option when using small
+immediate offsets.
+
+
+Modified: trunk/src/target/arm_disassembler.c
+===================================================================
+--- trunk/src/target/arm_disassembler.c	2009-07-15 23:48:32 UTC (rev 2536)
++++ trunk/src/target/arm_disassembler.c	2009-07-15 23:48:37 UTC (rev 2537)
+@@ -2783,6 +2783,98 @@
+ 	return ERROR_OK;
+ }
+ 
++static int t2ev_store_single(uint32_t opcode, uint32_t address,
++		arm_instruction_t *instruction, char *cp)
++{
++	unsigned op = (opcode &gt;&gt; 20) &amp; 0xf;
++	char *size = &quot;&quot;;
++	char *suffix = &quot;&quot;;
++	char *p1 = &quot;&quot;;
++	char *p2 = &quot;]&quot;;
++	unsigned immed;
++	unsigned rn = (opcode &gt;&gt; 16) &amp; 0x0f;
++	unsigned rt = (opcode &gt;&gt; 12) &amp; 0x0f;
++
++	if (rn == 0xf)
++		return ERROR_INVALID_ARGUMENTS;
++
++	if (opcode &amp; 0x0800)
++		op |= 1;
++	switch (op) {
++	/* byte */
++	case 0x8:
++	case 0x9:
++		size = &quot;B&quot;;
++		goto imm12;
++	case 0x1:
++		size = &quot;B&quot;;
++		goto imm8;
++	case 0x0:
++		size = &quot;B&quot;;
++		break;
++	/* halfword */
++	case 0xa:
++	case 0xb:
++		size = &quot;H&quot;;
++		goto imm12;
++	case 0x3:
++		size = &quot;H&quot;;
++		goto imm8;
++	case 0x2:
++		size = &quot;H&quot;;
++		break;
++	/* word */
++	case 0xc:
++	case 0xd:
++		goto imm12;
++	case 0x5:
++		goto imm8;
++	case 0x4:
++		break;
++	/* error */
++	default:
++		return ERROR_INVALID_ARGUMENTS;
++	}
++
++	sprintf(cp, &quot;STR%s.W\tr%d, [r%d, r%d, LSL #%d]&quot;,
++			size, rt, rn, opcode &amp; 0x0f,
++			(opcode &gt;&gt; 4) &amp; 0x03);
++
++imm12:
++	immed = opcode &amp; 0x0fff;
++	sprintf(cp, &quot;STR%s.W\tr%d, [r%d, #%u]\t; %#3.3x&quot;,
++			size, rt, rn, immed, immed);
++	return ERROR_OK;
++
++imm8:
++	immed = opcode &amp; 0x00ff;
++
++	switch (opcode &amp; 0x700) {
++	case 0x600:
++		suffix = &quot;T&quot;;
++		break;
++	case 0x000:
++	case 0x200:
++		return ERROR_INVALID_ARGUMENTS;
++	}
++
++	/* two indexed modes will write back rn */
++	if (opcode &amp; 0x100) {
++		if (opcode &amp; 0x400)	/* pre-indexed */
++			p2 = &quot;]!&quot;;
++		else {			/* post-indexed */
++			p1 = &quot;]&quot;;
++			p2 = &quot;&quot;;
++		}
++	}
++
++	sprintf(cp, &quot;STR%s%s\tr%d, [r%d%s, #%s%u%s\t; %#2.2x&quot;,
++			size, suffix, rt, rn, p1,
++			(opcode &amp; 0x200) ? &quot;&quot; : &quot;-&quot;,
++			immed, p2, immed);
++	return ERROR_OK;
++}
++
+ /*
+  * REVISIT for Thumb2 instructions, instruction-&gt;type and friends aren't
+  * always set.  That means eventual arm_simulate_step() support for Thumb2
+@@ -2842,6 +2934,10 @@
+ 	else if ((opcode &amp; 0x18008000) == 0x10008000)
+ 		retval = t2ev_b_misc(opcode, address, instruction, cp);
+ 
++	/* ARMv7-M: A5.3.10 Store single data item */
++	else if ((opcode &amp; 0x1f100000) == 0x18000000)
++		retval = t2ev_store_single(opcode, address, instruction, cp);
++
+ 	/* FIXME decode more 32-bit instructions */
+ 
+ 	if (retval == ERROR_OK)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001319.html">[Openocd-svn] r2536 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001321.html">[Openocd-svn] r2538 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1320">[ date ]</a>
+              <a href="thread.html#1320">[ thread ]</a>
+              <a href="subject.html#1320">[ subject ]</a>
+              <a href="author.html#1320">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2058 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2058%20-%20trunk/src/jtag&In-Reply-To=%3C200906050002.n55023EB009862%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000841.html">
+   <LINK REL="Next"  HREF="000843.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2058 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2058%20-%20trunk/src/jtag&In-Reply-To=%3C200906050002.n55023EB009862%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2058 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Fri Jun  5 02:02:03 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000841.html">[Openocd-svn] r2057 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000843.html">[Openocd-svn] r2059 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#842">[ date ]</a>
+              <a href="thread.html#842">[ thread ]</a>
+              <a href="subject.html#842">[ subject ]</a>
+              <a href="author.html#842">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-05 02:02:00 +0200 (Fri, 05 Jun 2009)
+New Revision: 2058
+
+Modified:
+   trunk/src/jtag/jtag.c
+   trunk/src/jtag/jtag.h
+Log:
+Add accessors for speed_khz; use them in jim command handler.
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-04 23:52:58 UTC (rev 2057)
++++ trunk/src/jtag/jtag.c	2009-06-05 00:02:00 UTC (rev 2058)
+@@ -1659,7 +1659,7 @@
+ 	}
+ 	if(hasKHz)
+ 	{
+-		jtag_interface-&gt;khz(speed_khz, &amp;jtag_speed);
++		jtag_interface-&gt;khz(jtag_get_speed_khz(), &amp;jtag_speed);
+ 		hasKHz = false;
+ 	}
+ 
+@@ -1772,6 +1772,15 @@
+ 	return jtag_init_reset(cmd_ctx);
+ }
+ 
++void jtag_set_speed_khz(unsigned khz)
++{
++	speed_khz = khz;
++}
++unsigned jtag_get_speed_khz(void)
++{
++	return speed_khz;
++}
++
+ static int default_khz(int khz, int *jtag_speed)
+ {
+ 	LOG_ERROR(&quot;Translation from khz to jtag_speed not implemented&quot;);
+@@ -2130,17 +2139,17 @@
+ 	int retval=ERROR_OK;
+ 	LOG_DEBUG(&quot;handle jtag khz&quot;);
+ 
++	int cur_speed = 0;
+ 	if(argc == 1)
+ 	{
+-		speed_khz = strtoul(args[0], NULL, 0);
++		jtag_set_speed_khz(strtoul(args[0], NULL, 0));
+ 		if (jtag != NULL)
+ 		{
+-			int cur_speed = 0;
+ 			LOG_DEBUG(&quot;have interface set up&quot;);
+ 			int speed_div1;
+-			if ((retval=jtag-&gt;khz(speed_khz, &amp;speed_div1))!=ERROR_OK)
++			if ((retval=jtag-&gt;khz(jtag_get_speed_khz(), &amp;speed_div1))!=ERROR_OK)
+ 			{
+-				speed_khz = 0;
++				jtag_set_speed_khz(0);
+ 				return retval;
+ 			}
+ 
+@@ -2157,20 +2166,18 @@
+ 	{
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
++	cur_speed = jtag_get_speed_khz();
+ 
+ 	if (jtag!=NULL)
+ 	{
+-		if ((retval=jtag-&gt;speed_div(jtag_speed, &amp;speed_khz))!=ERROR_OK)
++		if ((retval=jtag-&gt;speed_div(jtag_speed, &amp;cur_speed))!=ERROR_OK)
+ 			return retval;
+ 	}
+ 
+-	if (speed_khz==0)
+-	{
++	if (cur_speed)
++		command_print(cmd_ctx, &quot;%d kHz&quot;, cur_speed);
++	else
+ 		command_print(cmd_ctx, &quot;RCLK - adaptive&quot;);
+-	} else
+-	{
+-		command_print(cmd_ctx, &quot;%d kHz&quot;, speed_khz);
+-	}
+ 	return retval;
+ 
+ }
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-06-04 23:52:58 UTC (rev 2057)
++++ trunk/src/jtag/jtag.h	2009-06-05 00:02:00 UTC (rev 2058)
+@@ -642,5 +642,7 @@
+ 
+ /// @returns the number of times the scan queue has been flushed
+ int jtag_get_flush_queue_count(void);
++void jtag_set_speed_khz(unsigned speed);
++unsigned jtag_get_speed_khz(void);
+ 
+ #endif /* JTAG_H */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000841.html">[Openocd-svn] r2057 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000843.html">[Openocd-svn] r2059 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#842">[ date ]</a>
+              <a href="thread.html#842">[ thread ]</a>
+              <a href="subject.html#842">[ subject ]</a>
+              <a href="author.html#842">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

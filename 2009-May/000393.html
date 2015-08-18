@@ -1,0 +1,172 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1609 - in trunk/src: jtag target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1609%20-%20in%20trunk/src%3A%20jtag%20target&In-Reply-To=%3C200905060641.n466f2aS014820%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000392.html">
+   <LINK REL="Next"  HREF="000394.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1609 - in trunk/src: jtag target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1609%20-%20in%20trunk/src%3A%20jtag%20target&In-Reply-To=%3C200905060641.n466f2aS014820%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1609 - in trunk/src: jtag target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Wed May  6 08:41:02 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000392.html">[Openocd-svn] r1608 - in trunk: . src/flash src/helper src/jtag	src/pld src/svf src/target src/xsvf
+</A></li>
+        <LI>Next message: <A HREF="000394.html">[Openocd-svn] r1610 - in trunk: . src/helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#393">[ date ]</a>
+              <a href="thread.html#393">[ thread ]</a>
+              <a href="subject.html#393">[ subject ]</a>
+              <a href="author.html#393">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-05-06 08:40:56 +0200 (Wed, 06 May 2009)
+New Revision: 1609
+
+Modified:
+   trunk/src/jtag/jtag.h
+   trunk/src/target/mips_ejtag.c
+   trunk/src/target/mips_ejtag.h
+Log:
+add warnings about not using in_handler
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-05-06 06:20:52 UTC (rev 1608)
++++ trunk/src/jtag/jtag.h	2009-05-06 06:40:56 UTC (rev 1609)
+@@ -273,9 +273,9 @@
+ 	u8*         out_value;          /* value to be scanned into the device */
+ 	u8*         in_value;           /* pointer to a 32-bit memory location to take data scanned out */
+ 	/* in_check_value/mask, in_handler_error_handler, in_handler_priv can be used by the in handler, otherwise they contain garbage  */
+-	u8*          in_check_value;    /* used to validate scan results */
+-	u8*          in_check_mask;     /* check specified bits against check_value */
+-	in_handler_t in_handler;        /* process received buffer using this handler */
++	u8*          in_check_value;    /* deprecated! only used from jtag_set_check_value. used to validate scan results */
++	u8*          in_check_mask;     /* deprecated! only used from jtag_set_check_value.  check specified bits against check_value */
++	in_handler_t in_handler;        /* deprecated! DO NOT USE! process received buffer using this handler */
+ 	void*        in_handler_priv;   /* additional information for the in_handler */
+ } scan_field_t;
+ 
+@@ -580,10 +580,10 @@
+  * of the same interface over time. Even if the OpenOCD code
+  * is unchanged, the actual path taken may vary over time
+  * and versions of interface firmware or PCB revisions.
+- * 
++ *
+  * Use jtag_add_pathmove() when specific transition sequences
+  * are required.
+- * 
++ *
+  * Do not use jtag_add_pathmove() unless you need to, but do use it
+  * if you have to.
+  *
+
+Modified: trunk/src/target/mips_ejtag.c
+===================================================================
+--- trunk/src/target/mips_ejtag.c	2009-05-06 06:20:52 UTC (rev 1608)
++++ trunk/src/target/mips_ejtag.c	2009-05-06 06:40:56 UTC (rev 1609)
+@@ -32,7 +32,7 @@
+ 
+ #include &lt;stdlib.h&gt;
+ 
+-int mips_ejtag_set_instr(mips_ejtag_t *ejtag_info, int new_instr, in_handler_t handler)
++int mips_ejtag_set_instr(mips_ejtag_t *ejtag_info, int new_instr, void *delete_me_and_submit_patch)
+ {
+ 	jtag_tap_t *tap;
+ 
+@@ -49,11 +49,11 @@
+ 		field.num_bits = tap-&gt;ir_length;
+ 		field.out_value = t;
+ 		buf_set_u32(field.out_value, 0, field.num_bits, new_instr);
+-		
++
+ 		field.in_value = NULL;
+ 		field.in_check_value = NULL;
+ 		field.in_check_mask = NULL;
+-		field.in_handler = handler;
++		field.in_handler = NULL;
+ 		field.in_handler_priv = NULL;
+ 		jtag_add_ir_scan(1, &amp;field, TAP_INVALID);
+ 	}
+@@ -72,7 +72,7 @@
+ 	field.tap = ejtag_info-&gt;tap;
+ 	field.num_bits = 32;
+ 	field.out_value = NULL;
+-	
++
+ 	field.in_value = (void*)idcode;
+ 	field.in_check_value = NULL;
+ 	field.in_check_mask = NULL;
+@@ -99,7 +99,7 @@
+ 	field.tap = ejtag_info-&gt;tap;
+ 	field.num_bits = 32;
+ 	field.out_value = NULL;
+-	
++
+ 	field.in_value = (void*)impcode;
+ 	field.in_check_value = NULL;
+ 	field.in_check_mask = NULL;
+@@ -130,7 +130,7 @@
+ 	field.num_bits = 32;
+ 	field.out_value = t;
+ 	buf_set_u32(field.out_value, 0, field.num_bits, *data);
+-	
++
+ 	field.in_value = (u8*)data;
+ 	field.in_check_value = NULL;
+ 	field.in_check_mask = NULL;
+
+Modified: trunk/src/target/mips_ejtag.h
+===================================================================
+--- trunk/src/target/mips_ejtag.h	2009-05-06 06:20:52 UTC (rev 1608)
++++ trunk/src/target/mips_ejtag.h	2009-05-06 06:40:56 UTC (rev 1609)
+@@ -107,7 +107,7 @@
+ 	u32 ejtag_ctrl;
+ } mips_ejtag_t;
+ 
+-extern int mips_ejtag_set_instr(mips_ejtag_t *ejtag_info, int new_instr, in_handler_t handler);
++extern int mips_ejtag_set_instr(mips_ejtag_t *ejtag_info, int new_instr, void *delete_me_and_submit_patch);
+ extern int mips_ejtag_enter_debug(mips_ejtag_t *ejtag_info);
+ extern int mips_ejtag_exit_debug(mips_ejtag_t *ejtag_info, int enable_interrupts);
+ extern int mips_ejtag_get_impcode(mips_ejtag_t *ejtag_info, u32 *impcode, in_handler_t handler);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000392.html">[Openocd-svn] r1608 - in trunk: . src/flash src/helper src/jtag	src/pld src/svf src/target src/xsvf
+</A></li>
+	<LI>Next message: <A HREF="000394.html">[Openocd-svn] r1610 - in trunk: . src/helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#393">[ date ]</a>
+              <a href="thread.html#393">[ thread ]</a>
+              <a href="subject.html#393">[ subject ]</a>
+              <a href="author.html#393">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

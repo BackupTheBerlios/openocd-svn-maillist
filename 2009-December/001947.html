@@ -1,0 +1,577 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-920-g9799621
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-920-g9799621&In-Reply-To=%3CE1NJ0j1-0001XK-0r%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001946.html">
+   <LINK REL="Next"  HREF="001948.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-920-g9799621</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-920-g9799621&In-Reply-To=%3CE1NJ0j1-0001XK-0r%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-920-g9799621">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Dec 11 09:19:41 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001946.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-916-ga343454
+</A></li>
+        <LI>Next message: <A HREF="001948.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-922-g0858946
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1947">[ date ]</a>
+              <a href="thread.html#1947">[ thread ]</a>
+              <a href="subject.html#1947">[ subject ]</a>
+              <a href="author.html#1947">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  97996214f593d0d1969446484598c58077da3965 (commit)
+       via  1c42606aea99e870f0ffd435390e29a160d019ee (commit)
+       via  ac46e072dfa708ab83c5667f2dc8ee504504aa4b (commit)
+       via  068626fde4590a3d3e5e7a80a3ac07adb53b9b48 (commit)
+      from  a34345451deaa952b8b868d2dd74954035f503c5 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 97996214f593d0d1969446484598c58077da3965
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Thu Dec 10 19:14:45 2009 +0100
+
+    gdb_server: use more local variables in inner loop of fetching packetstiny refactoring to allow optimisation of inner loops
+    
+    Some profiling information for arm7 16MHz GDB load operation shows
+    gdb_get_packet_inner() near the very top.
+    
+    Each sample counts as 0.01 seconds.
+      %   cumulative   self              self     total
+     time   seconds   seconds    calls  Ts/call  Ts/call  name
+     52.91      2.27     2.27                             embeddedice_write_dcc
+     11.89      2.78     0.51                             gdb_get_packet_inner
+      8.86      3.16     0.38                             memcpy
+      3.26      3.30     0.14                             idle_thread_main(unsigned int)
+      3.03      3.43     0.13                             cyg_in_cksum
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index ea92d3b..8798ae0 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -149,30 +149,11 @@ int check_pending(struct connection *connection, int timeout_s, int *got_data)
+ 	return ERROR_OK;
+ }
+ 
+-int gdb_get_char(struct connection *connection, int* next_char)
++static int gdb_get_char_inner(struct connection *connection, int* next_char)
+ {
+ 	struct gdb_connection *gdb_con = connection-&gt;priv;
+ 	int retval = ERROR_OK;
+ 
+-#ifdef _DEBUG_GDB_IO_
+-	char *debug_buffer;
+-#endif
+-
+-	if (gdb_con-&gt;buf_cnt-- &gt; 0)
+-	{
+-		*next_char = *(gdb_con-&gt;buf_p++);
+-		if (gdb_con-&gt;buf_cnt &gt; 0)
+-			connection-&gt;input_pending = 1;
+-		else
+-			connection-&gt;input_pending = 0;
+-
+-#ifdef _DEBUG_GDB_IO_
+-		LOG_DEBUG(&quot;returned char '%c' (0x%2.2x)&quot;, *next_char, *next_char);
+-#endif
+-
+-		return ERROR_OK;
+-	}
+-
+ 	for (;;)
+ 	{
+ 		if (connection-&gt;service-&gt;type == CONNECTION_PIPE)
+@@ -257,6 +238,50 @@ int gdb_get_char(struct connection *connection, int* next_char)
+ 	return retval;
+ }
+ 
++/**
++ * The cool thing about this fn is that it allows buf_p and buf_cnt to be
++ * held in registers in the inner loop.
++ *
++ * For small caches and embedded systems this is important!
++ */
++static inline int gdb_get_char_fast(struct connection *connection, int* next_char, char **buf_p, int *buf_cnt)
++{
++	int retval = ERROR_OK;
++
++	if ((*buf_cnt)-- &gt; 0)
++	{
++		*next_char = **buf_p;
++		(*buf_p)++;
++		if (*buf_cnt &gt; 0)
++			connection-&gt;input_pending = 1;
++		else
++			connection-&gt;input_pending = 0;
++
++#ifdef _DEBUG_GDB_IO_
++		LOG_DEBUG(&quot;returned char '%c' (0x%2.2x)&quot;, *next_char, *next_char);
++#endif
++
++		return ERROR_OK;
++	}
++
++	struct gdb_connection *gdb_con = connection-&gt;priv;
++	gdb_con-&gt;buf_p = *buf_p;
++	gdb_con-&gt;buf_cnt = *buf_cnt;
++	retval = gdb_get_char_inner(connection, next_char);
++	*buf_p = gdb_con-&gt;buf_p;
++	*buf_cnt = gdb_con-&gt;buf_cnt;
++
++	return retval;
++}
++
++
++int gdb_get_char(struct connection *connection, int* next_char)
++{
++	struct gdb_connection *gdb_con = connection-&gt;priv;
++	return gdb_get_char_fast(connection, next_char, &amp;gdb_con-&gt;buf_p, &amp;gdb_con-&gt;buf_cnt);
++}
++
++
+ int gdb_putback_char(struct connection *connection, int last_char)
+ {
+ 	struct gdb_connection *gdb_con = connection-&gt;priv;
+@@ -461,27 +486,33 @@ static __inline__ int fetch_packet(struct connection *connection, int *checksum_
+ 	unsigned char my_checksum = 0;
+ 	char checksum[3];
+ 	int character;
+-	int retval;
++	int retval = ERROR_OK;
+ 
+ 	struct gdb_connection *gdb_con = connection-&gt;priv;
+ 	my_checksum = 0;
+ 	int count = 0;
+ 	count = 0;
++
++	/* move this over into local variables to use registers and give the
++	 * more freedom to optimize */
++	char *buf_p = gdb_con-&gt;buf_p;
++	int buf_cnt = gdb_con-&gt;buf_cnt;
++
+ 	for (;;)
+ 	{
+ 		/* The common case is that we have an entire packet with no escape chars.
+ 		 * We need to leave at least 2 bytes in the buffer to have
+ 		 * gdb_get_char() update various bits and bobs correctly.
+ 		 */
+-		if ((gdb_con-&gt;buf_cnt &gt; 2) &amp;&amp; ((gdb_con-&gt;buf_cnt + count) &lt; *len))
++		if ((buf_cnt &gt; 2) &amp;&amp; ((buf_cnt + count) &lt; *len))
+ 		{
+ 			/* The compiler will struggle a bit with constant propagation and
+ 			 * aliasing, so we help it by showing that these values do not
+ 			 * change inside the loop
+ 			 */
+ 			int i;
+-			char *buf = gdb_con-&gt;buf_p;
+-			int run = gdb_con-&gt;buf_cnt - 2;
++			char *buf = buf_p;
++			int run = buf_cnt - 2;
+ 			i = 0;
+ 			int done = 0;
+ 			while (i &lt; run)
+@@ -513,19 +544,21 @@ static __inline__ int fetch_packet(struct connection *connection, int *checksum_
+ 					buffer[count++] = character &amp; 0xff;
+ 				}
+ 			}
+-			gdb_con-&gt;buf_p += i;
+-			gdb_con-&gt;buf_cnt -= i;
++			buf_p += i;
++			buf_cnt -= i;
+ 			if (done)
+ 				break;
+ 		}
+ 		if (count &gt; *len)
+ 		{
+ 			LOG_ERROR(&quot;packet buffer too small&quot;);
+-			return ERROR_GDB_BUFFER_TOO_SMALL;
++			retval = ERROR_GDB_BUFFER_TOO_SMALL;
++			break;
+ 		}
+ 
+-		if ((retval = gdb_get_char(connection, &amp;character)) != ERROR_OK)
+-			return retval;
++		retval = gdb_get_char_fast(connection, &amp;character, &amp;buf_p, &amp;buf_cnt);
++		if (retval != ERROR_OK)
++			break;
+ 
+ 		if (character == '#')
+ 			break;
+@@ -535,8 +568,11 @@ static __inline__ int fetch_packet(struct connection *connection, int *checksum_
+ 			/* data transmitted in binary mode (X packet)
+ 			 * uses 0x7d as escape character */
+ 			my_checksum += character &amp; 0xff;
+-			if ((retval = gdb_get_char(connection, &amp;character)) != ERROR_OK)
+-				return retval;
++
++			retval = gdb_get_char_fast(connection, &amp;character, &amp;buf_p, &amp;buf_cnt);
++			if (retval != ERROR_OK)
++				break;
++
+ 			my_checksum += character &amp; 0xff;
+ 			buffer[count++] = (character ^ 0x20) &amp; 0xff;
+ 		}
+@@ -547,6 +583,12 @@ static __inline__ int fetch_packet(struct connection *connection, int *checksum_
+ 		}
+ 	}
+ 
++	gdb_con-&gt;buf_p = buf_p;
++	gdb_con-&gt;buf_cnt = buf_cnt;
++
++	if (retval != ERROR_OK)
++		return retval;
++
+ 	*len = count;
+ 
+ 	if ((retval = gdb_get_char(connection, &amp;character)) != ERROR_OK)
+
+commit 1c42606aea99e870f0ffd435390e29a160d019ee
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Thu Dec 10 19:11:03 2009 +0100
+
+    gdb_server: make struct gdb_connection private
+    
+    it is only used inside gdb_server.c
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index f9cca99..ea92d3b 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -2,7 +2,7 @@
+  *   Copyright (C) 2005 by Dominic Rath                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
+  *                                                                         *
+- *   Copyright (C) 2007,2008 &#195;&#152;yvind Harboe                                 *
++ *   Copyright (C) 2007-2009 &#195;&#152;yvind Harboe                                 *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
+  *                                                                         *
+  *   Copyright (C) 2008 by Spencer Oliver                                  *
+@@ -37,6 +37,25 @@
+ #include &lt;jtag/jtag.h&gt;
+ 
+ 
++/* private connection data for GDB */
++struct gdb_connection
++{
++	char buffer[GDB_BUFFER_SIZE];
++	char *buf_p;
++	int buf_cnt;
++	int ctrl_c;
++	enum target_state frontend_state;
++	struct image *vflash_image;
++	int closed;
++	int busy;
++	int noack_mode;
++	bool sync; 	/* set flag to true if you want the next stepi to return immediately.
++	               allowing GDB to pick up a fresh set of register values from the target
++	               without modifying the target state. */
++
++};
++
++
+ #if 0
+ #define _DEBUG_GDB_IO_
+ #endif
+diff --git a/src/server/gdb_server.h b/src/server/gdb_server.h
+index 05666a5..17e40fe 100644
+--- a/src/server/gdb_server.h
++++ b/src/server/gdb_server.h
+@@ -2,7 +2,7 @@
+  *   Copyright (C) 2005 by Dominic Rath                                    *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">Dominic.Rath at gmx.de</A>                                                   *
+  *                                                                         *
+- *   Copyright (C) 2007,2008 &#195;&#152;yvind Harboe                                 *
++ *   Copyright (C) 2007-2009 &#195;&#152;yvind Harboe                                 *
+  *   <A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>                                               *
+  *                                                                         *
+  *   Copyright (C) 2008 by Spencer Oliver                                  *
+@@ -31,23 +31,6 @@ struct image;
+ 
+ #define GDB_BUFFER_SIZE	16384
+ 
+-struct gdb_connection
+-{
+-	char buffer[GDB_BUFFER_SIZE];
+-	char *buf_p;
+-	int buf_cnt;
+-	int ctrl_c;
+-	enum target_state frontend_state;
+-	struct image *vflash_image;
+-	int closed;
+-	int busy;
+-	int noack_mode;
+-	bool sync; 	/* set flag to true if you want the next stepi to return immediately.
+-	               allowing GDB to pick up a fresh set of register values from the target
+-	               without modifying the target state. */
+-
+-};
+-
+ struct gdb_service
+ {
+ 	struct target *target;
+
+commit ac46e072dfa708ab83c5667f2dc8ee504504aa4b
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Thu Dec 10 15:09:20 2009 +0100
+
+    optimisation: tiny optimisation for embedded ice
+    
+    use two shift operations instead of three to set embedded
+    ice register.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/embeddedice.h b/src/target/embeddedice.h
+index 1faa1ee..693391c 100644
+--- a/src/target/embeddedice.h
++++ b/src/target/embeddedice.h
+@@ -118,15 +118,14 @@ int embeddedice_handshake(struct arm_jtag *jtag_info, int hsbit, uint32_t timeou
+  */
+ static __inline__ void embeddedice_write_reg_inner(struct jtag_tap *tap, int reg_addr, uint32_t value)
+ {
+-	static const int embeddedice_num_bits[]={32,5,1};
+-	uint32_t values[3];
++	static const int embeddedice_num_bits[] = {32, 6};
++	uint32_t values[2];
+ 
+-	values[0]=value;
+-	values[1]=reg_addr;
+-	values[2]=1;
++	values[0] = value;
++	values[1] = (1 &lt;&lt; 5) | reg_addr;
+ 
+ 	jtag_add_dr_out(tap,
+-			3,
++			2,
+ 			embeddedice_num_bits,
+ 			values,
+ 			jtag_get_end_state());
+
+commit 068626fde4590a3d3e5e7a80a3ac07adb53b9b48
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Thu Dec 10 15:00:19 2009 +0100
+
+    embedded hosts: optimize common code path for core arm operations
+    
+    avoid fn call for the if check on whether anything needs
+    to be done.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/arm_jtag.c b/src/target/arm_jtag.c
+index af626ec..f7a540a 100644
+--- a/src/target/arm_jtag.c
++++ b/src/target/arm_jtag.c
+@@ -31,65 +31,54 @@
+ #define _ARM_JTAG_SCAN_N_CHECK_
+ #endif
+ 
+-int arm_jtag_set_instr(struct arm_jtag *jtag_info, uint32_t new_instr,  void *no_verify_capture)
++int arm_jtag_set_instr_inner(struct arm_jtag *jtag_info, uint32_t new_instr,  void *no_verify_capture)
+ {
+ 	struct jtag_tap *tap;
+ 	tap = jtag_info-&gt;tap;
+-	if (tap == NULL)
+-		return ERROR_FAIL;
++	struct scan_field field;
++	uint8_t t[4];
+ 
+-	if (buf_get_u32(tap-&gt;cur_instr, 0, tap-&gt;ir_length) != new_instr)
++	field.tap = tap;
++	field.num_bits = tap-&gt;ir_length;
++	field.out_value = t;
++	buf_set_u32(field.out_value, 0, field.num_bits, new_instr);
++	field.in_value = NULL;
++
++	if (no_verify_capture == NULL)
++	{
++		jtag_add_ir_scan(1, &amp;field, jtag_get_end_state());
++	} else
+ 	{
+-		struct scan_field field;
+-		uint8_t t[4];
+-
+-		field.tap = tap;
+-		field.num_bits = tap-&gt;ir_length;
+-		field.out_value = t;
+-		buf_set_u32(field.out_value, 0, field.num_bits, new_instr);
+-		field.in_value = NULL;
+-
+-
+-
+-		if (no_verify_capture == NULL)
+-		{
+-			jtag_add_ir_scan(1, &amp;field, jtag_get_end_state());
+-		} else
+-		{
+-			/* FIX!!!! this is a kludge!!! arm926ejs.c should reimplement this arm_jtag_set_instr to
+-			 * have special verification code.
+-			 */
+-			jtag_add_ir_scan_noverify(1, &amp;field, jtag_get_end_state());
+-		}
++		/* FIX!!!! this is a kludge!!! arm926ejs.c should reimplement this arm_jtag_set_instr to
++		 * have special verification code.
++		 */
++		jtag_add_ir_scan_noverify(1, &amp;field, jtag_get_end_state());
+ 	}
+ 
+ 	return ERROR_OK;
+ }
+ 
+-int arm_jtag_scann(struct arm_jtag *jtag_info, uint32_t new_scan_chain)
++int arm_jtag_scann_inner(struct arm_jtag *jtag_info, uint32_t new_scan_chain)
+ {
+ 	int retval = ERROR_OK;
+-	if (jtag_info-&gt;cur_scan_chain != new_scan_chain)
+-	{
+-		uint32_t values[1];
+-		int num_bits[1];
++	uint32_t values[1];
++	int num_bits[1];
+ 
+-		values[0]=new_scan_chain;
+-		num_bits[0]=jtag_info-&gt;scann_size;
++	values[0]=new_scan_chain;
++	num_bits[0]=jtag_info-&gt;scann_size;
+ 
+-		if ((retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;scann_instr, NULL)) != ERROR_OK)
+-		{
+-			return retval;
+-		}
++	if ((retval = arm_jtag_set_instr(jtag_info, jtag_info-&gt;scann_instr, NULL)) != ERROR_OK)
++	{
++		return retval;
++	}
+ 
+-		jtag_add_dr_out(jtag_info-&gt;tap,
+-				1,
+-				num_bits,
+-				values,
+-				jtag_get_end_state());
++	jtag_add_dr_out(jtag_info-&gt;tap,
++			1,
++			num_bits,
++			values,
++			jtag_get_end_state());
+ 
+-		jtag_info-&gt;cur_scan_chain = new_scan_chain;
+-	}
++	jtag_info-&gt;cur_scan_chain = new_scan_chain;
+ 
+ 	return retval;
+ }
+diff --git a/src/target/arm_jtag.h b/src/target/arm_jtag.h
+index 6f03fc6..cf230b4 100644
+--- a/src/target/arm_jtag.h
++++ b/src/target/arm_jtag.h
+@@ -36,9 +36,40 @@ struct arm_jtag
+ 	uint32_t intest_instr;
+ };
+ 
+-int arm_jtag_set_instr(struct arm_jtag *jtag_info,
+-		uint32_t new_instr, void *verify_capture);
+-int arm_jtag_scann(struct arm_jtag *jtag_info, uint32_t new_scan_chain);
++int arm_jtag_set_instr_inner(struct arm_jtag *jtag_info, uint32_t new_instr,  void *no_verify_capture);
++static inline int arm_jtag_set_instr(struct arm_jtag *jtag_info,
++		uint32_t new_instr, void *no_verify_capture)
++{
++	/* inline most common code path */
++	struct jtag_tap *tap;
++	tap = jtag_info-&gt;tap;
++	if (tap == NULL)
++		return ERROR_FAIL;
++
++	if (buf_get_u32(tap-&gt;cur_instr, 0, tap-&gt;ir_length) != new_instr)
++	{
++		return arm_jtag_set_instr_inner(jtag_info, new_instr, no_verify_capture);
++	}
++
++	return ERROR_OK;
++
++}
++
++
++int arm_jtag_scann_inner(struct arm_jtag *jtag_info, uint32_t new_scan_chain);
++static inline int arm_jtag_scann(struct arm_jtag *jtag_info, uint32_t new_scan_chain)
++{
++	/* inline most common code path */
++	int retval = ERROR_OK;
++	if (jtag_info-&gt;cur_scan_chain != new_scan_chain)
++	{
++		return arm_jtag_scann_inner(jtag_info, new_scan_chain);
++	}
++
++	return retval;
++}
++
++
+ int arm_jtag_setup_connection(struct arm_jtag *jtag_info);
+ 
+ /* use this as a static so we can inline it in -O3 and refer to it via a pointer  */
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/server/gdb_server.c  |  125 ++++++++++++++++++++++++++++++++++------------
+ src/server/gdb_server.h  |   19 +-------
+ src/target/arm_jtag.c    |   75 ++++++++++++----------------
+ src/target/arm_jtag.h    |   37 ++++++++++++-
+ src/target/embeddedice.h |   11 ++--
+ 5 files changed, 165 insertions(+), 102 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001946.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-916-ga343454
+</A></li>
+	<LI>Next message: <A HREF="001948.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-922-g0858946
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1947">[ date ]</a>
+              <a href="thread.html#1947">[ thread ]</a>
+              <a href="subject.html#1947">[ subject ]</a>
+              <a href="author.html#1947">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

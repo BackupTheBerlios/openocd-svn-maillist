@@ -1,0 +1,197 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-555-ge3773e3
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-555-ge3773e3&In-Reply-To=%3CE1P53f9-0000KS-GS%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002413.html">
+   <LINK REL="Next"  HREF="002415.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-555-ge3773e3</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-555-ge3773e3&In-Reply-To=%3CE1P53f9-0000KS-GS%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-555-ge3773e3">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Sun Oct 10 23:42:33 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002413.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-554-g3864da1
+</A></li>
+        <LI>Next message: <A HREF="002415.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-557-ged44447
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2414">[ date ]</a>
+              <a href="thread.html#2414">[ thread ]</a>
+              <a href="subject.html#2414">[ subject ]</a>
+              <a href="author.html#2414">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  e3773e3e3d1f1ee0dbb0b69e8babe8419784d1c1 (commit)
+      from  3864da1ab817acab24c41366d627da9337a7993d (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit e3773e3e3d1f1ee0dbb0b69e8babe8419784d1c1
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Sun Oct 10 14:41:11 2010 -0700
+
+    swj-dp.tcl (SWD infrastructure #1)
+    
+    Provide new helper proc that can set up either an SWD or JTAG DAP
+    based on the transport which is in use -- mostly for SWJ-DP.
+    
+     Also update some SWJ-DP based chips/targets to use it.  The goal
+    is making SWD-vs-JTAG transparent in most places.  SWJ-DP based chips
+    really need this flexible configuration to cope with debug adapters
+    that support different transports, without needing new target configs
+    for each transport or adapter.
+    
+    For JTAG-DP, callers will use &quot;jtag newtap&quot; directly, as today; only
+    one chip-level transport option exists.
+    
+    For SW-DP (e.g. LPC1[13]xx or EFM32, they'll use &quot;swd newdap&quot; directly
+    (part of an upcoming SWD transport patch).  Again, only one transport
+    option exists, so hard-wiring is appropriate there.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/tcl/target/lpc1768.cfg b/tcl/target/lpc1768.cfg
+index 4a1ff0b..68b33c4 100644
+--- a/tcl/target/lpc1768.cfg
++++ b/tcl/target/lpc1768.cfg
+@@ -1,5 +1,9 @@
+ # NXP LPC1768 Cortex-M3 with 512kB Flash and 32kB+32kB Local On-Chip SRAM,
+ 
++# LPC17xx chips support both JTAG and SWD transports.
++# Adapt based on what transport is active.
++source [find target/swj-dp.tcl]
++
+ if { [info exists CHIPNAME] } {
+ 	set  _CHIPNAME $CHIPNAME
+ } else {
+@@ -31,7 +35,8 @@ jtag_ntrst_delay 200
+ # LPC2000 &amp; LPC1700 -&gt; SRST causes TRST
+ reset_config srst_pulls_trst
+ 
+-jtag newtap $_CHIPNAME cpu -irlen 4 -expected-id $_CPUTAPID
++#jtag newtap $_CHIPNAME cpu -irlen 4 -expected-id $_CPUTAPID
++swj_newdap $_CHIPNAME cpu -irlen 4 -expected-id $_CPUTAPID
+ 
+ set _TARGETNAME $_CHIPNAME.cpu
+ target create $_TARGETNAME cortex_m3 -chain-position $_TARGETNAME
+diff --git a/tcl/target/stellaris.cfg b/tcl/target/stellaris.cfg
+index b663ce3..bfe9087 100644
+--- a/tcl/target/stellaris.cfg
++++ b/tcl/target/stellaris.cfg
+@@ -1,5 +1,12 @@
+ # TI/Luminary Stellaris LM3S chip family
+ 
++# Luminary chips support both JTAG and SWD transports.
++# Adapt based on what transport is active.
++source [find target/swj-dp.tcl]
++
++# For now we ignore the SPI and UART options, which
++# are usable only for ISP style initial flash programming.
++
+ if { [info exists CHIPNAME] } {
+    set  _CHIPNAME $CHIPNAME
+ } else {
+@@ -18,6 +25,12 @@ if { [info exists CPUTAPID ] } {
+    set _CPUTAPID 0x0ba00477
+ }
+ 
++# SWD DAP, and JTAG TAP, take same params for now;
++# ... even though SWD ignores all except TAPID, and
++# JTAG shouldn't need anything more then irlen. (and TAPID).
++swj_newdap $_CHIPNAME cpu -irlen 4 -irmask 0xf \
++ 	-expected-id $_CPUTAPID -ignore-version
++
+ if { [info exists WORKAREASIZE ] } {
+    set _WORKAREASIZE $WORKAREASIZE
+ } else {
+diff --git a/tcl/target/swj-dp.tcl b/tcl/target/swj-dp.tcl
+new file mode 100644
+index 0000000..377b7b5
+--- /dev/null
++++ b/tcl/target/swj-dp.tcl
+@@ -0,0 +1,25 @@
++# ARM Debug Interface V5 (ADI_V5) utility
++# ... Mostly for SWJ-DP (not SW-DP or JTAG-DP, since
++# SW-DP and JTAG-DP targets don't need to switch based
++# on which transport is active.
++#
++# declare a JTAG or SWD Debug Access Point (DAP)
++# based on the transport in use with this session.
++# You can't access JTAG ops when SWD is active, etc.
++
++# params are currently what &quot;jtag newtap&quot; uses
++# because OpenOCD internals are still strongly biased
++# to JTAG ....  but for SWD, &quot;irlen&quot; etc are ignored,
++# and the internals work differently
++
++# for now, ignore non-JTAG and non-SWD transports
++# (e.g. initial flash programming via SPI or UART)
++
++# split out &quot;chip&quot; and &quot;tag&quot; so we can someday handle
++# them more uniformly irlen too...)
++
++proc swj_newdap {chip tag args} {
++set tran [transport select]
++if [string equal $tran &quot;jtag&quot;] { eval jtag newtap $chip $tag $args}
++if [string equal $tran &quot;swd&quot;] { eval swd newdap $chip $tag $args }
++}
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ tcl/target/lpc1768.cfg   |    7 ++++++-
+ tcl/target/stellaris.cfg |   13 +++++++++++++
+ tcl/target/swj-dp.tcl    |   25 +++++++++++++++++++++++++
+ 3 files changed, 44 insertions(+), 1 deletions(-)
+ create mode 100644 tcl/target/swj-dp.tcl
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002413.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-554-g3864da1
+</A></li>
+	<LI>Next message: <A HREF="002415.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-557-ged44447
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2414">[ date ]</a>
+              <a href="thread.html#2414">[ thread ]</a>
+              <a href="subject.html#2414">[ subject ]</a>
+              <a href="author.html#2414">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,206 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2415 - in trunk: doc src/flash src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2415%20-%20in%20trunk%3A%20doc%20src/flash%20src/jtag&In-Reply-To=%3C200906292004.n5TK45wS021977%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001198.html">
+   <LINK REL="Next"  HREF="001200.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2415 - in trunk: doc src/flash src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2415%20-%20in%20trunk%3A%20doc%20src/flash%20src/jtag&In-Reply-To=%3C200906292004.n5TK45wS021977%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2415 - in trunk: doc src/flash src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Mon Jun 29 22:04:05 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001198.html">[Openocd-svn] r2414 - trunk/doc
+</A></li>
+        <LI>Next message: <A HREF="001200.html">[Openocd-svn] r2416 - in trunk/tcl: board target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1199">[ date ]</a>
+              <a href="thread.html#1199">[ thread ]</a>
+              <a href="subject.html#1199">[ subject ]</a>
+              <a href="author.html#1199">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-29 22:03:59 +0200 (Mon, 29 Jun 2009)
+New Revision: 2415
+
+Modified:
+   trunk/doc/openocd.texi
+   trunk/src/flash/str9xpec.c
+   trunk/src/jtag/core.c
+   trunk/src/jtag/jtag.h
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Warn when people (or scripts) use numeric identifiers for TAPs,
+instead of dotted.name values.  We want this usage to go away,
+so that for example adding more TAPs doesn't cause config scripts
+to break because some sequence number changed.
+
+It's been deprecated since late 2008, but putting a warning on
+this should help us remove it (say, in June 2010) by helping to
+phase out old (ab)usage in config scripts.
+
+Other than in various config files, the only code expecting such
+a number was the almost unused str9xpec driver.  This code was
+changed to use the TAP it was passed, instead of making its own
+dubious lookup and ignoring that TAP.
+
+
+Modified: trunk/doc/openocd.texi
+===================================================================
+--- trunk/doc/openocd.texi	2009-06-29 20:03:52 UTC (rev 2414)
++++ trunk/doc/openocd.texi	2009-06-29 20:03:59 UTC (rev 2415)
+@@ -2397,8 +2397,9 @@
+ In older code, JTAG TAPs were numbered from 0..N.
+ This feature is still present.
+ However its use is highly discouraged, and
+-should not be counted upon.
+-Update all of your scripts to use TAP names rather than numbers.
++should not be relied on; it will be removed by mid-2010.
++Update all of your scripts to use TAP names rather than numbers,
++by paying attention to the runtime warnings they trigger.
+ Using TAP numbers in target configuration scripts prevents
+ reusing those scripts on boards with multiple targets.
+ @end quotation
+
+Modified: trunk/src/flash/str9xpec.c
+===================================================================
+--- trunk/src/flash/str9xpec.c	2009-06-29 20:03:52 UTC (rev 2414)
++++ trunk/src/flash/str9xpec.c	2009-06-29 20:03:59 UTC (rev 2415)
+@@ -318,14 +318,14 @@
+ 	str9xpec_info = malloc(sizeof(str9xpec_flash_controller_t));
+ 	bank-&gt;driver_priv = str9xpec_info;
+ 
+-	/* find out jtag position of flash controller
+-	 * it is always after the arm966 core */
+-
++	/* REVISIT verify that the jtag position of flash controller is
++	 * right after *THIS* core, which must be a STR9xx core ...
++	 */
+ 	armv4_5 = bank-&gt;target-&gt;arch_info;
+ 	arm7_9 = armv4_5-&gt;arch_info;
+ 	jtag_info = &amp;arm7_9-&gt;jtag_info;
+ 
+-	str9xpec_info-&gt;tap = jtag_tap_by_position(jtag_info-&gt;tap-&gt;abs_chain_position - 1);
++	str9xpec_info-&gt;tap = bank-&gt;target-&gt;tap;
+ 	str9xpec_info-&gt;isc_enable = 0;
+ 
+ 	str9xpec_build_block_list(bank);
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-06-29 20:03:52 UTC (rev 2414)
++++ trunk/src/jtag/core.c	2009-06-29 20:03:59 UTC (rev 2415)
+@@ -162,10 +162,22 @@
+ 	*tap = t;
+ }
+ 
++/* returns a pointer to the n-th device in the scan chain */
++static inline jtag_tap_t *jtag_tap_by_position(unsigned n)
++{
++	jtag_tap_t *t = jtag_all_taps();
++
++	while (t &amp;&amp; n-- &gt; 0)
++		t = t-&gt;next_tap;
++
++	return t;
++}
++
+ jtag_tap_t *jtag_tap_by_string(const char *s)
+ {
+ 	/* try by name first */
+ 	jtag_tap_t *t = jtag_all_taps();
++
+ 	while (t)
+ 	{
+ 		if (0 == strcmp(t-&gt;dotted_name, s))
+@@ -178,7 +190,16 @@
+ 	if (parse_uint(s, &amp;n) != ERROR_OK)
+ 		return NULL;
+ 
+-	return jtag_tap_by_position(n);
++	/* FIXME remove this numeric fallback code late June 2010, along
++	 * with all info in the User's Guide that TAPs have numeric IDs.
++	 * Also update &quot;scan_chain&quot; output to not display the numbers.
++	 */
++	t = jtag_tap_by_position(n);
++	if (t)
++		LOG_WARNING(&quot;Specify TAP '%s' by name, not number %u&quot;,
++			t-&gt;dotted_name, n);
++
++	return t;
+ }
+ 
+ jtag_tap_t *jtag_tap_by_jim_obj(Jim_Interp *interp, Jim_Obj *o)
+@@ -192,17 +213,6 @@
+ 	return t;
+ }
+ 
+-/* returns a pointer to the n-th device in the scan chain */
+-jtag_tap_t *jtag_tap_by_position(unsigned n)
+-{
+-	jtag_tap_t *t = jtag_all_taps();
+-
+-	while (t &amp;&amp; n-- &gt; 0)
+-		t = t-&gt;next_tap;
+-
+-	return t;
+-}
+-
+ jtag_tap_t* jtag_tap_next_enabled(jtag_tap_t* p)
+ {
+ 	p = p ? p-&gt;next_tap : jtag_all_taps();
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-06-29 20:03:52 UTC (rev 2414)
++++ trunk/src/jtag/jtag.h	2009-06-29 20:03:59 UTC (rev 2415)
+@@ -185,7 +185,6 @@
+ extern const char *jtag_tap_name(const jtag_tap_t *tap);
+ extern jtag_tap_t* jtag_tap_by_string(const char* dotted_name);
+ extern jtag_tap_t* jtag_tap_by_jim_obj(Jim_Interp* interp, Jim_Obj* obj);
+-extern jtag_tap_t* jtag_tap_by_position(unsigned abs_position);
+ extern jtag_tap_t* jtag_tap_next_enabled(jtag_tap_t* p);
+ extern unsigned jtag_tap_count_enabled(void);
+ extern unsigned jtag_tap_count(void);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001198.html">[Openocd-svn] r2414 - trunk/doc
+</A></li>
+	<LI>Next message: <A HREF="001200.html">[Openocd-svn] r2416 - in trunk/tcl: board target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1199">[ date ]</a>
+              <a href="thread.html#1199">[ thread ]</a>
+              <a href="subject.html#1199">[ subject ]</a>
+              <a href="author.html#1199">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,156 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-127-g4be9ede
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-127-g4be9ede&In-Reply-To=%3CE1Ntc4U-0006D9-Iy%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002185.html">
+   <LINK REL="Next"  HREF="002187.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-127-g4be9ede</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-127-g4be9ede&In-Reply-To=%3CE1Ntc4U-0006D9-Iy%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-127-g4be9ede">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Mon Mar 22 08:29:09 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002185.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-126-gccfaed8
+</A></li>
+        <LI>Next message: <A HREF="002187.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-128-g721502f
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2186">[ date ]</a>
+              <a href="thread.html#2186">[ thread ]</a>
+              <a href="subject.html#2186">[ subject ]</a>
+              <a href="author.html#2186">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  4be9eded7f723af8fe755b1ef62469e87d1003bc (commit)
+      from  ccfaed8bc7936d7a1640bf69df52ac65ca38e298 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 4be9eded7f723af8fe755b1ef62469e87d1003bc
+Author: Mike Dunn &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mikedunn at newsguy.com</A>&gt;
+Date:   Sat Mar 20 10:53:47 2010 -0400
+
+    fix software breakpoints on xscale
+    
+    This patch fixes xscale software breakpoints by cleaning the dcache and
+    invalidating the icache after the bkpt instruction is inserted or removed.  The
+    icache operation is necessary in order to flush the fetch buffers, even if the
+    icache is disabled (see section 4.2.7 of the xscale core developer's manual).
+    The dcache is presumed to be enabled; no harm done if not.  The dcache is also
+    invalidated after cleaning in order to safeguard against a future load of
+    invalid data, in the event that cache_clean_address points to memory that is
+    valid and in use.
+    
+    Also corrected a confusing typo I noticed in a comment.
+    
+    TODO (or not TODO...?): the xscale's 2K &quot;mini dcache&quot; is not cleaned.  This
+    cache is not used unless the 'X' bit in the page table entry is set.  This is a
+    proprietary xscale extension to the ARM architecture.  If a target's OS or
+    executive makes use of this for memory regions holding code, the breakpoint
+    problem will persist.  Flushing the mini dcache requires that 2K of valid
+    cacheable memory (mapped with 'X' bit set) be designated by the user for this
+    purpose.  The debug handler that gets downloaded to the target will also need to
+    be extended.
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 0f1953d..e578a77 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -2125,7 +2125,7 @@ static int xscale_set_breakpoint(struct target *target,
+ 			{
+ 				return retval;
+ 			}
+-			/* write the original instruction in target endianness (arm7_9-&gt;arm_bkpt is host endian) */
++			/* write the bkpt instruction in target endianness (arm7_9-&gt;arm_bkpt is host endian) */
+ 			if ((retval = target_write_u32(target, breakpoint-&gt;address, xscale-&gt;arm_bkpt)) != ERROR_OK)
+ 			{
+ 				return retval;
+@@ -2138,13 +2138,18 @@ static int xscale_set_breakpoint(struct target *target,
+ 			{
+ 				return retval;
+ 			}
+-			/* write the original instruction in target endianness (arm7_9-&gt;arm_bkpt is host endian) */
++			/* write the bkpt instruction in target endianness (arm7_9-&gt;arm_bkpt is host endian) */
+ 			if ((retval = target_write_u32(target, breakpoint-&gt;address, xscale-&gt;thumb_bkpt)) != ERROR_OK)
+ 			{
+ 				return retval;
+ 			}
+ 		}
+ 		breakpoint-&gt;set = 1;
++
++		xscale_send_u32(target, 0x50);   /* clean dcache */
++		xscale_send_u32(target, xscale-&gt;cache_clean_address);
++		xscale_send_u32(target, 0x51);   /* invalidate dcache */
++		xscale_send_u32(target, 0x52);   /* invalidate icache and flush fetch buffers */
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -2225,6 +2230,11 @@ static int xscale_unset_breakpoint(struct target *target,
+ 			}
+ 		}
+ 		breakpoint-&gt;set = 0;
++
++		xscale_send_u32(target, 0x50);   /* clean dcache */
++		xscale_send_u32(target, xscale-&gt;cache_clean_address);
++		xscale_send_u32(target, 0x51);   /* invalidate dcache */
++		xscale_send_u32(target, 0x52);   /* invalidate icache and flush fetch buffers */
+ 	}
+ 
+ 	return ERROR_OK;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/xscale.c |   14 ++++++++++++--
+ 1 files changed, 12 insertions(+), 2 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002185.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-126-gccfaed8
+</A></li>
+	<LI>Next message: <A HREF="002187.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-128-g721502f
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2186">[ date ]</a>
+              <a href="thread.html#2186">[ thread ]</a>
+              <a href="subject.html#2186">[ subject ]</a>
+              <a href="author.html#2186">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

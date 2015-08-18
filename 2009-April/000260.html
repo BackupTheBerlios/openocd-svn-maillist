@@ -1,0 +1,185 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1476 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1476%20-%20trunk/src/jtag&In-Reply-To=%3C200904200640.n3K6emEj010034%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000259.html">
+   <LINK REL="Next"  HREF="000261.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1476 - trunk/src/jtag</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1476%20-%20trunk/src/jtag&In-Reply-To=%3C200904200640.n3K6emEj010034%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1476 - trunk/src/jtag">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Mon Apr 20 08:40:48 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000259.html">[Openocd-svn] r1475 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000261.html">[Openocd-svn] r1477 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#260">[ date ]</a>
+              <a href="thread.html#260">[ thread ]</a>
+              <a href="subject.html#260">[ subject ]</a>
+              <a href="author.html#260">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-04-20 08:40:45 +0200 (Mon, 20 Apr 2009)
+New Revision: 1476
+
+Modified:
+   trunk/src/jtag/bitq.c
+   trunk/src/jtag/ft2232.c
+   trunk/src/jtag/presto.c
+Log:
+Zach Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt; fix ft2232/presto warnings
+
+Modified: trunk/src/jtag/bitq.c
+===================================================================
+--- trunk/src/jtag/bitq.c	2009-04-19 23:30:15 UTC (rev 1475)
++++ trunk/src/jtag/bitq.c	2009-04-20 06:40:45 UTC (rev 1476)
+@@ -39,7 +39,7 @@
+ bitq_state_t      bitq_in_state;        /* state of input queue */
+ 
+ u8* bitq_in_buffer;                     /* buffer dynamically reallocated as needed */
+-unsigned long     bitq_in_bufsize = 32; /* min. buffer size */
++int     bitq_in_bufsize = 32; /* min. buffer size */
+ 
+ /*
+  * input queue processing does not use jtag_read_buffer() to avoid unnecessary overhead
+
+Modified: trunk/src/jtag/ft2232.c
+===================================================================
+--- trunk/src/jtag/ft2232.c	2009-04-19 23:30:15 UTC (rev 1475)
++++ trunk/src/jtag/ft2232.c	2009-04-20 06:40:45 UTC (rev 1476)
+@@ -158,7 +158,7 @@
+ 	{ &quot;stm32stick&quot;,           stm32stick_init,           stm32stick_reset,   NULL                    },
+ 	{ &quot;axm0432_jtag&quot;,         axm0432_jtag_init,         axm0432_jtag_reset, NULL                    },
+ 	{&quot;sheevaplug&quot;,            sheevaplug_init,           sheevaplug_reset,   NULL                    },
+-	{ NULL,                   NULL,                      NULL },
++	{ NULL,                   NULL,                      NULL,               NULL                    },
+ };
+ 
+ static u8                  nTRST, nTRSTnOE, nSRST, nSRSTnOE;
+@@ -233,7 +233,7 @@
+ }
+ 
+ 
+-int ft2232_read(u8* buf, int size, u32* bytes_read)
++int ft2232_read(u8* buf, u32 size, u32* bytes_read)
+ {
+ #if BUILD_FT2232_FTD2XX == 1
+ 	DWORD     dw_bytes_read;
+@@ -1607,7 +1607,7 @@
+ 		if (status == FT_OK)
+ 		{
+ 			char** desc_array = malloc( sizeof(char*) * (num_devices + 1) );
+-			int    i;
++			u32 i;
+ 
+ 			for (i = 0; i &lt; num_devices; i++)
+ 				desc_array[i] = malloc(64);
+
+Modified: trunk/src/jtag/presto.c
+===================================================================
+--- trunk/src/jtag/presto.c	2009-04-19 23:30:15 UTC (rev 1475)
++++ trunk/src/jtag/presto.c	2009-04-20 06:40:45 UTC (rev 1476)
+@@ -138,7 +138,7 @@
+ 	0x80, 0xA0, 0xA8, 0xB0, 0xC0, 0xE0
+ };
+ 
+-int presto_write(u8 *buf, int size)
++int presto_write(u8 *buf, u32 size)
+ {
+ #if BUILD_PRESTO_FTD2XX == 1
+ 	DWORD ftbytes;
+@@ -160,14 +160,14 @@
+ 
+ 	if (ftbytes != size)
+ 	{
+-		LOG_ERROR(&quot;couldn't write the requested number of bytes to PRESTO (%i &lt; %i)&quot;, ftbytes, size);
++		LOG_ERROR(&quot;couldn't write the requested number of bytes to PRESTO (%u &lt; %u)&quot;, (u32)ftbytes, size);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+ 	return ERROR_OK;
+ }
+ 
+-int presto_read(u8* buf, int size)
++int presto_read(u8* buf, u32 size)
+ {
+ #if BUILD_PRESTO_FTD2XX == 1
+ 	DWORD ftbytes;
+@@ -202,7 +202,7 @@
+ 	if (ftbytes != size)
+ 	{
+ 		/* this is just a warning, there might have been timeout when detecting PRESTO, which is not fatal */
+-		LOG_WARNING(&quot;couldn't read the requested number of bytes from PRESTO (%i &lt; %i)&quot;, ftbytes, size);
++		LOG_WARNING(&quot;couldn't read the requested number of bytes from PRESTO (%u &lt; %u)&quot;, (u32)ftbytes, size);
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+@@ -212,7 +212,7 @@
+ #if BUILD_PRESTO_FTD2XX == 1
+ int presto_open_ftd2xx(char *req_serial)
+ {
+-	int i;
++	u32 i;
+ 	DWORD numdevs;
+ 	DWORD vidpid;
+ 	char devname[FT_DEVICE_NAME_LEN];
+@@ -238,7 +238,7 @@
+ 		return ERROR_JTAG_DEVICE_ERROR;
+ 	}
+ 
+-	LOG_DEBUG(&quot;FTDI devices available: %i&quot;, numdevs);
++	LOG_DEBUG(&quot;FTDI devices available: %lu&quot;, numdevs);
+ 	for (i = 0; i &lt; numdevs; i++)
+ 	{
+ 		if ((presto-&gt;status = FT_Open(i, &amp;(presto-&gt;handle))) != FT_OK)
+@@ -257,7 +257,7 @@
+ 				break;
+ 		}
+ 		else
+-			LOG_DEBUG(&quot;FT_GetDeviceInfo failed: %i&quot;, presto-&gt;status);
++			LOG_DEBUG(&quot;FT_GetDeviceInfo failed: %lu&quot;, presto-&gt;status);
+ 
+ 		LOG_DEBUG(&quot;FTDI device %i does not match, closing&quot;, i);
+ 		FT_Close(presto-&gt;handle);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000259.html">[Openocd-svn] r1475 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000261.html">[Openocd-svn] r1477 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#260">[ date ]</a>
+              <a href="thread.html#260">[ thread ]</a>
+              <a href="subject.html#260">[ subject ]</a>
+              <a href="author.html#260">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

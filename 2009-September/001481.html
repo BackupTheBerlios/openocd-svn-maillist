@@ -1,0 +1,222 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2698 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2698%20-%20trunk/src/target&In-Reply-To=%3C200909120810.n8C8AMve004550%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001480.html">
+   <LINK REL="Next"  HREF="001482.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2698 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2698%20-%20trunk/src/target&In-Reply-To=%3C200909120810.n8C8AMve004550%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2698 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Sat Sep 12 10:10:22 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001480.html">[Openocd-svn] r2697 - trunk
+</A></li>
+        <LI>Next message: <A HREF="001482.html">[Openocd-svn] r2699 - in trunk/tcl: board target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1481">[ date ]</a>
+              <a href="thread.html#1481">[ thread ]</a>
+              <a href="subject.html#1481">[ subject ]</a>
+              <a href="author.html#1481">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-09-12 10:10:19 +0200 (Sat, 12 Sep 2009)
+New Revision: 2698
+
+Modified:
+   trunk/src/target/arm7_9_common.c
+   trunk/src/target/arm7_9_common.h
+   trunk/src/target/armv7m.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt; 
+Cleanup some the downloaded ARM target algorithm code:
+
+ - Provide more complete disassembly of the DCC bulk write code
+
+ - Make code blocks &quot;static const&quot;, in case GCC doesn't
+
+ - Fix some tabbing/layout issues
+
+ - Make some arm7_9_common.h flags be &quot;bool&quot; not &quot;int&quot;; and compact
+   the layout a bit (group most bools together)
+
+Modified: trunk/src/target/arm7_9_common.c
+===================================================================
+--- trunk/src/target/arm7_9_common.c	2009-09-11 21:14:31 UTC (rev 2697)
++++ trunk/src/target/arm7_9_common.c	2009-09-12 08:10:19 UTC (rev 2698)
+@@ -2657,8 +2657,21 @@
+ 
+ static const uint32_t dcc_code[] =
+ {
+-	/* MRC      TST         BNE         MRC         STR         B */
+-	0xee101e10, 0xe3110001, 0x0afffffc, 0xee111e10, 0xe4801004, 0xeafffff9
++	/* r0 == input, points to memory buffer
++	 * r1 == scratch
++	 */
++
++	/* spin until DCC control (c0) reports data arrived */
++	0xee101e10,	/* w: mrc p14, #0, r1, c0, c0 */
++	0xe3110001,	/*    tst r1, #1              */
++	0x0afffffc,	/*    bne w                   */
++
++	/* read word from DCC (c1), write to memory */
++	0xee111e10,	/*    mrc p14, #0, r1, c1, c0 */
++	0xe4801004,	/*    str r1, [r0], #4        */
++
++	/* repeat */
++	0xeafffff9	/*    b   w                   */
+ };
+ 
+ int armv4_5_run_algorithm_inner(struct target_s *target, int num_mem_params, mem_param_t *mem_params, int num_reg_params, reg_param_t *reg_params, uint32_t entry_point, uint32_t exit_point, int timeout_ms, void *arch_info, int (*run_it)(struct target_s *target, uint32_t exit_point, int timeout_ms, void *arch_info));
+@@ -2736,7 +2749,7 @@
+ 	reg_param_t reg_params[2];
+ 	int retval;
+ 
+-	uint32_t arm7_9_crc_code[] = {
++	static const uint32_t arm7_9_crc_code[] = {
+ 		0xE1A02000,				/* mov		r2, r0 */
+ 		0xE3E00000,				/* mov		r0, #0xffffffff */
+ 		0xE1A03001,				/* mov		r3, r1 */
+@@ -2818,15 +2831,15 @@
+ 	int retval;
+ 	uint32_t i;
+ 
+-	uint32_t erase_check_code[] =
++	static const uint32_t erase_check_code[] =
+ 	{
+-						/* loop: */
+-		0xe4d03001,		/* ldrb r3, [r0], #1	*/
+-		0xe0022003,		/* and r2, r2, r3 		*/
+-		0xe2511001, 	/* subs r1, r1, #1		*/
+-		0x1afffffb,		/* bne loop				*/
+-						/* end: */
+-		0xeafffffe		/* b end				*/
++		/* loop: */
++		0xe4d03001,		/* ldrb r3, [r0], #1 */
++		0xe0022003,		/* and r2, r2, r3    */
++		0xe2511001,		/* subs r1, r1, #1   */
++		0x1afffffb,		/* bne loop          */
++		/* end: */
++		0xeafffffe		/* b end             */
+ 	};
+ 
+ 	/* make sure we have a working area */
+
+Modified: trunk/src/target/arm7_9_common.h
+===================================================================
+--- trunk/src/target/arm7_9_common.h	2009-09-11 21:14:31 UTC (rev 2697)
++++ trunk/src/target/arm7_9_common.h	2009-09-12 08:10:19 UTC (rev 2698)
+@@ -46,6 +46,8 @@
+ 
+ 	uint32_t arm_bkpt; /**&lt; ARM breakpoint instruction */
+ 	uint16_t thumb_bkpt; /**&lt; Thumb breakpoint instruction */
++	bool force_hw_bkpts;
++
+ 	int sw_breakpoints_added; /**&lt; Specifies which watchpoint software breakpoints are setup on */
+ 	int sw_breakpoint_count; /**&lt; keep track of number of software breakpoints we have set */
+ 	int breakpoint_count; /**&lt; Current number of set breakpoints */
+@@ -54,24 +56,23 @@
+ 	int wp0_used; /**&lt; Specifies if and how watchpoint unit 0 is used */
+ 	int wp1_used; /**&lt; Specifies if and how watchpoint unit 1 is used */
+ 	int wp1_used_default; /**&lt; Specifies if and how watchpoint unit 1 is used by default */
+-	int force_hw_bkpts;
+ 	int dbgreq_adjust_pc; /**&lt; Amount of PC adjustment caused by a DBGREQ */
+-	int use_dbgrq; /**&lt; Specifies if DBGRQ should be used to halt the target */
+-	int need_bypass_before_restart; /**&lt; Specifies if there should be a bypass before a JTAG restart */
++	bool use_dbgrq; /**&lt; Specifies if DBGRQ should be used to halt the target */
++	bool need_bypass_before_restart; /**&lt; Specifies if there should be a bypass before a JTAG restart */
+ 
+-	etm_context_t *etm_ctx;
++	bool has_single_step;
++	bool has_monitor_mode;
++	bool has_vector_catch; /**&lt; Specifies if the target has a reset vector catch */
+ 
+-	int has_single_step;
+-	int has_monitor_mode;
+-	int has_vector_catch; /**&lt; Specifies if the target has a reset vector catch */
++	bool debug_entry_from_reset; /**&lt; Specifies if debug entry was from a reset */
+ 
+-	int debug_entry_from_reset; /**&lt; Specifies if debug entry was from a reset */
++	bool fast_memory_access;
++	bool dcc_downloads;
+ 
++	etm_context_t *etm_ctx;
++
+ 	struct working_area_s *dcc_working_area;
+ 
+-	int fast_memory_access;
+-	int dcc_downloads;
+-
+ 	int (*examine_debug_reason)(target_t *target); /**&lt; Function for determining why debug state was entered */
+ 
+ 	void (*change_to_arm)(target_t *target, uint32_t *r0, uint32_t *pc); /**&lt; Function for changing from Thumb to ARM mode */
+
+Modified: trunk/src/target/armv7m.c
+===================================================================
+--- trunk/src/target/armv7m.c	2009-09-11 21:14:31 UTC (rev 2697)
++++ trunk/src/target/armv7m.c	2009-09-12 08:10:19 UTC (rev 2698)
+@@ -573,7 +573,7 @@
+ 	reg_param_t reg_params[2];
+ 	int retval;
+ 
+-	uint16_t cortex_m3_crc_code[] = {
++	static const uint16_t cortex_m3_crc_code[] = {
+ 		0x4602,					/* mov	r2, r0 */
+ 		0xF04F, 0x30FF,			/* mov	r0, #0xffffffff */
+ 		0x460B,					/* mov	r3, r1 */
+@@ -655,11 +655,11 @@
+ 	int retval;
+ 	uint32_t i;
+ 
+-	uint16_t erase_check_code[] =
++	static const uint16_t erase_check_code[] =
+ 	{
+ 							/* loop: */
+-		0xF810, 0x3B01,		/* ldrb 	r3, [r0], #1 */
+-		0xEA02, 0x0203,		/* and 	r2, r2, r3 */
++		0xF810, 0x3B01,		/* ldrb r3, [r0], #1 */
++		0xEA02, 0x0203,		/* and  r2, r2, r3 */
+ 		0x3901,				/* subs 	r1, r1, #1 */
+ 		0xD1F9,				/* bne		loop */
+ 							/* end: */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001480.html">[Openocd-svn] r2697 - trunk
+</A></li>
+	<LI>Next message: <A HREF="001482.html">[Openocd-svn] r2699 - in trunk/tcl: board target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1481">[ date ]</a>
+              <a href="thread.html#1481">[ thread ]</a>
+              <a href="subject.html#1481">[ subject ]</a>
+              <a href="author.html#1481">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

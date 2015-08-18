@@ -1,0 +1,276 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-132-g627bd19
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-132-g627bd19&In-Reply-To=%3CE1N7qNE-0006QV-KQ%40fxgxhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001757.html">
+   <LINK REL="Next"  HREF="001759.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-132-g627bd19</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-132-g627bd19&In-Reply-To=%3CE1N7qNE-0006QV-KQ%40fxgxhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-132-g627bd19">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Tue Nov 10 14:03:03 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001757.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-131-gc202ba7
+</A></li>
+        <LI>Next message: <A HREF="001759.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-134-g6881c1b
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1758">[ date ]</a>
+              <a href="thread.html#1758">[ thread ]</a>
+              <a href="subject.html#1758">[ subject ]</a>
+              <a href="author.html#1758">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  627bd197689d71f7beb3e9cd11e2993fe0d4d880 (commit)
+      from  c202ba7d34bd7feba88d7c0ee1aa9ef7be18bca9 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 627bd197689d71f7beb3e9cd11e2993fe0d4d880
+Author: Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mbruck at digenius.de</A>&gt;
+Date:   Tue Oct 27 22:41:00 2009 +0100
+
+    arm11: add etmr/etmw registers to access ETM via DBGTAP scan chain
+    
+    First cut of these commands. &#195;&#152;yvind tinkered a bit with
+    the number parsing to bring it up to speed + rebased it.
+    Ready for testing.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 9d885de..fe39d6e 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -2143,6 +2143,59 @@ static int arm11_mcr(target_t *target, int cpnum,
+ 	return arm11_mrc_inner(target, cpnum, op1, op2, CRn, CRm, &amp;value, false);
+ }
+ 
++static int arm11_handle_etm_read_write(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc, bool read)
++{
++	if (argc != (read ? 2 : 3))
++	{
++		LOG_ERROR(&quot;Invalid number of arguments.&quot;);
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	arm11_common_t * arm11 = arm11_find_target(args[0]);
++
++	if (!arm11)
++	{
++		LOG_ERROR(&quot;Parameter 1 is not the target name of an ARM11 device.&quot;);
++		return ERROR_COMMAND_SYNTAX_ERROR;
++	}
++
++	uint32_t address;
++	COMMAND_PARSE_NUMBER(u32, args[1], address);
++
++	if (!read)
++	{
++		uint32_t value;
++		COMMAND_PARSE_NUMBER(u32, args[2], value);
++
++		LOG_INFO(&quot;ETM write register 0x%02&quot; PRIx32 &quot; (%&quot; PRId32 &quot;) = 0x%08&quot; PRIx32 &quot; (%&quot; PRId32 &quot;)&quot;,
++		  address, address, value, value);
++
++		CHECK_RETVAL(arm11_write_etm(arm11, address, value));
++	}
++	else
++	{
++		uint32_t value;
++
++		CHECK_RETVAL(arm11_read_etm(arm11, address, &amp;value));
++
++	    LOG_INFO(&quot;ETM read register 0x%02&quot; PRIx32 &quot; (%&quot; PRId32 &quot;) = 0x%08&quot; PRIx32 &quot; (%&quot; PRId32 &quot;)&quot;,
++		  address, address, value, value);
++	}
++
++	return ERROR_OK;
++}
++
++int arm11_handle_etmr(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	return arm11_handle_etm_read_write(cmd_ctx, cmd, args, argc, true);
++}
++
++int arm11_handle_etmw(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	return arm11_handle_etm_read_write(cmd_ctx, cmd, args, argc, false);
++}
++
++
+ #define ARM11_HANDLER(x)	.x = arm11_##x
+ 
+ target_type_t arm11_target = {
+@@ -2196,6 +2249,14 @@ int arm11_register_commands(struct command_context_s *cmd_ctx)
+ 	top_cmd = register_command(cmd_ctx, NULL, &quot;arm11&quot;,
+ 			NULL, COMMAND_ANY, NULL);
+ 
++	register_command(cmd_ctx, top_cmd, &quot;etmr&quot;,
++			arm11_handle_etmr, COMMAND_ANY,
++			&quot;Read Embedded Trace Macrocell (ETM) register. etmr &lt;jtag_target&gt; &lt;ETM register address&gt;&quot;);
++
++	register_command(cmd_ctx, top_cmd, &quot;etmw&quot;,
++			arm11_handle_etmw, COMMAND_ANY,
++			&quot;Write Embedded Trace Macrocell (ETM) register. etmr &lt;jtag_target&gt; &lt;ETM register address&gt; &lt;value&gt;&quot;);
++
+ 	/* &quot;hardware_step&quot; is only here to check if the default
+ 	 * simulate + breakpoint implementation is broken.
+ 	 * TEMPORARY! NOT DOCUMENTED!
+diff --git a/src/target/arm11.h b/src/target/arm11.h
+index be5e77b..100fc26 100644
+--- a/src/target/arm11.h
++++ b/src/target/arm11.h
+@@ -184,4 +184,9 @@ typedef struct arm11_reg_state_s
+ 
+ int arm11_register_commands(struct command_context_s *cmd_ctx);
+ 
++int arm11_read_etm(arm11_common_t * arm11, uint8_t address, uint32_t *value);
++int arm11_write_etm(arm11_common_t * arm11, uint8_t address, uint32_t value);
++
++
++
+ #endif /* ARM11_H */
+diff --git a/src/target/arm11_dbgtap.c b/src/target/arm11_dbgtap.c
+index 0e1160f..fc7a55c 100644
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -940,3 +940,79 @@ int arm11_read_memory_word(arm11_common_t * arm11, uint32_t address, uint32_t *
+ }
+ 
+ 
++/** Write Embedded Trace Macrocell (ETM) via Scan chain 6
++ *
++ * <A HREF="http://infocenter.arm.com/help/topic/com.arm.doc.ddi0318e/Bcfddjeh.html#Bcfggcbe">http://infocenter.arm.com/help/topic/com.arm.doc.ddi0318e/Bcfddjeh.html#Bcfggcbe</A>
++ *
++ * \param arm11		Target state variable.
++ * \param address	7 bit ETM register address
++ * \param value		Value to be written
++ *					
++ * \return			Error status
++ *
++ * \remarks			This is a stand-alone function that executes the JTAG command queue.
++ */
++int arm11_write_etm(arm11_common_t * arm11, uint8_t address, uint32_t value)
++{
++	CHECK_RETVAL(arm11_add_debug_SCAN_N(arm11, 0x06, ARM11_TAP_DEFAULT));
++
++	/* Uses INTEST for read and write */
++	arm11_add_IR(arm11, ARM11_INTEST, ARM11_TAP_DEFAULT);
++
++	scan_field_t		chain6_fields[3];
++
++	uint8_t				nRW			= 1;
++
++	arm11_setup_field(arm11, 32, &amp;value,		NULL,		chain6_fields + 0);
++	arm11_setup_field(arm11,  7, &amp;address,		NULL,		chain6_fields + 1);
++	arm11_setup_field(arm11,  1, &amp;nRW,			NULL,		chain6_fields + 2);
++
++	arm11_add_dr_scan_vc(asizeof(chain6_fields), chain6_fields, TAP_IDLE);
++
++	CHECK_RETVAL(jtag_execute_queue());
++
++	return ERROR_OK;
++}
++
++/** Read Embedded Trace Macrocell (ETM) via Scan chain 6
++ *
++ * <A HREF="http://infocenter.arm.com/help/topic/com.arm.doc.ddi0318e/Bcfddjeh.html#Bcfggcbe">http://infocenter.arm.com/help/topic/com.arm.doc.ddi0318e/Bcfddjeh.html#Bcfggcbe</A>
++ *
++ * \param arm11		Target state variable.
++ * \param address	7 bit ETM register address
++ * \param value		Pointer that receives value that was read
++ *					
++ * \return			Error status
++ *
++ * \remarks			This is a stand-alone function that executes the JTAG command queue.
++ */
++int arm11_read_etm(arm11_common_t * arm11, uint8_t address, uint32_t * value)
++{
++	CHECK_RETVAL(arm11_add_debug_SCAN_N(arm11, 0x06, ARM11_TAP_DEFAULT));
++
++	/* Uses INTEST for read and write */
++	arm11_add_IR(arm11, ARM11_INTEST, ARM11_TAP_DEFAULT);
++
++	scan_field_t		chain6_fields[3];
++
++	uint8_t				nRW			= 0;
++
++	arm11_setup_field(arm11, 32, NULL,			NULL,		chain6_fields + 0);
++	arm11_setup_field(arm11,  7, &amp;address,		NULL,		chain6_fields + 1);
++	arm11_setup_field(arm11,  1, &amp;nRW,			NULL,		chain6_fields + 2);
++
++	arm11_add_dr_scan_vc(asizeof(chain6_fields), chain6_fields, TAP_IDLE);
++
++	/* Data is made available in Capture-DR and shifted out on the next access */
++
++	arm11_setup_field(arm11, 32, NULL,			value,		chain6_fields + 0);
++	arm11_setup_field(arm11,  7, &amp;address,		NULL,		chain6_fields + 1);
++	arm11_setup_field(arm11,  1, &amp;nRW,			NULL,		chain6_fields + 2);
++
++	arm11_add_dr_scan_vc(asizeof(chain6_fields), chain6_fields, TAP_IDLE);
++
++	CHECK_RETVAL(jtag_execute_queue());
++
++	return ERROR_OK;
++}
++
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm11.c        |   61 ++++++++++++++++++++++++++++++++++++
+ src/target/arm11.h        |    5 +++
+ src/target/arm11_dbgtap.c |   76 +++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 142 insertions(+), 0 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001757.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-131-gc202ba7
+</A></li>
+	<LI>Next message: <A HREF="001759.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-134-g6881c1b
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1758">[ date ]</a>
+              <a href="thread.html#1758">[ thread ]</a>
+              <a href="subject.html#1758">[ subject ]</a>
+              <a href="author.html#1758">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

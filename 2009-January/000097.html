@@ -1,0 +1,303 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1313 - in trunk/src: jtag target target/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1313%20-%20in%20trunk/src%3A%20jtag%20target%20target/target&In-Reply-To=%3C200901131133.n0DBXL6U028539%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000096.html">
+   <LINK REL="Next"  HREF="000098.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1313 - in trunk/src: jtag target target/target</H1>
+    <B>ntfreak at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1313%20-%20in%20trunk/src%3A%20jtag%20target%20target/target&In-Reply-To=%3C200901131133.n0DBXL6U028539%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1313 - in trunk/src: jtag target target/target">ntfreak at mail.berlios.de
+       </A><BR>
+    <I>Tue Jan 13 12:33:21 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000096.html">[Openocd-svn] r1312 - trunk/src/target/target
+</A></li>
+        <LI>Next message: <A HREF="000098.html">[Openocd-svn] r1314 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#97">[ date ]</a>
+              <a href="thread.html#97">[ thread ]</a>
+              <a href="subject.html#97">[ subject ]</a>
+              <a href="author.html#97">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: ntfreak
+Date: 2009-01-13 12:33:19 +0100 (Tue, 13 Jan 2009)
+New Revision: 1313
+
+Modified:
+   trunk/src/jtag/jtag.c
+   trunk/src/target/mips32.h
+   trunk/src/target/mips_m4k.c
+   trunk/src/target/target/pic32mx.cfg
+Log:
+- added mips software breakpoint support
+- changed some jtag LOG_DEBUG to only output when _DEBUG_JTAG_IO_ defined. Makes debugging other parts of openocd not as noisy
+- updated correct jtag id for pic32mx
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-01-09 13:04:37 UTC (rev 1312)
++++ trunk/src/jtag/jtag.c	2009-01-13 11:33:19 UTC (rev 1313)
+@@ -40,7 +40,6 @@
+ */
+ int jtag_error=ERROR_OK;
+ 
+-
+ typedef struct cmd_queue_page_s
+ {
+ 	void *address;
+@@ -1278,7 +1277,9 @@
+ 
+ 	bit_count = 0;
+ 
++#ifdef _DEBUG_JTAG_IO_
+ 	LOG_DEBUG(&quot;num_fields: %i&quot;,cmd-&gt;num_fields);
++#endif
+ 
+ 	for (i = 0; i &lt; cmd-&gt;num_fields; i++)
+ 	{
+@@ -1295,7 +1296,9 @@
+ 		}
+ 
+ 		bit_count += cmd-&gt;fields[i].num_bits;
++#ifdef _DEBUG_JTAG_IO_
+ 		LOG_DEBUG(&quot;bit_count totalling: %i&quot;,  bit_count );
++#endif
+ 	}
+ 
+ 	return bit_count;
+@@ -2950,7 +2953,6 @@
+ 	}
+ }
+ 
+-
+ /* map state number to SVF state string */
+ const char* jtag_state_name(enum tap_state state)
+ {
+@@ -2979,4 +2981,3 @@
+ 
+ 	return ret;
+ }
+-
+
+Modified: trunk/src/target/mips32.h
+===================================================================
+--- trunk/src/target/mips32.h	2009-01-09 13:04:37 UTC (rev 1312)
++++ trunk/src/target/mips32.h	2009-01-13 11:33:19 UTC (rev 1313)
+@@ -116,7 +116,11 @@
+ #define MIPS32_SB(reg, off, base)	MIPS32_I_INST(MIPS32_OP_SB, base, reg, off)
+ #define MIPS32_SH(reg, off, base)	MIPS32_I_INST(MIPS32_OP_SH, base, reg, off)
+ #define MIPS32_SW(reg, off, base)	MIPS32_I_INST(MIPS32_OP_SW, base, reg, off)
++
++/* ejtag specific instructions */
+ #define MIPS32_DRET					0x4200001F
++#define MIPS32_SDBBP				0x7000003F
++#define MIPS16_SDBBP 				0xE801
+ 
+ extern int mips32_arch_state(struct target_s *target);
+ extern int mips32_init_arch_info(target_t *target, mips32_common_t *mips32, jtag_tap_t *tap);
+
+Modified: trunk/src/target/mips_m4k.c
+===================================================================
+--- trunk/src/target/mips_m4k.c	2009-01-09 13:04:37 UTC (rev 1312)
++++ trunk/src/target/mips_m4k.c	2009-01-13 11:33:19 UTC (rev 1313)
+@@ -490,7 +490,8 @@
+ {
+ 	mips32_common_t *mips32 = target-&gt;arch_info;
+ 	mips32_comparator_t * comparator_list = mips32-&gt;inst_break_list;
+-
++	int retval;
++	
+ 	if (breakpoint-&gt;set)
+ 	{
+ 		LOG_WARNING(&quot;breakpoint already set&quot;);
+@@ -519,7 +520,54 @@
+ 	}
+ 	else if (breakpoint-&gt;type == BKPT_SOFT)
+ 	{
+-
++		if (breakpoint-&gt;length == 4)
++		{
++			u32 verify = 0xffffffff;
++			
++			if((retval = target-&gt;type-&gt;read_memory(target, breakpoint-&gt;address, breakpoint-&gt;length, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++			{
++				return retval;
++			}
++			if ((retval = target_write_u32(target, breakpoint-&gt;address, MIPS32_SDBBP)) != ERROR_OK)
++			{
++				return retval;
++			}
++			
++			if ((retval = target_read_u32(target, breakpoint-&gt;address, &amp;verify)) != ERROR_OK)
++			{
++				return retval;
++			}
++			if (verify != MIPS32_SDBBP)
++			{
++				LOG_ERROR(&quot;Unable to set 32bit breakpoint at address %08x - check that memory is read/writable&quot;, breakpoint-&gt;address);
++				return ERROR_OK;
++			}
++		}
++		else
++		{
++			u16 verify = 0xffff;
++			
++			if((retval = target-&gt;type-&gt;read_memory(target, breakpoint-&gt;address, breakpoint-&gt;length, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++			{
++				return retval;
++			}
++			if ((retval = target_write_u16(target, breakpoint-&gt;address, MIPS16_SDBBP)) != ERROR_OK)
++			{
++				return retval;
++			}
++			
++			if ((retval = target_read_u16(target, breakpoint-&gt;address, &amp;verify)) != ERROR_OK)
++			{
++				return retval;
++			}
++			if (verify != MIPS16_SDBBP)
++			{
++				LOG_ERROR(&quot;Unable to set 16bit breakpoint at address %08x - check that memory is read/writable&quot;, breakpoint-&gt;address);
++				return ERROR_OK;
++			}
++		}
++		
++		breakpoint-&gt;set = 20; /* Any nice value but 0 */
+ 	}
+ 
+ 	return ERROR_OK;
+@@ -530,7 +578,8 @@
+ 	/* get pointers to arch-specific information */
+ 	mips32_common_t *mips32 = target-&gt;arch_info;
+ 	mips32_comparator_t * comparator_list = mips32-&gt;inst_break_list;
+-
++	int retval;
++	
+ 	if (!breakpoint-&gt;set)
+ 	{
+ 		LOG_WARNING(&quot;breakpoint not set&quot;);
+@@ -551,7 +600,42 @@
+ 	}
+ 	else
+ 	{
+-
++		/* restore original instruction (kept in target endianness) */
++		if (breakpoint-&gt;length == 4)
++		{
++			u32 current_instr;
++			
++			/* check that user program has not modified breakpoint instruction */
++			if ((retval = target-&gt;type-&gt;read_memory(target, breakpoint-&gt;address, 4, 1, (u8*)&amp;current_instr)) != ERROR_OK)
++			{
++				return retval;
++			}
++			if (current_instr == MIPS32_SDBBP)
++			{
++				if((retval = target-&gt;type-&gt;write_memory(target, breakpoint-&gt;address, 4, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++				{
++					return retval;
++				}
++			}
++		}
++		else
++		{
++			u16 current_instr;
++			
++			/* check that user program has not modified breakpoint instruction */
++			if ((retval = target-&gt;type-&gt;read_memory(target, breakpoint-&gt;address, 2, 1, (u8*)&amp;current_instr)) != ERROR_OK)
++			{
++				return retval;
++			}
++			
++			if (current_instr == MIPS16_SDBBP)
++			{
++				if((retval = target-&gt;type-&gt;write_memory(target, breakpoint-&gt;address, 2, 1, breakpoint-&gt;orig_instr)) != ERROR_OK)
++				{
++					return retval;
++				}
++			}
++		}
+ 	}
+ 	breakpoint-&gt;set = 0;
+ 
+@@ -562,16 +646,17 @@
+ {
+ 	mips32_common_t *mips32 = target-&gt;arch_info;
+ 
+-	if (mips32-&gt;num_inst_bpoints_avail &lt; 1)
++	if (breakpoint-&gt;type == BKPT_HARD)
+ 	{
+-		LOG_INFO(&quot;no hardware breakpoint available&quot;);
+-		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+-	}
++		if (mips32-&gt;num_inst_bpoints_avail &lt; 1)
++		{
++			LOG_INFO(&quot;no hardware breakpoint available&quot;);
++			return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++		}
++		
++		mips32-&gt;num_inst_bpoints_avail--;
++	}	
+ 
+-	/* default to hardware for now */
+-	breakpoint-&gt;type = BKPT_HARD;
+-
+-	mips32-&gt;num_inst_bpoints_avail--;
+ 	mips_m4k_set_breakpoint(target, breakpoint);
+ 
+ 	return ERROR_OK;
+
+Modified: trunk/src/target/target/pic32mx.cfg
+===================================================================
+--- trunk/src/target/target/pic32mx.cfg	2009-01-09 13:04:37 UTC (rev 1312)
++++ trunk/src/target/target/pic32mx.cfg	2009-01-13 11:33:19 UTC (rev 1313)
+@@ -15,7 +15,7 @@
+    set _CPUTAPID $CPUTAPID
+ } else {
+   # force an error till we get a good number
+-   set _CPUTAPID 0xffffffff
++   set _CPUTAPID 0x30938053
+ }
+ 
+ jtag_nsrst_delay 100
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000096.html">[Openocd-svn] r1312 - trunk/src/target/target
+</A></li>
+	<LI>Next message: <A HREF="000098.html">[Openocd-svn] r1314 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#97">[ date ]</a>
+              <a href="thread.html#97">[ thread ]</a>
+              <a href="subject.html#97">[ subject ]</a>
+              <a href="author.html#97">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

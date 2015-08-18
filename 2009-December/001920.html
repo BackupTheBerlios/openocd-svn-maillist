@@ -1,0 +1,194 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-848-gc5eb8e2
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-848-gc5eb8e2&In-Reply-To=%3CE1NGWNS-0004Tn-Se%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001919.html">
+   <LINK REL="Next"  HREF="001921.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-848-gc5eb8e2</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-848-gc5eb8e2&In-Reply-To=%3CE1NGWNS-0004Tn-Se%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-848-gc5eb8e2">zwelch at users.sourceforge.net
+       </A><BR>
+    <I>Fri Dec  4 12:30:54 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001919.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-846-ga535d2f
+</A></li>
+        <LI>Next message: <A HREF="001921.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-852-gc65d94f
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1920">[ date ]</a>
+              <a href="thread.html#1920">[ thread ]</a>
+              <a href="subject.html#1920">[ subject ]</a>
+              <a href="author.html#1920">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  c5eb8e29bdc296c2d0b25cc771639567b5f7707f (commit)
+       via  eae56d27c3892188560918526710d44d147b0c8d (commit)
+      from  a535d2f64337f39902aebd1a5e9488a85f542b7f (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit c5eb8e29bdc296c2d0b25cc771639567b5f7707f
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Dec 3 17:38:24 2009 -0800
+
+    check top-level command registrations
+    
+    When calling module_register_commands, the return value needs to be
+    checked for failures.  Instead of duplicating code, use an array of
+    function pointers to the identical registration functions to iterate
+    over during startup.
+
+diff --git a/src/openocd.c b/src/openocd.c
+index da15969..0ae0d19 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -184,6 +184,11 @@ static const struct command_registration openocd_command_handlers[] = {
+ 	COMMAND_REGISTRATION_DONE
+ };
+ 
++int openocd_register_commands(struct command_context *cmd_ctx)
++{
++	return register_commands(cmd_ctx, NULL, openocd_command_handlers);
++}
++
+ struct command_context *global_cmd_ctx;
+ 
+ /* NB! this fn can be invoked outside this file for non PC hosted builds */
+@@ -192,28 +197,41 @@ struct command_context *setup_command_handler(Jim_Interp *interp)
+ 	log_init();
+ 	LOG_DEBUG(&quot;log_init: complete&quot;);
+ 
+-	struct command_context *cmd_ctx;
+-
+-	global_cmd_ctx = cmd_ctx = command_init(openocd_startup_tcl, interp);
++	const char *startup = openocd_startup_tcl;
++	struct command_context *cmd_ctx = command_init(startup, interp);
+ 
+-	register_commands(cmd_ctx, NULL, openocd_command_handlers);
+ 	/* register subsystem commands */
+-	server_register_commands(cmd_ctx);
+-	gdb_register_commands(cmd_ctx);
+-	log_register_commands(cmd_ctx);
+-	jtag_register_commands(cmd_ctx);
+-	xsvf_register_commands(cmd_ctx);
+-	svf_register_commands(cmd_ctx);
+-	target_register_commands(cmd_ctx);
+-	flash_register_commands(cmd_ctx);
+-	nand_register_commands(cmd_ctx);
+-	pld_register_commands(cmd_ctx);
+-	mflash_register_commands(cmd_ctx);
+-
++	typedef int (*command_registrant_t)(struct command_context *cmd_ctx);
++	command_registrant_t command_registrants[] = {
++		&amp;openocd_register_commands,
++		&amp;server_register_commands,
++		&amp;gdb_register_commands,
++		&amp;log_register_commands,
++		&amp;jtag_register_commands,
++		&amp;xsvf_register_commands,
++		&amp;svf_register_commands,
++		&amp;target_register_commands,
++		&amp;flash_register_commands,
++		&amp;nand_register_commands,
++		&amp;pld_register_commands,
++		&amp;mflash_register_commands,
++		NULL
++	};
++	for (unsigned i = 0; NULL != command_registrants[i]; i++)
++	{
++		int retval = (*command_registrants[i])(cmd_ctx);
++		if (ERROR_OK != retval)
++		{
++			command_done(cmd_ctx);
++			return NULL;
++		}
++	}
+ 	LOG_DEBUG(&quot;command registration: complete&quot;);
+ 
+ 	LOG_OUTPUT(OPENOCD_VERSION &quot;\n&quot;);
+ 
++	global_cmd_ctx = cmd_ctx;
++
+ 	return cmd_ctx;
+ }
+ 
+
+commit eae56d27c3892188560918526710d44d147b0c8d
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Dec 3 17:41:39 2009 -0800
+
+    allow 'jtag init' to be run in any mode
+    
+    Help alleviate further potential problems with interactive startup.
+
+diff --git a/src/jtag/tcl.c b/src/jtag/tcl.c
+index cc89080..81bafbb 100644
+--- a/src/jtag/tcl.c
++++ b/src/jtag/tcl.c
+@@ -828,7 +828,7 @@ COMMAND_HANDLER(handle_jtag_init_command)
+ static const struct command_registration jtag_subcommand_handlers[] = {
+ 	{
+ 		.name = &quot;init&quot;,
+-		.mode = COMMAND_CONFIG,
++		.mode = COMMAND_ANY,
+ 		.handler = &amp;handle_jtag_init_command,
+ 		.help = &quot;initialize jtag scan chain&quot;,
+ 	},
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/tcl.c |    2 +-
+ src/openocd.c  |   50 ++++++++++++++++++++++++++++++++++----------------
+ 2 files changed, 35 insertions(+), 17 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001919.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-846-ga535d2f
+</A></li>
+	<LI>Next message: <A HREF="001921.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-852-gc65d94f
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1920">[ date ]</a>
+              <a href="thread.html#1920">[ thread ]</a>
+              <a href="subject.html#1920">[ subject ]</a>
+              <a href="author.html#1920">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

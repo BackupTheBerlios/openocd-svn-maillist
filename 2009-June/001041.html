@@ -1,0 +1,156 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2257 - trunk/src/helper
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2257%20-%20trunk/src/helper&In-Reply-To=%3C200906170030.n5H0UeTr015324%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001040.html">
+   <LINK REL="Next"  HREF="001042.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2257 - trunk/src/helper</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2257%20-%20trunk/src/helper&In-Reply-To=%3C200906170030.n5H0UeTr015324%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2257 - trunk/src/helper">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Wed Jun 17 02:30:40 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001040.html">[Openocd-svn] r2256 - trunk/src/helper
+</A></li>
+        <LI>Next message: <A HREF="001042.html">[Openocd-svn] r2258 - trunk/src/helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1041">[ date ]</a>
+              <a href="thread.html#1041">[ thread ]</a>
+              <a href="subject.html#1041">[ subject ]</a>
+              <a href="author.html#1041">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-17 02:30:36 +0200 (Wed, 17 Jun 2009)
+New Revision: 2257
+
+Modified:
+   trunk/src/helper/command.c
+   trunk/src/helper/command.h
+Log:
+Move definition of parse_type helpers to command.c:
+- Add declarations in header file.
+- Improve wrapper implementations to check for underflow.
+
+
+Modified: trunk/src/helper/command.c
+===================================================================
+--- trunk/src/helper/command.c	2009-06-17 00:30:29 UTC (rev 2256)
++++ trunk/src/helper/command.c	2009-06-17 00:30:36 UTC (rev 2257)
+@@ -880,3 +880,32 @@
+ DEFINE_PARSE_NUM_TYPE(_ullong, unsigned long long, strtoull, 0, ULLONG_MAX)
+ DEFINE_PARSE_NUM_TYPE(_long, long , strtol, LONG_MIN, LONG_MAX)
+ DEFINE_PARSE_NUM_TYPE(_llong, long long, strtoll, LLONG_MIN, LLONG_MAX)
++
++#define DEFINE_PARSE_WRAPPER(name, type, min, max, functype, funcname) \
++	int parse_##name(const char *str, type *ul) \
++	{ \
++		functype n; \
++		int retval = parse##funcname(str, &amp;n); \
++		if (ERROR_OK != retval) \
++			return retval; \
++		if (n &gt; max) \
++			return ERROR_COMMAND_SYNTAX_ERROR; \
++		if (min) \
++			return ERROR_COMMAND_SYNTAX_ERROR; \
++		*ul = n; \
++		return ERROR_OK; \
++	}	
++
++#define DEFINE_PARSE_ULONG(name, type, min, max) \
++	DEFINE_PARSE_WRAPPER(name, type, min, max, unsigned long, _ulong)
++DEFINE_PARSE_ULONG(uint, unsigned, 0, UINT_MAX)
++DEFINE_PARSE_ULONG(u32, uint32_t, 0, UINT32_MAX)
++DEFINE_PARSE_ULONG(u16, uint16_t, 0, UINT16_MAX)
++DEFINE_PARSE_ULONG(u8, uint8_t, 0, UINT8_MAX)
++
++#define DEFINE_PARSE_LONG(name, type, min, max) \
++	DEFINE_PARSE_WRAPPER(name, type, min, max, long, _long)
++DEFINE_PARSE_LONG(int, int, n &lt; INT_MIN, INT_MAX)
++DEFINE_PARSE_LONG(s32, int32_t, n &lt; INT32_MIN, INT32_MAX)
++DEFINE_PARSE_LONG(s16, int16_t, n &lt; INT16_MIN, INT16_MAX)
++DEFINE_PARSE_LONG(s8, int8_t, n &lt; INT8_MIN, INT8_MAX)
+
+Modified: trunk/src/helper/command.h
+===================================================================
+--- trunk/src/helper/command.h	2009-06-17 00:30:29 UTC (rev 2256)
++++ trunk/src/helper/command.h	2009-06-17 00:30:36 UTC (rev 2257)
+@@ -113,28 +113,18 @@
+ int parse_long(const char *str, long *ul);
+ int parse_llong(const char *str, long long *ul);
+ 
+-#define DEFINE_PARSE_NUM_WRAP(name, type, max, functype, funcname) \
+-	static inline int parse_##name(const char *str, type *ul) \
+-	{ \
+-		functype n; \
+-		int retval = parse##funcname(str, &amp;n); \
+-		*ul = n; \
+-		return n &gt; (max) ? ERROR_COMMAND_SYNTAX_ERROR : retval; \
+-	}	
++#define DECLARE_PARSE_WRAPPER(name, type) \
++	int parse_##name(const char *str, type *ul)
+ 
+-#define DEFINE_PARSE_ULONG(name, type, max) \
+-	DEFINE_PARSE_NUM_WRAP(name, type, max, unsigned long, _ulong)
+-DEFINE_PARSE_ULONG(uint, unsigned, UINT_MAX)
+-DEFINE_PARSE_ULONG(u32, uint32_t, UINT32_MAX)
+-DEFINE_PARSE_ULONG(u16, uint16_t, UINT16_MAX)
+-DEFINE_PARSE_ULONG(u8, uint8_t, UINT8_MAX)
++DECLARE_PARSE_WRAPPER(uint, unsigned);
++DECLARE_PARSE_WRAPPER(u32, uint32_t);
++DECLARE_PARSE_WRAPPER(u16, uint16_t);
++DECLARE_PARSE_WRAPPER(u8, uint8_t);
+ 
+-#define DEFINE_PARSE_LONG(name, type, max) \
+-	DEFINE_PARSE_NUM_WRAP(name, type, max, long, _long)
+-DEFINE_PARSE_LONG(int, int, INT_MAX)
+-DEFINE_PARSE_LONG(s32, int32_t, INT32_MAX)
+-DEFINE_PARSE_LONG(s16, int16_t, INT16_MAX)
+-DEFINE_PARSE_LONG(s8, int8_t, INT8_MAX)
++DECLARE_PARSE_WRAPPER(int, int);
++DECLARE_PARSE_WRAPPER(s32, int32_t);
++DECLARE_PARSE_WRAPPER(s16, int16_t);
++DECLARE_PARSE_WRAPPER(s8, int8_t);
+ 
+ void script_debug(Jim_Interp *interp, const char *cmd, int argc, Jim_Obj *const *argv);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001040.html">[Openocd-svn] r2256 - trunk/src/helper
+</A></li>
+	<LI>Next message: <A HREF="001042.html">[Openocd-svn] r2258 - trunk/src/helper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1041">[ date ]</a>
+              <a href="thread.html#1041">[ thread ]</a>
+              <a href="subject.html#1041">[ subject ]</a>
+              <a href="author.html#1041">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,533 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-153-g158698e
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-153-g158698e&In-Reply-To=%3CE1N8LHO-0006kx-Lf%40cj8yhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001763.html">
+   <LINK REL="Next"  HREF="001765.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-153-g158698e</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-153-g158698e&In-Reply-To=%3CE1N8LHO-0006kx-Lf%40cj8yhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-153-g158698e">zwelch at users.sourceforge.net
+       </A><BR>
+    <I>Wed Nov 11 23:03:05 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001763.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-138-gd796ce0
+</A></li>
+        <LI>Next message: <A HREF="001765.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-154-g5e1b500
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1764">[ date ]</a>
+              <a href="thread.html#1764">[ thread ]</a>
+              <a href="subject.html#1764">[ subject ]</a>
+              <a href="author.html#1764">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  158698e3331b446243b863ab8b58ebee2c56f0cc (commit)
+       via  46d9ba4c8b675deb96ac533885500eb62b6c9909 (commit)
+       via  a1a3ee579ca8485f7840c7140e4a006f83b797d2 (commit)
+       via  2d3cc1eac126990c5cd4ca8a47b0c09814dc1e5c (commit)
+       via  f93c98081f58f1487d518356a05edf219b0237c3 (commit)
+      from  2821115ab8c501e1db660df1fc18621847226d09 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 158698e3331b446243b863ab8b58ebee2c56f0cc
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Wed Nov 11 10:20:55 2009 -0800
+
+    improve command registration
+    
+    Eliminate duplicate code for linking commands into a list.
+    
+    Adds a check to ensure the command does not already exist;
+    if it does, return that one instead of creating a duplicate.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 5ac5c30..f960127 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -191,13 +191,53 @@ static void command_helptext_add(Jim_Obj *cmd_list, const char *help)
+ /* nice short description of source file */
+ #define __THIS__FILE__ &quot;command.c&quot;
+ 
+-command_t* register_command(command_context_t *context, command_t *parent, char *name, int (*handler)(struct command_context_s *context, char* name, char** args, int argc), enum command_mode mode, char *help)
++/**
++ * Find a command by name from a list of commands.
++ * @returns The named command if found, or NULL.
++ */
++static struct command_s *command_find(struct command_s **head, const char *name)
++{
++	assert(head);
++	for (struct command_s *cc = *head; cc; cc = cc-&gt;next)
++	{
++		if (strcmp(cc-&gt;name, name) == 0)
++			return cc;
++	}
++	return NULL;
++}
++
++/**
++ * Add the command to the end of linked list.
++ * @returns Returns false if the named command already exists in the list.
++ * Returns true otherwise.
++ */
++static void command_add_child(struct command_s **head, struct command_s *c)
+ {
+-	command_t *c, *p;
++	assert(head);
++	if (NULL == *head)
++	{
++		*head = c;
++		return;
++	}
++	struct command_s *cc = *head;
++	while (cc-&gt;next) cc = cc-&gt;next;
++	cc-&gt;next = c;
++}
+ 
++command_t* register_command(command_context_t *context,
++		command_t *parent, char *name,
++		int (*handler)(struct command_context_s *context,
++				char* name, char** args, int argc),
++		enum command_mode mode, char *help)
++{
+ 	if (!context || !name)
+ 		return NULL;
+ 
++	struct command_s **head = parent ? &amp;parent-&gt;children : &amp;context-&gt;commands;
++	struct command_s *c = command_find(head, name);
++	if (NULL != c)
++		return c;
++
+ 	c = malloc(sizeof(command_t));
+ 
+ 	c-&gt;name = strdup(name);
+@@ -207,35 +247,7 @@ command_t* register_command(command_context_t *context, command_t *parent, char
+ 	c-&gt;mode = mode;
+ 	c-&gt;next = NULL;
+ 
+-	/* place command in tree */
+-	if (parent)
+-	{
+-		if (parent-&gt;children)
+-		{
+-			/* find last child */
+-			for (p = parent-&gt;children; p &amp;&amp; p-&gt;next; p = p-&gt;next);
+-			if (p)
+-				p-&gt;next = c;
+-		}
+-		else
+-		{
+-			parent-&gt;children = c;
+-		}
+-	}
+-	else
+-	{
+-		if (context-&gt;commands)
+-		{
+-			/* find last command */
+-			for (p = context-&gt;commands; p &amp;&amp; p-&gt;next; p = p-&gt;next);
+-			if (p)
+-				p-&gt;next = c;
+-		}
+-		else
+-		{
+-			context-&gt;commands = c;
+-		}
+-	}
++	command_add_child(head, c);
+ 
+ 	command_helptext_add(command_name_list(c), help);
+ 
+
+commit 46d9ba4c8b675deb96ac533885500eb62b6c9909
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Wed Nov 11 09:40:28 2009 -0800
+
+    add help regardless of callback
+    
+    Add help for commands regardless of whether a handler is involved.
+    With this, all sorts of new commands can be found in 'help' text.
+    Hopefully, all of them have been documented....
+    
+    Sadly, the lsort function appears to handle nested lists poorly, such
+    that sub-commands do not group with their parents.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index a4ac4af..5ac5c30 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -237,6 +237,8 @@ command_t* register_command(command_context_t *context, command_t *parent, char
+ 		}
+ 	}
+ 
++	command_helptext_add(command_name_list(c), help);
++
+ 	/* just a placeholder, no handler */
+ 	if (c-&gt;handler == NULL)
+ 		return c;
+@@ -257,8 +259,6 @@ command_t* register_command(command_context_t *context, command_t *parent, char
+ 
+ 	free((void *)full_name);
+ 
+-	command_helptext_add(command_name_list(c), help);
+-
+ 	return c;
+ }
+ 
+
+commit a1a3ee579ca8485f7840c7140e4a006f83b797d2
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Wed Nov 11 08:20:09 2009 -0800
+
+    eliminate duplicate helptext management
+    
+    Add helpers to manage adding entries to the helptext list.
+    Adds support for arbitrarily nested commands.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 86158d7..a4ac4af 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -162,6 +162,32 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	return (retval == ERROR_OK)?JIM_OK:JIM_ERR;
+ }
+ 
++static Jim_Obj *command_name_list(struct command_s *c)
++{
++	Jim_Obj *cmd_list = c-&gt;parent ?
++			command_name_list(c-&gt;parent) :
++			Jim_NewListObj(interp, NULL, 0);
++	Jim_ListAppendElement(interp, cmd_list,
++			Jim_NewStringObj(interp, c-&gt;name, -1));
++
++	return cmd_list;
++}
++
++static void command_helptext_add(Jim_Obj *cmd_list, const char *help)
++{
++	Jim_Obj *cmd_entry = Jim_NewListObj(interp, NULL, 0);
++	Jim_ListAppendElement(interp, cmd_entry, cmd_list);
++	Jim_ListAppendElement(interp, cmd_entry,
++			Jim_NewStringObj(interp, help ? : &quot;&quot;, -1));
++
++	/* accumulate help text in Tcl helptext list.  */
++	Jim_Obj *helptext = Jim_GetGlobalVariableStr(interp,
++			&quot;ocd_helptext&quot;, JIM_ERRMSG);
++	if (Jim_IsShared(helptext))
++		helptext = Jim_DuplicateObj(interp, helptext);
++	Jim_ListAppendElement(interp, helptext, cmd_entry);
++}
++
+ /* nice short description of source file */
+ #define __THIS__FILE__ &quot;command.c&quot;
+ 
+@@ -179,8 +205,6 @@ command_t* register_command(command_context_t *context, command_t *parent, char
+ 	c-&gt;children = NULL;
+ 	c-&gt;handler = handler;
+ 	c-&gt;mode = mode;
+-	if (!help)
+-		help=&quot;&quot;;
+ 	c-&gt;next = NULL;
+ 
+ 	/* place command in tree */
+@@ -233,24 +257,8 @@ command_t* register_command(command_context_t *context, command_t *parent, char
+ 
+ 	free((void *)full_name);
+ 
+-	/* accumulate help text in Tcl helptext list.  */
+-	Jim_Obj *helptext = Jim_GetGlobalVariableStr(interp, &quot;ocd_helptext&quot;, JIM_ERRMSG);
+-	if (Jim_IsShared(helptext))
+-		helptext = Jim_DuplicateObj(interp, helptext);
+-	Jim_Obj *cmd_entry = Jim_NewListObj(interp, NULL, 0);
+-
+-	Jim_Obj *cmd_list = Jim_NewListObj(interp, NULL, 0);
+-
+-	/* maximum of two levels :-) */
+-	if (c-&gt;parent != NULL)
+-	{
+-		Jim_ListAppendElement(interp, cmd_list, Jim_NewStringObj(interp, c-&gt;parent-&gt;name, -1));
+-	}
+-	Jim_ListAppendElement(interp, cmd_list, Jim_NewStringObj(interp, c-&gt;name, -1));
++	command_helptext_add(command_name_list(c), help);
+ 
+-	Jim_ListAppendElement(interp, cmd_entry, cmd_list);
+-	Jim_ListAppendElement(interp, cmd_entry, Jim_NewStringObj(interp, help, -1));
+-	Jim_ListAppendElement(interp, helptext, cmd_entry);
+ 	return c;
+ }
+ 
+@@ -851,20 +859,11 @@ void register_jim(struct command_context_s *cmd_ctx, const char *name, int (*cmd
+ {
+ 	Jim_CreateCommand(interp, name, cmd, NULL, NULL);
+ 
+-	/* FIX!!! it would be prettier to invoke add_help_text...
+-	 * accumulate help text in Tcl helptext list.  */
+-	Jim_Obj *helptext = Jim_GetGlobalVariableStr(interp, &quot;ocd_helptext&quot;, JIM_ERRMSG);
+-	if (Jim_IsShared(helptext))
+-		helptext = Jim_DuplicateObj(interp, helptext);
+-
+-	Jim_Obj *cmd_entry = Jim_NewListObj(interp, NULL, 0);
+-
+ 	Jim_Obj *cmd_list = Jim_NewListObj(interp, NULL, 0);
+-	Jim_ListAppendElement(interp, cmd_list, Jim_NewStringObj(interp, name, -1));
++	Jim_ListAppendElement(interp, cmd_list,
++			Jim_NewStringObj(interp, name, -1));
+ 
+-	Jim_ListAppendElement(interp, cmd_entry, cmd_list);
+-	Jim_ListAppendElement(interp, cmd_entry, Jim_NewStringObj(interp, help, -1));
+-	Jim_ListAppendElement(interp, helptext, cmd_entry);
++	command_helptext_add(cmd_list, help);
+ }
+ 
+ /* return global variable long value or 0 upon failure */
+
+commit 2d3cc1eac126990c5cd4ca8a47b0c09814dc1e5c
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Wed Nov 11 05:26:17 2009 -0800
+
+    add command_name helper
+    
+    The command_name function returns a malloced string for a given
+    command and its parents.  This can be used to display a message
+    to the user, but it is used internally to handle registration
+    and syntax errors.  This helps permit arbitrary command nesting.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index c632702..86158d7 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -217,32 +217,22 @@ command_t* register_command(command_context_t *context, command_t *parent, char
+ 	if (c-&gt;handler == NULL)
+ 		return c;
+ 
+-	/* If this is a two level command, e.g. &quot;flash banks&quot;, then the
+-	 * &quot;unknown&quot; proc in startup.tcl must redirect to  this command.
+-	 *
+-	 * &quot;flash banks&quot; is translated by &quot;unknown&quot; to &quot;flash_banks&quot;
+-	 * if such a proc exists
+-	 */
+-	/* Print help for command */
+-	const char *t1=&quot;&quot;;
+-	const char *t2=&quot;&quot;;
+-	const char *t3=&quot;&quot;;
+-	/* maximum of two levels :-) */
+-	if (c-&gt;parent != NULL)
+-	{
+-		t1 = c-&gt;parent-&gt;name;
+-		t2=&quot;_&quot;;
+-	}
+-	t3 = c-&gt;name;
+-	const char *full_name = alloc_printf(&quot;ocd_%s%s%s&quot;, t1, t2, t3);
+-	Jim_CreateCommand(interp, full_name, script_command, c, NULL);
+-	free((void *)full_name);
++	const char *full_name = command_name(c, '_');
++
++	const char *ocd_name = alloc_printf(&quot;ocd_%s&quot;, full_name);
++	Jim_CreateCommand(interp, ocd_name, script_command, c, NULL);
++	free((void *)ocd_name);
+ 
+ 	/* we now need to add an overrideable proc */
+-	const char *override_name = alloc_printf(&quot;proc %s%s%s {args} {if {[catch {eval ocd_%s%s%s $args}]==0} {return \&quot;\&quot;} else { return -code error }&quot;, t1, t2, t3, t1, t2, t3);
++	const char *override_name = alloc_printf(&quot;proc %s {args} {&quot;
++			&quot;if {[catch {eval ocd_%s $args}] == 0} &quot;
++			&quot;{return \&quot;\&quot;} else {return -code error}}&quot;,
++			full_name, full_name);
+ 	Jim_Eval_Named(interp, override_name, __THIS__FILE__, __LINE__);
+ 	free((void *)override_name);
+ 
++	free((void *)full_name);
++
+ 	/* accumulate help text in Tcl helptext list.  */
+ 	Jim_Obj *helptext = Jim_GetGlobalVariableStr(interp, &quot;ocd_helptext&quot;, JIM_ERRMSG);
+ 	if (Jim_IsShared(helptext))
+@@ -404,6 +394,28 @@ void command_print(command_context_t *context, const char *format, ...)
+ 	va_end(ap);
+ }
+ 
++static char *__command_name(struct command_s *c, char delim, unsigned extra)
++{
++	char *name;
++	unsigned len = strlen(c-&gt;name);
++	if (NULL == c-&gt;parent) {
++		// allocate enough for the name, child names, and '\0'
++		name = malloc(len + extra + 1);
++		strcpy(name, c-&gt;name);
++	} else {
++		// parent's extra must include both the space and name
++		name = __command_name(c-&gt;parent, delim, 1 + len + extra);
++		char dstr[2] = { delim, 0 };
++		strcat(name, dstr);
++		strcat(name, c-&gt;name);
++	}
++	return name;
++}
++char *command_name(struct command_s *c, char delim)
++{
++	return __command_name(c, delim, 0);
++}
++
+ static int run_command(command_context_t *context,
+ 		command_t *c, char *words[], unsigned num_words)
+ {
+@@ -419,17 +431,12 @@ static int run_command(command_context_t *context,
+ 	if (retval == ERROR_COMMAND_SYNTAX_ERROR)
+ 	{
+ 		/* Print help for command */
+-		const char *t1=&quot;&quot;;
+-		const char *t2=&quot;&quot;;
+-		const char *t3=&quot;&quot;;
+-		/* maximum of two levels :-) */
+-		if (c-&gt;parent != NULL)
+-		{
+-			t1 = c-&gt;parent-&gt;name;
+-			t2=&quot; &quot;;
+-		}
+-		t3 = c-&gt;name;
+-		command_run_linef(context, &quot;help {%s%s%s}&quot;, t1, t2, t3);
++		char *full_name = command_name(c, ' ');
++		if (NULL != full_name) {
++			command_run_linef(context, &quot;help %s&quot;, full_name);
++			free(full_name);
++		} else
++			retval = -ENOMEM;
+ 	}
+ 	else if (retval == ERROR_COMMAND_CLOSE_CONNECTION)
+ 	{
+diff --git a/src/helper/command.h b/src/helper/command.h
+index 0b86b88..732fa52 100644
+--- a/src/helper/command.h
++++ b/src/helper/command.h
+@@ -84,6 +84,16 @@ typedef struct command_s
+ 	struct command_s *next;
+ } command_t;
+ 
++/**
++ * @param c The command to be named.
++ * @param delim The character to place between command names.
++ * @returns A malloc'd string containing the full command name,
++ * which may include one or more ancestor components.  Multiple names
++ * are separated by single spaces.  The caller must free() the string
++ * when done with it.
++ */
++char *command_name(struct command_s *c, char delim);
++
+ command_t* register_command(command_context_t *context,
+ 		command_t *parent, char *name,
+ 		int (*handler)(struct command_context_s *context,
+
+commit f93c98081f58f1487d518356a05edf219b0237c3
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Wed Nov 11 07:19:13 2009 -0800
+
+    wrap help command
+    
+    Use continuation characters to wrap the help command into 80 columns.
+
+diff --git a/src/helper/startup.tcl b/src/helper/startup.tcl
+index 2c90972..73c4cf1 100644
+--- a/src/helper/startup.tcl
++++ b/src/helper/startup.tcl
+@@ -49,7 +49,10 @@ proc help {args} {
+ 	global ocd_helptext
+ 	set cmd $args
+ 	foreach a [lsort $ocd_helptext] {
+-		if {[string length $cmd]==0||[string first $cmd $a]!=-1||[string first $cmd [lindex $a 1]]!=-1} {
++		if {[string length $cmd] == 0 || \
++			[string first $cmd $a] != -1 || \
++			[string first $cmd [lindex $a 1]] != -1} \
++		{
+ 			set w 50
+ 			set cmdname [lindex $a 0]
+ 			set h [lindex $a 1]
+@@ -57,19 +60,24 @@ proc help {args} {
+ 			while 1 {
+ 				if {$n &gt; [string length $h]} {break}
+ 
+-				set next_a [expr $n+$w]
+-				if {[string length $h]&gt;$n+$w} {
+-					set xxxx [string range $h $n [expr $n+$w]]
+-					for {set lastpos [expr [string length $xxxx]-1]} {$lastpos&gt;=0&amp;&amp;[string compare [string range $xxxx $lastpos $lastpos] &quot; &quot;]!=0} {set lastpos [expr $lastpos-1]} {
++				set next_a [expr $n + $w]
++				if {[string length $h] &gt; $n + $w} \
++				{
++					set xxxx [string range $h $n [expr $n + $w]]
++					for {set lastpos [expr [string length $xxxx] - 1]} \
++						{$lastpos &gt;= 0 &amp;&amp; [string compare \
++							[string range $xxxx $lastpos $lastpos] &quot; &quot;] != 0} \
++						{set lastpos [expr $lastpos - 1]} \
++					{
+ 					}
+ 					#set next_a -1
+-					if {$lastpos!=-1} {
+-						set next_a [expr $lastpos+$n+1]
++					if {$lastpos != -1} {
++						set next_a [expr $lastpos + $n + 1]
+ 					}
+ 				}
+ 
+-
+-				puts [format &quot;%-25s %s&quot; $cmdname [string range $h $n [expr $next_a-1]] ]
++				puts [format &quot;%-25s %s&quot; $cmdname \
++						[string range $h $n [expr $next_a-1]] ]
+ 				set cmdname &quot;&quot;
+ 				set n [expr $next_a]
+ 			}
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/helper/command.c   |  206 ++++++++++++++++++++++++++----------------------
+ src/helper/command.h   |   10 +++
+ src/helper/startup.tcl |   26 ++++--
+ 3 files changed, 139 insertions(+), 103 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001763.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-138-gd796ce0
+</A></li>
+	<LI>Next message: <A HREF="001765.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-154-g5e1b500
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1764">[ date ]</a>
+              <a href="thread.html#1764">[ thread ]</a>
+              <a href="subject.html#1764">[ subject ]</a>
+              <a href="author.html#1764">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

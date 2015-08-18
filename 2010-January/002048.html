@@ -1,0 +1,862 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-126-g44aaba3
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-126-g44aaba3&In-Reply-To=%3CE1NXV45-00015g-0M%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002047.html">
+   <LINK REL="Next"  HREF="002049.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-126-g44aaba3</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-rc1-126-g44aaba3&In-Reply-To=%3CE1NXV45-00015g-0M%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-126-g44aaba3">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Wed Jan 20 08:33:19 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002047.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-124-g4f310aa
+</A></li>
+        <LI>Next message: <A HREF="002049.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-127-g20d1ef7
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2048">[ date ]</a>
+              <a href="thread.html#2048">[ thread ]</a>
+              <a href="subject.html#2048">[ subject ]</a>
+              <a href="author.html#2048">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  44aaba3d08bebbd809aabbe1c05d5aecb54eff12 (commit)
+       via  bf1e9a83c877f1439fe0e7b170ba897e11d08b1b (commit)
+      from  4f310aa0c962930eec7bfb22aface78f8dd91bb9 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 44aaba3d08bebbd809aabbe1c05d5aecb54eff12
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Jan 19 23:32:54 2010 -0800
+
+    gdb_server -- subroutinize memory map logic
+    
+    Put the memory map logic into its own subroutine.
+    This will make it a bit easier to package bugfixes,
+    and simplifies the query packet handling.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index b2527d2..6ed7243 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -1647,9 +1647,121 @@ static int compare_bank (const void * a, const void * b)
+ 	}
+ }
+ 
+-static int gdb_query_packet(struct connection *connection,
++static int gdb_memory_map(struct connection *connection,
+ 		struct target *target, char *packet, int packet_size)
+ {
++	/* We get away with only specifying flash here. Regions that are not
++	 * specified are treated as if we provided no memory map(if not we
++	 * could detect the holes and mark them as RAM).
++	 * Normally we only execute this code once, but no big deal if we
++	 * have to regenerate it a couple of times.
++	 */
++
++	struct flash_bank *p;
++	char *xml = NULL;
++	int size = 0;
++	int pos = 0;
++	int retval = ERROR_OK;
++	struct flash_bank **banks;
++	int offset;
++	int length;
++	char *separator;
++	int blocksize;
++	uint32_t ram_start = 0;
++	int i;
++
++	/* skip command character */
++	packet += 23;
++
++	offset = strtoul(packet, &amp;separator, 16);
++	length = strtoul(separator + 1, &amp;separator, 16);
++
++	xml_printf(&amp;retval, &amp;xml, &amp;pos, &amp;size, &quot;&lt;memory-map&gt;\n&quot;);
++
++	/* Sort banks in ascending order.  We need to report non-flash
++	 * memory as ram (or rather read/write) by default for GDB, since
++	 * it has no concept of non-cacheable read/write memory (i/o etc).
++	 *
++	 * FIXME Most non-flash addresses are *NOT* RAM!  Don't lie.
++	 */
++	banks = malloc(sizeof(struct flash_bank *)*flash_get_bank_count());
++
++	for (i = 0; i &lt; flash_get_bank_count(); i++) {
++		p = get_flash_bank_by_num(i);
++		if (p == NULL) {
++			free(banks);
++			retval = ERROR_FAIL;
++			gdb_send_error(connection, retval);
++			return retval;
++		}
++		banks[i] = p;
++	}
++
++	qsort(banks, flash_get_bank_count(), sizeof(struct flash_bank *),
++			compare_bank);
++
++	for (i = 0; i &lt; flash_get_bank_count(); i++) {
++		p = banks[i];
++
++		if (ram_start &lt; p-&gt;base)
++			xml_printf(&amp;retval, &amp;xml, &amp;pos, &amp;size,
++				&quot;&lt;memory type=\&quot;ram\&quot; start=\&quot;0x%x\&quot; &quot;
++					&quot;length=\&quot;0x%x\&quot;/&gt;\n&quot;,
++				ram_start, p-&gt;base-ram_start);
++
++		/* If device has uneven sector sizes, eg. str7, lpc
++		 * we pass the smallest sector size to gdb memory map
++		 *
++		 * FIXME Don't lie about flash regions with different
++		 * sector sizes; just tell GDB about each region as
++		 * if it were a separate flash device.
++		 */
++		blocksize = gdb_calc_blocksize(p);
++
++		xml_printf(&amp;retval, &amp;xml, &amp;pos, &amp;size,
++			&quot;&lt;memory type=\&quot;flash\&quot; start=\&quot;0x%x\&quot; &quot;
++				&quot;length=\&quot;0x%x\&quot;&gt;\n&quot; \
++			&quot;&lt;property name=\&quot;blocksize\&quot;&gt;0x%x&lt;/property&gt;\n&quot; \
++			&quot;&lt;/memory&gt;\n&quot;, \
++			p-&gt;base, p-&gt;size, blocksize);
++		ram_start = p-&gt;base + p-&gt;size;
++	}
++
++	if (ram_start != 0)
++		xml_printf(&amp;retval, &amp;xml, &amp;pos, &amp;size,
++			&quot;&lt;memory type=\&quot;ram\&quot; start=\&quot;0x%x\&quot; &quot;
++				&quot;length=\&quot;0x%x\&quot;/&gt;\n&quot;,
++			ram_start, 0-ram_start);
++	/* ELSE a flash chip could be at the very end of the 32 bit address
++	 * space, in which case ram_start will be precisely 0
++	 */
++
++	free(banks);
++	banks = NULL;
++
++	xml_printf(&amp;retval, &amp;xml, &amp;pos, &amp;size, &quot;&lt;/memory-map&gt;\n&quot;);
++
++	if (retval != ERROR_OK) {
++		gdb_send_error(connection, retval);
++		return retval;
++	}
++
++	if (offset + length &gt; pos)
++		length = pos - offset;
++
++	char *t = malloc(length + 1);
++	t[0] = 'l';
++	memcpy(t + 1, xml + offset, length);
++	gdb_put_packet(connection, t, length + 1);
++
++	free(t);
++	free(xml);
++	return ERROR_OK;
++}
++
++static int gdb_query_packet(struct connection *connection,
++	struct target *target, char *packet, int packet_size)
++{
+ 	struct command_context *cmd_ctx = connection-&gt;cmd_ctx;
+ 	struct gdb_connection *gdb_connection = connection-&gt;priv;
+ 
+@@ -1747,112 +1859,9 @@ static int gdb_query_packet(struct connection *connection,
+ 
+ 		return ERROR_OK;
+ 	}
+-	else if (strstr(packet, &quot;qXfer:memory-map:read::&quot;) &amp;&amp; (flash_get_bank_count() &gt; 0))
+-	{
+-		/* We get away with only specifying flash here. Regions that are not
+-		 * specified are treated as if we provided no memory map(if not we
+-		 * could detect the holes and mark them as RAM).
+-		 * Normally we only execute this code once, but no big deal if we
+-		 * have to regenerate it a couple of times. */
+-
+-		struct flash_bank *p;
+-		char *xml = NULL;
+-		int size = 0;
+-		int pos = 0;
+-		int retval = ERROR_OK;
+-
+-		int offset;
+-		int length;
+-		char *separator;
+-		int blocksize;
+-
+-		/* skip command character */
+-		packet += 23;
+-
+-		offset = strtoul(packet, &amp;separator, 16);
+-		length = strtoul(separator + 1, &amp;separator, 16);
+-
+-		xml_printf(&amp;retval, &amp;xml, &amp;pos, &amp;size, &quot;&lt;memory-map&gt;\n&quot;);
+-
+-		/*
+-		sort banks in ascending order, we need to make non-flash memory be ram(or rather
+-		read/write) by default for GDB.
+-		GDB does not have a concept of non-cacheable read/write memory.
+-		 */
+-		struct flash_bank **banks = malloc(sizeof(struct flash_bank *)*flash_get_bank_count());
+-		int i;
+-
+-		for (i = 0; i &lt; flash_get_bank_count(); i++)
+-		{
+-			p = get_flash_bank_by_num(i);
+-			if (p == NULL)
+-			{
+-				free(banks);
+-				retval = ERROR_FAIL;
+-				gdb_send_error(connection, retval);
+-				return retval;
+-			}
+-			banks[i]=p;
+-		}
+-
+-		qsort(banks, flash_get_bank_count(), sizeof(struct flash_bank *), compare_bank);
+-
+-		uint32_t ram_start = 0;
+-		for (i = 0; i &lt; flash_get_bank_count(); i++)
+-		{
+-			p = banks[i];
+-
+-			if (ram_start &lt; p-&gt;base)
+-			{
+-				xml_printf(&amp;retval, &amp;xml, &amp;pos, &amp;size, &quot;&lt;memory type=\&quot;ram\&quot; start=\&quot;0x%x\&quot; length=\&quot;0x%x\&quot;/&gt;\n&quot;,
+-					ram_start, p-&gt;base-ram_start);
+-			}
+-
+-			/* if device has uneven sector sizes, eg. str7, lpc
+-			 * we pass the smallest sector size to gdb memory map */
+-			blocksize = gdb_calc_blocksize(p);
+-
+-			xml_printf(&amp;retval, &amp;xml, &amp;pos, &amp;size, &quot;&lt;memory type=\&quot;flash\&quot; start=\&quot;0x%x\&quot; length=\&quot;0x%x\&quot;&gt;\n&quot; \
+-				&quot;&lt;property name=\&quot;blocksize\&quot;&gt;0x%x&lt;/property&gt;\n&quot; \
+-				&quot;&lt;/memory&gt;\n&quot;, \
+-				p-&gt;base, p-&gt;size, blocksize);
+-			ram_start = p-&gt;base + p-&gt;size;
+-		}
+-		if (ram_start != 0)
+-		{
+-			xml_printf(&amp;retval, &amp;xml, &amp;pos, &amp;size, &quot;&lt;memory type=\&quot;ram\&quot; start=\&quot;0x%x\&quot; length=\&quot;0x%x\&quot;/&gt;\n&quot;,
+-				ram_start, 0-ram_start);
+-		} else
+-		{
+-			/* a flash chip could be at the very end of the 32 bit address space, in which case
+-			ram_start will be precisely 0 */
+-		}
+-
+-		free(banks);
+-		banks = NULL;
+-
+-		xml_printf(&amp;retval, &amp;xml, &amp;pos, &amp;size, &quot;&lt;/memory-map&gt;\n&quot;);
+-
+-		if (retval != ERROR_OK)
+-		{
+-			gdb_send_error(connection, retval);
+-			return retval;
+-		}
+-
+-		if (offset + length &gt; pos)
+-		{
+-			length = pos - offset;
+-		}
+-
+-		char *t = malloc(length + 1);
+-		t[0] = 'l';
+-		memcpy(t + 1, xml + offset, length);
+-		gdb_put_packet(connection, t, length + 1);
+-
+-		free(t);
+-		free(xml);
+-		return ERROR_OK;
+-	}
++	else if (strstr(packet, &quot;qXfer:memory-map:read::&quot;)
++			&amp;&amp; (flash_get_bank_count() &gt; 0))
++		return gdb_memory_map(connection, target, packet, packet_size);
+ 	else if (strstr(packet, &quot;qXfer:features:read:&quot;))
+ 	{
+ 		char *xml = NULL;
+
+commit bf1e9a83c877f1439fe0e7b170ba897e11d08b1b
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Jan 19 23:30:36 2010 -0800
+
+    gdb_server -- symbol cleanup
+    
+    Make most methods static; net minor object code shrink.
+    Likewise various data symbols; no net change.
+    Shrink some overlong lines.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index d656745..b2527d2 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -74,7 +74,7 @@ static struct gdb_connection *current_gdb_connection;
+ static int gdb_breakpoint_override;
+ static enum breakpoint_type gdb_breakpoint_override_type;
+ 
+-extern int gdb_error(struct connection *connection, int retval);
++static int gdb_error(struct connection *connection, int retval);
+ static unsigned short gdb_port = 3333;
+ static unsigned short gdb_port_next = 0;
+ static const char DIGITS[16] = &quot;0123456789abcdef&quot;;
+@@ -89,15 +89,17 @@ int gdb_actual_connections;
+ /* set if we are sending a memory map to gdb
+  * via qXfer:memory-map:read packet */
+ /* enabled by default*/
+-int gdb_use_memory_map = 1;
++static int gdb_use_memory_map = 1;
+ /* enabled by default*/
+-int gdb_flash_program = 1;
++static int gdb_flash_program = 1;
+ 
+ /* if set, data aborts cause an error to be reported in memory read packets
+- * see the code in gdb_read_memory_packet() for further explanations */
+-int gdb_report_data_abort = 0;
++ * see the code in gdb_read_memory_packet() for further explanations.
++ * Disabled by default.
++ */
++static int gdb_report_data_abort;
+ 
+-int gdb_last_signal(struct target *target)
++static int gdb_last_signal(struct target *target)
+ {
+ 	switch (target-&gt;debug_reason)
+ 	{
+@@ -117,7 +119,8 @@ int gdb_last_signal(struct target *target)
+ 	}
+ }
+ 
+-int check_pending(struct connection *connection, int timeout_s, int *got_data)
++static int check_pending(struct connection *connection,
++		int timeout_s, int *got_data)
+ {
+ 	/* a non-blocking socket will block if there is 0 bytes available on the socket,
+ 	 * but return with as many bytes as are available immediately
+@@ -284,14 +287,14 @@ static inline int gdb_get_char_fast(struct connection *connection, int* next_cha
+ }
+ 
+ 
+-int gdb_get_char(struct connection *connection, int* next_char)
++static int gdb_get_char(struct connection *connection, int* next_char)
+ {
+ 	struct gdb_connection *gdb_con = connection-&gt;priv;
+ 	return gdb_get_char_fast(connection, next_char, &amp;gdb_con-&gt;buf_p, &amp;gdb_con-&gt;buf_cnt);
+ }
+ 
+ 
+-int gdb_putback_char(struct connection *connection, int last_char)
++static int gdb_putback_char(struct connection *connection, int last_char)
+ {
+ 	struct gdb_connection *gdb_con = connection-&gt;priv;
+ 
+@@ -311,7 +314,7 @@ int gdb_putback_char(struct connection *connection, int last_char)
+ /* The only way we can detect that the socket is closed is the first time
+  * we write to it, we will fail. Subsequent write operations will
+  * succeed. Shudder! */
+-int gdb_write(struct connection *connection, void *data, int len)
++static int gdb_write(struct connection *connection, void *data, int len)
+ {
+ 	struct gdb_connection *gdb_con = connection-&gt;priv;
+ 	if (gdb_con-&gt;closed)
+@@ -336,7 +339,8 @@ int gdb_write(struct connection *connection, void *data, int len)
+ 	return ERROR_SERVER_REMOTE_CLOSED;
+ }
+ 
+-int gdb_put_packet_inner(struct connection *connection, char *buffer, int len)
++static int gdb_put_packet_inner(struct connection *connection,
++		char *buffer, int len)
+ {
+ 	int i;
+ 	unsigned char my_checksum = 0;
+@@ -359,7 +363,8 @@ int gdb_put_packet_inner(struct connection *connection, char *buffer, int len)
+ 	int gotdata;
+ 	for (;;)
+ 	{
+-		if ((retval = check_pending(connection, 0, &amp;gotdata)) != ERROR_OK)
++		retval = check_pending(connection, 0, &amp;gotdata);
++		if (retval != ERROR_OK)
+ 			return retval;
+ 		if (!gotdata)
+ 			break;
+@@ -477,7 +482,7 @@ int gdb_put_packet_inner(struct connection *connection, char *buffer, int len)
+ 	return ERROR_OK;
+ }
+ 
+-int gdb_put_packet(struct connection *connection, char *buffer, int len)
++static int gdb_put_packet(struct connection *connection, char *buffer, int len)
+ {
+ 	struct gdb_connection *gdb_con = connection-&gt;priv;
+ 	gdb_con-&gt;busy = 1;
+@@ -616,7 +621,8 @@ static __inline__ int fetch_packet(struct connection *connection, int *checksum_
+ 	return ERROR_OK;
+ }
+ 
+-int gdb_get_packet_inner(struct connection *connection, char *buffer, int *len)
++static int gdb_get_packet_inner(struct connection *connection,
++		char *buffer, int *len)
+ {
+ 	int character;
+ 	int retval;
+@@ -691,7 +697,7 @@ int gdb_get_packet_inner(struct connection *connection, char *buffer, int *len)
+ 	return ERROR_OK;
+ }
+ 
+-int gdb_get_packet(struct connection *connection, char *buffer, int *len)
++static int gdb_get_packet(struct connection *connection, char *buffer, int *len)
+ {
+ 	struct gdb_connection *gdb_con = connection-&gt;priv;
+ 	gdb_con-&gt;busy = 1;
+@@ -700,7 +706,7 @@ int gdb_get_packet(struct connection *connection, char *buffer, int *len)
+ 	return retval;
+ }
+ 
+-int gdb_output_con(struct connection *connection, const char* line)
++static int gdb_output_con(struct connection *connection, const char* line)
+ {
+ 	char *hex_buffer;
+ 	int i, bin_size;
+@@ -722,7 +728,7 @@ int gdb_output_con(struct connection *connection, const char* line)
+ 	return retval;
+ }
+ 
+-int gdb_output(struct command_context *context, const char* line)
++static int gdb_output(struct command_context *context, const char* line)
+ {
+ 	/* this will be dumped to the log and also sent as an O packet if possible */
+ 	LOG_USER_N(&quot;%s&quot;, line);
+@@ -767,7 +773,8 @@ static void gdb_frontend_halted(struct target *target, struct connection *connec
+ 	}
+ }
+ 
+-int gdb_target_callback_event_handler(struct target *target, enum target_event event, void *priv)
++static int gdb_target_callback_event_handler(struct target *target,
++		enum target_event event, void *priv)
+ {
+ 	int retval;
+ 	struct connection *connection = priv;
+@@ -795,7 +802,7 @@ int gdb_target_callback_event_handler(struct target *target, enum target_event e
+ 	return ERROR_OK;
+ }
+ 
+-int gdb_new_connection(struct connection *connection)
++static int gdb_new_connection(struct connection *connection)
+ {
+ 	struct gdb_connection *gdb_connection = malloc(sizeof(struct gdb_connection));
+ 	struct gdb_service *gdb_service = connection-&gt;service-&gt;priv;
+@@ -851,7 +858,7 @@ int gdb_new_connection(struct connection *connection)
+ 	return ERROR_OK;
+ }
+ 
+-int gdb_connection_closed(struct connection *connection)
++static int gdb_connection_closed(struct connection *connection)
+ {
+ 	struct gdb_service *gdb_service = connection-&gt;service-&gt;priv;
+ 	struct gdb_connection *gdb_connection = connection-&gt;priv;
+@@ -898,14 +905,15 @@ int gdb_connection_closed(struct connection *connection)
+ 	return ERROR_OK;
+ }
+ 
+-void gdb_send_error(struct connection *connection, uint8_t the_error)
++static void gdb_send_error(struct connection *connection, uint8_t the_error)
+ {
+ 	char err[4];
+ 	snprintf(err, 4, &quot;E%2.2X&quot;, the_error);
+ 	gdb_put_packet(connection, err, 3);
+ }
+ 
+-int gdb_last_signal_packet(struct connection *connection, struct target *target, char* packet, int packet_size)
++static int gdb_last_signal_packet(struct connection *connection,
++		struct target *target, char* packet, int packet_size)
+ {
+ 	char sig_reply[4];
+ 	int signal;
+@@ -935,7 +943,8 @@ static int gdb_reg_pos(struct target *target, int pos, int len)
+  * The format of reg-&gt;value is little endian
+  *
+  */
+-void gdb_str_to_target(struct target *target, char *tstr, struct reg *reg)
++static void gdb_str_to_target(struct target *target,
++		char *tstr, struct reg *reg)
+ {
+ 	int i;
+ 
+@@ -968,7 +977,8 @@ static int hextoint(int c)
+ }
+ 
+ /* copy over in register buffer */
+-void gdb_target_to_reg(struct target *target, char *tstr, int str_len, uint8_t *bin)
++static void gdb_target_to_reg(struct target *target,
++		char *tstr, int str_len, uint8_t *bin)
+ {
+ 	if (str_len % 2)
+ 	{
+@@ -987,7 +997,8 @@ void gdb_target_to_reg(struct target *target, char *tstr, int str_len, uint8_t *
+ 	}
+ }
+ 
+-int gdb_get_registers_packet(struct connection *connection, struct target *target, char* packet, int packet_size)
++static int gdb_get_registers_packet(struct connection *connection,
++		struct target *target, char* packet, int packet_size)
+ {
+ 	struct reg **reg_list;
+ 	int reg_list_size;
+@@ -1037,7 +1048,8 @@ int gdb_get_registers_packet(struct connection *connection, struct target *targe
+ 	return ERROR_OK;
+ }
+ 
+-int gdb_set_registers_packet(struct connection *connection, struct target *target, char *packet, int packet_size)
++static int gdb_set_registers_packet(struct connection *connection,
++		struct target *target, char *packet, int packet_size)
+ {
+ 	int i;
+ 	struct reg **reg_list;
+@@ -1095,7 +1107,8 @@ int gdb_set_registers_packet(struct connection *connection, struct target *targe
+ 	return ERROR_OK;
+ }
+ 
+-int gdb_get_register_packet(struct connection *connection, struct target *target, char *packet, int packet_size)
++static int gdb_get_register_packet(struct connection *connection,
++		struct target *target, char *packet, int packet_size)
+ {
+ 	char *reg_packet;
+ 	int reg_num = strtoul(packet + 1, NULL, 16);
+@@ -1130,7 +1143,8 @@ int gdb_get_register_packet(struct connection *connection, struct target *target
+ 	return ERROR_OK;
+ }
+ 
+-int gdb_set_register_packet(struct connection *connection, struct target *target, char *packet, int packet_size)
++static int gdb_set_register_packet(struct connection *connection,
++		struct target *target, char *packet, int packet_size)
+ {
+ 	char *separator;
+ 	uint8_t *bin_buf;
+@@ -1176,7 +1190,7 @@ int gdb_set_register_packet(struct connection *connection, struct target *target
+ 	return ERROR_OK;
+ }
+ 
+-int gdb_error(struct connection *connection, int retval)
++static int gdb_error(struct connection *connection, int retval)
+ {
+ 	switch (retval)
+ 	{
+@@ -1207,7 +1221,8 @@ int gdb_error(struct connection *connection, int retval)
+  *
+  * 8191 bytes by the looks of it. Why 8191 bytes instead of 8192?????
+  */
+-int gdb_read_memory_packet(struct connection *connection, struct target *target, char *packet, int packet_size)
++static int gdb_read_memory_packet(struct connection *connection,
++		struct target *target, char *packet, int packet_size)
+ {
+ 	char *separator;
+ 	uint32_t addr = 0;
+@@ -1281,7 +1296,8 @@ int gdb_read_memory_packet(struct connection *connection, struct target *target,
+ 	return retval;
+ }
+ 
+-int gdb_write_memory_packet(struct connection *connection, struct target *target, char *packet, int packet_size)
++static int gdb_write_memory_packet(struct connection *connection,
++		struct target *target, char *packet, int packet_size)
+ {
+ 	char *separator;
+ 	uint32_t addr = 0;
+@@ -1338,7 +1354,8 @@ int gdb_write_memory_packet(struct connection *connection, struct target *target
+ 	return retval;
+ }
+ 
+-int gdb_write_memory_binary_packet(struct connection *connection, struct target *target, char *packet, int packet_size)
++static int gdb_write_memory_binary_packet(struct connection *connection,
++		struct target *target, char *packet, int packet_size)
+ {
+ 	char *separator;
+ 	uint32_t addr = 0;
+@@ -1386,7 +1403,8 @@ int gdb_write_memory_binary_packet(struct connection *connection, struct target
+ 	return ERROR_OK;
+ }
+ 
+-int gdb_step_continue_packet(struct connection *connection, struct target *target, char *packet, int packet_size)
++static int gdb_step_continue_packet(struct connection *connection,
++		struct target *target, char *packet, int packet_size)
+ {
+ 	int current = 0;
+ 	uint32_t address = 0x0;
+@@ -1419,7 +1437,8 @@ int gdb_step_continue_packet(struct connection *connection, struct target *targe
+ 	return retval;
+ }
+ 
+-int gdb_breakpoint_watchpoint_packet(struct connection *connection, struct target *target, char *packet, int packet_size)
++static int gdb_breakpoint_watchpoint_packet(struct connection *connection,
++		struct target *target, char *packet, int packet_size)
+ {
+ 	int type;
+ 	enum breakpoint_type bp_type = BKPT_SOFT /* dummy init to avoid warning */;
+@@ -1523,8 +1542,11 @@ int gdb_breakpoint_watchpoint_packet(struct connection *connection, struct targe
+ 	return ERROR_OK;
+ }
+ 
+-/* print out a string and allocate more space as needed, mainly used for XML at this point */
+-void xml_printf(int *retval, char **xml, int *pos, int *size, const char *fmt, ...)
++/* print out a string and allocate more space as needed,
++ * mainly used for XML at this point
++ */
++static void xml_printf(int *retval, char **xml, int *pos, int *size,
++		const char *fmt, ...)
+ {
+ 	if (*retval != ERROR_OK)
+ 	{
+@@ -1591,7 +1613,7 @@ static int decode_xfer_read(char *buf, char **annex, int *ofs, unsigned int *len
+ 	return 0;
+ }
+ 
+-int gdb_calc_blocksize(struct flash_bank *bank)
++static int gdb_calc_blocksize(struct flash_bank *bank)
+ {
+ 	uint32_t i;
+ 	uint32_t block_size = 0xffffffff;
+@@ -1625,7 +1647,8 @@ static int compare_bank (const void * a, const void * b)
+ 	}
+ }
+ 
+-int gdb_query_packet(struct connection *connection, struct target *target, char *packet, int packet_size)
++static int gdb_query_packet(struct connection *connection,
++		struct target *target, char *packet, int packet_size)
+ {
+ 	struct command_context *cmd_ctx = connection-&gt;cmd_ctx;
+ 	struct gdb_connection *gdb_connection = connection-&gt;priv;
+@@ -1881,7 +1904,8 @@ int gdb_query_packet(struct connection *connection, struct target *target, char
+ 	return ERROR_OK;
+ }
+ 
+-int gdb_v_packet(struct connection *connection, struct target *target, char *packet, int packet_size)
++static int gdb_v_packet(struct connection *connection,
++		struct target *target, char *packet, int packet_size)
+ {
+ 	struct gdb_connection *gdb_connection = connection-&gt;priv;
+ 	struct gdb_service *gdb_service = connection-&gt;service-&gt;priv;
+@@ -2028,11 +2052,12 @@ int gdb_v_packet(struct connection *connection, struct target *target, char *pac
+ 	return ERROR_OK;
+ }
+ 
+-int gdb_detach(struct connection *connection, struct target *target)
++static int gdb_detach(struct connection *connection, struct target *target)
+ {
+ 	struct gdb_service *gdb_service = connection-&gt;service-&gt;priv;
+ 
+-	target_call_event_callbacks(gdb_service-&gt;target, TARGET_EVENT_GDB_DETACH);
++	target_call_event_callbacks(gdb_service-&gt;target,
++			TARGET_EVENT_GDB_DETACH);
+ 
+ 	return gdb_put_packet(connection, &quot;OK&quot;, 2);
+ }
+@@ -2052,9 +2077,6 @@ static void gdb_log_callback(void *priv, const char *file, unsigned line,
+ 	gdb_output_con(connection, string);
+ }
+ 
+-/* Do not allocate this on the stack */
+-char gdb_packet_buffer[GDB_BUFFER_SIZE];
+-
+ static void gdb_sig_halted(struct connection *connection)
+ {
+ 	char sig_reply[4];
+@@ -2063,8 +2085,11 @@ static void gdb_sig_halted(struct connection *connection)
+ 
+ }
+ 
+-int gdb_input_inner(struct connection *connection)
++static int gdb_input_inner(struct connection *connection)
+ {
++	/* Do not allocate this on the stack */
++	static char gdb_packet_buffer[GDB_BUFFER_SIZE];
++
+ 	struct gdb_service *gdb_service = connection-&gt;service-&gt;priv;
+ 	struct target *target = gdb_service-&gt;target;
+ 	char *packet = gdb_packet_buffer;
+@@ -2077,10 +2102,9 @@ int gdb_input_inner(struct connection *connection)
+ 	do
+ 	{
+ 		packet_size = GDB_BUFFER_SIZE-1;
+-		if ((retval = gdb_get_packet(connection, packet, &amp;packet_size)) != ERROR_OK)
+-		{
++		retval = gdb_get_packet(connection, packet, &amp;packet_size);
++		if (retval != ERROR_OK)
+ 			return retval;
+-		}
+ 
+ 		/* terminate with zero */
+ 		packet[packet_size] = 0;
+@@ -2112,32 +2136,48 @@ int gdb_input_inner(struct connection *connection)
+ 					break;
+ 				case 'q':
+ 				case 'Q':
+-					retval = gdb_query_packet(connection, target, packet, packet_size);
++					retval = gdb_query_packet(connection,
++							target, packet,
++							packet_size);
+ 					break;
+ 				case 'g':
+-					retval = gdb_get_registers_packet(connection, target, packet, packet_size);
++					retval = gdb_get_registers_packet(
++							connection, target,
++							packet, packet_size);
+ 					break;
+ 				case 'G':
+-					retval = gdb_set_registers_packet(connection, target, packet, packet_size);
++					retval = gdb_set_registers_packet(
++							connection, target,
++							packet, packet_size);
+ 					break;
+ 				case 'p':
+-					retval = gdb_get_register_packet(connection, target, packet, packet_size);
++					retval = gdb_get_register_packet(
++							connection, target,
++							packet, packet_size);
+ 					break;
+ 				case 'P':
+-					retval = gdb_set_register_packet(connection, target, packet, packet_size);
++					retval = gdb_set_register_packet(
++							connection, target,
++							packet, packet_size);
+ 					break;
+ 				case 'm':
+-					retval = gdb_read_memory_packet(connection, target, packet, packet_size);
++					retval = gdb_read_memory_packet(
++							connection, target,
++							packet, packet_size);
+ 					break;
+ 				case 'M':
+-					retval = gdb_write_memory_packet(connection, target, packet, packet_size);
++					retval = gdb_write_memory_packet(
++							connection, target,
++							packet, packet_size);
+ 					break;
+ 				case 'z':
+ 				case 'Z':
+ 					retval = gdb_breakpoint_watchpoint_packet(connection, target, packet, packet_size);
+ 					break;
+ 				case '?':
+-					gdb_last_signal_packet(connection, target, packet, packet_size);
++					gdb_last_signal_packet(
++							connection, target,
++							packet, packet_size);
+ 					break;
+ 				case 'c':
+ 				case 's':
+@@ -2199,14 +2239,19 @@ int gdb_input_inner(struct connection *connection)
+ 					}
+ 					break;
+ 				case 'v':
+-					retval = gdb_v_packet(connection, target, packet, packet_size);
++					retval = gdb_v_packet(
++							connection, target,
++							packet, packet_size);
+ 					break;
+ 				case 'D':
+ 					retval = gdb_detach(connection, target);
+ 					extended_protocol = 0;
+ 					break;
+ 				case 'X':
+-					if ((retval = gdb_write_memory_binary_packet(connection, target, packet, packet_size)) != ERROR_OK)
++					retval = gdb_write_memory_binary_packet(
++							connection, target,
++							packet, packet_size);
++					if (retval != ERROR_OK)
+ 						return retval;
+ 					break;
+ 				case 'k':
+@@ -2261,7 +2306,7 @@ int gdb_input_inner(struct connection *connection)
+ 	return ERROR_OK;
+ }
+ 
+-int gdb_input(struct connection *connection)
++static int gdb_input(struct connection *connection)
+ {
+ 	int retval = gdb_input_inner(connection);
+ 	struct gdb_connection *gdb_con = connection-&gt;priv;
+@@ -2297,8 +2342,7 @@ static int gdb_target_start(struct target *target, uint16_t port)
+ 	return ERROR_OK;
+ }
+ 
+-/* FIXME static */
+-int gdb_target_add_one(struct target *target)
++static int gdb_target_add_one(struct target *target)
+ {
+ 	if (gdb_port == 0 &amp;&amp; server_use_pipes == 0)
+ 	{
+diff --git a/src/server/gdb_server.h b/src/server/gdb_server.h
+index 17e40fe..d7a6ad0 100644
+--- a/src/server/gdb_server.h
++++ b/src/server/gdb_server.h
+@@ -36,7 +36,6 @@ struct gdb_service
+ 	struct target *target;
+ };
+ 
+-int gdb_target_add_one(struct target *target);
+ int gdb_target_add_all(struct target *target);
+ int gdb_register_commands(struct command_context *command_context);
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/server/gdb_server.c |  387 +++++++++++++++++++++++++++--------------------
+ src/server/gdb_server.h |    1 -
+ 2 files changed, 220 insertions(+), 168 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002047.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-124-g4f310aa
+</A></li>
+	<LI>Next message: <A HREF="002049.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-rc1-127-g20d1ef7
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2048">[ date ]</a>
+              <a href="thread.html#2048">[ thread ]</a>
+              <a href="subject.html#2048">[ subject ]</a>
+              <a href="author.html#2048">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

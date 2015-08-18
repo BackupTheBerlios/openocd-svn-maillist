@@ -1,0 +1,141 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-503-ge1c6f67
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-503-ge1c6f67&In-Reply-To=%3CE1OtbTz-0005i7-3W%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002374.html">
+   <LINK REL="Next"  HREF="002376.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-503-ge1c6f67</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-503-ge1c6f67&In-Reply-To=%3CE1OtbTz-0005i7-3W%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-503-ge1c6f67">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Thu Sep  9 09:23:35 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002374.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-502-ga40f12d
+</A></li>
+        <LI>Next message: <A HREF="002376.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-505-g8c21659
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2375">[ date ]</a>
+              <a href="thread.html#2375">[ thread ]</a>
+              <a href="subject.html#2375">[ subject ]</a>
+              <a href="author.html#2375">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  e1c6f6783d68f0dcc766b3e6317348e3838a3856 (commit)
+      from  a40f12d62693042415c46bcc95b0bd86d9eaea81 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit e1c6f6783d68f0dcc766b3e6317348e3838a3856
+Author: Mike Dunn &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mikedunn at newsguy.com</A>&gt;
+Date:   Wed Sep 8 19:13:14 2010 -0700
+
+    xscale: mark xscale registers invalid on debug entry
+    
+    Hi everyone,
+    
+    This simple patch fixes a problem I noticed on the xscale where incorrect values
+    are sometimes reported by the reg command.  The problem can occur when
+    requesting the value of registers in the xscale-specific register cache.  With a
+    couple of exceptions, none of the registers in the xscale register cache are
+    automatically retrieved on debug entry.  This is probably fine, as they are
+    unlikely to be needed on a regular basis during a typical debug session, and
+    they can be retrieved when explicitly requested by name using the reg command.
+    The problem is that once this is done, the register remains marked as valid for
+    the remainder of the OpenOCD session, and the reg command will henceforth always
+    report the same value because it is obtained from the cache and is never again
+    retrieved from the debug handler on the target.
+    
+    The fix is to mark all registers in the xscale register cache as invalid on
+    debug entry (before the two exceptions are retrieved), thus forcing retrieval
+    (when requested) from the target across resumptions in execution, and avoiding
+    the reporting of stale values.
+    
+    Small addition change by &#195;&#152;yvind: change 'i' to unsigned to fix compiler
+    warning for xscale_debug_entry() fn.
+    
+    Signed-off-by: Mike Dunn &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mikedunn at newsguy.com</A>&gt;
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index 44358bc..2b8bff1 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -895,7 +895,7 @@ static int xscale_debug_entry(struct target *target)
+ 	struct arm *armv4_5 = &amp;xscale-&gt;armv4_5_common;
+ 	uint32_t pc;
+ 	uint32_t buffer[10];
+-	int i;
++	unsigned i;
+ 	int retval;
+ 	uint32_t moe;
+ 
+@@ -964,6 +964,11 @@ static int xscale_debug_entry(struct target *target)
+ 		r-&gt;valid = true;
+ 	}
+ 
++	/* mark xscale regs invalid to ensure they are retrieved from the
++	 * debug handler if requested  */
++	for (i = 0; i &lt; xscale-&gt;reg_cache-&gt;num_regs; i++)
++	   xscale-&gt;reg_cache-&gt;reg_list[i].valid = 0;
++
+ 	/* examine debug reason */
+ 	xscale_read_dcsr(target);
+ 	moe = buf_get_u32(xscale-&gt;reg_cache-&gt;reg_list[XSCALE_DCSR].value, 2, 3);
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/xscale.c |    7 ++++++-
+ 1 files changed, 6 insertions(+), 1 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002374.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-502-ga40f12d
+</A></li>
+	<LI>Next message: <A HREF="002376.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-505-g8c21659
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2375">[ date ]</a>
+              <a href="thread.html#2375">[ thread ]</a>
+              <a href="subject.html#2375">[ subject ]</a>
+              <a href="author.html#2375">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

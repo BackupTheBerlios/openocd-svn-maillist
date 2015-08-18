@@ -1,0 +1,200 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1864 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1864%20-%20trunk/src/jtag&In-Reply-To=%3C200905210445.n4L4jwF0002116%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000647.html">
+   <LINK REL="Next"  HREF="000649.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1864 - trunk/src/jtag</H1>
+    <B>kc8apf at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1864%20-%20trunk/src/jtag&In-Reply-To=%3C200905210445.n4L4jwF0002116%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1864 - trunk/src/jtag">kc8apf at mail.berlios.de
+       </A><BR>
+    <I>Thu May 21 06:45:58 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000647.html">[Openocd-svn] r1863 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000649.html">[Openocd-svn] r1865 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#648">[ date ]</a>
+              <a href="thread.html#648">[ thread ]</a>
+              <a href="subject.html#648">[ subject ]</a>
+              <a href="author.html#648">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kc8apf
+Date: 2009-05-21 06:45:57 +0200 (Thu, 21 May 2009)
+New Revision: 1864
+
+Modified:
+   trunk/src/jtag/jtag.c
+Log:
+Author: Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mbruck at digenius.de</A>&gt;
+    - jtag.c: consolidate output scan field initialization in scan functions
+    - jtag.c: add cmd_queue_scan_field_clone() to handle 1:1 field copies
+    - jtag.c: fix bug where only the first output field in a dr scan has its tap field set
+
+
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-05-21 04:43:48 UTC (rev 1863)
++++ trunk/src/jtag/jtag.c	2009-05-21 04:45:57 UTC (rev 1864)
+@@ -531,6 +531,20 @@
+ 	cmd_queue_pages = NULL;
+ }
+ 
++/**
++ * Copy a scan_field_t for insertion into the queue.
++ *
++ * This allocates a new copy of out_value using cmd_queue_alloc.
++ */
++static void cmd_queue_scan_field_clone(scan_field_t * dst, const scan_field_t * src)
++{
++	dst-&gt;tap		= src-&gt;tap;
++	dst-&gt;num_bits	= src-&gt;num_bits;
++	dst-&gt;out_value	= buf_cpy(src-&gt;out_value, cmd_queue_alloc(CEIL(src-&gt;num_bits, 8)), src-&gt;num_bits);
++	dst-&gt;in_value	= src-&gt;in_value;
++}
++
++
+ static void jtag_prelude1(void)
+ {
+ 	if (jtag_trst == 1)
+@@ -633,9 +647,6 @@
+ 		assert(nth_tap &lt; num_taps);
+ 
+ 		size_t scan_size				= tap-&gt;ir_length;
+-		scan-&gt;fields[nth_tap].tap		= tap;
+-		scan-&gt;fields[nth_tap].num_bits	= scan_size;
+-		scan-&gt;fields[nth_tap].in_value	= NULL; /* do not collect input for tap's in bypass */
+ 
+ 		/* search the list */
+ 		for (int j = 0; j &lt; in_num_fields; j++)
+@@ -643,10 +654,11 @@
+ 			if (tap == in_fields[j].tap)
+ 			{
+ 				found = 1;
+-				scan-&gt;fields[nth_tap].in_value	= in_fields[j].in_value;
+-				scan-&gt;fields[nth_tap].out_value	= buf_cpy(in_fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+ 
+ 				tap-&gt;bypass = 0;
++
++				cmd_queue_scan_field_clone(scan-&gt;fields + nth_tap, in_fields + j);
++
+ 				break;
+ 			}
+ 		}
+@@ -654,8 +666,12 @@
+ 		if (!found)
+ 		{
+ 			/* if a tap isn't listed, set it to BYPASS */
++			tap-&gt;bypass = 1;
++
++			scan-&gt;fields[nth_tap].tap		= tap;
++			scan-&gt;fields[nth_tap].num_bits	= scan_size;
+ 			scan-&gt;fields[nth_tap].out_value = buf_set_ones(cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+-			tap-&gt;bypass = 1;
++			scan-&gt;fields[nth_tap].in_value	= NULL; /* do not collect input for tap's in bypass */
+ 		}
+ 
+ 		/* update device information */
+@@ -707,14 +723,7 @@
+ 	scan-&gt;end_state			= state;
+ 
+ 	for (int i = 0; i &lt; in_num_fields; i++)
+-	{
+-		int num_bits = in_fields[i].num_bits;
+-		int num_bytes = CEIL(in_fields[i].num_bits, 8);
+-		scan-&gt;fields[i].tap = in_fields[i].tap;
+-		scan-&gt;fields[i].num_bits = num_bits;
+-		scan-&gt;fields[i].out_value = buf_cpy(in_fields[i].out_value, cmd_queue_alloc(num_bytes), num_bits);
+-		scan-&gt;fields[i].in_value = in_fields[i].in_value;
+-	}
++		cmd_queue_scan_field_clone(out_fields + i, in_fields + i);
+ 
+ 	return ERROR_OK;
+ }
+@@ -847,17 +856,15 @@
+ 	for (jtag_tap_t * tap = jtag_NextEnabledTap(NULL); tap != NULL; tap = jtag_NextEnabledTap(tap))
+ 	{
+ 		int found = 0;
+-		scan-&gt;fields[field_count].tap = tap;
+ 
+ 		for (j = 0; j &lt; in_num_fields; j++)
+ 		{
+ 			if (tap == in_fields[j].tap)
+ 			{
+ 				found = 1;
+-				size_t scan_size = in_fields[j].num_bits;
+-				scan-&gt;fields[field_count].num_bits	= scan_size;
+-				scan-&gt;fields[field_count].out_value	= buf_cpy(in_fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+-				scan-&gt;fields[field_count].in_value	= in_fields[j].in_value;
++				
++				cmd_queue_scan_field_clone(scan-&gt;fields + field_count, in_fields + j);
++
+ 				field_count++;
+ 			}
+ 		}
+@@ -872,6 +879,7 @@
+ 			}
+ #endif
+ 			/* program the scan field to 1 bit length, and ignore it's value */
++			scan-&gt;fields[field_count].tap			= tap;
+ 			scan-&gt;fields[field_count].num_bits		= 1;
+ 			scan-&gt;fields[field_count].out_value		= NULL;
+ 			scan-&gt;fields[field_count].in_value		= NULL;
+@@ -1027,14 +1035,7 @@
+ 	scan-&gt;end_state			= state;
+ 
+ 	for (int i = 0; i &lt; in_num_fields; i++)
+-	{
+-		int num_bits = in_fields[i].num_bits;
+-		int num_bytes = CEIL(in_fields[i].num_bits, 8);
+-		scan-&gt;fields[i].tap = in_fields[i].tap;
+-		scan-&gt;fields[i].num_bits = num_bits;
+-		scan-&gt;fields[i].out_value = buf_cpy(in_fields[i].out_value, cmd_queue_alloc(num_bytes), num_bits);
+-		scan-&gt;fields[i].in_value = in_fields[i].in_value;
+-	}
++		cmd_queue_scan_field_clone(out_fields + i, in_fields + i);
+ 
+ 	return ERROR_OK;
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000647.html">[Openocd-svn] r1863 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000649.html">[Openocd-svn] r1865 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#648">[ date ]</a>
+              <a href="thread.html#648">[ thread ]</a>
+              <a href="subject.html#648">[ subject ]</a>
+              <a href="author.html#648">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

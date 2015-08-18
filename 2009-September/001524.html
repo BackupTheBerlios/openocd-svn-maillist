@@ -1,0 +1,153 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2741 - trunk/tcl/board
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2741%20-%20trunk/tcl/board&In-Reply-To=%3C200909210925.n8L9PsuS009750%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001523.html">
+   <LINK REL="Next"  HREF="001525.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2741 - trunk/tcl/board</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2741%20-%20trunk/tcl/board&In-Reply-To=%3C200909210925.n8L9PsuS009750%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2741 - trunk/tcl/board">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Mon Sep 21 11:25:54 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001523.html">[Openocd-svn] r2740 - trunk/tcl/target
+</A></li>
+        <LI>Next message: <A HREF="001525.html">[Openocd-svn] r2742 - in trunk/src: . flash/ocl/at91sam7x helper	jtag jtag/rlink server target target/xscale
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1524">[ date ]</a>
+              <a href="thread.html#1524">[ thread ]</a>
+              <a href="subject.html#1524">[ subject ]</a>
+              <a href="author.html#1524">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-09-21 11:25:52 +0200 (Mon, 21 Sep 2009)
+New Revision: 2741
+
+Added:
+   trunk/tcl/board/csb732.cfg
+Log:
+Ethan Eade &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ethan at evolution.com</A>&gt; board config script for Cogent CSB732 i.MX35 (arm1136)
+
+Added: trunk/tcl/board/csb732.cfg
+===================================================================
+--- trunk/tcl/board/csb732.cfg	2009-09-21 00:37:58 UTC (rev 2740)
++++ trunk/tcl/board/csb732.cfg	2009-09-21 09:25:52 UTC (rev 2741)
+@@ -0,0 +1,71 @@
++# The Cogent CSB732 board has a single i.MX35 chip
++source [find target/imx35.cfg]
++
++# Determined by trial and error
++reset_config trst_and_srst combined
++jtag_nsrst_delay 200
++jtag_ntrst_delay 200
++
++$_TARGETNAME configure -event gdb-attach { reset init }
++$_TARGETNAME configure -event reset-init { csb732_init }
++
++# Bare-bones initialization of core clocks and SDRAM
++proc csb732_init { } {
++	
++	# Disable fast writing only for init
++	memwrite burst disable
++
++	# All delay loops are omitted.
++	# We assume the interpreter latency is enough.
++
++	# Allow access to all coprocessors
++	arm11 mcr imx35.cpu 15 0 15 1 0 0x2001
++
++	# Disable MMU, caches, write buffer
++	arm11 mcr imx35.cpu 15 0 1 0 0 0x78
++
++	# Grant manager access to all domains
++	arm11 mcr imx35.cpu 15 0 3 0 0 0xFFFFFFFF
++
++	# Set ARM clock to 532 MHz, AHB to 133 MHz
++	mww 0x53F80004 0x1000
++	
++	# Set core clock to 2 * 24 MHz * (11 + 1/12) = 532 MHz
++	mww 0x53F8001C 0xB2C01
++	
++	set ESDMISC 0xB8001010
++	set ESDCFG0 0xB8001004
++	set ESDCTL0 0xB8001000
++
++	# Enable DDR
++	mww $ESDMISC 0x4
++	
++	# Timing
++	mww $ESDCFG0 0x007fff3f
++
++	# CS0
++	mww $ESDCTL0 0x92120080
++
++	# Precharge all dummy write
++	mww 0x80000400 0
++
++	# Enable CS) auto-refresh
++	mww $ESDCTL0 0xA2120080
++	
++	# Refresh twice (dummy writes)
++	mww 0x80000000 0
++	mww 0x80000000 0
++
++	# Enable CS0 load mode register
++	mww $ESDCTL0 0xB2120080
++
++	# Dummy writes	
++	mwb 0x80000033 0x01
++	mwb 0x81000000 0x01
++
++	mww $ESDCTL0 0x82226080
++	mww 0x80000000 0
++
++	# Re-enable fast writing
++	memwrite burst enable
++}
+
+
+Property changes on: trunk/tcl/board/csb732.cfg
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001523.html">[Openocd-svn] r2740 - trunk/tcl/target
+</A></li>
+	<LI>Next message: <A HREF="001525.html">[Openocd-svn] r2742 - in trunk/src: . flash/ocl/at91sam7x helper	jtag jtag/rlink server target target/xscale
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1524">[ date ]</a>
+              <a href="thread.html#1524">[ thread ]</a>
+              <a href="subject.html#1524">[ subject ]</a>
+              <a href="author.html#1524">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

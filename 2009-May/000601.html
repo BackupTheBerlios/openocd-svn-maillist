@@ -1,0 +1,125 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1817 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1817%20-%20trunk/src/jtag&In-Reply-To=%3C200905181727.n4IHRmfe016953%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000600.html">
+   <LINK REL="Next"  HREF="000602.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1817 - trunk/src/jtag</H1>
+    <B>kc8apf at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1817%20-%20trunk/src/jtag&In-Reply-To=%3C200905181727.n4IHRmfe016953%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1817 - trunk/src/jtag">kc8apf at mail.berlios.de
+       </A><BR>
+    <I>Mon May 18 19:27:48 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000600.html">[Openocd-svn] r1816 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000602.html">[Openocd-svn] r1818 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#601">[ date ]</a>
+              <a href="thread.html#601">[ thread ]</a>
+              <a href="subject.html#601">[ subject ]</a>
+              <a href="author.html#601">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kc8apf
+Date: 2009-05-18 19:27:46 +0200 (Mon, 18 May 2009)
+New Revision: 1817
+
+Modified:
+   trunk/src/jtag/jtag.c
+Log:
+Add jtag_queue_command() by Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mbruck at digenius.de</A>&gt; [3/8]
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-05-18 17:27:30 UTC (rev 1816)
++++ trunk/src/jtag/jtag.c	2009-05-18 17:27:46 UTC (rev 1817)
+@@ -672,32 +672,31 @@
+ 
+ int MINIDRIVER(interface_jtag_add_plain_ir_scan)(int num_fields, scan_field_t *fields, tap_state_t state)
+ {
+-	int i;
+-	jtag_command_t **last_cmd;
++	/* allocate memory for a new list member */
+ 
+-	last_cmd = jtag_get_last_command_p();
++	jtag_command_t * cmd = cmd_queue_alloc(sizeof(jtag_command_t));
++	
++	jtag_queue_command(cmd);
+ 
+-	/* allocate memory for a new list member */
+-	*last_cmd = cmd_queue_alloc(sizeof(jtag_command_t));
+-	(*last_cmd)-&gt;next = NULL;
+-	last_comand_pointer = &amp;((*last_cmd)-&gt;next);
+-	(*last_cmd)-&gt;type = JTAG_SCAN;
++	cmd-&gt;type = JTAG_SCAN;
+ 
+ 	/* allocate memory for ir scan command */
+-	(*last_cmd)-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
+-	(*last_cmd)-&gt;cmd.scan-&gt;ir_scan = true;
+-	(*last_cmd)-&gt;cmd.scan-&gt;num_fields = num_fields;
+-	(*last_cmd)-&gt;cmd.scan-&gt;fields = cmd_queue_alloc(num_fields * sizeof(scan_field_t));
+-	(*last_cmd)-&gt;cmd.scan-&gt;end_state = state;
++	cmd-&gt;cmd.scan = cmd_queue_alloc(sizeof(scan_command_t));
++	cmd-&gt;cmd.scan-&gt;ir_scan = true;
++	cmd-&gt;cmd.scan-&gt;num_fields = num_fields;
++	cmd-&gt;cmd.scan-&gt;fields = cmd_queue_alloc(num_fields * sizeof(scan_field_t));
++	cmd-&gt;cmd.scan-&gt;end_state = state;
+ 
+-	for( i = 0 ; i &lt; num_fields ; i++ ){
++	for (int i = 0; i &lt; num_fields; i++)
++	{
+ 		int num_bits = fields[i].num_bits;
+ 		int num_bytes = CEIL(fields[i].num_bits, 8);
+-		(*last_cmd)-&gt;cmd.scan-&gt;fields[i].tap = fields[i].tap;
+-		(*last_cmd)-&gt;cmd.scan-&gt;fields[i].num_bits = num_bits;
+-		(*last_cmd)-&gt;cmd.scan-&gt;fields[i].out_value = buf_cpy(fields[i].out_value, cmd_queue_alloc(num_bytes), num_bits);
+-		(*last_cmd)-&gt;cmd.scan-&gt;fields[i].in_value = fields[i].in_value;
++		cmd-&gt;cmd.scan-&gt;fields[i].tap = fields[i].tap;
++		cmd-&gt;cmd.scan-&gt;fields[i].num_bits = num_bits;
++		cmd-&gt;cmd.scan-&gt;fields[i].out_value = buf_cpy(fields[i].out_value, cmd_queue_alloc(num_bytes), num_bits);
++		cmd-&gt;cmd.scan-&gt;fields[i].in_value = fields[i].in_value;
+ 	}
++
+ 	return ERROR_OK;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000600.html">[Openocd-svn] r1816 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000602.html">[Openocd-svn] r1818 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#601">[ date ]</a>
+              <a href="thread.html#601">[ thread ]</a>
+              <a href="subject.html#601">[ subject ]</a>
+              <a href="author.html#601">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

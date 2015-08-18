@@ -1,0 +1,1142 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-367-gaafb916
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-367-gaafb916&In-Reply-To=%3CE1N96TZ-0005E5-P9%40fxgxhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001779.html">
+   <LINK REL="Next"  HREF="001780.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-367-gaafb916</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-367-gaafb916&In-Reply-To=%3CE1N96TZ-0005E5-P9%40fxgxhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-367-gaafb916">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Sat Nov 14 01:26:48 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001779.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-363-g38e8d60
+</A></li>
+        <LI>Next message: <A HREF="001780.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-370-gecab0cf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1781">[ date ]</a>
+              <a href="thread.html#1781">[ thread ]</a>
+              <a href="subject.html#1781">[ subject ]</a>
+              <a href="author.html#1781">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  aafb916bea1153b8d2f4706e4a62628f49741133 (commit)
+       via  78c6b922e21849ed8a2d3af4ca55c84c3d1ac185 (commit)
+       via  a7f5cdf999cd3fb8d3a681bcb6d8f8880faf8a11 (commit)
+       via  04b514707f221ba00ae789e69f6f8047af96125d (commit)
+      from  38e8d60f79fd51424c556e07653713254c2d9b4e (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit aafb916bea1153b8d2f4706e4a62628f49741133
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Nov 13 16:26:39 2009 -0800
+
+    ARM7/ARM9: use shared examine() method
+    
+    No point in having two identical examine methods for the
+    ARM7TDMI and ARM9TDMI drivers; move, rename, shrink, share.
+    
+    Add a bit of doxygen; stop needlessly exporting a method.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm720t.c b/src/target/arm720t.c
+index 145c8d1..eb66b12 100644
+--- a/src/target/arm720t.c
++++ b/src/target/arm720t.c
+@@ -548,8 +548,7 @@ struct target_type arm720t_target =
+ 	.register_commands = arm720t_register_commands,
+ 	.target_create = arm720t_target_create,
+ 	.init_target = arm720t_init_target,
+-	.examine = arm7tdmi_examine,
++	.examine = arm7_9_examine,
+ 	.mrc = arm720t_mrc,
+ 	.mcr = arm720t_mcr,
+-
+ };
+diff --git a/src/target/arm7_9_common.c b/src/target/arm7_9_common.c
+index ea04f3f..115a1d6 100644
+--- a/src/target/arm7_9_common.c
++++ b/src/target/arm7_9_common.c
+@@ -37,7 +37,25 @@
+ #include &quot;arm_simulator.h&quot;
+ 
+ 
+-int arm7_9_debug_entry(struct target *target);
++/**
++ * @file
++ * Hold common code supporting the ARM7 and ARM9 core generations.
++ *
++ * While the ARM core implementations evolved substantially during these
++ * two generations, they look quite similar from the JTAG perspective.
++ * Both have similar debug facilities, based on the same two scan chains
++ * providing access to the core and to an EmbeddedICE module.  Both can
++ * support similar ETM and ETB modules, for tracing.  And both expose
++ * what could be viewed as &quot;ARM Classic&quot;, with multiple processor modes,
++ * shadowed registers, and support for the Thumb instruction set.
++ *
++ * Processor differences include things like presence or absence of MMU
++ * and cache, pipeline sizes, use of a modified Harvard Architecure
++ * (with separate instruction and data busses from the CPU), support
++ * for cpu clock gating during idle, and more.
++ */
++
++static int arm7_9_debug_entry(struct target *target);
+ 
+ /**
+  * Clear watchpoints for an ARM7/9 target.
+@@ -1311,7 +1329,7 @@ int arm7_9_halt(struct target *target)
+  * @param target Pointer to target that is entering debug mode
+  * @return Error code if anything fails, otherwise ERROR_OK
+  */
+-int arm7_9_debug_entry(struct target *target)
++static int arm7_9_debug_entry(struct target *target)
+ {
+ 	int i;
+ 	uint32_t context[16];
+@@ -2838,6 +2856,42 @@ int arm7_9_blank_check_memory(struct target *target, uint32_t address, uint32_t
+ 	return ERROR_OK;
+ }
+ 
++/**
++ * Perform per-target setup that requires JTAG access.
++ */
++int arm7_9_examine(struct target *target)
++{
++	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
++	int retval;
++
++	if (!target_was_examined(target)) {
++		struct reg_cache *t, **cache_p;
++
++		t = embeddedice_build_reg_cache(target, arm7_9);
++		if (t == NULL)
++			return ERROR_FAIL;
++
++		cache_p = register_get_last_cache_p(&amp;target-&gt;reg_cache);
++		(*cache_p) = t;
++		arm7_9-&gt;eice_cache = (*cache_p);
++
++		if (arm7_9-&gt;armv4_5_common.etm)
++			(*cache_p)-&gt;next = etm_build_reg_cache(target,
++					&amp;arm7_9-&gt;jtag_info,
++					arm7_9-&gt;armv4_5_common.etm);
++
++		target_set_examined(target);
++	}
++
++	retval = embeddedice_setup(target);
++	if (retval == ERROR_OK)
++		retval = arm7_9_setup(target);
++	if (retval == ERROR_OK &amp;&amp; arm7_9-&gt;armv4_5_common.etm)
++		retval = etm_setup(target);
++	return retval;
++}
++
++
+ COMMAND_HANDLER(handle_arm7_9_write_xpsr_command)
+ {
+ 	uint32_t value;
+diff --git a/src/target/arm7_9_common.h b/src/target/arm7_9_common.h
+index e46da88..bbe95ca 100644
+--- a/src/target/arm7_9_common.h
++++ b/src/target/arm7_9_common.h
+@@ -159,5 +159,6 @@ void arm7_9_disable_eice_step(struct target *target);
+ int arm7_9_execute_sys_speed(struct target *target);
+ 
+ int arm7_9_init_arch_info(struct target *target, struct arm7_9_common *arm7_9);
++int arm7_9_examine(struct target *target);
+ 
+ #endif /* ARM7_9_COMMON_H */
+diff --git a/src/target/arm7tdmi.c b/src/target/arm7tdmi.c
+index c7bbd77..8be8a12 100644
+--- a/src/target/arm7tdmi.c
++++ b/src/target/arm7tdmi.c
+@@ -646,42 +646,6 @@ static void arm7tdmi_build_reg_cache(struct target *target)
+ 	armv4_5-&gt;core_cache = (*cache_p);
+ }
+ 
+-int arm7tdmi_examine(struct target *target)
+-{
+-	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+-	int retval;
+-
+-
+-	if (!target_was_examined(target))
+-	{
+-		/* get pointers to arch-specific information */
+-		struct reg_cache **cache_p = register_get_last_cache_p(&amp;target-&gt;reg_cache);
+-		struct reg_cache *t = embeddedice_build_reg_cache(target, arm7_9);
+-		if (t == NULL)
+-			return ERROR_FAIL;
+-
+-		(*cache_p) = t;
+-		arm7_9-&gt;eice_cache = (*cache_p);
+-
+-		if (arm7_9-&gt;armv4_5_common.etm)
+-			(*cache_p)-&gt;next = etm_build_reg_cache(target,
+-					&amp;arm7_9-&gt;jtag_info,
+-					arm7_9-&gt;armv4_5_common.etm);
+-
+-		target_set_examined(target);
+-	}
+-	if ((retval = embeddedice_setup(target)) != ERROR_OK)
+-		return retval;
+-	if ((retval = arm7_9_setup(target)) != ERROR_OK)
+-		return retval;
+-	if (arm7_9-&gt;armv4_5_common.etm)
+-	{
+-		if ((retval = etm_setup(target)) != ERROR_OK)
+-			return retval;
+-	}
+-	return ERROR_OK;
+-}
+-
+ int arm7tdmi_init_target(struct command_context *cmd_ctx, struct target *target)
+ {
+ 	arm7tdmi_build_reg_cache(target);
+@@ -786,5 +750,5 @@ struct target_type arm7tdmi_target =
+ 	.register_commands  = arm7_9_register_commands,
+ 	.target_create  = arm7tdmi_target_create,
+ 	.init_target = arm7tdmi_init_target,
+-	.examine = arm7tdmi_examine,
++	.examine = arm7_9_examine,
+ };
+diff --git a/src/target/arm7tdmi.h b/src/target/arm7tdmi.h
+index 85b64be..4ed6f3e 100644
+--- a/src/target/arm7tdmi.h
++++ b/src/target/arm7tdmi.h
+@@ -35,6 +35,5 @@ struct arm7tdmi_common
+ 
+ int arm7tdmi_init_arch_info(struct target *target, struct arm7tdmi_common *arm7tdmi, struct jtag_tap *tap);
+ int arm7tdmi_init_target(struct command_context *cmd_ctx, struct target *target);
+-int arm7tdmi_examine(struct target *target);
+ 
+ #endif /* ARM7TDMI_H */
+diff --git a/src/target/arm920t.c b/src/target/arm920t.c
+index dd742ca..9aa165c 100644
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -1420,7 +1420,7 @@ struct target_type arm920t_target =
+ 	.register_commands = arm920t_register_commands,
+ 	.target_create = arm920t_target_create,
+ 	.init_target = arm9tdmi_init_target,
+-	.examine = arm9tdmi_examine,
++	.examine = arm7_9_examine,
+ 	.mrc = arm920t_mrc,
+ 	.mcr = arm920t_mcr,
+ };
+diff --git a/src/target/arm926ejs.c b/src/target/arm926ejs.c
+index c7609c4..51b241a 100644
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -877,7 +877,7 @@ struct target_type arm926ejs_target =
+ 	.register_commands = arm926ejs_register_commands,
+ 	.target_create = arm926ejs_target_create,
+ 	.init_target = arm9tdmi_init_target,
+-	.examine = arm9tdmi_examine,
++	.examine = arm7_9_examine,
+ 	.virt2phys = arm926ejs_virt2phys,
+ 	.mmu = arm926ejs_mmu,
+ 
+diff --git a/src/target/arm966e.c b/src/target/arm966e.c
+index 61f9ae5..931db74 100644
+--- a/src/target/arm966e.c
++++ b/src/target/arm966e.c
+@@ -268,5 +268,5 @@ struct target_type arm966e_target =
+ 	.register_commands = arm966e_register_commands,
+ 	.target_create = arm966e_target_create,
+ 	.init_target = arm9tdmi_init_target,
+-	.examine = arm9tdmi_examine,
++	.examine = arm7_9_examine,
+ };
+diff --git a/src/target/arm9tdmi.c b/src/target/arm9tdmi.c
+index fc11073..44a978a 100644
+--- a/src/target/arm9tdmi.c
++++ b/src/target/arm9tdmi.c
+@@ -742,41 +742,6 @@ static void arm9tdmi_build_reg_cache(struct target *target)
+ 	armv4_5-&gt;core_cache = (*cache_p);
+ }
+ 
+-int arm9tdmi_examine(struct target *target)
+-{
+-	int retval;
+-	struct arm7_9_common *arm7_9 = target_to_arm7_9(target);
+-
+-	if (!target_was_examined(target))
+-	{
+-		struct reg_cache **cache_p = register_get_last_cache_p(&amp;target-&gt;reg_cache);
+-		struct reg_cache *t;
+-		/* one extra register (vector catch) */
+-		t = embeddedice_build_reg_cache(target, arm7_9);
+-		if (t == NULL)
+-			return ERROR_FAIL;
+-		(*cache_p) = t;
+-		arm7_9-&gt;eice_cache = (*cache_p);
+-
+-		if (arm7_9-&gt;armv4_5_common.etm)
+-			(*cache_p)-&gt;next = etm_build_reg_cache(target,
+-					&amp;arm7_9-&gt;jtag_info,
+-					arm7_9-&gt;armv4_5_common.etm);
+-
+-		target_set_examined(target);
+-	}
+-	if ((retval = embeddedice_setup(target)) != ERROR_OK)
+-		return retval;
+-	if ((retval = arm7_9_setup(target)) != ERROR_OK)
+-		return retval;
+-	if (arm7_9-&gt;armv4_5_common.etm)
+-	{
+-		if ((retval = etm_setup(target)) != ERROR_OK)
+-			return retval;
+-	}
+-	return ERROR_OK;
+-}
+-
+ int arm9tdmi_init_target(struct command_context *cmd_ctx,
+ 		struct target *target)
+ {
+@@ -986,5 +951,5 @@ struct target_type arm9tdmi_target =
+ 	.register_commands = arm9tdmi_register_commands,
+ 	.target_create = arm9tdmi_target_create,
+ 	.init_target = arm9tdmi_init_target,
+-	.examine = arm9tdmi_examine,
++	.examine = arm7_9_examine,
+ };
+diff --git a/src/target/arm9tdmi.h b/src/target/arm9tdmi.h
+index 34a63ee..496e4c5 100644
+--- a/src/target/arm9tdmi.h
++++ b/src/target/arm9tdmi.h
+@@ -53,7 +53,6 @@ enum arm9tdmi_vector_bit
+ 
+ int arm9tdmi_init_target(struct command_context *cmd_ctx,
+ 		struct target *target);
+-int arm9tdmi_examine(struct target *target);
+ int arm9tdmi_init_arch_info(struct target *target,
+ 		struct arm9tdmi_common *arm9tdmi, struct jtag_tap *tap);
+ int arm9tdmi_register_commands(struct command_context *cmd_ctx);
+diff --git a/src/target/fa526.c b/src/target/fa526.c
+index f3df24f..9e7b00d 100644
+--- a/src/target/fa526.c
++++ b/src/target/fa526.c
+@@ -393,5 +393,5 @@ struct target_type fa526_target =
+ 	.register_commands = arm920t_register_commands,
+ 	.target_create = fa526_target_create,
+ 	.init_target = arm9tdmi_init_target,
+-	.examine = arm9tdmi_examine,
++	.examine = arm7_9_examine,
+ };
+diff --git a/src/target/feroceon.c b/src/target/feroceon.c
+index 96a048a..c029e44 100644
+--- a/src/target/feroceon.c
++++ b/src/target/feroceon.c
+@@ -646,7 +646,7 @@ int feroceon_examine(struct target *target)
+ 	struct arm7_9_common *arm7_9;
+ 	int retval;
+ 
+-	retval = arm9tdmi_examine(target);
++	retval = arm7_9_examine(target);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+
+commit 78c6b922e21849ed8a2d3af4ca55c84c3d1ac185
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Nov 13 16:26:39 2009 -0800
+
+    ETM: simplify ETM initialization code paths
+    
+    Return NULL from etm_build_reg_cache() not ERROR_OK; and share
+    code on that fault path.
+    
+    Let ETM code handle any tracking of its cache -- not callers.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm7tdmi.c b/src/target/arm7tdmi.c
+index 029dce1..c7bbd77 100644
+--- a/src/target/arm7tdmi.c
++++ b/src/target/arm7tdmi.c
+@@ -664,12 +664,10 @@ int arm7tdmi_examine(struct target *target)
+ 		arm7_9-&gt;eice_cache = (*cache_p);
+ 
+ 		if (arm7_9-&gt;armv4_5_common.etm)
+-		{
+-			struct arm_jtag *jtag_info = &amp;arm7_9-&gt;jtag_info;
+ 			(*cache_p)-&gt;next = etm_build_reg_cache(target,
+-					jtag_info, arm7_9-&gt;armv4_5_common.etm);
+-			arm7_9-&gt;armv4_5_common.etm-&gt;reg_cache = (*cache_p)-&gt;next;
+-		}
++					&amp;arm7_9-&gt;jtag_info,
++					arm7_9-&gt;armv4_5_common.etm);
++
+ 		target_set_examined(target);
+ 	}
+ 	if ((retval = embeddedice_setup(target)) != ERROR_OK)
+diff --git a/src/target/arm9tdmi.c b/src/target/arm9tdmi.c
+index 147c090..fc11073 100644
+--- a/src/target/arm9tdmi.c
++++ b/src/target/arm9tdmi.c
+@@ -759,12 +759,10 @@ int arm9tdmi_examine(struct target *target)
+ 		arm7_9-&gt;eice_cache = (*cache_p);
+ 
+ 		if (arm7_9-&gt;armv4_5_common.etm)
+-		{
+-			struct arm_jtag *jtag_info = &amp;arm7_9-&gt;jtag_info;
+ 			(*cache_p)-&gt;next = etm_build_reg_cache(target,
+-					jtag_info, arm7_9-&gt;armv4_5_common.etm);
+-			arm7_9-&gt;armv4_5_common.etm-&gt;reg_cache = (*cache_p)-&gt;next;
+-		}
++					&amp;arm7_9-&gt;jtag_info,
++					arm7_9-&gt;armv4_5_common.etm);
++
+ 		target_set_examined(target);
+ 	}
+ 	if ((retval = embeddedice_setup(target)) != ERROR_OK)
+diff --git a/src/target/etm.c b/src/target/etm.c
+index 43158b5..4c94e6b 100644
+--- a/src/target/etm.c
++++ b/src/target/etm.c
+@@ -349,10 +349,7 @@ struct reg_cache *etm_build_reg_cache(struct target *target,
+ 			break;
+ 		default:
+ 			LOG_WARNING(&quot;Bad ETMv1 protocol %d&quot;, config &gt;&gt; 28);
+-			free(reg_cache);
+-			free(reg_list);
+-			free(arch_info);
+-			return ERROR_OK;
++			goto fail;
+ 		}
+ 	}
+ 	etm_ctx-&gt;bcd_vers = bcd_vers;
+@@ -396,10 +393,7 @@ struct reg_cache *etm_build_reg_cache(struct target *target,
+ 		if (!etb)
+ 		{
+ 			LOG_ERROR(&quot;etb selected as etm capture driver, but no ETB configured&quot;);
+-			free(reg_cache);
+-			free(reg_list);
+-			free(arch_info);
+-			return ERROR_OK;
++			goto fail;
+ 		}
+ 
+ 		reg_cache-&gt;next = etb_build_reg_cache(etb);
+@@ -409,6 +403,12 @@ struct reg_cache *etm_build_reg_cache(struct target *target,
+ 
+ 	etm_ctx-&gt;reg_cache = reg_cache;
+ 	return reg_cache;
++
++fail:
++	free(reg_cache);
++	free(reg_list);
++	free(arch_info);
++	return NULL;
+ }
+ 
+ static int etm_read_reg(struct reg *reg)
+
+commit a7f5cdf999cd3fb8d3a681bcb6d8f8880faf8a11
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Nov 13 16:22:36 2009 -0800
+
+    ARM11: switch to new &quot;arm&quot; base type
+    
+    This will enable reusing many common ARM utilities, in
+    particular the ETM and ETB support.  The ARM11 support
+    can still be much simplified after this patch, though.
+    
+    Note:  none of those common utilities kick in yet...
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index a6f0d3c..4ebe61f 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -689,9 +689,7 @@ static int arm11_poll(struct target *target)
+ {
+ 	FNC_INFO;
+ 	int retval;
+-
+-	struct arm11_common * arm11 = target-&gt;arch_info;
+-
++	struct arm11_common *arm11 = target_to_arm11(target);
+ 	uint32_t	dscr;
+ 
+ 	CHECK_RETVAL(arm11_read_DSCR(arm11, &amp;dscr));
+@@ -732,7 +730,7 @@ static int arm11_poll(struct target *target)
+ /* architecture specific status reply */
+ static int arm11_arch_state(struct target *target)
+ {
+-	struct arm11_common * arm11 = target-&gt;arch_info;
++	struct arm11_common *arm11 = target_to_arm11(target);
+ 
+ 	LOG_USER(&quot;target halted due to %s\ncpsr: 0x%8.8&quot; PRIx32 &quot; pc: 0x%8.8&quot; PRIx32 &quot;&quot;,
+ 			 Jim_Nvp_value2name_simple(nvp_target_debug_reason, target-&gt;debug_reason)-&gt;name,
+@@ -755,8 +753,7 @@ static int arm11_target_request_data(struct target *target,
+ static int arm11_halt(struct target *target)
+ {
+ 	FNC_INFO;
+-
+-	struct arm11_common * arm11 = target-&gt;arch_info;
++	struct arm11_common *arm11 = target_to_arm11(target);
+ 
+ 	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
+ 		target_state_name(target));
+@@ -825,7 +822,7 @@ static int arm11_resume(struct target *target, int current,
+ 	//	  LOG_DEBUG(&quot;current %d  address %08x  handle_breakpoints %d  debug_execution %d&quot;,
+ 	//	current, address, handle_breakpoints, debug_execution);
+ 
+-	struct arm11_common * arm11 = target-&gt;arch_info;
++	struct arm11_common *arm11 = target_to_arm11(target);
+ 
+ 	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
+ 		target_state_name(target));
+@@ -1044,7 +1041,7 @@ static int arm11_step(struct target *target, int current,
+ 		return ERROR_TARGET_NOT_HALTED;
+ 	}
+ 
+-	struct arm11_common * arm11 = target-&gt;arch_info;
++	struct arm11_common *arm11 = target_to_arm11(target);
+ 
+ 	if (!current)
+ 		R(PC) = address;
+@@ -1190,8 +1187,8 @@ static int arm11_assert_reset(struct target *target)
+ {
+ 	FNC_INFO;
+ 	int retval;
++	struct arm11_common *arm11 = target_to_arm11(target);
+ 
+-	struct arm11_common * arm11 = target-&gt;arch_info;
+ 	retval = arm11_check_init(arm11, NULL);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -1265,8 +1262,7 @@ static int arm11_get_gdb_reg_list(struct target *target,
+ 		struct reg **reg_list[], int *reg_list_size)
+ {
+ 	FNC_INFO;
+-
+-	struct arm11_common * arm11 = target-&gt;arch_info;
++	struct arm11_common *arm11 = target_to_arm11(target);
+ 
+ 	*reg_list_size	= ARM11_GDB_REGISTER_COUNT;
+ 	*reg_list		= malloc(sizeof(struct reg*) * ARM11_GDB_REGISTER_COUNT);
+@@ -1314,7 +1310,7 @@ static int arm11_read_memory_inner(struct target *target,
+ 
+ 	LOG_DEBUG(&quot;ADDR %08&quot; PRIx32 &quot;  SIZE %08&quot; PRIx32 &quot;  COUNT %08&quot; PRIx32 &quot;&quot;, address, size, count);
+ 
+-	struct arm11_common * arm11 = target-&gt;arch_info;
++	struct arm11_common *arm11 = target_to_arm11(target);
+ 
+ 	retval = arm11_run_instr_data_prepare(arm11);
+ 	if (retval != ERROR_OK)
+@@ -1410,7 +1406,7 @@ static int arm11_write_memory_inner(struct target *target,
+ 
+ 	LOG_DEBUG(&quot;ADDR %08&quot; PRIx32 &quot;  SIZE %08&quot; PRIx32 &quot;  COUNT %08&quot; PRIx32 &quot;&quot;, address, size, count);
+ 
+-	struct arm11_common * arm11 = target-&gt;arch_info;
++	struct arm11_common *arm11 = target_to_arm11(target);
+ 
+ 	retval = arm11_run_instr_data_prepare(arm11);
+ 	if (retval != ERROR_OK)
+@@ -1572,8 +1568,7 @@ static int arm11_add_breakpoint(struct target *target,
+ 		struct breakpoint *breakpoint)
+ {
+ 	FNC_INFO;
+-
+-	struct arm11_common * arm11 = target-&gt;arch_info;
++	struct arm11_common *arm11 = target_to_arm11(target);
+ 
+ #if 0
+ 	if (breakpoint-&gt;type == BKPT_SOFT)
+@@ -1604,8 +1599,7 @@ static int arm11_remove_breakpoint(struct target *target,
+ 		struct breakpoint *breakpoint)
+ {
+ 	FNC_INFO;
+-
+-	struct arm11_common * arm11 = target-&gt;arch_info;
++	struct arm11_common *arm11 = target_to_arm11(target);
+ 
+ 	arm11-&gt;free_brps++;
+ 
+@@ -1636,7 +1630,7 @@ static int arm11_run_algorithm(struct target *target,
+ 		uint32_t entry_point, uint32_t exit_point,
+ 		int timeout_ms, void *arch_info)
+ {
+-		struct arm11_common *arm11 = target-&gt;arch_info;
++	struct arm11_common *arm11 = target_to_arm11(target);
+ //	enum armv4_5_state core_state = arm11-&gt;core_state;
+ //	enum armv4_5_mode core_mode = arm11-&gt;core_mode;
+ 	uint32_t context[16];
+@@ -1813,7 +1807,13 @@ static int arm11_target_create(struct target *target, Jim_Interp *interp)
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	target-&gt;arch_info = arm11;
++	armv4_5_init_arch_info(target, &amp;arm11-&gt;arm);
++
++	arm11-&gt;jtag_info.tap = target-&gt;tap;
++	arm11-&gt;jtag_info.scann_size = 5;
++	arm11-&gt;jtag_info.scann_instr = ARM11_SCAN_N;
++	/* cur_scan_chain == 0 */
++	arm11-&gt;jtag_info.intest_instr = ARM11_INTEST;
+ 
+ 	return ERROR_OK;
+ }
+@@ -1831,8 +1831,7 @@ static int arm11_examine(struct target *target)
+ 	int retval;
+ 
+ 	FNC_INFO;
+-
+-	struct arm11_common * arm11 = target-&gt;arch_info;
++	struct arm11_common *arm11 = target_to_arm11(target);
+ 
+ 	/* check IDCODE */
+ 
+@@ -1865,11 +1864,9 @@ static int arm11_examine(struct target *target)
+ 	case 0x07B56000:	LOG_INFO(&quot;found ARM1156&quot;); break;
+ 	case 0x07B76000:	LOG_INFO(&quot;found ARM1176&quot;); break;
+ 	default:
+-	{
+ 		LOG_ERROR(&quot;'target arm11' expects IDCODE 0x*7B*7****&quot;);
+ 		return ERROR_FAIL;
+ 	}
+-	}
+ 
+ 	arm11-&gt;debug_version = (arm11-&gt;didr &gt;&gt; 16) &amp; 0x0F;
+ 
+@@ -1923,8 +1920,8 @@ static int arm11_get_reg(struct reg *reg)
+ 	/** \todo TODO: Check this. We assume that all registers are fetched at debug entry. */
+ 
+ #if 0
+-	struct arm11_common *arm11 = target-&gt;arch_info;
+-	const struct arm11_reg_defs * arm11_reg_info = arm11_reg_defs + ((struct arm11_reg_state *)reg-&gt;arch_info)-&gt;def_index;
++	struct arm11_common *arm11 = target_to_arm11(target);
++	const struct arm11_reg_defs *arm11_reg_info = arm11_reg_defs + ((struct arm11_reg_state *)reg-&gt;arch_info)-&gt;def_index;
+ #endif
+ 
+ 	return ERROR_OK;
+@@ -1935,9 +1932,9 @@ static int arm11_set_reg(struct reg *reg, uint8_t *buf)
+ {
+ 	FNC_INFO;
+ 
+-	struct target * target = ((struct arm11_reg_state *)reg-&gt;arch_info)-&gt;target;
+-	struct arm11_common *arm11 = target-&gt;arch_info;
+-//	  const struct arm11_reg_defs * arm11_reg_info = arm11_reg_defs + ((struct arm11_reg_state *)reg-&gt;arch_info)-&gt;def_index;
++	struct target *target = ((struct arm11_reg_state *)reg-&gt;arch_info)-&gt;target;
++	struct arm11_common *arm11 = target_to_arm11(target);
++//	const struct arm11_reg_defs *arm11_reg_info = arm11_reg_defs + ((struct arm11_reg_state *)reg-&gt;arch_info)-&gt;def_index;
+ 
+ 	arm11-&gt;reg_values[((struct arm11_reg_state *)reg-&gt;arch_info)-&gt;def_index] = buf_get_u32(buf, 0, 32);
+ 	reg-&gt;valid	= 1;
+@@ -1948,7 +1945,7 @@ static int arm11_set_reg(struct reg *reg, uint8_t *buf)
+ 
+ static int arm11_build_reg_cache(struct target *target)
+ {
+-	struct arm11_common *arm11 = target-&gt;arch_info;
++	struct arm11_common *arm11 = target_to_arm11(target);
+ 
+ 	NEW(struct reg_cache,		cache,				1);
+ 	NEW(struct reg,				reg_list,			ARM11_REGCACHE_COUNT);
+@@ -2107,14 +2104,13 @@ static int arm11_mrc_inner(struct target *target, int cpnum,
+ 		uint32_t *value, bool read)
+ {
+ 	int retval;
+-	
++	struct arm11_common *arm11 = target_to_arm11(target);
++
+ 	if (target-&gt;state != TARGET_HALTED)
+ 	{
+ 		LOG_ERROR(&quot;Target not halted&quot;);
+ 		return ERROR_FAIL;
+ 	}
+-		
+-	struct arm11_common * arm11 = target-&gt;arch_info;
+ 
+ 	uint32_t instr = 0xEE000010	|
+ 		(cpnum &lt;&lt;  8) |
+diff --git a/src/target/arm11.h b/src/target/arm11.h
+index f890253..6caad0e 100644
+--- a/src/target/arm11.h
++++ b/src/target/arm11.h
+@@ -23,9 +23,7 @@
+ #ifndef ARM11_H
+ #define ARM11_H
+ 
+-#include &quot;target.h&quot;
+-#include &quot;register.h&quot;
+-#include &quot;jtag.h&quot;
++#include &quot;armv4_5.h&quot;
+ 
+ #define asizeof(x)	(sizeof(x) / sizeof((x)[0]))
+ 
+@@ -80,6 +78,7 @@ enum arm11_debug_version
+ 
+ struct arm11_common
+ {
++	struct arm	arm;
+ 	struct target *	target;		/**&lt; Reference back to the owner */
+ 
+ 	/** \name Processor type detection */
+@@ -117,8 +116,15 @@ struct arm11_common
+ 
+ 	// GA
+ 	struct reg_cache *core_cache;
++
++	struct arm_jtag jtag_info;
+ };
+ 
++static inline struct arm11_common *target_to_arm11(struct target *target)
++{
++	return container_of(target-&gt;arch_info, struct arm11_common,
++			arm);
++}
+ 
+ /**
+  * ARM11 DBGTAP instructions
+diff --git a/src/target/arm11_dbgtap.c b/src/target/arm11_dbgtap.c
+index 65d4f82..40361dc 100644
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -178,6 +178,8 @@ int arm11_add_debug_SCAN_N(struct arm11_common * arm11, uint8_t chain, tap_state
+ 
+ 	arm11_in_handler_SCAN_N(tmp);
+ 
++	arm11-&gt;jtag_info.cur_scan_chain = chain;
++
+ 	return jtag_execute_queue();
+ }
+ 
+
+commit 04b514707f221ba00ae789e69f6f8047af96125d
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Nov 13 16:22:36 2009 -0800
+
+    target: remove unused &quot;bitfield&quot; infrastructure
+    
+    We have too many different registers, and too many version and
+    context dependent interpretations, for this type of bitfield
+    management to be scalable.
+    
+    (Anyone who really wants bitfield interpretation *can* do that
+    in Tcl code...)
+    
+    There are ... quite a few copies of the same ARM dummy registers.
+    There should eventually be one copy; this many is craziness.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 24c6b8f..a6f0d3c 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -246,18 +246,35 @@ enum arm11_regcache_ids
+ 
+ #define ARM11_GDB_REGISTER_COUNT	26
+ 
+-static uint8_t arm11_gdb_dummy_fp_value[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
++/* FIXME these are *identical* to the ARMv4_5 dummies ...  except
++ * for their names, and being static vs global, and having different
++ * addresses.  Ditto ARMv7a and ARMv7m dummies.
++ */
++
++static uint8_t arm11_gdb_dummy_fp_value[12];
+ 
+ static struct reg arm11_gdb_dummy_fp_reg =
+ {
+-	&quot;GDB dummy floating-point register&quot;, arm11_gdb_dummy_fp_value, 0, 1, 96, NULL, 0, NULL, 0
++	.name = &quot;GDB dummy floating-point register&quot;,
++	.value = arm11_gdb_dummy_fp_value,
++	.dirty = 0,
++	.valid = 1,
++	.size = 96,
++	.arch_info = NULL,
++	.arch_type = 0,
+ };
+ 
+-static uint8_t arm11_gdb_dummy_fps_value[] = {0, 0, 0, 0};
++static uint8_t arm11_gdb_dummy_fps_value[4];
+ 
+ static struct reg arm11_gdb_dummy_fps_reg =
+ {
+-	&quot;GDB dummy floating-point status register&quot;, arm11_gdb_dummy_fps_value, 0, 1, 32, NULL, 0, NULL, 0
++	.name = &quot;GDB dummy floating-point status register&quot;,
++	.value = arm11_gdb_dummy_fps_value,
++	.dirty = 0,
++	.valid = 1,
++	.size = 32,
++	.arch_info = NULL,
++	.arch_type = 0,
+ };
+ 
+ 
+@@ -1979,8 +1996,6 @@ static int arm11_build_reg_cache(struct target *target)
+ 		r-&gt;value			= (uint8_t *)(arm11-&gt;reg_values + i);
+ 		r-&gt;dirty			= 0;
+ 		r-&gt;valid			= 0;
+-		r-&gt;bitfield_desc	= NULL;
+-		r-&gt;num_bitfields	= 0;
+ 		r-&gt;arch_type		= arm11_regs_arch_type;
+ 		r-&gt;arch_info		= rs;
+ 
+diff --git a/src/target/armv4_5.c b/src/target/armv4_5.c
+index 6e3eff6..aa05e83 100644
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -32,22 +32,6 @@
+ #include &quot;binarybuffer.h&quot;
+ 
+ 
+-struct bitfield_desc armv4_5_psr_bitfield_desc[] =
+-{
+-	{&quot;M[4:0]&quot;, 5},
+-	{&quot;T&quot;, 1},
+-	{&quot;F&quot;, 1},
+-	{&quot;I&quot;, 1},
+-	{&quot;reserved&quot;, 16},
+-	{&quot;J&quot;, 1},
+-	{&quot;reserved&quot;, 2},
+-	{&quot;Q&quot;, 1},
+-	{&quot;V&quot;, 1},
+-	{&quot;C&quot;, 1},
+-	{&quot;Z&quot;, 1},
+-	{&quot;N&quot;, 1},
+-};
+-
+ char* armv4_5_core_reg_list[] =
+ {
+ 	&quot;r0&quot;, &quot;r1&quot;, &quot;r2&quot;, &quot;r3&quot;, &quot;r4&quot;, &quot;r5&quot;, &quot;r6&quot;, &quot;r7&quot;, &quot;r8&quot;, &quot;r9&quot;, &quot;r10&quot;, &quot;r11&quot;, &quot;r12&quot;, &quot;r13_usr&quot;, &quot;lr_usr&quot;, &quot;pc&quot;,
+@@ -157,14 +141,26 @@ uint8_t armv4_5_gdb_dummy_fp_value[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+ 
+ struct reg armv4_5_gdb_dummy_fp_reg =
+ {
+-	&quot;GDB dummy floating-point register&quot;, armv4_5_gdb_dummy_fp_value, 0, 1, 96, NULL, 0, NULL, 0
++	.name = &quot;GDB dummy floating-point register&quot;,
++	.value = armv4_5_gdb_dummy_fp_value,
++	.dirty = 0,
++	.valid = 1,
++	.size = 96,
++	.arch_info = NULL,
++	.arch_type = 0,
+ };
+ 
+ uint8_t armv4_5_gdb_dummy_fps_value[] = {0, 0, 0, 0};
+ 
+ struct reg armv4_5_gdb_dummy_fps_reg =
+ {
+-	&quot;GDB dummy floating-point status register&quot;, armv4_5_gdb_dummy_fps_value, 0, 1, 32, NULL, 0, NULL, 0
++	.name = &quot;GDB dummy floating-point status register&quot;,
++	.value = armv4_5_gdb_dummy_fps_value,
++	.dirty = 0,
++	.valid = 1,
++	.size = 32,
++	.arch_info = NULL,
++	.arch_type = 0,
+ };
+ 
+ int armv4_5_get_core_reg(struct reg *reg)
+@@ -278,8 +274,6 @@ struct reg_cache* armv4_5_build_reg_cache(struct target *target, struct arm *arm
+ 		reg_list[i].value = calloc(1, 4);
+ 		reg_list[i].dirty = 0;
+ 		reg_list[i].valid = 0;
+-		reg_list[i].bitfield_desc = NULL;
+-		reg_list[i].num_bitfields = 0;
+ 		reg_list[i].arch_type = armv4_5_core_reg_arch_type;
+ 		reg_list[i].arch_info = &amp;arch_info[i];
+ 	}
+diff --git a/src/target/armv7a.c b/src/target/armv7a.c
+index 0474a56..c94d3b0 100644
+--- a/src/target/armv7a.c
++++ b/src/target/armv7a.c
+@@ -35,25 +35,6 @@
+ #include &lt;string.h&gt;
+ #include &lt;unistd.h&gt;
+ 
+-struct bitfield_desc armv7a_psr_bitfield_desc[] =
+-{
+-	{&quot;M[4:0]&quot;, 5},
+-	{&quot;T&quot;, 1},
+-	{&quot;F&quot;, 1},
+-	{&quot;I&quot;, 1},
+-	{&quot;A&quot;, 1},
+-	{&quot;E&quot;, 1},
+-	{&quot;IT[7:2]&quot;, 6},
+-	{&quot;GE[3:0]&quot;, 4},
+-	{&quot;reserved(DNM)&quot;, 4},
+-	{&quot;J&quot;, 1},
+-	{&quot;IT[0:1]&quot;, 2},
+-	{&quot;Q&quot;, 1},
+-	{&quot;V&quot;, 1},
+-	{&quot;C&quot;, 1},
+-	{&quot;Z&quot;, 1},
+-	{&quot;N&quot;, 1},
+-};
+ 
+ char* armv7a_core_reg_list[] =
+ {
+@@ -165,12 +146,20 @@ int armv7a_core_reg_map[8][17] =
+ 	}
+ };
+ 
++/* FIXME this dummy is IDENTICAL to the armv4_5, arm11, and armv7m
++ * ones... except for naming/scoping
++ */
+ uint8_t armv7a_gdb_dummy_fp_value[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+ 
+ struct reg armv7a_gdb_dummy_fp_reg =
+ {
+-	&quot;GDB dummy floating-point register&quot;, armv7a_gdb_dummy_fp_value,
+-			0, 1, 96, NULL, 0, NULL, 0
++	.name = &quot;GDB dummy floating-point register&quot;,
++	.value = armv7a_gdb_dummy_fp_value,
++	.dirty = 0,
++	.valid = 1,
++	.size = 96,
++	.arch_info = NULL,
++	.arch_type = 0,
+ };
+ 
+ void armv7a_show_fault_registers(struct target *target)
+diff --git a/src/target/armv7m.c b/src/target/armv7m.c
+index f339645..ff97a4c 100644
+--- a/src/target/armv7m.c
++++ b/src/target/armv7m.c
+@@ -57,20 +57,33 @@ static char *armv7m_exception_strings[] =
+ 	&quot;DebugMonitor&quot;, &quot;RESERVED&quot;, &quot;PendSV&quot;, &quot;SysTick&quot;
+ };
+ 
+-static uint8_t armv7m_gdb_dummy_fp_value[12] = {
+-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+-};
++/* FIXME these dummies are IDENTICAL to the armv4_5, arm11, and armv7a
++ * ones... except for naming/scoping
++ */
++static uint8_t armv7m_gdb_dummy_fp_value[12];
+ 
+ static struct reg armv7m_gdb_dummy_fp_reg =
+ {
+-	&quot;GDB dummy floating-point register&quot;, armv7m_gdb_dummy_fp_value, 0, 1, 96, NULL, 0, NULL, 0
++	.name = &quot;GDB dummy floating-point register&quot;,
++	.value = armv7m_gdb_dummy_fp_value,
++	.dirty = 0,
++	.valid = 1,
++	.size = 96,
++	.arch_info = NULL,
++	.arch_type = 0,
+ };
+ 
+-static uint8_t armv7m_gdb_dummy_fps_value[] = {0, 0, 0, 0};
++static uint8_t armv7m_gdb_dummy_fps_value[4];
+ 
+ static struct reg armv7m_gdb_dummy_fps_reg =
+ {
+-	&quot;GDB dummy floating-point status register&quot;, armv7m_gdb_dummy_fps_value, 0, 1, 32, NULL, 0, NULL, 0
++	.name = &quot;GDB dummy floating-point status register&quot;,
++	.value = armv7m_gdb_dummy_fps_value,
++	.dirty = 0,
++	.valid = 1,
++	.size = 32,
++	.arch_info = NULL,
++	.arch_type = 0,
+ };
+ 
+ #ifdef ARMV7_GDB_HACKS
+@@ -78,7 +91,13 @@ uint8_t armv7m_gdb_dummy_cpsr_value[] = {0, 0, 0, 0};
+ 
+ struct reg armv7m_gdb_dummy_cpsr_reg =
+ {
+-	&quot;GDB dummy cpsr register&quot;, armv7m_gdb_dummy_cpsr_value, 0, 1, 32, NULL, 0, NULL, 0
++	.name = &quot;GDB dummy cpsr register&quot;,
++	.value = armv7m_gdb_dummy_cpsr_value,
++	.dirty = 0,
++	.valid = 1,
++	.size = 32,
++	.arch_info = NULL,
++	.arch_type = 0,
+ };
+ #endif
+ 
+@@ -563,8 +582,6 @@ struct reg_cache *armv7m_build_reg_cache(struct target *target)
+ 		reg_list[i].value = calloc(1, 4);
+ 		reg_list[i].dirty = 0;
+ 		reg_list[i].valid = 0;
+-		reg_list[i].bitfield_desc = NULL;
+-		reg_list[i].num_bitfields = 0;
+ 		reg_list[i].arch_type = armv7m_core_reg_arch_type;
+ 		reg_list[i].arch_info = &amp;arch_info[i];
+ 	}
+diff --git a/src/target/embeddedice.c b/src/target/embeddedice.c
+index e73cb7f..292504b 100644
+--- a/src/target/embeddedice.c
++++ b/src/target/embeddedice.c
+@@ -201,8 +201,6 @@ embeddedice_build_reg_cache(struct target *target, struct arm7_9_common *arm7_9)
+ 		reg_list[i].size = eice_regs[i].width;
+ 		reg_list[i].dirty = 0;
+ 		reg_list[i].valid = 0;
+-		reg_list[i].bitfield_desc = NULL;
+-		reg_list[i].num_bitfields = 0;
+ 		reg_list[i].value = calloc(1, 4);
+ 		reg_list[i].arch_info = &amp;arch_info[i];
+ 		reg_list[i].arch_type = embeddedice_reg_arch_type;
+diff --git a/src/target/etb.c b/src/target/etb.c
+index 2e8e7ca..e65cd5a 100644
+--- a/src/target/etb.c
++++ b/src/target/etb.c
+@@ -150,8 +150,6 @@ struct reg_cache* etb_build_reg_cache(struct etb *etb)
+ 		reg_list[i].size = 32;
+ 		reg_list[i].dirty = 0;
+ 		reg_list[i].valid = 0;
+-		reg_list[i].bitfield_desc = NULL;
+-		reg_list[i].num_bitfields = 0;
+ 		reg_list[i].value = calloc(1, 4);
+ 		reg_list[i].arch_info = &amp;arch_info[i];
+ 		reg_list[i].arch_type = etb_reg_arch_type;
+diff --git a/src/target/mips32.c b/src/target/mips32.c
+index fe22dd5..6432a90 100644
+--- a/src/target/mips32.c
++++ b/src/target/mips32.c
+@@ -90,7 +90,13 @@ uint8_t mips32_gdb_dummy_fp_value[] = {0, 0, 0, 0};
+ 
+ struct reg mips32_gdb_dummy_fp_reg =
+ {
+-	&quot;GDB dummy floating-point register&quot;, mips32_gdb_dummy_fp_value, 0, 1, 32, NULL, 0, NULL, 0
++	.name = &quot;GDB dummy floating-point register&quot;,
++	.value = mips32_gdb_dummy_fp_value,
++	.dirty = 0,
++	.valid = 1,
++	.size = 32,
++	.arch_info = NULL,
++	.arch_type = 0,
+ };
+ 
+ int mips32_core_reg_arch_type = -1;
+@@ -306,8 +312,6 @@ struct reg_cache *mips32_build_reg_cache(struct target *target)
+ 		reg_list[i].value = calloc(1, 4);
+ 		reg_list[i].dirty = 0;
+ 		reg_list[i].valid = 0;
+-		reg_list[i].bitfield_desc = NULL;
+-		reg_list[i].num_bitfields = 0;
+ 		reg_list[i].arch_type = mips32_core_reg_arch_type;
+ 		reg_list[i].arch_info = &amp;arch_info[i];
+ 	}
+diff --git a/src/target/register.h b/src/target/register.h
+index a907dc2..c21edf6 100644
+--- a/src/target/register.h
++++ b/src/target/register.h
+@@ -27,12 +27,6 @@
+ 
+ struct target;
+ 
+-struct bitfield_desc
+-{
+-	char *name;
+-	int num_bits;
+-};
+-
+ struct reg
+ {
+ 	char *name;
+@@ -40,8 +34,6 @@ struct reg
+ 	int dirty;
+ 	int valid;
+ 	uint32_t size;
+-	struct bitfield_desc *bitfield_desc;
+-	int num_bitfields;
+ 	void *arch_info;
+ 	int arch_type;
+ };
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index ca3ea2a..10ccf5d 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -2849,8 +2849,6 @@ static void xscale_build_reg_cache(struct target *target)
+ 		(*cache_p)-&gt;reg_list[i].dirty = 0;
+ 		(*cache_p)-&gt;reg_list[i].valid = 0;
+ 		(*cache_p)-&gt;reg_list[i].size = 32;
+-		(*cache_p)-&gt;reg_list[i].bitfield_desc = NULL;
+-		(*cache_p)-&gt;reg_list[i].num_bitfields = 0;
+ 		(*cache_p)-&gt;reg_list[i].arch_info = &amp;arch_info[i];
+ 		(*cache_p)-&gt;reg_list[i].arch_type = xscale_reg_arch_type;
+ 		arch_info[i] = xscale_reg_arch_info[i];
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/arm11.c         |   87 +++++++++++++++++++++++++-------------------
+ src/target/arm11.h         |   12 +++++--
+ src/target/arm11_dbgtap.c  |    2 +
+ src/target/arm720t.c       |    3 +-
+ src/target/arm7_9_common.c |   58 ++++++++++++++++++++++++++++-
+ src/target/arm7_9_common.h |    1 +
+ src/target/arm7tdmi.c      |   40 +--------------------
+ src/target/arm7tdmi.h      |    1 -
+ src/target/arm920t.c       |    2 +-
+ src/target/arm926ejs.c     |    2 +-
+ src/target/arm966e.c       |    2 +-
+ src/target/arm9tdmi.c      |   39 +-------------------
+ src/target/arm9tdmi.h      |    1 -
+ src/target/armv4_5.c       |   34 +++++++----------
+ src/target/armv7a.c        |   31 +++++-----------
+ src/target/armv7m.c        |   35 +++++++++++++-----
+ src/target/embeddedice.c   |    2 -
+ src/target/etb.c           |    2 -
+ src/target/etm.c           |   16 ++++----
+ src/target/fa526.c         |    2 +-
+ src/target/feroceon.c      |    2 +-
+ src/target/mips32.c        |   10 ++++--
+ src/target/register.h      |    8 ----
+ src/target/xscale.c        |    2 -
+ 24 files changed, 190 insertions(+), 204 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001779.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-363-g38e8d60
+</A></li>
+	<LI>Next message: <A HREF="001780.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-370-gecab0cf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1781">[ date ]</a>
+              <a href="thread.html#1781">[ thread ]</a>
+              <a href="subject.html#1781">[ subject ]</a>
+              <a href="author.html#1781">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

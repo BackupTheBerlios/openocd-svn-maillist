@@ -1,0 +1,197 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-rc0-14-gb5ce7fe
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-rc0-14-gb5ce7fe&In-Reply-To=%3CE1N5H6Z-000269-Ne%40cxgxhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001707.html">
+   <LINK REL="Next"  HREF="001709.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-rc0-14-gb5ce7fe</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-rc0-14-gb5ce7fe&In-Reply-To=%3CE1N5H6Z-000269-Ne%40cxgxhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-rc0-14-gb5ce7fe">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Tue Nov  3 11:59:14 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001707.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-rc0-13-ge901cee
+</A></li>
+        <LI>Next message: <A HREF="001709.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-rc0-15-gf37c9b8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1708">[ date ]</a>
+              <a href="thread.html#1708">[ thread ]</a>
+              <a href="subject.html#1708">[ subject ]</a>
+              <a href="author.html#1708">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  b5ce7fe8125da3044a2b4f2d0ef57af4d9eef5e7 (commit)
+      from  e901cee72f0f8ec5fc3b15d4c5320c3da5dbd39c (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit b5ce7fe8125da3044a2b4f2d0ef57af4d9eef5e7
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Mon Nov 2 11:10:09 2009 +0100
+
+    target: require working area for physical/virtual addresses to be specified
+    
+    Fixed bug: if virtual address for working memory was not specified
+    and MMU was enabled, then address 0 would be used.
+    
+    Require working address to be specified for both MMU enabled
+    and disabled case.
+    
+    For some completely inexplicable reason this fixes the regression
+    in svn 2646 for flash write in arm926ejs target. The logs showed
+    that MMU was disabled in the case below:
+    
+    <A HREF="https://lists.berlios.de/pipermail/openocd-development/2009-November/011882.html">https://lists.berlios.de/pipermail/openocd-development/2009-November/011882.html</A>
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/target.c b/src/target/target.c
+index 99b3d18..9289d37 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -1045,13 +1045,29 @@ int target_alloc_working_area(struct target_s *target, uint32_t size, working_ar
+ 		{
+ 			return retval;
+ 		}
++
+ 		if (enabled)
+ 		{
+-			target-&gt;working_area = target-&gt;working_area_virt;
+-		}
+-		else
++			if (target-&gt;working_area_phys_spec)
++			{
++				LOG_DEBUG(&quot;MMU disabled, using physical address for working memory 0x%08x&quot;, (unsigned)target-&gt;working_area_phys);
++				target-&gt;working_area = target-&gt;working_area_phys;
++			} else
++			{
++				LOG_ERROR(&quot;No working memory available. Specify -work-area-phys to target.&quot;);
++				return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++			}
++		} else
+ 		{
+-			target-&gt;working_area = target-&gt;working_area_phys;
++			if (target-&gt;working_area_virt_spec)
++			{
++				LOG_DEBUG(&quot;MMU enabled, using virtual address for working memory 0x%08x&quot;, (unsigned)target-&gt;working_area_virt);
++				target-&gt;working_area = target-&gt;working_area_virt;
++			} else
++			{
++				LOG_ERROR(&quot;No working memory available. Specify -work-area-virt to target.&quot;);
++				return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
++			}
+ 		}
+ 	}
+ 
+@@ -1080,8 +1096,6 @@ int target_alloc_working_area(struct target_s *target, uint32_t size, working_ar
+ 		uint32_t first_free = target-&gt;working_area;
+ 		uint32_t free_size = target-&gt;working_area_size;
+ 
+-		LOG_DEBUG(&quot;allocating new working area&quot;);
+-
+ 		c = target-&gt;working_areas;
+ 		while (c)
+ 		{
+@@ -1098,6 +1112,8 @@ int target_alloc_working_area(struct target_s *target, uint32_t size, working_ar
+ 			return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+ 		}
+ 
++		LOG_DEBUG(&quot;allocated new working area at address 0x%08x&quot;, (unsigned)first_free);
++
+ 		new_wa = malloc(sizeof(working_area_t));
+ 		new_wa-&gt;next = NULL;
+ 		new_wa-&gt;size = size;
+@@ -3763,6 +3779,7 @@ static int target_configure(Jim_GetOptInfo *goi, target_t *target)
+ 					return e;
+ 				}
+ 				target-&gt;working_area_virt = w;
++				target-&gt;working_area_virt_spec = true;
+ 			} else {
+ 				if (goi-&gt;argc != 0) {
+ 					goto no_params;
+@@ -3780,6 +3797,7 @@ static int target_configure(Jim_GetOptInfo *goi, target_t *target)
+ 					return e;
+ 				}
+ 				target-&gt;working_area_phys = w;
++				target-&gt;working_area_phys_spec = true;
+ 			} else {
+ 				if (goi-&gt;argc != 0) {
+ 					goto no_params;
+diff --git a/src/target/target.h b/src/target/target.h
+index ef57837..c971f18 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -128,9 +128,11 @@ typedef struct target_s
+ 	int reset_halt;						/* attempt resetting the CPU into the halted mode? */
+ 	uint32_t working_area;					/* working area (initialized RAM). Evaluated
+ 										 * upon first allocation from virtual/physical address. */
+-	uint32_t working_area_virt;				/* virtual address */
+-	uint32_t working_area_phys;				/* physical address */
+-	uint32_t working_area_size;				/* size in bytes */
++	bool working_area_virt_spec;		/* virtual address specified? */
++	uint32_t working_area_virt;			/* virtual address */
++	bool working_area_phys_spec;		/* virtual address specified? */
++	uint32_t working_area_phys;			/* physical address */
++	uint32_t working_area_size;			/* size in bytes */
+ 	uint32_t backup_working_area;			/* whether the content of the working area has to be preserved */
+ 	struct working_area_s *working_areas;/* list of allocated working areas */
+ 	enum target_debug_reason debug_reason;/* reason why the target entered debug state */
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/target.c |   30 ++++++++++++++++++++++++------
+ src/target/target.h |    8 +++++---
+ 2 files changed, 29 insertions(+), 9 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001707.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-rc0-13-ge901cee
+</A></li>
+	<LI>Next message: <A HREF="001709.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-rc0-15-gf37c9b8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1708">[ date ]</a>
+              <a href="thread.html#1708">[ thread ]</a>
+              <a href="subject.html#1708">[ subject ]</a>
+              <a href="author.html#1708">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

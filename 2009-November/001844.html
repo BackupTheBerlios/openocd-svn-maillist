@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-533-g5985dee
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-533-g5985dee&In-Reply-To=%3CE1NCHgc-0001bz-LN%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001843.html">
+   <LINK REL="Next"  HREF="001845.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-533-g5985dee</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-533-g5985dee&In-Reply-To=%3CE1NCHgc-0001bz-LN%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-533-g5985dee">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Sun Nov 22 20:01:25 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001843.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-532-gbcebce3
+</A></li>
+        <LI>Next message: <A HREF="001845.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-534-g2d6829d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1844">[ date ]</a>
+              <a href="thread.html#1844">[ thread ]</a>
+              <a href="subject.html#1844">[ subject ]</a>
+              <a href="author.html#1844">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  5985dee35da3ea24f1c9cb30b6cd50aa1bc63660 (commit)
+      from  bcebce3ce25465589d379c809a12e2beda8430b9 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 5985dee35da3ea24f1c9cb30b6cd50aa1bc63660
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Sun Nov 22 19:57:57 2009 +0100
+
+    arm11: do not use dynamic arrays
+    
+    Allocate working memory dynamically, caught by checkstack.pl
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/TODO b/TODO
+index c7e341d..bdbb0ec 100644
+--- a/TODO
++++ b/TODO
+@@ -309,7 +309,8 @@ fairly easy to complete:
+ 
+ - use dynamic allocations for working memory. Scan &amp; fix code
+ for excessive stack allocations. take linux/scripts/checkstack.pl and
+-see what the worst offenders are.  Example, on amd64:
++see what the worst offenders are. Dynamic stack allocations are found
++at the bottom of the list below.  Example, on amd64:
+ 
+  $ objdump -d | checkstack.pl | head -10
+  0x004311e3 image_open [openocd]:                      13464
+diff --git a/src/target/arm11_dbgtap.c b/src/target/arm11_dbgtap.c
+index 0f7e495..26de4ce 100644
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -880,10 +880,11 @@ int arm11_sc7_run(struct arm11_common * arm11, struct arm11_sc7_action * actions
+  */
+ void arm11_sc7_clear_vbw(struct arm11_common * arm11)
+ {
+-	struct arm11_sc7_action		clear_bw[arm11-&gt;brp + arm11-&gt;wrp + 1];
++	size_t clear_bw_size = arm11-&gt;brp + arm11-&gt;wrp + 1;
++	struct arm11_sc7_action		*clear_bw = malloc(sizeof(struct arm11_sc7_action) * clear_bw_size);
+ 	struct arm11_sc7_action *	pos = clear_bw;
+ 
+-	for (size_t i = 0; i &lt; ARRAY_SIZE(clear_bw); i++)
++	for (size_t i = 0; i &lt; clear_bw_size; i++)
+ 	{
+ 		clear_bw[i].write	= true;
+ 		clear_bw[i].value	= 0;
+@@ -899,7 +900,9 @@ void arm11_sc7_clear_vbw(struct arm11_common * arm11)
+ 
+ 	(pos++)-&gt;address = ARM11_SC7_VCR;
+ 
+-	arm11_sc7_run(arm11, clear_bw, ARRAY_SIZE(clear_bw));
++	arm11_sc7_run(arm11, clear_bw, clear_bw_size);
++
++	free (clear_bw);
+ }
+ 
+ /** Write VCR register
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ TODO                      |    3 ++-
+ src/target/arm11_dbgtap.c |    9 ++++++---
+ 2 files changed, 8 insertions(+), 4 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001843.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-532-gbcebce3
+</A></li>
+	<LI>Next message: <A HREF="001845.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-534-g2d6829d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1844">[ date ]</a>
+              <a href="thread.html#1844">[ thread ]</a>
+              <a href="subject.html#1844">[ subject ]</a>
+              <a href="author.html#1844">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

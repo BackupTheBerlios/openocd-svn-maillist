@@ -1,0 +1,334 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-426-g6cb1d10
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.2.0-426-g6cb1d10&In-Reply-To=%3CE1N2K7h-0005lS-Ux%40fxgxhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001682.html">
+   <LINK REL="Next"  HREF="001684.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-426-g6cb1d10</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.2.0-426-g6cb1d10&In-Reply-To=%3CE1N2K7h-0005lS-Ux%40fxgxhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-426-g6cb1d10">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Mon Oct 26 08:36:13 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001682.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-425-g0cac8b6
+</A></li>
+        <LI>Next message: <A HREF="001684.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-427-g8b30f22
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1683">[ date ]</a>
+              <a href="thread.html#1683">[ thread ]</a>
+              <a href="subject.html#1683">[ subject ]</a>
+              <a href="author.html#1683">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  6cb1d10cdad509939e3decf089e08c289d85d5cf (commit)
+      from  0cac8b67be5c6f6f5b2bc3a86f78d4d02e364792 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 6cb1d10cdad509939e3decf089e08c289d85d5cf
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Mon Oct 26 00:36:03 2009 -0700
+
+    JTAG: simple autoprobing
+    
+    This patch adds basic autoprobing support for the JTAG scan chains
+    which cooperate.  To use, you can invoke OpenOCD with just:
+    
+     - interface spec: &quot;-f interface/...cfg&quot;
+     - possibly with &quot;-c 'reset_config ...'&quot; for SRST/TRST
+     - possibly with &quot;-c 'jtag_khz ...'&quot; for the JTAG clock
+    
+    Then set up config files matching the reported TAPs.  It doesn't
+    declare targets ... just TAPs.  So facilities above the JTAG and
+    SVF/XSVF levels won't be available without a real config; this is
+    almost purely a way to generate diagnostics.
+    
+    Autoprobe was successful with most boards I tested, except ones
+    incorporating C55x DSPs (which don't cooperate with this scheme
+    for IR length autodetection).  Here's what one multi-TAP chip
+    reported, with the &quot;Warn:&quot; prefixes removed:
+    
+     clock speed 500 kHz
+     There are no enabled taps.  AUTO PROBING MIGHT NOT WORK!!
+     AUTO auto0.tap - use &quot;jtag newtap auto0 tap -expected-id 0x2b900f0f ...&quot;
+     AUTO auto1.tap - use &quot;jtag newtap auto1 tap -expected-id 0x07926001 ...&quot;
+     AUTO auto2.tap - use &quot;jtag newtap auto2 tap -expected-id 0x0b73b02f ...&quot;
+     AUTO auto0.tap - use &quot;... -irlen 4&quot;
+     AUTO auto1.tap - use &quot;... -irlen 4&quot;
+     AUTO auto2.tap - use &quot;... -irlen 6&quot;
+     no gdb ports allocated as no target has been specified
+    
+    The patch tweaks IR setup a bit, so we can represent TAPs with
+    undeclared IR length.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/TODO b/TODO
+index 6f9c749..f567a82 100644
+--- a/TODO
++++ b/TODO
+@@ -55,8 +55,10 @@ directly in minidriver API for better embedded host performance.
+ 
+ The following tasks have been suggested for adding new core JTAG support:
+ 
+-- autodetect devices present on the scan chain
+-  - implement 'discover_taps' command
++- Improve autodetection of TAPs by supporting tcl escape procedures that
++  can configure discovered TAPs based on IDCODE value ... they could:
++    - Remove guessing for irlen
++    - Allow non-default irmask/ircapture values
+ - SPI/UART emulation:
+   - (ab)use bit-banging JTAG interfaces to emulate SPI/UART
+   - allow SPI to program flash, MCUs, etc.
+@@ -94,6 +96,8 @@ interface support:
+ - FT2232 (libftdi):
+   - make performance comparable to alternatives (on Win32, D2XX is faster)
+   - make usability comparable to alternatives
++- Autodetect USB based adapters; this should be easy on Linux.  If there's
++  more than one, list the options; otherwise, just select that one.
+ 
+ The following tasks have been suggested for adding new JTAG interfaces:
+ 
+@@ -133,6 +137,7 @@ Once the above are completed:
+ 
+ @section thelisttargets Target Support
+ 
++- Many common ARM cores could be autodetected using IDCODE
+ - general layer cleanup: @par
+   <A HREF="https://lists.berlios.de/pipermail/openocd-development/2009-May/006590.html">https://lists.berlios.de/pipermail/openocd-development/2009-May/006590.html</A>
+ - regression: &quot;reset halt&quot; between 729(works) and 788(fails): @par
+diff --git a/src/jtag/core.c b/src/jtag/core.c
+index 08cfe43..8bb45bc 100644
+--- a/src/jtag/core.c
++++ b/src/jtag/core.c
+@@ -890,6 +890,9 @@ void jtag_sleep(uint32_t us)
+  */
+ #define END_OF_CHAIN_FLAG	0x000000ff
+ 
++/* a larger IR length than we ever expect to autoprobe */
++#define JTAG_IRLEN_MAX		60
++
+ static int jtag_examine_chain_execute(uint8_t *idcode_buffer, unsigned num_idcode)
+ {
+ 	scan_field_t field = {
+@@ -1027,6 +1030,8 @@ static int jtag_examine_chain(void)
+ 	uint8_t idcode_buffer[JTAG_MAX_CHAIN_SIZE * 4];
+ 	unsigned bit_count;
+ 	int retval;
++	int tapcount = 0;
++	bool autoprobe = false;
+ 
+ 	/* DR scan to collect BYPASS or IDCODE register contents.
+ 	 * Then make sure the scan data has both ones and zeroes.
+@@ -1040,11 +1045,9 @@ static int jtag_examine_chain(void)
+ 
+ 	/* point at the 1st tap */
+ 	jtag_tap_t *tap = jtag_tap_next_enabled(NULL);
+-	if (tap == NULL)
+-	{
+-		LOG_ERROR(&quot;JTAG: No taps enabled?&quot;);
+-		return ERROR_JTAG_INIT_FAILED;
+-	}
++
++	if (!tap)
++		autoprobe = true;
+ 
+ 	for (bit_count = 0;
+ 			tap &amp;&amp; bit_count &lt; (JTAG_MAX_CHAIN_SIZE * 32) - 31;
+@@ -1086,6 +1089,59 @@ static int jtag_examine_chain(void)
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
++	/* if autoprobing, the tap list is still empty ... populate it! */
++	while (autoprobe &amp;&amp; bit_count &lt; (JTAG_MAX_CHAIN_SIZE * 32) - 31) {
++		uint32_t idcode;
++		char buf[12];
++
++		/* Is there another TAP? */
++		idcode = buf_get_u32(idcode_buffer, bit_count, 32);
++		if (jtag_idcode_is_final(idcode))
++			break;
++
++		/* Default everything in this TAP except IR length.
++		 *
++		 * REVISIT create a jtag_alloc(chip, tap) routine, and
++		 * share it with jim_newtap_cmd().
++		 */
++		tap = calloc(1, sizeof *tap);
++		if (!tap)
++			return ERROR_FAIL;
++
++		sprintf(buf, &quot;auto%d&quot;, tapcount++);
++		tap-&gt;chip = strdup(buf);
++		tap-&gt;tapname = strdup(&quot;tap&quot;);
++
++		sprintf(buf, &quot;%s.%s&quot;, tap-&gt;chip, tap-&gt;tapname);
++		tap-&gt;dotted_name = strdup(buf);
++
++		/* tap-&gt;ir_length == 0 ... signifying irlen autoprobe */
++		tap-&gt;ir_capture_mask = 0x03;
++		tap-&gt;ir_capture_value = 0x01;
++
++		tap-&gt;enabled = true;
++
++		if ((idcode &amp; 1) == 0) {
++			bit_count += 1;
++			tap-&gt;hasidcode = false;
++		} else {
++			bit_count += 32;
++			tap-&gt;hasidcode = true;
++			tap-&gt;idcode = idcode;
++
++			tap-&gt;expected_ids_cnt = 1;
++			tap-&gt;expected_ids = malloc(sizeof(uint32_t));
++			tap-&gt;expected_ids[0] = idcode;
++		}
++
++		LOG_WARNING(&quot;AUTO %s - use \&quot;jtag newtap &quot;
++				&quot;%s %s -expected-id 0x%8.8&quot; PRIx32 &quot; ...\&quot;&quot;,
++				tap-&gt;dotted_name, tap-&gt;chip, tap-&gt;tapname,
++				tap-&gt;idcode);
++
++		jtag_tap_init(tap);
++	}
++
+ 	/* After those IDCODE or BYPASS register values should be
+ 	 * only the data we fed into the scan chain.
+ 	 */
+@@ -1120,10 +1176,13 @@ static int jtag_validate_ircapture(void)
+ 	int chain_pos = 0;
+ 	int retval;
+ 
++	/* when autoprobing, accomodate huge IR lengths */
+ 	for (tap = NULL, total_ir_length = 0;
+ 			(tap = jtag_tap_next_enabled(tap)) != NULL;
+-			total_ir_length += tap-&gt;ir_length)
+-		continue;
++			total_ir_length += tap-&gt;ir_length) {
++		if (tap-&gt;ir_length == 0)
++			total_ir_length += JTAG_IRLEN_MAX;
++	}
+ 
+ 	/* increase length to add 2 bit sentinel after scan */
+ 	total_ir_length += 2;
+@@ -1156,6 +1215,25 @@ static int jtag_validate_ircapture(void)
+ 			break;
+ 		}
+ 
++		/* If we're autoprobing, guess IR lengths.  They must be at
++		 * least two bits.  Guessing will fail if (a) any TAP does
++		 * not conform to the JTAG spec; or (b) when the upper bits
++		 * captured from some conforming TAP are nonzero.
++		 *
++		 * REVISIT alternative approach: escape to some tcl code
++		 * which could provide more knowledge, based on IDCODE; and
++		 * only guess when that has no success.
++		 */
++		if (tap-&gt;ir_length == 0) {
++			tap-&gt;ir_length = 2;
++			while ((val = buf_get_u32(ir_test, chain_pos,
++						tap-&gt;ir_length + 1)) == 1) {
++				tap-&gt;ir_length++;
++			}
++			LOG_WARNING(&quot;AUTO %s - use \&quot;... -irlen %d\&quot;&quot;,
++					jtag_tap_name(tap), tap-&gt;ir_length);
++		}
++
+ 		/* Validate the two LSBs, which must be 01 per JTAG spec.
+ 		 *
+ 		 * Or ... more bits could be provided by TAP declaration.
+@@ -1207,9 +1285,8 @@ void jtag_tap_init(jtag_tap_t *tap)
+ 	unsigned ir_len_bits;
+ 	unsigned ir_len_bytes;
+ 
+-	assert(0 != tap-&gt;ir_length);
+-
+-	ir_len_bits = tap-&gt;ir_length;
++	/* if we're autoprobing, cope with potentially huge ir_length */
++	ir_len_bits = tap-&gt;ir_length ? : JTAG_IRLEN_MAX;
+ 	ir_len_bytes = CEIL(ir_len_bits, 8);
+ 
+ 	tap-&gt;expected = calloc(1, ir_len_bytes);
+@@ -1302,8 +1379,21 @@ int jtag_init_inner(struct command_context_s *cmd_ctx)
+ 
+ 	tap = jtag_tap_next_enabled(NULL);
+ 	if (tap == NULL) {
+-		LOG_ERROR(&quot;There are no enabled taps?&quot;);
+-		return ERROR_JTAG_INIT_FAILED;
++		/* Once JTAG itself is properly set up, and the scan chain
++		 * isn't absurdly large, IDCODE autoprobe should work fine.
++		 *
++		 * But ... IRLEN autoprobe can fail even on systems which
++		 * are fully conformant to JTAG.  Also, JTAG setup can be
++		 * quite finicky on some systems.
++		 *
++		 * REVISIT: if TAP autoprobe works OK, then in many cases
++		 * we could escape to tcl code and set up targets based on
++		 * the TAP's IDCODE values.
++		 */
++		LOG_WARNING(&quot;There are no enabled taps.  &quot;
++				&quot;AUTO PROBING MIGHT NOT WORK!!&quot;);
++
++		/* REVISIT default clock will often be too fast ... */
+ 	}
+ 
+ 	jtag_add_tlr();
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ TODO            |    9 +++-
+ src/jtag/core.c |  114 +++++++++++++++++++++++++++++++++++++++++++++++++------
+ 2 files changed, 109 insertions(+), 14 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001682.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-425-g0cac8b6
+</A></li>
+	<LI>Next message: <A HREF="001684.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.2.0-427-g8b30f22
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1683">[ date ]</a>
+              <a href="thread.html#1683">[ thread ]</a>
+              <a href="subject.html#1683">[ subject ]</a>
+              <a href="author.html#1683">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

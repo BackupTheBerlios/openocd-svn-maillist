@@ -1,0 +1,367 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-481-g195ce5e
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-481-g195ce5e&In-Reply-To=%3CE1NB4K8-0002rn-0T%40cj8yhf1.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001822.html">
+   <LINK REL="Next"  HREF="001824.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-481-g195ce5e</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-481-g195ce5e&In-Reply-To=%3CE1NB4K8-0002rn-0T%40cj8yhf1.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-481-g195ce5e">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Thu Nov 19 11:33:10 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001822.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-479-gf382eba
+</A></li>
+        <LI>Next message: <A HREF="001824.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-482-gc049033
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1823">[ date ]</a>
+              <a href="thread.html#1823">[ thread ]</a>
+              <a href="subject.html#1823">[ subject ]</a>
+              <a href="author.html#1823">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  195ce5eb273983dbeabeea41cc18b77e4f30ab41 (commit)
+       via  f320b1228932e33292207d89778125c03379de5d (commit)
+      from  f382ebae1050fe26f25d13fd558277d8a032c778 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 195ce5eb273983dbeabeea41cc18b77e4f30ab41
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Thu Nov 19 02:33:01 2009 -0800
+
+    ARMv7-A: use standard ARM core states
+    
+    We don't want an ARMv7-specific core state enumeration just to
+    add ThumbEE state.  Update the generic stuff to handle that,
+    and replace the V7-specific bits with it.
+    
+    For Cortex-A8:  on debug entry, check both the T and J bits
+    instead of just the T bit.  When the J bit is set, set the
+    right state and warn appropriately.
+    
+    (And while we're at it, move the generic arm struct to the front
+    of the v7a structure, for somewhat better code generation.)
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/armv4_5.c b/src/target/armv4_5.c
+index 6c6f2bf..5e882e6 100644
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -227,7 +227,7 @@ enum armv4_5_mode armv4_5_number_to_mode(int number)
+ 
+ char* armv4_5_state_strings[] =
+ {
+-	&quot;ARM&quot;, &quot;Thumb&quot;, &quot;Jazelle&quot;
++	&quot;ARM&quot;, &quot;Thumb&quot;, &quot;Jazelle&quot;, &quot;ThumbEE&quot;,
+ };
+ 
+ static const struct armv4_5_core_reg armv4_5_core_reg_list_arch_info[] =
+diff --git a/src/target/armv4_5.h b/src/target/armv4_5.h
+index e3d053c..6b1dd76 100644
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -52,6 +52,7 @@ typedef enum armv4_5_state
+ 	ARMV4_5_STATE_ARM,
+ 	ARMV4_5_STATE_THUMB,
+ 	ARMV4_5_STATE_JAZELLE,
++	ARM_STATE_THUMB_EE,
+ } armv4_5_state_t;
+ 
+ extern char* armv4_5_state_strings[];
+diff --git a/src/target/armv7a.c b/src/target/armv7a.c
+index 98e3fa3..ea883c1 100644
+--- a/src/target/armv7a.c
++++ b/src/target/armv7a.c
+@@ -34,11 +34,6 @@
+ #include &lt;unistd.h&gt;
+ 
+ 
+-static const char *armv7a_state_strings[] =
+-{
+-	&quot;ARM&quot;, &quot;Thumb&quot;, &quot;Jazelle&quot;, &quot;ThumbEE&quot;
+-};
+-
+ static void armv7a_show_fault_registers(struct target *target)
+ {
+ 	uint32_t dfsr, ifsr, dfar, ifar;
+@@ -75,7 +70,7 @@ int armv7a_arch_state(struct target *target)
+ 	LOG_USER(&quot;target halted in %s state due to %s, current mode: %s\n&quot;
+ 			 &quot;cpsr: 0x%8.8&quot; PRIx32 &quot; pc: 0x%8.8&quot; PRIx32 &quot;\n&quot;
+ 			 &quot;MMU: %s, D-Cache: %s, I-Cache: %s&quot;,
+-		 armv7a_state_strings[armv7a-&gt;core_state],
++		 armv4_5_state_strings[armv4_5-&gt;core_state],
+ 		 Jim_Nvp_value2name_simple(nvp_target_debug_reason,
+ 				target-&gt;debug_reason)-&gt;name,
+ 		 arm_mode_name(armv4_5-&gt;core_mode),
+diff --git a/src/target/armv7a.h b/src/target/armv7a.h
+index f31a7af..635cd40 100644
+--- a/src/target/armv7a.h
++++ b/src/target/armv7a.h
+@@ -24,15 +24,6 @@
+ #include &quot;armv4_5_mmu.h&quot;
+ #include &quot;armv4_5_cache.h&quot;
+ 
+-
+-typedef enum armv7a_state
+-{
+-	ARMV7A_STATE_ARM,
+-	ARMV7A_STATE_THUMB,
+-	ARMV7A_STATE_JAZELLE,
+-	ARMV7A_STATE_THUMBEE,
+-} armv7a_state_t;
+-
+ enum
+ {
+ 	ARM_PC  = 15,
+@@ -64,9 +55,9 @@ enum
+ 
+ struct armv7a_common
+ {
++	struct arm armv4_5_common;
+ 	int common_magic;
+ 	struct reg_cache *core_cache;
+-	enum armv7a_state core_state;
+ 
+ 	/* arm adp debug port */
+ 	struct swjdp_common swjdp_info;
+@@ -78,7 +69,6 @@ struct armv7a_common
+ 
+ 	/* Cache and Memory Management Unit */
+ 	struct armv4_5_mmu_common armv4_5_mmu;
+-	struct arm armv4_5_common;
+ 
+ 	int (*read_cp15)(struct target *target,
+ 			uint32_t op1, uint32_t op2,
+@@ -107,7 +97,7 @@ struct armv7a_algorithm
+ 	int common_magic;
+ 
+ 	enum armv4_5_mode core_mode;
+-	enum armv7a_state core_state;
++	enum armv4_5_state core_state;
+ };
+ 
+ struct armv7a_core_reg
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index fc78844..d62740c 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -491,16 +491,21 @@ static int cortex_a8_resume(struct target *target, int current,
+ 	/* Make sure that the Armv7 gdb thumb fixups does not
+ 	 * kill the return address
+ 	 */
+-	if (armv7a-&gt;core_state == ARMV7A_STATE_ARM)
++	switch (armv4_5-&gt;core_state)
+ 	{
++	case ARMV4_5_STATE_ARM:
+ 		resume_pc &amp;= 0xFFFFFFFC;
+-	}
+-	/* When the return address is loaded into PC
+-	 * bit 0 must be 1 to stay in Thumb state
+-	 */
+-	if (armv7a-&gt;core_state == ARMV7A_STATE_THUMB)
+-	{
++		break;
++	case ARMV4_5_STATE_THUMB:
++	case ARM_STATE_THUMB_EE:
++		/* When the return address is loaded into PC
++		 * bit 0 must be 1 to stay in Thumb state
++		 */
+ 		resume_pc |= 0x1;
++		break;
++	case ARMV4_5_STATE_JAZELLE:
++		LOG_ERROR(&quot;How do I resume into Jazelle state??&quot;);
++		return ERROR_FAIL;
+ 	}
+ 	LOG_DEBUG(&quot;resume pc = 0x%08&quot; PRIx32, resume_pc);
+ 	buf_set_u32(ARMV4_5_CORE_REG_MODE(armv4_5-&gt;core_cache,
+@@ -630,9 +635,29 @@ static int cortex_a8_debug_entry(struct target *target)
+ 	LOG_DEBUG(&quot;cpsr: %8.8&quot; PRIx32, cpsr);
+ 
+ 	armv4_5-&gt;core_mode = cpsr &amp; 0x1F;
+-	armv7a-&gt;core_state = (cpsr &amp; 0x20)
+-			? ARMV7A_STATE_THUMB
+-			: ARMV7A_STATE_ARM;
++
++	i = (cpsr &gt;&gt; 5) &amp; 1;	/* T */
++	i |= (cpsr &gt;&gt; 23) &amp; 1;	/* J &lt;&lt; 1 */
++	switch (i) {
++	case 0:	/* J = 0, T = 0 */
++		armv4_5-&gt;core_state = ARMV4_5_STATE_ARM;
++		break;
++	case 1:	/* J = 0, T = 1 */
++		armv4_5-&gt;core_state = ARMV4_5_STATE_THUMB;
++		break;
++	case 2:	/* J = 1, T = 0 */
++		LOG_WARNING(&quot;Jazelle state -- not handled&quot;);
++		armv4_5-&gt;core_state = ARMV4_5_STATE_JAZELLE;
++		break;
++	case 3:	/* J = 1, T = 1 */
++		/* ThumbEE is very much like Thumb, but some of the
++		 * instructions are different.  Single stepping and
++		 * breakpoints need updating...
++		 */
++		LOG_WARNING(&quot;ThumbEE -- incomplete support&quot;);
++		armv4_5-&gt;core_state = ARM_STATE_THUMB_EE;
++		break;
++	}
+ 
+ 	/* update cache */
+ 	reg = armv4_5-&gt;core_cache-&gt;reg_list + ARMV4_5_CPSR;
+@@ -651,7 +676,7 @@ static int cortex_a8_debug_entry(struct target *target)
+ 	}
+ 
+ 	/* Fixup PC Resume Address */
+-	if (armv7a-&gt;core_state == ARMV7A_STATE_THUMB)
++	if (cpsr &amp; (1 &lt;&lt; 5))
+ 	{
+ 		// T bit set for Thumb or ThumbEE state
+ 		regfile[ARM_PC] -= 4;
+@@ -775,7 +800,8 @@ static int cortex_a8_step(struct target *target, int current, uint32_t address,
+ 
+ 	/* Setup single step breakpoint */
+ 	stepbreakpoint.address = address;
+-	stepbreakpoint.length = (armv7a-&gt;core_state == ARMV7A_STATE_THUMB) ? 2 : 4;
++	stepbreakpoint.length = (armv4_5-&gt;core_state == ARMV4_5_STATE_THUMB)
++			? 2 : 4;
+ 	stepbreakpoint.type = BKPT_HARD;
+ 	stepbreakpoint.set = 0;
+ 
+
+commit f320b1228932e33292207d89778125c03379de5d
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Thu Nov 19 02:31:34 2009 -0800
+
+    ARMv7-A: use standard ARM core_mode symbols
+    
+    The only way ARMv7-A modes differ from ARMv4/ARMv5 flavors
+    is that v7-A is allowed to include &quot;Secure monitor&quot; support.
+    That's now handled by our standard top-level ARM code ... so
+    phase out the stuff that's specific to ARMv7-A.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/armv7a.c b/src/target/armv7a.c
+index 6aa9d2f..98e3fa3 100644
+--- a/src/target/armv7a.c
++++ b/src/target/armv7a.c
+@@ -86,7 +86,7 @@ int armv7a_arch_state(struct target *target)
+ 		 state[armv7a-&gt;armv4_5_mmu.armv4_5_cache.d_u_cache_enabled],
+ 		 state[armv7a-&gt;armv4_5_mmu.armv4_5_cache.i_cache_enabled]);
+ 
+-	if (armv4_5-&gt;core_mode == ARMV7A_MODE_ABT)
++	if (armv4_5-&gt;core_mode == ARMV4_5_MODE_ABT)
+ 		armv7a_show_fault_registers(target);
+ 
+ 	return ERROR_OK;
+diff --git a/src/target/armv7a.h b/src/target/armv7a.h
+index b008361..f31a7af 100644
+--- a/src/target/armv7a.h
++++ b/src/target/armv7a.h
+@@ -24,18 +24,6 @@
+ #include &quot;armv4_5_mmu.h&quot;
+ #include &quot;armv4_5_cache.h&quot;
+ 
+-typedef enum armv7a_mode
+-{
+-	ARMV7A_MODE_USR = 16,
+-	ARMV7A_MODE_FIQ = 17,
+-	ARMV7A_MODE_IRQ = 18,
+-	ARMV7A_MODE_SVC = 19,
+-	ARMV7A_MODE_ABT = 23,
+-	ARMV7A_MODE_UND = 27,
+-	ARMV7A_MODE_SYS = 31,
+-	ARMV7A_MODE_MON = 22,
+-	ARMV7A_MODE_ANY = -1
+-} armv7a_t;
+ 
+ typedef enum armv7a_state
+ {
+@@ -78,7 +66,6 @@ struct armv7a_common
+ {
+ 	int common_magic;
+ 	struct reg_cache *core_cache;
+-	enum armv7a_mode core_mode;
+ 	enum armv7a_state core_state;
+ 
+ 	/* arm adp debug port */
+@@ -119,14 +106,14 @@ struct armv7a_algorithm
+ {
+ 	int common_magic;
+ 
+-	enum armv7a_mode core_mode;
++	enum armv4_5_mode core_mode;
+ 	enum armv7a_state core_state;
+ };
+ 
+ struct armv7a_core_reg
+ {
+ 	int num;
+-	enum armv7a_mode mode;
++	enum armv4_5_mode mode;
+ 	struct target *target;
+ 	struct armv7a_common *armv7a_common;
+ };
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/armv4_5.c   |    2 +-
+ src/target/armv4_5.h   |    1 +
+ src/target/armv7a.c    |    9 +------
+ src/target/armv7a.h    |   31 +++-------------------------
+ src/target/cortex_a8.c |   50 ++++++++++++++++++++++++++++++++++++-----------
+ 5 files changed, 46 insertions(+), 47 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001822.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-479-gf382eba
+</A></li>
+	<LI>Next message: <A HREF="001824.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-482-gc049033
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1823">[ date ]</a>
+              <a href="thread.html#1823">[ thread ]</a>
+              <a href="subject.html#1823">[ subject ]</a>
+              <a href="author.html#1823">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,146 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1492 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1492%20-%20trunk/src/jtag&In-Reply-To=%3C200904210941.n3L9ffqk029879%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000275.html">
+   <LINK REL="Next"  HREF="000277.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1492 - trunk/src/jtag</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1492%20-%20trunk/src/jtag&In-Reply-To=%3C200904210941.n3L9ffqk029879%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1492 - trunk/src/jtag">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Tue Apr 21 11:41:41 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000275.html">[Openocd-svn] r1491 - in trunk/src: jtag target/interface
+</A></li>
+        <LI>Next message: <A HREF="000277.html">[Openocd-svn] r1493 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#276">[ date ]</a>
+              <a href="thread.html#276">[ thread ]</a>
+              <a href="subject.html#276">[ subject ]</a>
+              <a href="author.html#276">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-04-21 11:41:41 +0200 (Tue, 21 Apr 2009)
+New Revision: 1492
+
+Modified:
+   trunk/src/jtag/jlink.c
+Log:
+Zach Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;  factor jlink usb_bulk_*_ex functions
+
+Modified: trunk/src/jtag/jlink.c
+===================================================================
+--- trunk/src/jtag/jlink.c	2009-04-21 09:08:43 UTC (rev 1491)
++++ trunk/src/jtag/jlink.c	2009-04-21 09:41:41 UTC (rev 1492)
+@@ -859,15 +859,17 @@
+ 	}
+ }
+ 
+-static int usb_bulk_write_ex(usb_dev_handle *dev, int ep, char *bytes, int size,
+-                      int timeout) {
+-
++/* calls the given usb_bulk_* function, allowing for the data to trickle in with some timeouts  */
++static int usb_bulk_with_retries(
++		int (*f)(usb_dev_handle *, int, char *, int, int),
++		usb_dev_handle *dev, int ep,
++		char *bytes, int size, int timeout)
++{
+ 	int rc = 0, tries = 3, this_size;
+ 
+ 	while (tries &amp;&amp; size) {
+ 
+-		this_size = usb_bulk_write (dev, ep, bytes, size, timeout);
+-
++		this_size = f(dev, ep, bytes, size, timeout);
+ 		if (this_size &gt; 0) {
+ 			
+ 			size -= this_size;
+@@ -877,36 +879,21 @@
+ 		} else
+ 			tries --;
+ 	}
+-
+ 	return rc;
+-
+-
+ }
+-
+-static int usb_bulk_read_ex(usb_dev_handle *dev, int ep, char *bytes, int size,
+-                  int timeout) {
+-
+-	int rc = 0, tries = 3, this_size;
+-
+-	while (tries &amp;&amp; size) {
+-
+-		this_size = usb_bulk_read (dev, ep, bytes, size, timeout);
+-
+-		if (this_size &gt; 0) {
+-			
+-			size -= this_size;
+-			rc += this_size;
+-			bytes += this_size;
+-
+-		} else
+-			tries --;
+-	}
+-
+-	return rc;
+-
++static inline int usb_bulk_write_ex(usb_dev_handle *dev, int ep,
++		char *bytes, int size, int timeout)
++{
++	return usb_bulk_with_retries(&amp;usb_bulk_write,
++			dev, ep, bytes, size, timeout);
+ }
++static inline int usb_bulk_read_ex(usb_dev_handle *dev, int ep,
++		char *bytes, int size, int timeout)
++{
++	return usb_bulk_with_retries(&amp;usb_bulk_read,
++			dev, ep, bytes, size, timeout);
++}
+ 
+-
+ /* Write data from out_buffer to USB. */
+ static int jlink_usb_write(jlink_jtag_t *jlink_jtag, int out_length)
+ {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000275.html">[Openocd-svn] r1491 - in trunk/src: jtag target/interface
+</A></li>
+	<LI>Next message: <A HREF="000277.html">[Openocd-svn] r1493 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#276">[ date ]</a>
+              <a href="thread.html#276">[ thread ]</a>
+              <a href="subject.html#276">[ subject ]</a>
+              <a href="author.html#276">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

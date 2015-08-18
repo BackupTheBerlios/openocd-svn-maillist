@@ -1,0 +1,202 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-799-g4332bc3
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-799-g4332bc3&In-Reply-To=%3Cmailman.28.1331736153.7625.openocd-svn%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002542.html">
+   <LINK REL="Next"  HREF="002544.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-799-g4332bc3</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-799-g4332bc3&In-Reply-To=%3Cmailman.28.1331736153.7625.openocd-svn%40lists.berlios.de%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-799-g4332bc3">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Mar 18 10:52:39 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002542.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-798-g9f17b30
+</A></li>
+        <LI>Next message: <A HREF="002544.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-800-g558f760
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2543">[ date ]</a>
+              <a href="thread.html#2543">[ thread ]</a>
+              <a href="subject.html#2543">[ subject ]</a>
+              <a href="author.html#2543">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  4332bc32e4a65b0b5b169a143febeb02e6517f39 (commit)
+      from  9f17b30f8847ba50e7a8ef03ca37cc116e915740 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 4332bc32e4a65b0b5b169a143febeb02e6517f39
+Author: Mathias K &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">kesmtp at freenet.de</A>&gt;
+Date:   Thu Mar 3 11:01:46 2011 +0100
+
+    target: allow targets to override memory alignment
+    
+    Targets can implement read/write_buffer to handle
+    alignment.
+
+diff --git a/src/target/target.c b/src/target/target.c
+index be42b33..13d358d 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -46,6 +46,10 @@
+ #include &quot;image.h&quot;
+ 
+ 
++static int target_read_buffer_default(struct target *target, uint32_t address,
++		uint32_t size, uint8_t *buffer);
++static int target_write_buffer_default(struct target *target, uint32_t address,
++		uint32_t size, uint8_t *buffer);
+ static int target_array2mem(Jim_Interp *interp, struct target *target,
+ 		int argc, Jim_Obj *const *argv);
+ static int target_mem2array(Jim_Interp *interp, struct target *target,
+@@ -865,6 +869,13 @@ static int target_init_one(struct command_context *cmd_ctx,
+ 		type-&gt;read_phys_memory = type-&gt;read_memory;
+ 		type-&gt;virt2phys = identity_virt2phys;
+ 	}
++
++	if (target-&gt;type-&gt;read_buffer == NULL)
++		target-&gt;type-&gt;read_buffer = target_read_buffer_default;
++
++	if (target-&gt;type-&gt;write_buffer == NULL)
++		target-&gt;type-&gt;write_buffer = target_write_buffer_default;
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -1333,7 +1344,6 @@ int target_arch_state(struct target *target)
+  */
+ int target_write_buffer(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer)
+ {
+-	int retval;
+ 	LOG_DEBUG(&quot;writing buffer of %i byte at 0x%8.8x&quot;,
+ 		  (int)size, (unsigned)address);
+ 
+@@ -1356,6 +1366,13 @@ int target_write_buffer(struct target *target, uint32_t address, uint32_t size,
+ 		return ERROR_FAIL;
+ 	}
+ 
++	return target-&gt;type-&gt;write_buffer(target, address, size, buffer);
++}
++
++static int target_write_buffer_default(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer)
++{
++	int retval = ERROR_OK;
++
+ 	if (((address % 2) == 0) &amp;&amp; (size == 2))
+ 	{
+ 		return target_write_memory(target, address, 2, 1, buffer);
+@@ -1406,7 +1423,7 @@ int target_write_buffer(struct target *target, uint32_t address, uint32_t size,
+ 			return retval;
+ 	}
+ 
+-	return ERROR_OK;
++	return retval;
+ }
+ 
+ /* Single aligned words are guaranteed to use 16 or 32 bit access
+@@ -1415,7 +1432,6 @@ int target_write_buffer(struct target *target, uint32_t address, uint32_t size,
+  */
+ int target_read_buffer(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer)
+ {
+-	int retval;
+ 	LOG_DEBUG(&quot;reading buffer of %i byte at 0x%8.8x&quot;,
+ 			  (int)size, (unsigned)address);
+ 
+@@ -1438,6 +1454,13 @@ int target_read_buffer(struct target *target, uint32_t address, uint32_t size, u
+ 		return ERROR_FAIL;
+ 	}
+ 
++	return target-&gt;type-&gt;read_buffer(target, address, size, buffer);
++}
++
++static int target_read_buffer_default(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer)
++{
++	int retval = ERROR_OK;
++
+ 	if (((address % 2) == 0) &amp;&amp; (size == 2))
+ 	{
+ 		return target_read_memory(target, address, 2, 1, buffer);
+@@ -3695,7 +3718,6 @@ static Jim_Nvp nvp_config_opts[] = {
+ 	{ .name = &quot;-variant&quot;,          .value = TCFG_VARIANT },
+ 	{ .name = &quot;-coreid&quot;,           .value = TCFG_COREID },
+ 	{ .name = &quot;-chain-position&quot;,   .value = TCFG_CHAIN_POSITION },
+-
+ 	{ .name = NULL, .value = -1 }
+ };
+ 
+diff --git a/src/target/target_type.h b/src/target/target_type.h
+index bfa7f93..15598b2 100644
+--- a/src/target/target_type.h
++++ b/src/target/target_type.h
+@@ -119,6 +119,12 @@ struct target_type
+ 	 */
+ 	int (*write_memory)(struct target *target, uint32_t address, uint32_t size, uint32_t count, uint8_t *buffer);
+ 
++	/* Default implementation will do some fancy alignment to improve performance, target can override */
++	int (*read_buffer)(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer);
++
++	/* Default implementation will do some fancy alignment to improve performance, target can override */
++	int (*write_buffer)(struct target *target, uint32_t address, uint32_t size, uint8_t *buffer);
++
+ 	/**
+ 	 * Write target memory in multiples of 4 bytes, optimized for
+ 	 * writing large quantities of data.  Do @b not call this
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/target.c      |   30 ++++++++++++++++++++++++++----
+ src/target/target_type.h |    6 ++++++
+ 2 files changed, 32 insertions(+), 4 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002542.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-798-g9f17b30
+</A></li>
+	<LI>Next message: <A HREF="002544.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-800-g558f760
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2543">[ date ]</a>
+              <a href="thread.html#2543">[ thread ]</a>
+              <a href="subject.html#2543">[ subject ]</a>
+              <a href="author.html#2543">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

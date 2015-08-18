@@ -1,0 +1,416 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-16-gfaef631
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-February/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-16-gfaef631&In-Reply-To=%3CE1NjUdC-0006wc-6w%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002117.html">
+   <LINK REL="Next"  HREF="002119.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-16-gfaef631</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-16-gfaef631&In-Reply-To=%3CE1NjUdC-0006wc-6w%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-16-gfaef631">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Mon Feb 22 10:31:09 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002117.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-14-g90efc40
+</A></li>
+        <LI>Next message: <A HREF="002119.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-17-g75067c4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2118">[ date ]</a>
+              <a href="thread.html#2118">[ thread ]</a>
+              <a href="subject.html#2118">[ subject ]</a>
+              <a href="author.html#2118">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  faef631a4d1429f48c34da13d446dcd64d1523bf (commit)
+       via  1f5883ea56cb058221f5731359da3d66838077e0 (commit)
+      from  90efc404f3cb9c3f6e7fdb8a2c22fb3e72e9072f (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit faef631a4d1429f48c34da13d446dcd64d1523bf
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Tue Feb 9 14:26:57 2010 +0100
+
+    arm11: improve performance using minidriver hook
+    
+    zy1000 performance for GDB load went from 100kBytes/s
+    to 300kBytes/s @ 8 MHz by implementing the inner loop
+    of unack arm11 memory writes directly on top of the hw
+    fifo.
+    
+    Profiling info:
+    
+     78.57      0.77     0.77                             arm11_run_instr_data_to_core_noack_inner
+      5.10      0.82     0.05                             memcpy
+      4.08      0.86     0.04                             jtag_tap_next_enabled
+      3.06      0.89     0.03                             gdb_input
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index da5aa36..d920c30 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -845,11 +845,73 @@ void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, uint8_t *buffer,
+ }
+ 
+ 
+-int arm11_run_instr_data_to_core_noack_inner_default(struct arm11_common * arm11, uint32_t opcode, uint32_t * data, size_t count);
+ 
+-int arm11_run_instr_data_to_core_noack_inner(struct arm11_common * arm11, uint32_t opcode, uint32_t * data, size_t count)
++int arm11_run_instr_data_to_core_noack_inner(struct jtag_tap * tap, uint32_t opcode, uint32_t * data, size_t count)
+ {
+-	return arm11_run_instr_data_to_core_noack_inner_default(arm11, opcode, data, count);
++#if 0
++	int arm11_run_instr_data_to_core_noack_inner_default(struct jtag_tap * tap, uint32_t opcode, uint32_t * data, size_t count);
++	return arm11_run_instr_data_to_core_noack_inner_default(tap, opcode, data, count);
++#else
++	static const int bits[] = {32, 2};
++	uint32_t values[] = {0, 0};
++
++	/* FIX!!!!!! the target_write_memory() API started this nasty problem
++	 * with unaligned uint32_t * pointers... */
++	const uint8_t *t = (const uint8_t *)data;
++
++	while (count--)
++	{
++		values[0] = *t++;
++		values[0] |= (*t++&lt;&lt;8);
++		values[0] |= (*t++&lt;&lt;16);
++		values[0] |= (*t++&lt;&lt;24);
++
++		if (count &gt; 0)
++		{
++			jtag_add_dr_out(tap,
++				2,
++				bits,
++				values,
++				TAP_DRPAUSE);
++
++#if 1
++			/* copy &amp; paste from arm11_dbgtap.c */
++			//TAP_DREXIT2, TAP_DRUPDATE, TAP_IDLE, TAP_IDLE, TAP_IDLE, TAP_DRSELECT, TAP_DRCAPTURE, TAP_DRSHIFT
++
++			waitIdle();
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x28, 1);
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x28, 1);
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x28, 0);
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x28, 0);
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x28, 0);
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x28, 1);
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x28, 0);
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x28, 0);
++			waitIdle();
++			ZY1000_POKE(ZY1000_JTAG_BASE + 0x20, TAP_DRSHIFT);
++#else
++			static const tap_state_t arm11_MOVE_DRPAUSE_IDLE_DRPAUSE_with_delay[] =
++			{
++				TAP_DREXIT2, TAP_DRUPDATE, TAP_IDLE, TAP_IDLE, TAP_IDLE, TAP_DRSELECT, TAP_DRCAPTURE, TAP_DRSHIFT
++			};
++
++			jtag_add_pathmove(ARRAY_SIZE(arm11_MOVE_DRPAUSE_IDLE_DRPAUSE_with_delay),
++				arm11_MOVE_DRPAUSE_IDLE_DRPAUSE_with_delay);
++#endif
++		} else
++		{
++			/* This will happen on the last iteration updating the current tap state
++			 * so we don't have to track it during the common code path */
++			jtag_add_dr_out(tap,
++				2,
++				bits,
++				values,
++				TAP_IDLE);
++		}
++	}
++
++	return jtag_execute_queue();
++#endif
+ }
+ 
+ 
+
+commit 1f5883ea56cb058221f5731359da3d66838077e0
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Tue Feb 9 09:55:56 2010 +0100
+
+    arm11: allow minidrivers to implement inner loop of memory writes
+    
+    This allows minidrivers to e.g. hardware accelerate memory
+    writes.
+    
+    Same trick as is used for arm7/9 dcc writes.
+    
+    Added error propagation for memory transfer failures in
+    code rearrangement.
+    
+    Also the JTAG end state is not updated until after
+    the memory write run is complete.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/jtag/zy1000/zy1000.c b/src/jtag/zy1000/zy1000.c
+index ef4f482..da5aa36 100644
+--- a/src/jtag/zy1000/zy1000.c
++++ b/src/jtag/zy1000/zy1000.c
+@@ -845,6 +845,14 @@ void embeddedice_write_dcc(struct jtag_tap *tap, int reg_addr, uint8_t *buffer,
+ }
+ 
+ 
++int arm11_run_instr_data_to_core_noack_inner_default(struct arm11_common * arm11, uint32_t opcode, uint32_t * data, size_t count);
++
++int arm11_run_instr_data_to_core_noack_inner(struct arm11_common * arm11, uint32_t opcode, uint32_t * data, size_t count)
++{
++	return arm11_run_instr_data_to_core_noack_inner_default(arm11, opcode, data, count);
++}
++
++
+ static const struct command_registration zy1000_commands[] = {
+ 	{
+ 		.name = &quot;power&quot;,
+diff --git a/src/target/arm11_dbgtap.c b/src/target/arm11_dbgtap.c
+index 6d132a7..b8388c8 100644
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -569,43 +569,31 @@ static const tap_state_t arm11_MOVE_DRPAUSE_IDLE_DRPAUSE_with_delay[] =
+ 	TAP_DREXIT2, TAP_DRUPDATE, TAP_IDLE, TAP_IDLE, TAP_IDLE, TAP_DRSELECT, TAP_DRCAPTURE, TAP_DRSHIFT
+ };
+ 
+-
+-
+-/** Execute one instruction via ITR repeatedly while
+- *  passing data to the core via DTR on each execution.
+- *
+- * Caller guarantees that processor is in debug state, that DSCR_ITR_EN
+- * is set, the ITR Ready flag is set (as seen on the previous entry to
+- * TAP_DRCAPTURE), and the DSCR sticky abort flag is clear.
+- *
+- *  No Ready check during transmission.
+- *
+- *  The executed instruction \em must read data from DTR.
+- *
+- * \pre arm11_run_instr_data_prepare() /  arm11_run_instr_data_finish() block
+- *
+- * \param arm11		Target state variable.
+- * \param opcode	ARM opcode
+- * \param data		Pointer to the data words to be passed to the core
+- * \param count		Number of data words and instruction repetitions
+- *
++/* This inner loop can be implemented by the minidriver, oftentimes in hardware... The
++ * minidriver can call the default implementation as a fallback or implement it
++ * from scratch.
+  */
+-int arm11_run_instr_data_to_core_noack(struct arm11_common * arm11, uint32_t opcode, uint32_t * data, size_t count)
++int arm11_run_instr_data_to_core_noack_inner_default(struct jtag_tap * tap, uint32_t opcode, uint32_t * data, size_t count)
+ {
+-	arm11_add_IR(arm11, ARM11_ITRSEL, ARM11_TAP_DEFAULT);
++	struct scan_field	chain5_fields[3];
+ 
+-	arm11_add_debug_INST(arm11, opcode, NULL, TAP_DRPAUSE);
++	chain5_fields[0].tap			= tap;
++	chain5_fields[0].num_bits		= 32;
++	chain5_fields[0].out_value		= NULL; /*&amp;Data*/
++	chain5_fields[0].in_value		= NULL;
+ 
+-	arm11_add_IR(arm11, ARM11_EXTEST, ARM11_TAP_DEFAULT);
++	chain5_fields[1].tap			= tap;
++	chain5_fields[1].num_bits		= 1;
++	chain5_fields[1].out_value		= NULL;
++	chain5_fields[1].in_value		= NULL; /*&amp;Ready*/
+ 
+-	struct scan_field	chain5_fields[3];
+-
+-	arm11_setup_field(arm11, 32,    NULL/*&amp;Data*/,  NULL,				chain5_fields + 0);
+-	arm11_setup_field(arm11,  1,    NULL,			NULL /*&amp;Ready*/,	chain5_fields + 1);
+-	arm11_setup_field(arm11,  1,    NULL,			NULL,				chain5_fields + 2);
++	chain5_fields[2].tap			= tap;
++	chain5_fields[2].num_bits		= 1;
++	chain5_fields[2].out_value		= NULL;
++	chain5_fields[2].in_value		= NULL;
+ 
+ 	uint8_t			*Readies;
+-	unsigned readiesNum = count + 1;
++	unsigned readiesNum = count;
+ 	unsigned bytes = sizeof(*Readies)*readiesNum;
+ 
+ 	Readies = (uint8_t *) malloc(bytes);
+@@ -616,31 +604,22 @@ int arm11_run_instr_data_to_core_noack(struct arm11_common * arm11, uint32_t opc
+ 	}
+ 
+ 	uint8_t	*		ReadyPos			= Readies;
+-
+ 	while (count--)
+ 	{
+ 		chain5_fields[0].out_value	= (void *)(data++);
+ 		chain5_fields[1].in_value	= ReadyPos++;
+ 
+-		if (count)
++		if (count &gt; 0)
+ 		{
+-			jtag_add_dr_scan(ARRAY_SIZE(chain5_fields), chain5_fields, jtag_set_end_state(TAP_DRPAUSE));
++			jtag_add_dr_scan(ARRAY_SIZE(chain5_fields), chain5_fields, TAP_DRPAUSE);
+ 			jtag_add_pathmove(ARRAY_SIZE(arm11_MOVE_DRPAUSE_IDLE_DRPAUSE_with_delay),
+ 				arm11_MOVE_DRPAUSE_IDLE_DRPAUSE_with_delay);
+-		}
+-		else
++		} else
+ 		{
+-			jtag_add_dr_scan(ARRAY_SIZE(chain5_fields), chain5_fields, jtag_set_end_state(TAP_IDLE));
++			jtag_add_dr_scan(ARRAY_SIZE(chain5_fields), chain5_fields, TAP_IDLE);
+ 		}
+ 	}
+ 
+-	arm11_add_IR(arm11, ARM11_INTEST, ARM11_TAP_DEFAULT);
+-
+-	chain5_fields[0].out_value	= 0;
+-	chain5_fields[1].in_value   = ReadyPos++;
+-
+-	arm11_add_dr_scan_vc(ARRAY_SIZE(chain5_fields), chain5_fields, TAP_DRPAUSE);
+-
+ 	int retval = jtag_execute_queue();
+ 	if (retval == ERROR_OK)
+ 	{
+@@ -655,16 +634,84 @@ int arm11_run_instr_data_to_core_noack(struct arm11_common * arm11, uint32_t opc
+ 		}
+ 
+ 		if (error_count &gt; 0 )
++		{
+ 			LOG_ERROR(&quot;%u words out of %u not transferred&quot;,
+ 				error_count, readiesNum);
+-
++			retval = ERROR_FAIL;
++		}
+ 	}
+-
+ 	free(Readies);
+ 
+ 	return retval;
+ }
+ 
++int arm11_run_instr_data_to_core_noack_inner(struct jtag_tap * tap, uint32_t opcode, uint32_t * data, size_t count);
++
++#ifndef HAVE_JTAG_MINIDRIVER_H
++int arm11_run_instr_data_to_core_noack_inner(struct jtag_tap * tap, uint32_t opcode, uint32_t * data, size_t count)
++{
++	return arm11_run_instr_data_to_core_noack_inner_default(tap, opcode, data, count);
++}
++#endif
++
++/** Execute one instruction via ITR repeatedly while
++ *  passing data to the core via DTR on each execution.
++ *
++ * Caller guarantees that processor is in debug state, that DSCR_ITR_EN
++ * is set, the ITR Ready flag is set (as seen on the previous entry to
++ * TAP_DRCAPTURE), and the DSCR sticky abort flag is clear.
++ *
++ *  No Ready check during transmission.
++ *
++ *  The executed instruction \em must read data from DTR.
++ *
++ * \pre arm11_run_instr_data_prepare() /  arm11_run_instr_data_finish() block
++ *
++ * \param arm11		Target state variable.
++ * \param opcode	ARM opcode
++ * \param data		Pointer to the data words to be passed to the core
++ * \param count		Number of data words and instruction repetitions
++ *
++ */
++int arm11_run_instr_data_to_core_noack(struct arm11_common * arm11, uint32_t opcode, uint32_t * data, size_t count)
++{
++	arm11_add_IR(arm11, ARM11_ITRSEL, ARM11_TAP_DEFAULT);
++
++	arm11_add_debug_INST(arm11, opcode, NULL, TAP_DRPAUSE);
++
++	arm11_add_IR(arm11, ARM11_EXTEST, ARM11_TAP_DEFAULT);
++
++	int retval = arm11_run_instr_data_to_core_noack_inner(arm11-&gt;arm.target-&gt;tap, opcode, data, count);
++
++	if (retval != ERROR_FAIL)
++		return retval;
++
++	arm11_add_IR(arm11, ARM11_INTEST, ARM11_TAP_DEFAULT);
++
++	struct scan_field	chain5_fields[3];
++
++	arm11_setup_field(arm11, 32,    NULL/*&amp;Data*/,  NULL,				chain5_fields + 0);
++	arm11_setup_field(arm11,  1,    NULL,			NULL /*&amp;Ready*/,	chain5_fields + 1);
++	arm11_setup_field(arm11,  1,    NULL,			NULL,				chain5_fields + 2);
++
++	uint8_t ready_flag;
++	chain5_fields[1].in_value   = &amp;ready_flag;
++
++	arm11_add_dr_scan_vc(ARRAY_SIZE(chain5_fields), chain5_fields, TAP_DRPAUSE);
++
++	retval = jtag_execute_queue();
++	if (retval == ERROR_OK)
++	{
++		if (ready_flag != 1)
++		{
++			LOG_ERROR(&quot;last word not transferred&quot;);
++			retval = ERROR_FAIL;
++		}
++	}
++
++	return retval;
++}
++
+ 
+ /** Execute an instruction via ITR while handing data into the core via DTR.
+  *
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/zy1000/zy1000.c  |   70 +++++++++++++++++++++++
+ src/target/arm11_dbgtap.c |  137 ++++++++++++++++++++++++++++++---------------
+ 2 files changed, 162 insertions(+), 45 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002117.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-14-g90efc40
+</A></li>
+	<LI>Next message: <A HREF="002119.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-17-g75067c4
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2118">[ date ]</a>
+              <a href="thread.html#2118">[ thread ]</a>
+              <a href="subject.html#2118">[ subject ]</a>
+              <a href="author.html#2118">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

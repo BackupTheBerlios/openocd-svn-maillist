@@ -1,0 +1,561 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-867-gf67f6fe
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-867-gf67f6fe&In-Reply-To=%3CE1NGkqH-0005mg-Kc%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001925.html">
+   <LINK REL="Next"  HREF="001927.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-867-gf67f6fe</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-867-gf67f6fe&In-Reply-To=%3CE1NGkqH-0005mg-Kc%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-867-gf67f6fe">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Sat Dec  5 03:57:49 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001925.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-864-g87a0119
+</A></li>
+        <LI>Next message: <A HREF="001927.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-877-gaf1d759
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1926">[ date ]</a>
+              <a href="thread.html#1926">[ thread ]</a>
+              <a href="subject.html#1926">[ subject ]</a>
+              <a href="author.html#1926">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  f67f6fe5bb8a466cc4d49f83608f026c4b233949 (commit)
+       via  a0edb8a328ceea23186ab74c941454fb146c9a48 (commit)
+       via  f4651c869fb0bbe00495a09470af0a934814c92a (commit)
+      from  87a0119fa24fe0fc904dcf2e6569cc0b9cb580ed (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit f67f6fe5bb8a466cc4d49f83608f026c4b233949
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Dec 4 18:57:31 2009 -0800
+
+    ARM11: report watchpoint trigger insn
+    
+    As with Cortex-A8, the WFAR register holds useful information
+    that should be recorded and, where relevant, displayed.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 943ab8a..0486b04 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -217,6 +217,19 @@ static int arm11_debug_entry(struct arm11_common *arm11)
+ 
+ 	}
+ 
++	if (arm11-&gt;arm.target-&gt;debug_reason == DBG_REASON_WATCHPOINT) {
++		uint32_t wfar;
++
++		/* MRC p15, 0, &lt;Rd&gt;, c6, c0, 1 ; Read WFAR */
++		retval = arm11_run_instr_data_from_core_via_r0(arm11,
++				ARMV4_5_MRC(15, 0, 0, 6, 0, 1),
++				&amp;wfar);
++		if (retval != ERROR_OK)
++			return retval;
++		arm_dpm_report_wfar(arm11-&gt;arm.dpm, wfar);
++	}
++
++
+ 	retval = arm11_run_instr_data_finish(arm11);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+@@ -356,12 +369,17 @@ static int arm11_poll(struct target *target)
+ /* architecture specific status reply */
+ static int arm11_arch_state(struct target *target)
+ {
++	struct arm11_common *arm11 = target_to_arm11(target);
+ 	int retval;
+ 
+ 	retval = armv4_5_arch_state(target);
+ 
+ 	/* REVISIT also display ARM11-specific MMU and cache status ... */
+ 
++	if (target-&gt;debug_reason == DBG_REASON_WATCHPOINT)
++		LOG_USER(&quot;Watchpoint triggered at PC %#08x&quot;,
++				(unsigned) arm11-&gt;dpm.wp_pc);
++
+ 	return retval;
+ }
+ 
+
+commit a0edb8a328ceea23186ab74c941454fb146c9a48
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Dec 4 18:57:31 2009 -0800
+
+    ARM11: basic watchpoint support
+    
+    Use the DPM watchpoint support; remove old incomplete stubs.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/NEWS b/NEWS
+index 38ae4da..498797b 100644
+--- a/NEWS
++++ b/NEWS
+@@ -24,10 +24,12 @@ Target Layer:
+ 		- accelerated GDB memory checksum
+ 		- support &quot;arm regs&quot; command
+ 		- can access all core modes and registers
++		- watchpoint support
+ 	Cortex-A8
+ 		- support &quot;arm regs&quot; command
+ 		- can access all core modes and registers
+ 		- supports &quot;reset-assert&quot; event (used on OMAP3530)
++		- watchpoint support
+ 	Cortex-M3
+ 		- Exposed DWT registers like cycle counter
+ 
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index b05ef30..943ab8a 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -286,6 +286,8 @@ static int arm11_leave_debug_state(struct arm11_common *arm11, bool bpwp)
+ 	 */
+ 	retval = arm_dpm_write_dirty_registers(&amp;arm11-&gt;dpm, bpwp);
+ 
++	retval = arm11_bpwp_flush(arm11);
++
+ 	register_cache_invalidate(arm11-&gt;arm.core_cache);
+ 
+ 	/* restore DSCR */
+@@ -1212,7 +1214,6 @@ static int arm11_examine(struct target *target)
+ 	}
+ 
+ 	arm11-&gt;brp = ((didr &gt;&gt; 24) &amp; 0x0F) + 1;
+-	arm11-&gt;wrp = ((didr &gt;&gt; 28) &amp; 0x0F) + 1;
+ 
+ 	/** \todo TODO: reserve one brp slot if we allow breakpoints during step */
+ 	arm11-&gt;free_brps = arm11-&gt;brp;
+diff --git a/src/target/arm11.h b/src/target/arm11.h
+index f3f0644..421f8d1 100644
+--- a/src/target/arm11.h
++++ b/src/target/arm11.h
+@@ -53,9 +53,10 @@ struct arm11_common
+ 
+ 	/** Debug module state. */
+ 	struct arm_dpm dpm;
++	struct arm11_sc7_action *bpwp_actions;
++	unsigned bpwp_n;
+ 
+ 	size_t	brp;			/**&lt; Number of Breakpoint Register Pairs from DIDR	*/
+-	size_t	wrp;			/**&lt; Number of Watchpoint Register Pairs from DIDR	*/
+ 	size_t	free_brps;		/**&lt; Number of breakpoints allocated */
+ 
+ 	uint32_t dscr;			/**&lt; Last retrieved DSCR value. */
+diff --git a/src/target/arm11_dbgtap.c b/src/target/arm11_dbgtap.c
+index e37ad56..9ad5662 100644
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -892,7 +892,7 @@ int arm11_sc7_run(struct arm11_common * arm11, struct arm11_sc7_action * actions
+  */
+ void arm11_sc7_clear_vbw(struct arm11_common * arm11)
+ {
+-	size_t clear_bw_size = arm11-&gt;brp + arm11-&gt;wrp + 1;
++	size_t clear_bw_size = arm11-&gt;brp + 1;
+ 	struct arm11_sc7_action		*clear_bw = malloc(sizeof(struct arm11_sc7_action) * clear_bw_size);
+ 	struct arm11_sc7_action *	pos = clear_bw;
+ 
+@@ -905,11 +905,6 @@ void arm11_sc7_clear_vbw(struct arm11_common * arm11)
+ 	for (size_t i = 0; i &lt; arm11-&gt;brp; i++)
+ 		(pos++)-&gt;address = ARM11_SC7_BCR0 + i;
+ 
+-
+-	for (size_t i = 0; i &lt; arm11-&gt;wrp; i++)
+-		(pos++)-&gt;address = ARM11_SC7_WCR0 + i;
+-
+-
+ 	(pos++)-&gt;address = ARM11_SC7_VCR;
+ 
+ 	arm11_sc7_run(arm11, clear_bw, clear_bw_size);
+@@ -1013,6 +1008,88 @@ static int arm11_dpm_instr_read_data_r0(struct arm_dpm *dpm,
+ 			opcode, data);
+ }
+ 
++/* Because arm11_sc7_run() takes a vector of actions, we batch breakpoint
++ * and watchpoint operations instead of running them right away.  Since we
++ * pre-allocated our vector, we don't need to worry about space.
++ */
++static int arm11_bpwp_enable(struct arm_dpm *dpm, unsigned index,
++		uint32_t addr, uint32_t control)
++{
++	struct arm11_common *arm11 = dpm_to_arm11(dpm);
++	struct arm11_sc7_action *action;
++
++	action = arm11-&gt;bpwp_actions + arm11-&gt;bpwp_n;
++
++	/* Invariant:  this bp/wp is disabled.
++	 * It also happens that the core is halted here, but for
++	 * DPM-based cores we don't actually care about that.
++	 */
++
++	action[0].write = action[1].write = true;
++
++	action[0].value = addr;
++	action[1].value = control;
++
++	switch (index) {
++	case 0 ... 15:
++		action[0].address = ARM11_SC7_BVR0 + index;
++		action[1].address = ARM11_SC7_BCR0 + index;
++		break;
++	case 16 ... 32:
++		index -= 16;
++		action[0].address = ARM11_SC7_WVR0 + index;
++		action[1].address = ARM11_SC7_WCR0 + index;
++		break;
++	default:
++		return ERROR_FAIL;
++	}
++
++	arm11-&gt;bpwp_n += 2;
++
++	return ERROR_OK;
++}
++
++static int arm11_bpwp_disable(struct arm_dpm *dpm, unsigned index)
++{
++	struct arm11_common *arm11 = dpm_to_arm11(dpm);
++	struct arm11_sc7_action *action;
++
++	action = arm11-&gt;bpwp_actions + arm11-&gt;bpwp_n;
++
++	action[0].write = true;
++	action[0].value = 0;
++
++	switch (index) {
++	case 0 ... 15:
++		action[0].address = ARM11_SC7_BCR0 + index;
++		break;
++	case 16 ... 32:
++		index -= 16;
++		action[0].address = ARM11_SC7_WCR0 + index;
++		break;
++	default:
++		return ERROR_FAIL;
++	}
++
++	arm11-&gt;bpwp_n += 1;
++
++	return ERROR_OK;
++}
++
++/** Flush any pending breakpoint and watchpoint updates. */
++int arm11_bpwp_flush(struct arm11_common *arm11)
++{
++	int retval;
++
++	if (!arm11-&gt;bpwp_n)
++		return ERROR_OK;
++
++	retval = arm11_sc7_run(arm11, arm11-&gt;bpwp_actions, arm11-&gt;bpwp_n);
++	arm11-&gt;bpwp_n = 0;
++
++	return retval;
++}
++
+ /** Set up high-level debug module utilities */
+ int arm11_dpm_init(struct arm11_common *arm11, uint32_t didr)
+ {
+@@ -1032,11 +1109,22 @@ int arm11_dpm_init(struct arm11_common *arm11, uint32_t didr)
+ 	dpm-&gt;instr_read_data_dcc = arm11_dpm_instr_read_data_dcc;
+ 	dpm-&gt;instr_read_data_r0 = arm11_dpm_instr_read_data_r0;
+ 
++	dpm-&gt;bpwp_enable = arm11_bpwp_enable;
++	dpm-&gt;bpwp_disable = arm11_bpwp_disable;
++
+ 	retval = arm_dpm_setup(dpm);
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
++	/* alloc enough to enable all breakpoints and watchpoints at once */
++	arm11-&gt;bpwp_actions = calloc(2 * (dpm-&gt;nbp + dpm-&gt;nwp),
++			sizeof *arm11-&gt;bpwp_actions);
++	if (!arm11-&gt;bpwp_actions)
++		return ERROR_FAIL;
++
+ 	retval = arm_dpm_initialize(dpm);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+-	return retval;
++	return arm11_bpwp_flush(arm11);
+ }
+diff --git a/src/target/arm11_dbgtap.h b/src/target/arm11_dbgtap.h
+index 2c586cc..3139a09 100644
+--- a/src/target/arm11_dbgtap.h
++++ b/src/target/arm11_dbgtap.h
+@@ -59,5 +59,6 @@ int arm11_read_memory_word(struct arm11_common *arm11,
+ 		uint32_t address, uint32_t *result);
+ 
+ int arm11_dpm_init(struct arm11_common *arm11, uint32_t didr);
++int arm11_bpwp_flush(struct arm11_common *arm11);
+ 
+ #endif // ARM11_DBGTAP_H
+
+commit f4651c869fb0bbe00495a09470af0a934814c92a
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Fri Dec 4 18:57:30 2009 -0800
+
+    ARM11: tweak TAP ops and debugging
+    
+    Tweak scanchain 7 debug messaging:
+    
+     - show register addresses in decimal, matching ARM docs;
+     - remove some pointless noise
+    
+    Avoid some needless roundtrips:
+    
+     - skip SCAN_N when SCREG already holds that number (speeds up
+       polling and other common operations)
+     - avoid zeroing vcr twice on resume
+    
+    Show the IR opcode as a label (&quot;RESTART&quot;) too; and in decimal,
+    matching ARM docs.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index 20ad22d..b05ef30 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -513,7 +513,8 @@ static int arm11_resume(struct target *target, int current,
+ 			brp_num++;
+ 		}
+ 
+-		arm11_sc7_set_vcr(arm11, arm11_vcr);
++		if (arm11_vcr)
++			arm11_sc7_set_vcr(arm11, arm11_vcr);
+ 	}
+ 
+ 	arm11_leave_debug_state(arm11, handle_breakpoints);
+@@ -1133,7 +1134,7 @@ static int arm11_target_create(struct target *target, Jim_Interp *interp)
+ 	arm11-&gt;jtag_info.tap = target-&gt;tap;
+ 	arm11-&gt;jtag_info.scann_size = 5;
+ 	arm11-&gt;jtag_info.scann_instr = ARM11_SCAN_N;
+-	/* cur_scan_chain == 0 */
++	arm11-&gt;jtag_info.cur_scan_chain = ~0;	/* invalid/unknown */
+ 	arm11-&gt;jtag_info.intest_instr = ARM11_INTEST;
+ 
+ 	return ERROR_OK;
+diff --git a/src/target/arm11_dbgtap.c b/src/target/arm11_dbgtap.c
+index e5d3f80..e37ad56 100644
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -91,6 +91,38 @@ void arm11_setup_field(struct arm11_common * arm11, int num_bits, void * out_dat
+ 	field-&gt;in_value			= in_data;
+ }
+ 
++static const char *arm11_ir_to_string(uint8_t ir)
++{
++	const char *s = &quot;unknown&quot;;
++
++	switch (ir) {
++	case ARM11_EXTEST:
++		s = &quot;EXTEST&quot;;
++		break;
++	case ARM11_SCAN_N:
++		s = &quot;SCAN_N&quot;;
++		break;
++	case ARM11_RESTART:
++		s = &quot;RESTART&quot;;
++		break;
++	case ARM11_HALT:
++		s = &quot;HALT&quot;;
++		break;
++	case ARM11_INTEST:
++		s = &quot;INTEST&quot;;
++		break;
++	case ARM11_ITRSEL:
++		s = &quot;ITRSEL&quot;;
++		break;
++	case ARM11_IDCODE:
++		s = &quot;IDCODE&quot;;
++		break;
++	case ARM11_BYPASS:
++		s = &quot;BYPASS&quot;;
++		break;
++	}
++	return s;
++}
+ 
+ /** Write JTAG instruction register
+  *
+@@ -110,7 +142,7 @@ void arm11_add_IR(struct arm11_common * arm11, uint8_t instr, tap_state_t state)
+ 		return;
+ 	}
+ 
+-	JTAG_DEBUG(&quot;IR &lt;= 0x%02x&quot;, instr);
++	JTAG_DEBUG(&quot;IR &lt;= %s (0x%02x)&quot;, arm11_ir_to_string(instr), instr);
+ 
+ 	struct scan_field field;
+ 
+@@ -135,7 +167,8 @@ static void arm11_in_handler_SCAN_N(uint8_t *in_value)
+ 		jtag_set_error(ERROR_FAIL);
+ 	}
+ 
+-	JTAG_DEBUG(&quot;SCREG SCAN OUT 0x%02x&quot;, v);
++	if (v != 0x10)
++		JTAG_DEBUG(&quot;SCREG SCAN OUT 0x%02x&quot;, v);
+ }
+ 
+ /** Select and write to Scan Chain Register (SCREG)
+@@ -150,6 +183,9 @@ static void arm11_in_handler_SCAN_N(uint8_t *in_value)
+  * \param state	    Pass the final TAP state or ARM11_TAP_DEFAULT for the default
+  *					value (Pause-DR).
+  *
++ * Changes the current scan chain if needed, transitions to the specified
++ * TAP state, and leaves the IR undefined.
++ *
+  * The chain takes effect when Update-DR is passed (usually when subsequently
+  * the INTEXT/EXTEST instructions are written).
+  *
+@@ -162,9 +198,19 @@ static void arm11_in_handler_SCAN_N(uint8_t *in_value)
+  * \remarks			This adds to the JTAG command queue but does \em not execute it.
+  */
+ 
+-int arm11_add_debug_SCAN_N(struct arm11_common * arm11, uint8_t chain, tap_state_t state)
++int arm11_add_debug_SCAN_N(struct arm11_common *arm11,
++		uint8_t chain, tap_state_t state)
+ {
+-	JTAG_DEBUG(&quot;SCREG &lt;= 0x%02x&quot;, chain);
++	/* Don't needlessly switch the scan chain.
++	 * NOTE:  the ITRSEL instruction fakes SCREG changing;
++	 * but leaves its actual value unchanged.
++	 */
++	if (arm11-&gt;jtag_info.cur_scan_chain == chain) {
++		JTAG_DEBUG(&quot;SCREG &lt;= %d SKIPPED&quot;, chain);
++		return jtag_add_statemove((state == ARM11_TAP_DEFAULT)
++					? TAP_DRPAUSE : state);
++	}
++	JTAG_DEBUG(&quot;SCREG &lt;= %d&quot;, chain);
+ 
+ 	arm11_add_IR(arm11, ARM11_SCAN_N, ARM11_TAP_DEFAULT);
+ 
+@@ -791,30 +837,31 @@ int arm11_sc7_run(struct arm11_common * arm11, struct arm11_sc7_action * actions
+ 		}
+ 		else
+ 		{
+-			nRW			= 0;
++			nRW			= 1;
+ 			DataOut		= 0;
+ 			AddressOut	= 0;
+ 		}
+ 
+ 		do
+ 		{
+-			JTAG_DEBUG(&quot;SC7 &lt;= Address %02x  Data %08x    nRW %d&quot;,
++			JTAG_DEBUG(&quot;SC7 &lt;= c%-3d Data %08x %s&quot;,
+ 					(unsigned) AddressOut,
+ 					(unsigned) DataOut,
+-					nRW);
++					nRW ? &quot;write&quot; : &quot;read&quot;);
+ 
+ 			arm11_add_dr_scan_vc(ARRAY_SIZE(chain7_fields),
+ 					chain7_fields, TAP_DRPAUSE);
+ 
+ 			CHECK_RETVAL(jtag_execute_queue());
+ 
+-			JTAG_DEBUG(&quot;SC7 =&gt; Address %02x  Data %08x  Ready %d&quot;,
+-					(unsigned) AddressIn,
+-					(unsigned) DataIn,
+-					Ready);
++			if (!Ready)
++				JTAG_DEBUG(&quot;SC7 =&gt; !ready&quot;);
+ 		}
+ 		while (!Ready); /* 'nRW' is 'Ready' on read out */
+ 
++		if (!nRW)
++			JTAG_DEBUG(&quot;SC7 =&gt; Data %08x&quot;, (unsigned) DataIn);
++
+ 		if (i &gt; 0)
+ 		{
+ 			if (actions[i - 1].address != AddressIn)
+@@ -835,15 +882,6 @@ int arm11_sc7_run(struct arm11_common * arm11, struct arm11_sc7_action * actions
+ 			}
+ 		}
+ 	}
+-
+-	for (size_t i = 0; i &lt; count; i++)
+-	{
+-		JTAG_DEBUG(&quot;SC7 %02d: %02x %s %08x&quot;,
+-			(unsigned) i, actions[i].address,
+-			actions[i].write ? &quot;&lt;=&quot; : &quot;=&gt;&quot;,
+-			(unsigned) actions[i].value);
+-	}
+-
+ 	return ERROR_OK;
+ }
+ 
+@@ -892,7 +930,6 @@ void arm11_sc7_set_vcr(struct arm11_common * arm11, uint32_t value)
+ 	set_vcr.address		= ARM11_SC7_VCR;
+ 	set_vcr.value		= value;
+ 
+-
+ 	arm11_sc7_run(arm11, &amp;set_vcr, 1);
+ }
+ 
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ NEWS                      |    2 +
+ src/target/arm11.c        |   26 ++++++-
+ src/target/arm11.h        |    3 +-
+ src/target/arm11_dbgtap.c |  181 ++++++++++++++++++++++++++++++++++++++-------
+ src/target/arm11_dbgtap.h |    1 +
+ 5 files changed, 181 insertions(+), 32 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001925.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-864-g87a0119
+</A></li>
+	<LI>Next message: <A HREF="001927.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-877-gaf1d759
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1926">[ date ]</a>
+              <a href="thread.html#1926">[ thread ]</a>
+              <a href="subject.html#1926">[ subject ]</a>
+              <a href="author.html#1926">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

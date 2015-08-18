@@ -1,0 +1,289 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2552 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2552%20-%20trunk/src/target&In-Reply-To=%3C200907212003.n6LK3HFV011509%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001334.html">
+   <LINK REL="Next"  HREF="001336.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2552 - trunk/src/target</H1>
+    <B>ntfreak at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2552%20-%20trunk/src/target&In-Reply-To=%3C200907212003.n6LK3HFV011509%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2552 - trunk/src/target">ntfreak at mail.berlios.de
+       </A><BR>
+    <I>Tue Jul 21 22:03:17 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001334.html">[Openocd-svn] r2551 - trunk/src/flash
+</A></li>
+        <LI>Next message: <A HREF="001336.html">[Openocd-svn] r2553 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1335">[ date ]</a>
+              <a href="thread.html#1335">[ thread ]</a>
+              <a href="subject.html#1335">[ subject ]</a>
+              <a href="author.html#1335">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: ntfreak
+Date: 2009-07-21 22:03:17 +0200 (Tue, 21 Jul 2009)
+New Revision: 2552
+
+Modified:
+   trunk/src/target/armv7m.c
+   trunk/src/target/armv7m.h
+   trunk/src/target/cortex_m3.c
+   trunk/src/target/cortex_m3.h
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Revert parts of the previous ARMv7-M register patch.
+It turns out that part of the issue is a documentation
+problem for the Cortex-M3 r1 parts. So for the rest,
+simpler fixes are possible (in followup patch).
+
+Modified: trunk/src/target/armv7m.c
+===================================================================
+--- trunk/src/target/armv7m.c	2009-07-20 07:03:11 UTC (rev 2551)
++++ trunk/src/target/armv7m.c	2009-07-21 20:03:17 UTC (rev 2552)
+@@ -60,8 +60,8 @@
+ 	&quot;r0&quot;, &quot;r1&quot;, &quot;r2&quot;, &quot;r3&quot;, &quot;r4&quot;, &quot;r5&quot;, &quot;r6&quot;, &quot;r7&quot;, &quot;r8&quot;, &quot;r9&quot;, &quot;r10&quot;, &quot;r11&quot;, &quot;r12&quot;,
+ 	&quot;sp&quot;, &quot;lr&quot;, &quot;pc&quot;,
+ 	&quot;xPSR&quot;, &quot;msp&quot;, &quot;psp&quot;,
+-	/* reg 20 has 4 bytes: CONTROL, FAULTMASK, BASEPRI, PRIMASK */
+-	&quot;spec20&quot;,
++	/* Registers accessed through special reg 20 */
++	&quot;primask&quot;, &quot;basepri&quot;, &quot;faultmask&quot;, &quot;control&quot;
+ };
+ 
+ uint8_t armv7m_gdb_dummy_fp_value[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+@@ -111,11 +111,11 @@
+ 	{17, ARMV7M_REGISTER_CORE_GP, ARMV7M_MODE_ANY, NULL, NULL}, /* MSP */
+ 	{18, ARMV7M_REGISTER_CORE_GP, ARMV7M_MODE_ANY, NULL, NULL}, /* PSP */
+ 
+-	/* FIXME the register numbers here are core-specific.
+-	 * Numbers 0..18 above work for all Cortex-M3 revisions.
+-	 * Number 20 below works for CM3 r2p0 and later.
+-	 */
+-	{20, ARMV7M_REGISTER_CORE_SP, ARMV7M_MODE_ANY, NULL, NULL},
++	/*  CORE_SP are accesible using coreregister 20 */
++	{19, ARMV7M_REGISTER_CORE_SP, ARMV7M_MODE_ANY, NULL, NULL}, /* PRIMASK */
++	{20, ARMV7M_REGISTER_CORE_SP, ARMV7M_MODE_ANY, NULL, NULL}, /* BASEPRI */
++	{21, ARMV7M_REGISTER_CORE_SP, ARMV7M_MODE_ANY, NULL, NULL}, /* FAULTMASK */
++	{22, ARMV7M_REGISTER_CORE_SP, ARMV7M_MODE_ANY, NULL, NULL}  /* CONTROL */
+ };
+ 
+ int armv7m_core_reg_arch_type = -1;
+@@ -387,21 +387,12 @@
+ 		armv7m_set_core_reg(reg, reg_params[i].value);
+ 	}
+ 
+-	/* NOTE:  CONTROL is bits 31:24 of SPEC20 register, if it's present;
+-	 * holding a two-bit field.
+-	 *
+-	 * FIXME need a solution using ARMV7M_T_MSR().  Use it at least for
+-	 * earlier cores.
+-	 */
+-	if (armv7m_algorithm_info-&gt;core_mode != ARMV7M_MODE_ANY
+-			&amp;&amp; armv7m-&gt;has_spec20)
++	if (armv7m_algorithm_info-&gt;core_mode != ARMV7M_MODE_ANY)
+ 	{
+ 		LOG_DEBUG(&quot;setting core_mode: 0x%2.2x&quot;, armv7m_algorithm_info-&gt;core_mode);
+-
+-		buf_set_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_SPEC20].value,
+-				24, 2, armv7m_algorithm_info-&gt;core_mode);
+-		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_SPEC20].dirty = 1;
+-		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_SPEC20].valid = 1;
++		buf_set_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_CONTROL].value, 0, 1, armv7m_algorithm_info-&gt;core_mode);
++		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_CONTROL].dirty = 1;
++		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_CONTROL].valid = 1;
+ 	}
+ 
+ 	/* ARMV7M always runs in Thumb state */
+
+Modified: trunk/src/target/armv7m.h
+===================================================================
+--- trunk/src/target/armv7m.h	2009-07-20 07:03:11 UTC (rev 2551)
++++ trunk/src/target/armv7m.h	2009-07-21 20:03:17 UTC (rev 2552)
+@@ -61,15 +61,10 @@
+ 	ARMV7M_xPSR = 16,
+ 	ARMV7M_MSP,
+ 	ARMV7M_PSP,
+-
+-	/* FIXME the register numbers here are core-specific.  Cortex-M3
+-	 * through r1p1 only defines registers up to PSP; see ARM DDI 0337E.
+-	 *
+-	 * It's r2p0 (see ARM DDI 0337G) which defines the register that's
+-	 * called SPEC20 here, with four single-byte fields with CONTROL
+-	 * (highest byte), FAULTMASK, BASEPRI, and PRIMASK (lowest byte).
+-	 */
+-	ARMV7M_SPEC20 = 20,
++	ARMV7M_PRIMASK,
++	ARMV7M_BASEPRI,
++	ARMV7M_FAULTMASK,
++	ARMV7M_CONTROL,
+ 	ARMV7NUMCOREREGS
+ };
+ 
+@@ -83,7 +78,6 @@
+ 	int exception_number;
+ 	swjdp_common_t swjdp_info;
+ 
+-	bool has_spec20;
+ 
+ 	/* Direct processor core register read and writes */
+ 	int (*load_core_reg_u32)(struct target_s *target, enum armv7m_regtype type, uint32_t num, uint32_t *value);
+
+Modified: trunk/src/target/cortex_m3.c
+===================================================================
+--- trunk/src/target/cortex_m3.c	2009-07-20 07:03:11 UTC (rev 2551)
++++ trunk/src/target/cortex_m3.c	2009-07-21 20:03:17 UTC (rev 2552)
+@@ -395,7 +395,7 @@
+ 
+ 	/* Examine target state and mode */
+ 	/* First load register acessible through core debug port*/
+-	for (i = 0; i &lt; ARMV7NUMCOREREGS; i++)
++	for (i = 0; i &lt; ARMV7M_PRIMASK; i++)
+ 	{
+ 		if (!armv7m-&gt;core_cache-&gt;reg_list[i].valid)
+ 			armv7m-&gt;read_core_reg(target, i);
+@@ -418,19 +418,22 @@
+ 		cortex_m3_store_core_reg_u32(target, ARMV7M_REGISTER_CORE_GP, 16, xPSR &amp;~ 0xff);
+ 	}
+ 
++	/* Now we can load SP core registers */
++	for (i = ARMV7M_PRIMASK; i &lt; ARMV7NUMCOREREGS; i++)
++	{
++		if (!armv7m-&gt;core_cache-&gt;reg_list[i].valid)
++			armv7m-&gt;read_core_reg(target, i);
++	}
++
+ 	/* Are we in an exception handler */
+ 	if (xPSR &amp; 0x1FF)
+ 	{
+ 		armv7m-&gt;core_mode = ARMV7M_MODE_HANDLER;
+ 		armv7m-&gt;exception_number = (xPSR &amp; 0x1FF);
+ 	}
+-	else if (armv7m-&gt;has_spec20)
++	else
+ 	{
+-		/* NOTE:  CONTROL is bits 31:24 of SPEC20 register, holding
+-		 * a two-bit field.  Unavailable before r2p0...
+-		 */
+-		armv7m-&gt;core_mode = buf_get_u32(
+-			armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_SPEC20].value, 24, 2);
++		armv7m-&gt;core_mode = buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_CONTROL].value, 0, 1);
+ 		armv7m-&gt;exception_number = 0;
+ 	}
+ 
+@@ -633,26 +636,16 @@
+ 	if (debug_execution)
+ 	{
+ 		/* Disable interrupts */
+-		/* We disable interrupts in the PRIMASK register instead
+-		 * of masking with C_MASKINTS,
++		/* We disable interrupts in the PRIMASK register instead of masking with C_MASKINTS,
+ 		 * This is probably the same issue as Cortex-M3 Errata	377493:
+-		 * C_MASKINTS in parallel with disabled interrupts can cause
+-		 * local faults to not be taken.  (FIXED in r1p0 and later.)
+-		 *
+-		 * NOTE:  PRIMASK is bits 7:0 of SPEC20 register, holding a
+-		 * one bit field.  Available this way for r2p0 and later...
+-		 */
+-		if (armv7m-&gt;has_spec20) {
+-			buf_set_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_SPEC20]
+-					.value, 0, 1, 1);
+-			armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_SPEC20].dirty = 1;
+-			armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_SPEC20].valid = 1;
+-		}
++		 * C_MASKINTS in parallel with disabled interrupts can cause local faults to not be taken. */
++		buf_set_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_PRIMASK].value, 0, 32, 1);
++		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_PRIMASK].dirty = 1;
++		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_PRIMASK].valid = 1;
+ 
+ 		/* Make sure we are in Thumb mode */
+ 		buf_set_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].value, 0, 32,
+-			buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].value, 0, 32)
+-			| (1 &lt;&lt; 24));
++			buf_get_u32(armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].value, 0, 32) | (1 &lt;&lt; 24));
+ 		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].dirty = 1;
+ 		armv7m-&gt;core_cache-&gt;reg_list[ARMV7M_xPSR].valid = 1;
+ 	}
+@@ -1474,14 +1467,8 @@
+ 		if ((retval = target_read_u32(target, CPUID, &amp;cpuid)) != ERROR_OK)
+ 			return retval;
+ 
+-		if (((cpuid &gt;&gt; 4) &amp; 0xc3f) == 0xc23) {
++		if (((cpuid &gt;&gt; 4) &amp; 0xc3f) == 0xc23)
+ 			LOG_DEBUG(&quot;CORTEX-M3 processor detected&quot;);
+-			if (((cpuid &gt;&gt; 20) &amp; 0xf) &gt;= 2) {
+-				armv7m-&gt;has_spec20 = true;
+-				LOG_DEBUG(&quot;r2p0 or later detected&quot;);
+-			}
+-		} else
+-			LOG_WARNING(&quot;not a CORTEX-M3 processor?&quot;);
+ 		LOG_DEBUG(&quot;cpuid: 0x%8.8&quot; PRIx32 &quot;&quot;, cpuid);
+ 
+ 		target_read_u32(target, NVIC_ICTR, &amp;ictr);
+
+Modified: trunk/src/target/cortex_m3.h
+===================================================================
+--- trunk/src/target/cortex_m3.h	2009-07-20 07:03:11 UTC (rev 2551)
++++ trunk/src/target/cortex_m3.h	2009-07-21 20:03:17 UTC (rev 2552)
+@@ -117,21 +117,6 @@
+ #define FPCR_REPLACE_BKPT_HIGH  (2 &lt;&lt; 30)
+ #define FPCR_REPLACE_BKPT_BOTH  (3 &lt;&lt; 30)
+ 
+-/* Use MRS/MSR to read/write any of these special registers.  Some of
+- * them (xPSR, MSP, PSP) are always available using DCRxR.  Starting in
+- * Cortex-M3 r2p0, some (CONTROL, BASEPRI, and *MASK) are also available
+- * through DCRxR.
+- * NOTE: this listing omits xPSR components and other mixtures.
+- */
+-#define SR_XPSR		3
+-#define SR_MSP		8
+-#define SR_PSP		9
+-#define SR_PRIMASK	16
+-#define SR_BASEPRI	17
+-#define SR_BASEPRI_MAX	18
+-#define SR_FAULTMASK	19
+-#define SR_CONTROL	20
+-
+ typedef struct  cortex_m3_fp_comparator_s
+ {
+ 	int used;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001334.html">[Openocd-svn] r2551 - trunk/src/flash
+</A></li>
+	<LI>Next message: <A HREF="001336.html">[Openocd-svn] r2553 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1335">[ date ]</a>
+              <a href="thread.html#1335">[ thread ]</a>
+              <a href="subject.html#1335">[ subject ]</a>
+              <a href="author.html#1335">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

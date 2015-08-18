@@ -1,0 +1,136 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2138 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2138%20-%20trunk/src/jtag&In-Reply-To=%3C200906090116.n591Gepm005843%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000921.html">
+   <LINK REL="Next"  HREF="000923.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2138 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2138%20-%20trunk/src/jtag&In-Reply-To=%3C200906090116.n591Gepm005843%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2138 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun  9 03:16:40 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000921.html">[Openocd-svn] r2137 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000923.html">[Openocd-svn] r2139 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#922">[ date ]</a>
+              <a href="thread.html#922">[ thread ]</a>
+              <a href="subject.html#922">[ subject ]</a>
+              <a href="author.html#922">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-09 03:16:35 +0200 (Tue, 09 Jun 2009)
+New Revision: 2138
+
+Modified:
+   trunk/src/jtag/jtag.c
+   trunk/src/jtag/jtag.h
+Log:
+Change jtag_add_pathmove to set jtag_error rather than call exit():
+- Add new error codes to encode the possible failure conditions.
+- Add documentation to describe the routine's possible error codes.
+
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-09 01:16:19 UTC (rev 2137)
++++ trunk/src/jtag/jtag.c	2009-06-09 01:16:35 UTC (rev 2138)
+@@ -613,7 +613,8 @@
+ 	if (!tap_is_state_stable(path[num_states - 1]))
+ 	{
+ 		LOG_ERROR(&quot;BUG: TAP path doesn't finish in a stable state&quot;);
+-		exit(-1);
++		jtag_set_error(ERROR_JTAG_NOT_STABLE_STATE);
++		return;
+ 	}
+ 
+ 	for (int i = 0; i &lt; num_states; i++)
+@@ -621,7 +622,8 @@
+ 		if (path[i] == TAP_RESET)
+ 		{
+ 			LOG_ERROR(&quot;BUG: TAP_RESET is not a valid state for pathmove sequences&quot;);
+-			exit(-1);
++			jtag_set_error(ERROR_JTAG_STATE_INVALID);
++			return;
+ 		}
+ 
+ 		if ( tap_state_transition(cur_state, true)  != path[i]
+@@ -629,7 +631,8 @@
+ 		{
+ 			LOG_ERROR(&quot;BUG: %s -&gt; %s isn't a valid TAP transition&quot;,
+ 					tap_state_name(cur_state), tap_state_name(path[i]));
+-			exit(-1);
++			jtag_set_error(ERROR_JTAG_TRANSITION_INVALID);
++			return;
+ 		}
+ 		cur_state = path[i];
+ 	}
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-06-09 01:16:19 UTC (rev 2137)
++++ trunk/src/jtag/jtag.h	2009-06-09 01:16:35 UTC (rev 2138)
+@@ -447,6 +447,12 @@
+  * can only implement a few transitions and therefore
+  * a partial implementation of pathmove would have little practical
+  * application.
++ *
++ * If an error occurs, jtag_error will contain one of these error codes:
++ *   - ERROR_JTAG_NOT_STABLE_STATE -- The final state was not stable.
++ *   - ERROR_JTAG_STATE_INVALID -- The path passed through TAP_RESET.
++ *   - ERROR_JTAG_TRANSITION_INVALID -- The path includes invalid
++ *     state transitions.
+  */
+ extern void jtag_add_pathmove(int num_states, const tap_state_t* path);
+ 
+@@ -606,6 +612,8 @@
+ #define ERROR_JTAG_QUEUE_FAILED      (-104)
+ #define ERROR_JTAG_NOT_STABLE_STATE  (-105)
+ #define ERROR_JTAG_DEVICE_ERROR      (-107)
++#define ERROR_JTAG_STATE_INVALID     (-108)
++#define ERROR_JTAG_TRANSITION_INVALID (-109)
+ 
+ /**
+  * jtag_add_dr_out() is a version of jtag_add_dr_scan() which
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000921.html">[Openocd-svn] r2137 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000923.html">[Openocd-svn] r2139 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#922">[ date ]</a>
+              <a href="thread.html#922">[ thread ]</a>
+              <a href="subject.html#922">[ subject ]</a>
+              <a href="author.html#922">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

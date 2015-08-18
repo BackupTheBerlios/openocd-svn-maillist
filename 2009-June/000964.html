@@ -1,0 +1,140 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2180 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2180%20-%20trunk/src/jtag&In-Reply-To=%3C200906100719.n5A7JGKk021699%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000963.html">
+   <LINK REL="Next"  HREF="000965.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2180 - trunk/src/jtag</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2180%20-%20trunk/src/jtag&In-Reply-To=%3C200906100719.n5A7JGKk021699%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2180 - trunk/src/jtag">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Wed Jun 10 09:19:16 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000963.html">[Openocd-svn] r2179 - trunk/tcl/board
+</A></li>
+        <LI>Next message: <A HREF="000965.html">[Openocd-svn] r2181 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#964">[ date ]</a>
+              <a href="thread.html#964">[ thread ]</a>
+              <a href="subject.html#964">[ subject ]</a>
+              <a href="author.html#964">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-06-10 09:19:14 +0200 (Wed, 10 Jun 2009)
+New Revision: 2180
+
+Modified:
+   trunk/src/jtag/tcl.c
+Log:
+added pathmove command
+
+Modified: trunk/src/jtag/tcl.c
+===================================================================
+--- trunk/src/jtag/tcl.c	2009-06-10 04:08:32 UTC (rev 2179)
++++ trunk/src/jtag/tcl.c	2009-06-10 07:19:14 UTC (rev 2180)
+@@ -189,6 +189,7 @@
+ static int handle_runtest_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int handle_irscan_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+ static int Jim_Command_drscan(Jim_Interp *interp, int argc, Jim_Obj *const *argv);
++static int Jim_Command_pathmove(Jim_Interp *interp, int argc, Jim_Obj *const *argv);
+ static int Jim_Command_flush_count(Jim_Interp *interp, int argc, Jim_Obj *const *args);
+ 
+ static int handle_verify_ircapture_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc);
+@@ -658,6 +659,7 @@
+ 		COMMAND_EXEC, &quot;execute IR scan &lt;device&gt; &lt;instr&gt; [dev2] [instr2] ...&quot;);
+ 	register_jim(cmd_ctx, &quot;drscan&quot;, Jim_Command_drscan, &quot;execute DR scan &lt;device&gt; &lt;num_bits&gt; &lt;value&gt; &lt;num_bits1&gt; &lt;value2&gt; ...&quot;);
+ 	register_jim(cmd_ctx, &quot;flush_count&quot;, Jim_Command_flush_count, &quot;returns number of times the JTAG queue has been flushed&quot;);
++	register_jim(cmd_ctx, &quot;pathmove&quot;, Jim_Command_pathmove, &quot;move JTAG to state1 then to state2, state3, etc. &lt;state1&gt;,&lt;state2&gt;,&lt;stat3&gt;...&quot;);
+ 
+ 	register_command(cmd_ctx, NULL, &quot;verify_ircapture&quot;, handle_verify_ircapture_command,
+ 		COMMAND_ANY, &quot;verify value captured during Capture-IR &lt;enable|disable&gt;&quot;);
+@@ -1308,6 +1310,48 @@
+ }
+ 
+ 
++static int Jim_Command_pathmove(Jim_Interp *interp, int argc, Jim_Obj *const *args)
++{
++	tap_state_t states[8];
++
++	if ((argc &lt; 2) || ((size_t)argc &gt; (sizeof(states)/sizeof(*states)+1)))
++	{
++		Jim_WrongNumArgs(interp, 1, args, &quot;wrong arguments&quot;);
++		return JIM_ERR;
++	}
++
++	int i;
++	for (i=0; i&lt;argc-1; i++)
++	{
++		const char *cp;
++		cp = Jim_GetString( args[i+1], NULL );
++		states[i] = tap_state_by_name(cp);
++		if( states[i] &lt; 0 )
++		{
++			/* update the error message */
++			Jim_SetResult_sprintf(interp,&quot;endstate: %s invalid&quot;, cp );
++			return JIM_ERR;
++		}
++	}
++
++	if ((jtag_add_statemove(states[0]) != ERROR_OK) || ( jtag_execute_queue()!= ERROR_OK))
++	{
++		Jim_SetResultString(interp, &quot;pathmove: jtag execute failed&quot;,-1);
++		return JIM_ERR;
++	}
++
++	jtag_add_pathmove(argc-2, states+1);
++
++	if (jtag_execute_queue()!= ERROR_OK)
++	{
++		Jim_SetResultString(interp, &quot;pathmove: failed&quot;,-1);
++		return JIM_ERR;
++	}
++
++	return JIM_OK;
++}
++
++
+ static int Jim_Command_flush_count(Jim_Interp *interp, int argc, Jim_Obj *const *args)
+ {
+ 	Jim_SetResult(interp, Jim_NewIntObj(interp, jtag_get_flush_queue_count()));
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000963.html">[Openocd-svn] r2179 - trunk/tcl/board
+</A></li>
+	<LI>Next message: <A HREF="000965.html">[Openocd-svn] r2181 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#964">[ date ]</a>
+              <a href="thread.html#964">[ thread ]</a>
+              <a href="subject.html#964">[ subject ]</a>
+              <a href="author.html#964">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

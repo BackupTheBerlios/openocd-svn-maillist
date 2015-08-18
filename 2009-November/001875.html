@@ -1,0 +1,220 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-676-g77aa7ca
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-676-g77aa7ca&In-Reply-To=%3CE1NE9eL-0003CS-Aw%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001874.html">
+   <LINK REL="Next"  HREF="001876.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-676-g77aa7ca</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-676-g77aa7ca&In-Reply-To=%3CE1NE9eL-0003CS-Aw%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-676-g77aa7ca">zwelch at users.sourceforge.net
+       </A><BR>
+    <I>Fri Nov 27 23:50:46 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001874.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-675-ga0d983a
+</A></li>
+        <LI>Next message: <A HREF="001876.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-681-g5782999
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1875">[ date ]</a>
+              <a href="thread.html#1875">[ thread ]</a>
+              <a href="subject.html#1875">[ subject ]</a>
+              <a href="author.html#1875">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  77aa7ca8d65ac5dc7b46ad9ef79e3f6aed9b4d0e (commit)
+      from  a0d983ab0616581559634c7217a8eecf61f4d65b (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 77aa7ca8d65ac5dc7b46ad9ef79e3f6aed9b4d0e
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Fri Nov 27 13:51:17 2009 -0800
+
+    fix regression causing duplicated output
+    
+    The command refactoring caused subcommand handlers to produce duplicate
+    output when run.  The problem was introduced by failing to ensure all
+    such invocations went through a top-level &quot;catcher&quot; script, prefixing
+    the command name with the 'ocd_' prefix and consuming its results.
+    
+    The fix is to ensure such a top-level &quot;catcher&quot; script gets created
+    for each top-level command, regardless of whether it has a handler.
+    Indeed, this patch removes all command registrations for sub-commands,
+    which would not have worked in the new registration scheme anyway.
+    
+    For now, dispatch of subcommands continues to be handled by the new
+    'unknown' command handler, which gets fixed here to strip the 'ocd_'
+    prefix if searching for the top-level command name fails initially.
+    Some Jim commands may be registered with this prefix, and that situation
+    seems to require the current fallback approach.  Otherwise, that prefix
+    could be stripped unconditionally and the logic made a little simpler.
+    The same problem must be handled by the 'help' command handler too,
+    so its lookup process works as intended.
+    
+    Overall, the command dispatching remains more complicated than desired,
+    but this patch fixes the immediate regressions.
+
+diff --git a/src/helper/command.c b/src/helper/command.c
+index 62fb487..65421f5 100644
+--- a/src/helper/command.c
++++ b/src/helper/command.c
+@@ -44,6 +44,9 @@
+ #include &quot;jim-eventloop.h&quot;
+ 
+ 
++/* nice short description of source file */
++#define __THIS__FILE__ &quot;command.c&quot;
++
+ Jim_Interp *interp = NULL;
+ 
+ static int run_command(struct command_context *context,
+@@ -185,8 +188,12 @@ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 	return script_command_run(interp, argc, argv, c, true);
+ }
+ 
+-/* nice short description of source file */
+-#define __THIS__FILE__ &quot;command.c&quot;
++static struct command *command_root(struct command *c)
++{
++	while (NULL != c-&gt;parent)
++		c = c-&gt;parent;
++	return c;
++}
+ 
+ /**
+  * Find a command by name from a list of commands.
+@@ -296,19 +303,22 @@ static int register_command_handler(struct command *c)
+ 	if (NULL == full_name)
+ 		return retval;
+ 
+-	const char *ocd_name = alloc_printf(&quot;ocd_%s&quot;, full_name);
+-	if (NULL == full_name)
+-		goto free_full_name;
++	if (NULL != c-&gt;handler)
++	{
++		const char *ocd_name = alloc_printf(&quot;ocd_%s&quot;, full_name);
++		if (NULL == full_name)
++			goto free_full_name;
+ 
+-	Jim_CreateCommand(interp, ocd_name, script_command, c, NULL);
+-	free((void *)ocd_name);
++		Jim_CreateCommand(interp, ocd_name, script_command, c, NULL);
++		free((void *)ocd_name);
++	}
+ 
+ 	/* we now need to add an overrideable proc */
+ 	const char *override_name = alloc_printf(&quot;proc %s {args} {&quot;
+ 			&quot;if {[catch {eval ocd_%s $args}] == 0} &quot;
+ 			&quot;{return \&quot;\&quot;} else {return -code error}}&quot;,
+ 			full_name, full_name);
+-	if (NULL == full_name)
++	if (NULL == override_name)
+ 		goto free_full_name;
+ 
+ 	Jim_Eval_Named(interp, override_name, __THIS__FILE__, __LINE__);
+@@ -343,7 +353,7 @@ struct command* register_command(struct command_context *context,
+ 
+ 	if (NULL != c-&gt;handler)
+ 	{
+-		int retval = register_command_handler(c);
++		int retval = register_command_handler(command_root(c));
+ 		if (ERROR_OK != retval)
+ 		{
+ 			unregister_command(context, parent, name);
+@@ -792,6 +802,8 @@ static COMMAND_HELPER(command_help_find, struct command *head,
+ 	if (0 == CMD_ARGC)
+ 		return ERROR_INVALID_ARGUMENTS;
+ 	*out = command_find(head, CMD_ARGV[0]);
++	if (NULL == *out &amp;&amp; strncmp(CMD_ARGV[0], &quot;ocd_&quot;, 4) == 0)
++		*out = command_find(head, CMD_ARGV[0] + 4);
+ 	if (NULL == *out)
+ 		return ERROR_INVALID_ARGUMENTS;
+ 	if (--CMD_ARGC == 0)
+@@ -875,15 +887,18 @@ COMMAND_HANDLER(handle_help_command)
+ }
+ 
+ static int command_unknown_find(unsigned argc, Jim_Obj *const *argv,
+-		struct command *head, struct command **out)
++		struct command *head, struct command **out, bool top_level)
+ {
+ 	if (0 == argc)
+ 		return argc;
+-	struct command *c = command_find(head, Jim_GetString(argv[0], NULL));
++	const char *cmd_name = Jim_GetString(argv[0], NULL);
++	struct command *c = command_find(head, cmd_name);
++	if (NULL == c &amp;&amp; top_level &amp;&amp; strncmp(cmd_name, &quot;ocd_&quot;, 4) == 0)
++		c = command_find(head, cmd_name + 4);
+ 	if (NULL == c)
+ 		return argc;
+ 	*out = c;
+-	return command_unknown_find(--argc, ++argv, (*out)-&gt;children, out);
++	return command_unknown_find(--argc, ++argv, (*out)-&gt;children, out, false);
+ }
+ 
+ static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+@@ -893,7 +908,7 @@ static int command_unknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ 
+ 	struct command_context *cmd_ctx = current_command_context();
+ 	struct command *c = cmd_ctx-&gt;commands;
+-	int remaining = command_unknown_find(argc - 1, argv + 1, c, &amp;c);
++	int remaining = command_unknown_find(argc - 1, argv + 1, c, &amp;c, true);
+ 	// if nothing could be consumed, then it's really an unknown command
+ 	if (remaining == argc - 1)
+ 	{
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/helper/command.c |   41 ++++++++++++++++++++++++++++-------------
+ 1 files changed, 28 insertions(+), 13 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001874.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-675-ga0d983a
+</A></li>
+	<LI>Next message: <A HREF="001876.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-681-g5782999
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1875">[ date ]</a>
+              <a href="thread.html#1875">[ thread ]</a>
+              <a href="subject.html#1875">[ subject ]</a>
+              <a href="author.html#1875">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

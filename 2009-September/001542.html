@@ -1,0 +1,224 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2759 - in trunk/src: helper jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2759%20-%20in%20trunk/src%3A%20helper%20jtag&In-Reply-To=%3C200909261918.n8QJIgau032166%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001541.html">
+   <LINK REL="Next"  HREF="001543.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2759 - in trunk/src: helper jtag</H1>
+    <B>dbrownell at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2759%20-%20in%20trunk/src%3A%20helper%20jtag&In-Reply-To=%3C200909261918.n8QJIgau032166%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2759 - in trunk/src: helper jtag">dbrownell at mail.berlios.de
+       </A><BR>
+    <I>Sat Sep 26 21:18:42 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001541.html">[Openocd-svn] r2758 - in trunk: doc src/jtag
+</A></li>
+        <LI>Next message: <A HREF="001543.html">[Openocd-svn] r2760 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1542">[ date ]</a>
+              <a href="thread.html#1542">[ thread ]</a>
+              <a href="subject.html#1542">[ subject ]</a>
+              <a href="author.html#1542">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: dbrownell
+Date: 2009-09-26 21:18:42 +0200 (Sat, 26 Sep 2009)
+New Revision: 2759
+
+Modified:
+   trunk/src/helper/binarybuffer.h
+   trunk/src/jtag/core.c
+Log:
+Updates to the initial scanchain validation code:
+  - minor bug fixes
+  - code cleanup
+  - update comments
+  - improve diagnostics
+  - etc
+
+
+Modified: trunk/src/helper/binarybuffer.h
+===================================================================
+--- trunk/src/helper/binarybuffer.h	2009-09-26 19:08:34 UTC (rev 2758)
++++ trunk/src/helper/binarybuffer.h	2009-09-26 19:18:42 UTC (rev 2759)
+@@ -86,7 +86,7 @@
+ struct scan_field_s;
+ extern int buf_to_u32_handler(uint8_t *in_buf, void *priv, struct scan_field_s *field);
+ 
+-#define CEIL(m, n)	((m + n - 1) / n)
++#define CEIL(m, n)	(((m) + (n) - 1) / (n))
+ 
+ /* read a uint32_t from a buffer in target memory endianness */
+ static inline uint32_t fast_target_buffer_get_u32(const uint8_t *buffer, int little)
+
+Modified: trunk/src/jtag/core.c
+===================================================================
+--- trunk/src/jtag/core.c	2009-09-26 19:08:34 UTC (rev 2758)
++++ trunk/src/jtag/core.c	2009-09-26 19:18:42 UTC (rev 2759)
+@@ -847,6 +847,9 @@
+ #define EXTRACT_PART(X) (((X) &amp; 0xffff000) &gt;&gt; 12)
+ #define EXTRACT_VER(X)  (((X) &amp; 0xf0000000) &gt;&gt; 28)
+ 
++/* A reserved manufacturer ID is used in END_OF_CHAIN_FLAG, so we
++ * know that no valid TAP will have it as an IDCODE value.
++ */
+ #define END_OF_CHAIN_FLAG	0x000000ff
+ 
+ static int jtag_examine_chain_execute(uint8_t *idcode_buffer, unsigned num_idcode)
+@@ -964,6 +967,7 @@
+ }
+ 
+ /* Try to examine chain layout according to IEEE 1149.1 &#167;12
++ * This is called a &quot;blind interrogation&quot; of the scan chain.
+  */
+ static int jtag_examine_chain(void)
+ {
+@@ -1037,7 +1041,12 @@
+ 	return ERROR_OK;
+ }
+ 
+-int jtag_validate_chain(void)
++/*
++ * Validate the date loaded by entry to the Capture-IR state, to help
++ * find errors related to scan chain configuration (wrong IR lengths)
++ * or communication.
++ */
++static int jtag_validate_ircapture(void)
+ {
+ 	jtag_tap_t *tap;
+ 	int total_ir_length = 0;
+@@ -1056,7 +1065,11 @@
+ 	}
+ 
+ 	total_ir_length += 2;
++
+ 	ir_test = malloc(CEIL(total_ir_length, 8));
++	if (ir_test == NULL)
++		return ERROR_FAIL;
++
+ 	buf_set_ones(ir_test, total_ir_length);
+ 
+ 	field.tap = NULL;
+@@ -1082,24 +1095,37 @@
+ 			break;
+ 		}
+ 
++		/* Validate the two LSBs, which must be 01 per JTAG spec.
++		 * REVISIT we might be able to verify some MSBs too, using
++		 * ircapture/irmask attributes.
++		 */
+ 		val = buf_get_u32(ir_test, chain_pos, 2);
+-		/* Only fail this check if we have IDCODE for this device */
+-		if ((val != 0x1)&amp;&amp;(tap-&gt;hasidcode))
+-		{
++		if (val != 1) {
+ 			char *cbuf = buf_to_str(ir_test, total_ir_length, 16);
+-			LOG_ERROR(&quot;Could not validate JTAG scan chain, IR mismatch, scan returned 0x%s. tap=%s pos=%d expected 0x1 got %0x&quot;, cbuf, jtag_tap_name(tap), chain_pos, val);
+-			free(cbuf);
+-			free(ir_test);
+-			return ERROR_JTAG_INIT_FAILED;
++
++			LOG_ERROR(&quot;%s: IR capture error; saw 0x%s not 0x..1&quot;,
++					jtag_tap_name(tap), cbuf);
++
++			/* Fail only if we have IDCODE for this device.
++			 * REVISIT -- why not fail-always?
++			 */
++			if (tap-&gt;hasidcode) {
++				free(cbuf);
++				free(ir_test);
++				return ERROR_JTAG_INIT_FAILED;
++			}
+ 		}
+ 		chain_pos += tap-&gt;ir_length;
+ 	}
+ 
++	/* verify the '11' sentinel we wrote is returned at the end */
+ 	val = buf_get_u32(ir_test, chain_pos, 2);
+ 	if (val != 0x3)
+ 	{
+ 		char *cbuf = buf_to_str(ir_test, total_ir_length, 16);
+-		LOG_ERROR(&quot;Could not validate end of JTAG scan chain, IR mismatch, scan returned 0x%s. pos=%d expected 0x3 got %0x&quot;, cbuf, chain_pos, val);
++
++		LOG_ERROR(&quot;IR capture error at bit %d, saw 0x%s not 0x...3&quot;,
++				chain_pos, cbuf);
+ 		free(cbuf);
+ 		free(ir_test);
+ 		return ERROR_JTAG_INIT_FAILED;
+@@ -1115,6 +1141,7 @@
+ {
+ 	assert(0 != tap-&gt;ir_length);
+ 
++	/// @todo fix, this allocates one byte per bit for all three fields!
+ 	tap-&gt;expected = malloc(tap-&gt;ir_length);
+ 	tap-&gt;expected_mask = malloc(tap-&gt;ir_length);
+ 	tap-&gt;cur_instr = malloc(tap-&gt;ir_length);
+@@ -1132,7 +1159,8 @@
+ 	LOG_DEBUG(&quot;Created Tap: %s @ abs position %d, &quot;
+ 			&quot;irlen %d, capture: 0x%x mask: 0x%x&quot;, tap-&gt;dotted_name,
+ 				tap-&gt;abs_chain_position, tap-&gt;ir_length,
+-			  (unsigned int)(tap-&gt;ir_capture_value), (unsigned int)(tap-&gt;ir_capture_mask));
++				(unsigned) tap-&gt;ir_capture_value,
++				(unsigned) tap-&gt;ir_capture_mask);
+ 	jtag_tap_add(tap);
+ }
+ 
+@@ -1141,6 +1169,7 @@
+ 	jtag_unregister_event_callback(&amp;jtag_reset_callback, tap);
+ 
+ 	/// @todo is anything missing? no memory leaks please
++	free((void *)tap-&gt;expected);
+ 	free((void *)tap-&gt;expected_ids);
+ 	free((void *)tap-&gt;chip);
+ 	free((void *)tap-&gt;tapname);
+@@ -1212,9 +1241,9 @@
+ 		LOG_ERROR(&quot;trying to validate configured JTAG chain anyway...&quot;);
+ 	}
+ 
+-	if (jtag_validate_chain() != ERROR_OK)
++	if (jtag_validate_ircapture() != ERROR_OK)
+ 	{
+-		LOG_WARNING(&quot;Could not validate JTAG chain, continuing anyway...&quot;);
++		LOG_WARNING(&quot;Errors during IR capture, continuing anyway...&quot;);
+ 	}
+ 
+ 	return ERROR_OK;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001541.html">[Openocd-svn] r2758 - in trunk: doc src/jtag
+</A></li>
+	<LI>Next message: <A HREF="001543.html">[Openocd-svn] r2760 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1542">[ date ]</a>
+              <a href="thread.html#1542">[ thread ]</a>
+              <a href="subject.html#1542">[ subject ]</a>
+              <a href="author.html#1542">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

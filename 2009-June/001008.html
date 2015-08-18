@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2224 - in trunk/src: helper jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2224%20-%20in%20trunk/src%3A%20helper%20jtag&In-Reply-To=%3C200906122206.n5CM67Qq018053%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001007.html">
+   <LINK REL="Next"  HREF="001009.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2224 - in trunk/src: helper jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2224%20-%20in%20trunk/src%3A%20helper%20jtag&In-Reply-To=%3C200906122206.n5CM67Qq018053%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2224 - in trunk/src: helper jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Sat Jun 13 00:06:07 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001007.html">[Openocd-svn] r2223 - trunk/doc
+</A></li>
+        <LI>Next message: <A HREF="001009.html">[Openocd-svn] r2225 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1008">[ date ]</a>
+              <a href="thread.html#1008">[ thread ]</a>
+              <a href="subject.html#1008">[ subject ]</a>
+              <a href="author.html#1008">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-13 00:06:02 +0200 (Sat, 13 Jun 2009)
+New Revision: 2224
+
+Modified:
+   trunk/src/helper/command.c
+   trunk/src/helper/command.h
+   trunk/src/jtag/tcl.c
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Currently the &quot;debug_level 3&quot; command tracing ignores commands
+that could return values to TCL scripts (by plugging in to a
+slightly lower level of the interpreter stack).
+
+Fix that by abstracting the tracing command and starting to
+make some of those previously-untraced commands use this new
+mechanism.
+
+
+Modified: trunk/src/helper/command.c
+===================================================================
+--- trunk/src/helper/command.c	2009-06-12 21:53:17 UTC (rev 2223)
++++ trunk/src/helper/command.c	2009-06-12 22:06:02 UTC (rev 2224)
+@@ -61,6 +61,23 @@
+ 
+ extern command_context_t *global_cmd_ctx;
+ 
++void script_debug(Jim_Interp *interp, const char *name, int argc, Jim_Obj *const *argv)
++{
++	int i;
++
++	LOG_DEBUG(&quot;command - %s&quot;, name);
++	for (i = 0; i &lt; argc; i++) {
++		int len;
++		const char *w = Jim_GetString(argv[i], &amp;len);
++
++		/* end of line comment? */
++		if (*w == '#')
++			break;
++
++		LOG_DEBUG(&quot;%s - argv[%d]=%s&quot;, name, i, w);
++	}
++}
++
+ static int script_command(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+ 	/* the private data is stashed in the interp structure */
+@@ -85,7 +102,7 @@
+ 	target_call_timer_callbacks_now();
+ 	LOG_USER_N(&quot;%s&quot;, &quot;&quot;); /* Keep GDB connection alive*/
+ 
+-	LOG_DEBUG(&quot;script_command - %s&quot;, c-&gt;name);
++	script_debug(interp, c-&gt;name, argc, argv);
+ 
+ 	words = malloc(sizeof(char *) * argc);
+ 	for (i = 0; i &lt; argc; i++)
+@@ -102,7 +119,6 @@
+ 		{
+ 			return JIM_ERR;
+ 		}
+-		LOG_DEBUG(&quot;script_command - %s, argv[%u]=%s&quot;, c-&gt;name, i, words[i]);
+ 	}
+ 	nwords = i;
+ 
+
+Modified: trunk/src/helper/command.h
+===================================================================
+--- trunk/src/helper/command.h	2009-06-12 21:53:17 UTC (rev 2223)
++++ trunk/src/helper/command.h	2009-06-12 22:06:02 UTC (rev 2224)
+@@ -123,4 +123,6 @@
+ DEFINE_PARSE_ULONG(u16, uint16_t, UINT16_MAX)
+ DEFINE_PARSE_ULONG(u8, uint8_t, UINT8_MAX)
+ 
++void script_debug(Jim_Interp *interp, const char *cmd, int argc, Jim_Obj *const *argv);
++
+ #endif /* COMMAND_H */
+
+Modified: trunk/src/jtag/tcl.c
+===================================================================
+--- trunk/src/jtag/tcl.c	2009-06-12 21:53:17 UTC (rev 2223)
++++ trunk/src/jtag/tcl.c	2009-06-12 22:06:02 UTC (rev 2224)
+@@ -1248,6 +1248,8 @@
+ 
+ 	endstate = TAP_IDLE;
+ 
++	script_debug(interp, &quot;drscan&quot;, argc, args);
++
+ 	/* validate arguments as numbers */
+ 	e = JIM_OK;
+ 	for (i = 2; i &lt; argc; i+=2)
+@@ -1369,6 +1371,8 @@
+ 		return JIM_ERR;
+ 	}
+ 
++	script_debug(interp, &quot;pathmove&quot;, argc, args);
++
+ 	int i;
+ 	for (i=0; i&lt;argc-1; i++)
+ 	{
+@@ -1403,6 +1407,8 @@
+ 
+ static int Jim_Command_flush_count(Jim_Interp *interp, int argc, Jim_Obj *const *args)
+ {
++	script_debug(interp, &quot;flush_count&quot;, argc, args);
++
+ 	Jim_SetResult(interp, Jim_NewIntObj(interp, jtag_get_flush_queue_count()));
+ 
+ 	return JIM_OK;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001007.html">[Openocd-svn] r2223 - trunk/doc
+</A></li>
+	<LI>Next message: <A HREF="001009.html">[Openocd-svn] r2225 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1008">[ date ]</a>
+              <a href="thread.html#1008">[ thread ]</a>
+              <a href="subject.html#1008">[ subject ]</a>
+              <a href="author.html#1008">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

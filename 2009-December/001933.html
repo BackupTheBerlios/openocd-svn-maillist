@@ -1,0 +1,200 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-888-g30a6e68
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-888-g30a6e68&In-Reply-To=%3CE1NHWKG-00015J-GC%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001932.html">
+   <LINK REL="Next"  HREF="001934.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-888-g30a6e68</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-888-g30a6e68&In-Reply-To=%3CE1NHWKG-00015J-GC%40sfp-scmshell-3.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-888-g30a6e68">zwelch at users.sourceforge.net
+       </A><BR>
+    <I>Mon Dec  7 06:39:55 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001932.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-887-g2bc4dee
+</A></li>
+        <LI>Next message: <A HREF="001934.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-900-g81aec6b
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1933">[ date ]</a>
+              <a href="thread.html#1933">[ thread ]</a>
+              <a href="subject.html#1933">[ subject ]</a>
+              <a href="author.html#1933">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  30a6e683b85291b8248a2f6189aa292fdf43162d (commit)
+      from  2bc4dee7e64662c7ca24b83cfa566bcca68cb3b4 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 30a6e683b85291b8248a2f6189aa292fdf43162d
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Sun Dec 6 21:30:21 2009 -0800
+
+    add 'flash list', rewrite 'flash banks'
+    
+    Rename the existing 'flash banks' implementation as 'flash list', and
+    replace the broken 'flash_banks' TCL wrapper with a new command handler.
+    
+    Adds documentation for the new 'flash list' command in the user guide.
+
+diff --git a/doc/openocd.texi b/doc/openocd.texi
+index b6be87e..3651779 100644
+--- a/doc/openocd.texi
++++ b/doc/openocd.texi
+@@ -3638,12 +3638,18 @@ Use it in board specific configuration files, not interactively.
+ @comment the REAL name for this command is &quot;ocd_flash_banks&quot;
+ @comment less confusing would be:  &quot;flash list&quot; (like &quot;nand list&quot;)
+ @deffn Command {flash banks}
+-Prints a one-line summary of each device declared
+-using @command{flash bank}, numbered from zero.
++Prints a one-line summary of each device that was 
++declared using @command{flash bank}, numbered from zero.
+ Note that this is the @emph{plural} form;
+ the @emph{singular} form is a very different command.
+ @end deffn
+ 
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at deffn</A> Command {flash list}
++Retrieves a list of associative arrays for each device that was 
++declared using @command{flash bank}, numbered from zero.
++This returned list can be manipulated easily from within scripts.
+<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">+ at end</A> deffn
++
+ @deffn Command {flash probe} num
+ Identify the flash, or validate the parameters of the configured flash. Operation
+ depends on the flash type.
+diff --git a/src/flash/nor/tcl.c b/src/flash/nor/tcl.c
+index d417ca0..5ba941b 100644
+--- a/src/flash/nor/tcl.c
++++ b/src/flash/nor/tcl.c
+@@ -816,14 +816,30 @@ COMMAND_HANDLER(handle_flash_bank_command)
+ 	flash_bank_add(c);
+ 
+ 	return ERROR_OK;
+-
+ }
+ 
++COMMAND_HANDLER(handle_flash_banks_command)
++{
++	if (CMD_ARGC != 0)
++		return ERROR_INVALID_ARGUMENTS;
+ 
+-static int jim_flash_banks(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
++	unsigned n = 0;
++	for (struct flash_bank *p = flash_bank_list(); p; p = p-&gt;next, n++)
++	{
++		LOG_USER(&quot;#%u: %s at 0x%8.8&quot; PRIx32 &quot;, size 0x%8.8&quot; PRIx32 &quot;, &quot;
++			&quot;buswidth %u, chipwidth %u&quot;, n,
++			p-&gt;driver-&gt;name, p-&gt;base, p-&gt;size,
++			p-&gt;bus_width, p-&gt;chip_width);
++	}
++	return ERROR_OK;
++}
++
++static int jim_flash_list(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
+ {
+-	if (argc != 1) {
+-		Jim_WrongNumArgs(interp, 1, argv, &quot;no arguments to flash_banks command&quot;);
++	if (argc != 1)
++	{
++		Jim_WrongNumArgs(interp, 1, argv,
++				&quot;no arguments to 'flash list' command&quot;);
+ 		return JIM_ERR;
+ 	}
+ 
+@@ -890,8 +906,14 @@ static const struct command_registration flash_config_command_handlers[] = {
+ 	{
+ 		.name = &quot;banks&quot;,
+ 		.mode = COMMAND_ANY,
+-		.jim_handler = &amp;jim_flash_banks,
+-		.help = &quot;return information about the flash banks&quot;,
++		.handler = &amp;handle_flash_banks_command,
++		.help = &quot;return readable information about the flash banks&quot;,
++	},
++	{
++		.name = &quot;list&quot;,
++		.mode = COMMAND_ANY,
++		.jim_handler = &amp;jim_flash_list,
++		.help = &quot;returns a list of details about the flash banks&quot;,
+ 	},
+ 	COMMAND_REGISTRATION_DONE
+ };
+diff --git a/src/flash/startup.tcl b/src/flash/startup.tcl
+index 2c335d9..6cb7d8e 100644
+--- a/src/flash/startup.tcl
++++ b/src/flash/startup.tcl
+@@ -1,16 +1,2 @@
+ # Defines basic Tcl procs for OpenOCD flash module
+ 
+-# Show flash in human readable form
+-# This is an example of a human readable form of a low level fn
+-proc flash_banks {} {
+-	set i 0
+-	set result &quot;&quot;
+-	foreach {a} [ocd_flash banks] {
+-		if {$i &gt; 0} {
+-			set result &quot;$result\n&quot;
+-		}
+-		set result [format &quot;$result#%d: %s at 0x%08x, size 0x%08x, buswidth %d, chipwidth %d&quot; $i $a(name) $a(base) $a(size) $a(bus_width) $a(chip_width)]
+-		set i [expr $i+1]
+-	}
+-	return $result
+-}
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ doc/openocd.texi      |   10 ++++++++--
+ src/flash/nor/tcl.c   |   34 ++++++++++++++++++++++++++++------
+ src/flash/startup.tcl |   14 --------------
+ 3 files changed, 36 insertions(+), 22 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001932.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-887-g2bc4dee
+</A></li>
+	<LI>Next message: <A HREF="001934.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-900-g81aec6b
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1933">[ date ]</a>
+              <a href="thread.html#1933">[ thread ]</a>
+              <a href="subject.html#1933">[ subject ]</a>
+              <a href="author.html#1933">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

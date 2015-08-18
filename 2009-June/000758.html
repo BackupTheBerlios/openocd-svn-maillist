@@ -1,0 +1,153 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1974 - trunk/tcl/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1974%20-%20trunk/tcl/target&In-Reply-To=%3C200906010306.n51363Hb006937%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000757.html">
+   <LINK REL="Next"  HREF="000759.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1974 - trunk/tcl/target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1974%20-%20trunk/tcl/target&In-Reply-To=%3C200906010306.n51363Hb006937%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1974 - trunk/tcl/target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Mon Jun  1 05:06:03 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000757.html">[Openocd-svn] r1973 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="000759.html">[Openocd-svn] r1975 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#758">[ date ]</a>
+              <a href="thread.html#758">[ thread ]</a>
+              <a href="subject.html#758">[ subject ]</a>
+              <a href="author.html#758">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-01 05:05:59 +0200 (Mon, 01 Jun 2009)
+New Revision: 1974
+
+Modified:
+   trunk/tcl/target/omap5912.cfg
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Split out OSK5912 board support from the omap5912 target config, and make
+it pass sanity checks on my (Rev C/original) hardware:
+
+ - Fix syntax error (&quot;-irlen&quot; not &quot;irlen&quot;)
+ - Provide real TAP ids for the ARM926ejs and the C55x dsp
+ - Label both CPUs appropriately (DSP, ARM)
+ - List both flash chips
+
+The scan chain looks like this (note truncated DSP instruction code):
+
+      TapName            | Enabled |   IdCode      Expected    IrLen IrCap  IrMask Instr
+ ---|--------------------|---------|------------|------------|------|------|------|---------
+  0 | omap5912.dsp       |    Y    | 0x03df1d81 | 0x03df1d81 | 0x26 | 0x00 | 0x00 | 0xffffffff
+  1 | omap5912.arm       |    Y    | 0x0692602f | 0x0692602f | 0x04 | 0x01 | 0x00 | 0x0c
+  2 | omap5912.unknown   |    Y    | 0x00000000 | 0x00000000 | 0x08 | 0x00 | 0x00 | 0xff
+
+I still don't know what that third TAP is; maybe an early version of
+an ICEpick JTAG router.
+
+
+Modified: trunk/tcl/target/omap5912.cfg
+===================================================================
+--- trunk/tcl/target/omap5912.cfg	2009-06-01 03:05:42 UTC (rev 1973)
++++ trunk/tcl/target/omap5912.cfg	2009-06-01 03:05:59 UTC (rev 1974)
+@@ -1,5 +1,5 @@
+-#TI OMAP5912 dual core processor - <A HREF="http://www.ti.com">http://www.ti.com</A> 
+-#on a OMAP5912 OSK board <A HREF="http://www.spectrumdigital.com.">http://www.spectrumdigital.com.</A>
++# TI OMAP5912 dual core processor
++# <A HREF="http://focus.ti.com/docs/prod/folders/print/omap5912.html">http://focus.ti.com/docs/prod/folders/print/omap5912.html</A>
+ 
+ if { [info exists CHIPNAME] } {	
+    set  _CHIPNAME $CHIPNAME    
+@@ -17,22 +17,22 @@
+ if { [info exists CPUTAPID ] } {
+    set _CPUTAPID $CPUTAPID
+ } else {
+-  # force an error till we get a good number
+-   set _CPUTAPID 0xffffffff
++   # NOTE: validated with XOMAP5912 part
++   set _CPUTAPID 0x0692602f
+ }
+ 
+-#use combined on interfaces or targets that can't set TRST/SRST separately
+-reset_config trst_and_srst
++# NOTE:  presumes irlen 38 is the C55x DSP, matching BSDL for
++# its standalone siblings (like TMS320VC5502) of the same era
+ 
+ #jtag scan chain
+-jtag newtap $_CHIPNAME unknown1 -irlen 38 -ircapture 0x0 -irmask 0x0 
+-jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask 0x0 -expected-id $_CPUTAPID
+-jtag newtap $_CHIPNAME unknown2 irlen 8 -ircapture  0x0 -irmask 0x0 
++jtag newtap $_CHIPNAME dsp -irlen 38 -ircapture 0x0 -irmask 0x0 -expected-id 0x03df1d81
++jtag newtap $_CHIPNAME arm -irlen 4 -ircapture 0x1 -irmask 0x0 -expected-id $_CPUTAPID
++jtag newtap $_CHIPNAME unknown -irlen 8 -ircapture  0x0 -irmask 0x0
+ 
+-set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
+-target create $_TARGETNAME arm926ejs -endian $_ENDIAN -chain-position $_TARGETNAME -variant arm926ejs
++set _TARGETNAME $_CHIPNAME.arm
++target create $_TARGETNAME arm926ejs -endian $_ENDIAN -chain-position $_TARGETNAME
+ 
+-$_TARGETNAME configure -event reset-init {
++proc omap5912_reset {} {
+ 	#
+ 	# halt target
+ 	#
+@@ -50,14 +50,8 @@
+ 	sleep 500
+ 	mww 0xfffeb048 0x00005555
+ 	sleep 500
+-	#
+-	# detect flash
+-	#
+-	flash probe 0
+ }
+ 
+ # omap5912 lcd frame buffer as working area
+-$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x20000000 -work-area-size 0x3e800 -work-area-backup 0
+-
+-#flash bank &lt;driver&gt; &lt;base&gt; &lt;size&gt; &lt;chip_width&gt; &lt;bus_width&gt;
+-flash bank cfi 0x00000000 0x1000000 2 2 0
++$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x20000000 \
++	-work-area-size 0x3e800 -work-area-backup 0
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000757.html">[Openocd-svn] r1973 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="000759.html">[Openocd-svn] r1975 - trunk/doc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#758">[ date ]</a>
+              <a href="thread.html#758">[ thread ]</a>
+              <a href="subject.html#758">[ subject ]</a>
+              <a href="author.html#758">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

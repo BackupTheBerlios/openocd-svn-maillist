@@ -1,0 +1,127 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2794 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2794%20-%20trunk/src/target&In-Reply-To=%3C200910021644.n92GiUTn015173%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001576.html">
+   <LINK REL="Next"  HREF="001578.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2794 - trunk/src/target</H1>
+    <B>mlu at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2794%20-%20trunk/src/target&In-Reply-To=%3C200910021644.n92GiUTn015173%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2794 - trunk/src/target">mlu at mail.berlios.de
+       </A><BR>
+    <I>Fri Oct  2 18:44:30 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001576.html">[Openocd-svn] r2793 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001578.html">[Openocd-svn] r2795 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1577">[ date ]</a>
+              <a href="thread.html#1577">[ thread ]</a>
+              <a href="subject.html#1577">[ subject ]</a>
+              <a href="author.html#1577">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: mlu
+Date: 2009-10-02 18:44:16 +0200 (Fri, 02 Oct 2009)
+New Revision: 2794
+
+Modified:
+   trunk/src/target/cortex_a8.c
+Log:
+Make sure that DSCR_DTR_RX is not full before writing
+
+Modified: trunk/src/target/cortex_a8.c
+===================================================================
+--- trunk/src/target/cortex_a8.c	2009-10-02 16:39:50 UTC (rev 2793)
++++ trunk/src/target/cortex_a8.c	2009-10-02 16:44:16 UTC (rev 2794)
+@@ -236,11 +236,25 @@
+ 	uint8_t CP, uint8_t op1, uint8_t CRn, uint8_t CRm, uint8_t op2)
+ {
+ 	int retval;
++	uint32_t dscr;
++
+ 	/* get pointers to arch-specific information */
+ 	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+ 	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
+ 	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
+ 
++	LOG_DEBUG(&quot;CP%i, CRn %i, value 0x%08&quot; PRIx32, CP, CRn, value);
++
++	/* Check that DCCRX is not full */
++	retval = mem_ap_read_atomic_u32(swjdp,
++				armv7a-&gt;debug_base + CPUDBG_DSCR, &amp;dscr);
++	if (dscr &amp; (1 &lt;&lt; DSCR_DTR_RX_FULL))
++	{
++		LOG_ERROR(&quot;DSCR_DTR_RX_FULL, dscr 0x%08&quot; PRIx32, dscr);
++		/* Clear DCCRX with MCR(p14, 0, Rd, c0, c5, 0), opcode  0xEE000E15 */
++		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0));
++	}
++	
+ 	retval = mem_ap_write_u32(swjdp,
+ 			armv7a-&gt;debug_base + CPUDBG_DTRRX, value);
+ 	/* Move DTRRX to r0 */
+@@ -311,12 +325,25 @@
+ {
+ 	int retval = ERROR_OK;
+ 	uint8_t Rd = regnum&amp;0xFF;
++	uint32_t dscr;
+ 
+ 	/* get pointers to arch-specific information */
+ 	armv4_5_common_t *armv4_5 = target-&gt;arch_info;
+ 	armv7a_common_t *armv7a = armv4_5-&gt;arch_info;
+ 	swjdp_common_t *swjdp = &amp;armv7a-&gt;swjdp_info;
+ 	
++	LOG_DEBUG(&quot;register %i, value 0x%08&quot; PRIx32, regnum, value);
++
++	/* Check that DCCRX is not full */
++	retval = mem_ap_read_atomic_u32(swjdp,
++				armv7a-&gt;debug_base + CPUDBG_DSCR, &amp;dscr);
++	if (dscr &amp; (1 &lt;&lt; DSCR_DTR_RX_FULL))
++	{
++		LOG_ERROR(&quot;DSCR_DTR_RX_FULL, dscr 0x%08&quot; PRIx32, dscr);
++		/* Clear DCCRX with MCR(p14, 0, Rd, c0, c5, 0), opcode  0xEE000E15 */
++		cortex_a8_exec_opcode(target, ARMV4_5_MRC(14, 0, 0, 0, 5, 0));
++	}
++	
+ 	if (Rd &gt; 16)
+ 		return retval;
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001576.html">[Openocd-svn] r2793 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001578.html">[Openocd-svn] r2795 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1577">[ date ]</a>
+              <a href="thread.html#1577">[ thread ]</a>
+              <a href="subject.html#1577">[ subject ]</a>
+              <a href="author.html#1577">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

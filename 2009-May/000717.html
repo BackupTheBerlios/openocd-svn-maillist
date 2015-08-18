@@ -1,0 +1,135 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1933 - in trunk/src: helper server
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1933%20-%20in%20trunk/src%3A%20helper%20server&In-Reply-To=%3C200905272030.n4RKUIYQ013532%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000716.html">
+   <LINK REL="Next"  HREF="000718.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1933 - in trunk/src: helper server</H1>
+    <B>kc8apf at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1933%20-%20in%20trunk/src%3A%20helper%20server&In-Reply-To=%3C200905272030.n4RKUIYQ013532%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1933 - in trunk/src: helper server">kc8apf at mail.berlios.de
+       </A><BR>
+    <I>Wed May 27 22:30:18 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000716.html">[Openocd-svn] r1932 - in trunk/doc/manual: . primer
+</A></li>
+        <LI>Next message: <A HREF="000718.html">[Openocd-svn] r1934 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#717">[ date ]</a>
+              <a href="thread.html#717">[ thread ]</a>
+              <a href="subject.html#717">[ subject ]</a>
+              <a href="author.html#717">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kc8apf
+Date: 2009-05-27 22:30:17 +0200 (Wed, 27 May 2009)
+New Revision: 1933
+
+Modified:
+   trunk/src/helper/log.c
+   trunk/src/server/gdb_server.c
+Log:
+Author: Nicolas Pitre &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">nico at cam.org</A>&gt;
+	- Silence errors about keep_alive() not being called frequently enough unless
+	a gdb session is active or debugging is enabled
+
+
+Modified: trunk/src/helper/log.c
+===================================================================
+--- trunk/src/helper/log.c	2009-05-27 15:15:06 UTC (rev 1932)
++++ trunk/src/helper/log.c	2009-05-27 20:30:17 UTC (rev 1933)
+@@ -385,7 +385,19 @@
+ 	current_time=timeval_ms();
+ 	if (current_time-last_time&gt;1000)
+ 	{
+-		LOG_WARNING(&quot;keep_alive() was not invoked in the 1000ms timelimit. GDB alive packet not sent! (%lld). Workaround: increase \&quot;set remotetimeout\&quot; in GDB&quot;, current_time-last_time);
++		extern int gdb_actual_connections;
++
++		if (gdb_actual_connections)
++			LOG_WARNING(&quot;keep_alive() was not invoked in the &quot;
++				&quot;1000ms timelimit. GDB alive packet not &quot;
++				&quot;sent! (%lld). Workaround: increase &quot;
++				&quot;\&quot;set remotetimeout\&quot; in GDB&quot;,
++				current_time-last_time);
++		else
++			LOG_DEBUG(&quot;keep_alive() was not invoked in the &quot;
++				&quot;1000ms timelimit (%lld). This may cause &quot;
++				&quot;trouble with GDB connections.&quot;,
++				current_time-last_time);
+ 	}
+ 	if (current_time-last_time&gt;500)
+ 	{
+
+Modified: trunk/src/server/gdb_server.c
+===================================================================
+--- trunk/src/server/gdb_server.c	2009-05-27 15:15:06 UTC (rev 1932)
++++ trunk/src/server/gdb_server.c	2009-05-27 20:30:17 UTC (rev 1933)
+@@ -61,6 +61,10 @@
+ /* target behaviour on gdb detach */
+ enum gdb_detach_mode detach_mode = GDB_DETACH_RESUME;
+ 
++/* number of gdb connections, mainly to supress gdb related debugging spam
++ * in helper/log.c when no gdb connections are actually active */
++int gdb_actual_connections;
++
+ /* set if we are sending a memory map to gdb
+  * via qXfer:memory-map:read packet */
+ /* enabled by default*/
+@@ -797,6 +801,9 @@
+ 	if (initial_ack != '+')
+ 		gdb_putback_char(connection, initial_ack);
+ 	target_call_event_callbacks(gdb_service-&gt;target, TARGET_EVENT_GDB_ATTACH );
++
++	gdb_actual_connections++;
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -805,6 +812,8 @@
+ 	gdb_service_t *gdb_service = connection-&gt;service-&gt;priv;
+ 	gdb_connection_t *gdb_connection = connection-&gt;priv;
+ 
++	gdb_actual_connections--;
++
+ 	/* see if an image built with vFlash commands is left */
+ 	if (gdb_connection-&gt;vflash_image)
+ 	{
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000716.html">[Openocd-svn] r1932 - in trunk/doc/manual: . primer
+</A></li>
+	<LI>Next message: <A HREF="000718.html">[Openocd-svn] r1934 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#717">[ date ]</a>
+              <a href="thread.html#717">[ thread ]</a>
+              <a href="subject.html#717">[ subject ]</a>
+              <a href="author.html#717">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

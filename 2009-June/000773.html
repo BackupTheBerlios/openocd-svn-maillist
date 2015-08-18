@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1989 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1989%20-%20trunk/src/jtag&In-Reply-To=%3C200906020338.n523ctAa008256%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000772.html">
+   <LINK REL="Next"  HREF="000774.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1989 - trunk/src/jtag</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1989%20-%20trunk/src/jtag&In-Reply-To=%3C200906020338.n523ctAa008256%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1989 - trunk/src/jtag">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun  2 05:38:55 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000772.html">[Openocd-svn] r1988 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000774.html">[Openocd-svn] r1990 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#773">[ date ]</a>
+              <a href="thread.html#773">[ thread ]</a>
+              <a href="subject.html#773">[ subject ]</a>
+              <a href="author.html#773">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-02 05:38:50 +0200 (Tue, 02 Jun 2009)
+New Revision: 1989
+
+Modified:
+   trunk/src/jtag/jtag.c
+Log:
+Start clean-up of JTAG driver interface:
+- Factor jtag_add_scan_check to call new jtag_add_scan_check_alloc helper.
+- Use conditional logic to define two versions of the helper.
+- These helpers will be moved to other files in future patches.
+
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-06-01 23:30:58 UTC (rev 1988)
++++ trunk/src/jtag/jtag.c	2009-06-02 03:38:50 UTC (rev 1989)
+@@ -740,31 +740,39 @@
+ 	return jtag_check_value_inner(in, (u8 *)data1, (u8 *)data2, (int)data3);
+ }
+ 
++#ifdef HAVE_JTAG_MINIDRIVER_H
++void interface_jtag_add_scan_check_alloc(scan_field_t *field)
++{
++	/* We're executing this synchronously, so try to use local storage. */
++	if (field-&gt;num_bits &gt; 32)
++	{
++		unsigned num_bytes = TAP_SCAN_BYTES(field-&gt;num_bits);
++		field-&gt;in_value = (u8 *)malloc(num_bytes);
++		field-&gt;allocated = 1;
++	}
++	else
++		field-&gt;in_value = field-&gt;intmp;
++}
++#else
++void interface_jtag_add_scan_check_alloc(scan_field_t *field)
++{
++	unsigned num_bytes = TAP_SCAN_BYTES(field-&gt;num_bits);
++	field-&gt;in_value = (u8 *)cmd_queue_alloc(num_bytes);
++}
++#endif
++
+ static void jtag_add_scan_check(void (*jtag_add_scan)(int in_num_fields, const scan_field_t *in_fields, tap_state_t state),
+ 		int in_num_fields, scan_field_t *in_fields, tap_state_t state)
+ {
+ 	for (int i = 0; i &lt; in_num_fields; i++)
+ 	{
+-		in_fields[i].allocated = 0;
+-		in_fields[i].modified = 0;
+-		if ((in_fields[i].check_value != NULL) &amp;&amp; (in_fields[i].in_value == NULL))
+-		{
+-			in_fields[i].modified = 1;
+-			/* we need storage space... */
+-#ifdef HAVE_JTAG_MINIDRIVER_H
+-			if (in_fields[i].num_bits &lt;= 32)
+-			{
+-				/* This is enough space and we're executing this synchronously */
+-				in_fields[i].in_value = in_fields[i].intmp;
+-			} else
+-			{
+-				in_fields[i].in_value = (u8 *)malloc(CEIL(in_fields[i].num_bits, 8));
+-				in_fields[i].allocated = 1;
+-			}
+-#else
+-			in_fields[i].in_value = (u8 *)cmd_queue_alloc(CEIL(in_fields[i].num_bits, 8));
+-#endif
+-		}
++		struct scan_field_s *field = &amp;in_fields[i];
++		field-&gt;allocated = 0;
++		field-&gt;modified = 0;
++		if (field-&gt;check_value || field-&gt;in_value)
++			continue;
++		interface_jtag_add_scan_check_alloc(field);
++		field-&gt;modified = 1;
+ 	}
+ 
+ 	jtag_add_scan(in_num_fields, in_fields, state);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000772.html">[Openocd-svn] r1988 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000774.html">[Openocd-svn] r1990 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#773">[ date ]</a>
+              <a href="thread.html#773">[ thread ]</a>
+              <a href="subject.html#773">[ subject ]</a>
+              <a href="author.html#773">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

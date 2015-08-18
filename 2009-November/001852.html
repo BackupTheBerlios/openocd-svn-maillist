@@ -1,0 +1,1139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-545-g6ff33a4
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-November/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-545-g6ff33a4&In-Reply-To=%3CE1NCqYF-0006N9-Pf%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001851.html">
+   <LINK REL="Next"  HREF="001853.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-545-g6ff33a4</H1>
+    <B>David Brownell</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-545-g6ff33a4&In-Reply-To=%3CE1NCqYF-0006N9-Pf%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-545-g6ff33a4">dbrownell at users.sourceforge.net
+       </A><BR>
+    <I>Tue Nov 24 09:15:04 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001851.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-541-g0583cb0
+</A></li>
+        <LI>Next message: <A HREF="001853.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-549-g3efc99b
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1852">[ date ]</a>
+              <a href="thread.html#1852">[ thread ]</a>
+              <a href="subject.html#1852">[ subject ]</a>
+              <a href="author.html#1852">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  6ff33a4ee8db483e29bc78b8c35e50342ca60850 (commit)
+       via  caf827ee8122de66721e62b933b7133df2349c4f (commit)
+       via  e6dc927e972bb2d91131b0193b676c531377f318 (commit)
+       via  ad75af0b17af75d57b95298fb40784d33cc8f3e2 (commit)
+      from  0583cb0a0d222787c4048f9362292c5db9d969b0 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 6ff33a4ee8db483e29bc78b8c35e50342ca60850
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Nov 24 00:14:15 2009 -0800
+
+    ARM11: remove register &quot;history&quot; debug stuff
+    
+    This was a private mechanism to snapshot registers before leaving
+    debug state, and then on reentry to optionally display what changed.
+    It was coupled to the private register cache, which won't be sticking
+    around in that form for much longer.  Remove (instead of teaching
+    it how to handle *all* the registers).
+    
+    (The idea is interesting, but we ought to be able to implement
+    this in a generic way.  Ideally through Tcl scripts that can
+    automatically be invoked following debug entry...)
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.c b/src/target/arm11.c
+index cb1af7b..3c841bb 100644
+--- a/src/target/arm11.c
++++ b/src/target/arm11.c
+@@ -155,9 +155,6 @@ static int arm11_build_reg_cache(struct target *target);
+ static int arm11_set_reg(struct reg *reg, uint8_t *buf);
+ static int arm11_get_reg(struct reg *reg);
+ 
+-static void arm11_record_register_history(struct arm11_common * arm11);
+-static void arm11_dump_reg_changes(struct arm11_common * arm11);
+-
+ 
+ /** Check and if necessary take control of the system
+  *
+@@ -380,41 +377,9 @@ static int arm11_on_enter_debug_state(struct arm11_common *arm11)
+ 	if (retval != ERROR_OK)
+ 		return retval;
+ 
+-	arm11_dump_reg_changes(arm11);
+-
+ 	return ERROR_OK;
+ }
+ 
+-static void arm11_dump_reg_changes(struct arm11_common * arm11)
+-{
+-
+-	if (!(debug_level &gt;= LOG_LVL_DEBUG))
+-	{
+-		return;
+-	}
+-
+-	for (size_t i = 0; i &lt; ARM11_REGCACHE_COUNT; i++)
+-	{
+-		if (!arm11-&gt;reg_list[i].valid)
+-		{
+-			if (arm11-&gt;reg_history[i].valid)
+-				LOG_DEBUG(&quot;%8s INVALID	 (%08&quot; PRIx32 &quot;)&quot;, arm11_reg_defs[i].name, arm11-&gt;reg_history[i].value);
+-		}
+-		else
+-		{
+-			if (arm11-&gt;reg_history[i].valid)
+-			{
+-				if (arm11-&gt;reg_history[i].value != arm11-&gt;reg_values[i])
+-					LOG_DEBUG(&quot;%8s %08&quot; PRIx32 &quot; (%08&quot; PRIx32 &quot;)&quot;, arm11_reg_defs[i].name, arm11-&gt;reg_values[i], arm11-&gt;reg_history[i].value);
+-			}
+-			else
+-			{
+-				LOG_DEBUG(&quot;%8s %08&quot; PRIx32 &quot; (INVALID)&quot;, arm11_reg_defs[i].name, arm11-&gt;reg_values[i]);
+-			}
+-		}
+-	}
+-}
+-
+ /** Restore processor state
+   *
+   * This is called in preparation for the RESTART function.
+@@ -532,24 +497,9 @@ static int arm11_leave_debug_state(struct arm11_common *arm11)
+ 		arm11_add_dr_scan_vc(ARRAY_SIZE(chain5_fields), chain5_fields, TAP_DRPAUSE);
+ 	}
+ 
+-	arm11_record_register_history(arm11);
+-
+ 	return ERROR_OK;
+ }
+ 
+-static void arm11_record_register_history(struct arm11_common *arm11)
+-{
+-	for (size_t i = 0; i &lt; ARM11_REGCACHE_COUNT; i++)
+-	{
+-		arm11-&gt;reg_history[i].value	= arm11-&gt;reg_values[i];
+-		arm11-&gt;reg_history[i].valid	= arm11-&gt;reg_list[i].valid;
+-
+-		arm11-&gt;reg_list[i].valid	= 0;
+-		arm11-&gt;reg_list[i].dirty	= 0;
+-	}
+-}
+-
+-
+ /* poll current target status */
+ static int arm11_poll(struct target *target)
+ {
+diff --git a/src/target/arm11.h b/src/target/arm11.h
+index a67c337..033ba89 100644
+--- a/src/target/arm11.h
++++ b/src/target/arm11.h
+@@ -41,12 +41,6 @@
+ 		}				\
+ 	} while (0)
+ 
+-struct arm11_register_history
+-{
+-	uint32_t		value;
+-	uint8_t		valid;
+-};
+-
+ enum arm11_debug_version
+ {
+ 	ARM11_DEBUG_V6			= 0x01,
+@@ -84,9 +78,6 @@ struct arm11_common
+ 
+ 	/*@}*/
+ 
+-	struct arm11_register_history
+-		reg_history[ARM11_REGCACHE_COUNT];	/**&lt; register state before last resume */
+-
+ 	size_t	free_brps;				/**&lt; keep track of breakpoints allocated by arm11_add_breakpoint() */
+ 	size_t	free_wrps;				/**&lt; keep track of breakpoints allocated by arm11_add_watchpoint() */
+ 
+
+commit caf827ee8122de66721e62b933b7133df2349c4f
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Nov 24 00:14:06 2009 -0800
+
+    ARM11: implement provider for new DPM interface
+    
+    This is a very thin layer over some of the current ARM11
+    debug TAP utilities.  The layer isn't yet hooked up.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/arm11.h b/src/target/arm11.h
+index d40faa4..a67c337 100644
+--- a/src/target/arm11.h
++++ b/src/target/arm11.h
+@@ -24,6 +24,7 @@
+ #define ARM11_H
+ 
+ #include &quot;armv4_5.h&quot;
++#include &quot;arm_dpm.h&quot;
+ 
+ /* TEMPORARY -- till we switch to the shared infrastructure */
+ #define ARM11_REGCACHE_COUNT		20
+@@ -59,6 +60,9 @@ struct arm11_common
+ 	struct arm	arm;
+ 	struct target *	target;		/**&lt; Reference back to the owner */
+ 
++	/** Debug module state. */
++	struct arm_dpm dpm;
++
+ 	/** \name Processor type detection */
+ 	/*@{*/
+ 
+diff --git a/src/target/arm11_dbgtap.c b/src/target/arm11_dbgtap.c
+index c8d5902..b5b02ef 100644
+--- a/src/target/arm11_dbgtap.c
++++ b/src/target/arm11_dbgtap.c
+@@ -951,3 +951,76 @@ int arm11_read_memory_word(struct arm11_common * arm11, uint32_t address, uint32
+ 	return arm11_run_instr_data_finish(arm11);
+ }
+ 
++
++/************************************************************************/
++
++/*
++ * ARM11 provider for the OpenOCD implementation of the standard
++ * architectural ARM v6/v7 &quot;Debug Programmer's Model&quot; (DPM).
++ */
++
++static inline struct arm11_common *dpm_to_arm11(struct arm_dpm *dpm)
++{
++	return container_of(dpm, struct arm11_common, dpm);
++}
++
++static int arm11_dpm_prepare(struct arm_dpm *dpm)
++{
++	struct arm11_common *arm11 = dpm_to_arm11(dpm);
++
++	arm11 = container_of(dpm-&gt;arm, struct arm11_common, arm);
++
++	return arm11_run_instr_data_prepare(dpm_to_arm11(dpm));
++}
++
++static int arm11_dpm_finish(struct arm_dpm *dpm)
++{
++	return arm11_run_instr_data_finish(dpm_to_arm11(dpm));
++}
++
++static int arm11_dpm_instr_write_data_dcc(struct arm_dpm *dpm,
++		uint32_t opcode, uint32_t data)
++{
++	return arm11_run_instr_data_to_core(dpm_to_arm11(dpm),
++			opcode, &amp;data, 1);
++}
++
++static int arm11_dpm_instr_write_data_r0(struct arm_dpm *dpm,
++		uint32_t opcode, uint32_t data)
++{
++	return arm11_run_instr_data_to_core_via_r0(dpm_to_arm11(dpm),
++			opcode, data);
++}
++
++static int arm11_dpm_instr_read_data_dcc(struct arm_dpm *dpm,
++		uint32_t opcode, uint32_t *data)
++{
++	return arm11_run_instr_data_from_core(dpm_to_arm11(dpm),
++			opcode, data, 1);
++}
++
++static int arm11_dpm_instr_read_data_r0(struct arm_dpm *dpm,
++		uint32_t opcode, uint32_t *data)
++{
++	return arm11_run_instr_data_from_core_via_r0(dpm_to_arm11(dpm),
++			opcode, data);
++}
++
++
++void arm11_dpm_init(struct arm11_common *arm11, uint32_t didr)
++{
++	struct arm_dpm *dpm = &amp;arm11-&gt;dpm;
++
++	dpm-&gt;arm = &amp;arm11-&gt;arm;
++
++	dpm-&gt;didr = didr;
++
++	dpm-&gt;prepare = arm11_dpm_prepare;
++	dpm-&gt;finish = arm11_dpm_finish;
++
++	dpm-&gt;instr_write_data_dcc = arm11_dpm_instr_write_data_dcc;
++	dpm-&gt;instr_write_data_r0 = arm11_dpm_instr_write_data_r0;
++
++	dpm-&gt;instr_read_data_dcc = arm11_dpm_instr_read_data_dcc;
++	dpm-&gt;instr_read_data_r0 = arm11_dpm_instr_read_data_r0;
++}
+diff --git a/src/target/arm11_dbgtap.h b/src/target/arm11_dbgtap.h
+index b85a138..8b6a206 100644
+--- a/src/target/arm11_dbgtap.h
++++ b/src/target/arm11_dbgtap.h
+@@ -60,4 +60,7 @@ void arm11_sc7_set_vcr(struct arm11_common *arm11, uint32_t value);
+ int arm11_read_memory_word(struct arm11_common *arm11,
+ 		uint32_t address, uint32_t *result);
+ 
++/* Set up high-level debug module utilities */
++void arm11_dpm_init(struct arm11_common *arm11, uint32_t didr);
++
+ #endif // ARM11_DBGTAP_H
+
+commit e6dc927e972bb2d91131b0193b676c531377f318
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Nov 24 00:13:58 2009 -0800
+
+    ARM: new DPM interface
+    
+    First version of interface for sharing code between ARMv6 and ARMv7a
+    debug modules ... now the architecture includes debug support.  (Not
+    the same as for the trimmed-down v7m or v6m though!)  This is a first
+    version of an interface that will let the ARM11 and Cortex-A8 support
+    share code, features, and bugfixes.  Based on existing code from both
+    of those cores.
+    
+    The ARM v7-AR architecture specification calls this commonality the
+    &quot;Debug Programmer's Model (DPM)&quot;, which seemed to be an appropriate
+    acronym -- a TLA even! -- for use in our code.  Made it so.  :)
+    
+    The initial scope of this just supports register access, and is geared
+    towards supporting top level &quot;struct arm&quot; mechanisms.  Later, things
+    like breakpoint and watchpoint support should be included.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/Makefile.am b/src/target/Makefile.am
+index 23aea82..a367fd4 100644
+--- a/src/target/Makefile.am
++++ b/src/target/Makefile.am
+@@ -75,6 +75,7 @@ ARMV7_SRC = \
+ 	cortex_a8.c
+ 
+ ARM_DEBUG_SRC = \
++	arm_dpm.c \
+ 	arm_jtag.c \
+ 	arm_disassembler.c \
+ 	arm_simulator.c \
+@@ -96,6 +97,7 @@ MIPS32_SRC = \
+ 
+ noinst_HEADERS = \
+ 	algorithm.h \
++	arm_dpm.h \
+ 	arm_jtag.h \
+ 	arm_adi_v5.h \
+ 	arm_disassembler.h \
+diff --git a/src/target/arm_dpm.c b/src/target/arm_dpm.c
+new file mode 100644
+index 0000000..18a9dcc
+--- /dev/null
++++ b/src/target/arm_dpm.c
+@@ -0,0 +1,529 @@
++/*
++ * Copyright (C) 2009 by David Brownell
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the
++ * Free Software Foundation, Inc.,
++ * 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++ */
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;armv4_5.h&quot;		/* REVISIT to become arm.h */
++#include &quot;arm_dpm.h&quot;
++#include &quot;jtag.h&quot;
++#include &quot;register.h&quot;
++
++
++/**
++ * @file
++ * Implements various ARM DPM operations using architectural debug registers.
++ * These routines layer over core-specific communication methods to cope with
++ * implementation differences between cores like ARM1136 and Cortex-A8.
++ */
++
++/* Toggles between recorded core mode (USR, SVC, etc) and a temporary one.
++ * Routines *must* restore the original mode before returning!!
++ */
++static int dpm_modeswitch(struct arm_dpm *dpm, enum armv4_5_mode mode)
++{
++	int retval;
++	uint32_t cpsr;
++
++	/* restore previous mode */
++	if (mode == ARMV4_5_MODE_ANY)
++		cpsr = buf_get_u32(dpm-&gt;arm-&gt;cpsr-&gt;value, 0, 32);
++
++	/* else force to the specified mode */
++	else
++		cpsr = mode;
++
++	retval = dpm-&gt;instr_write_data_r0(dpm, ARMV4_5_MSR_GP(0, 0xf, 0), cpsr);
++
++	/* REVISIT on Cortex-A8, we need a Prefetch Flush operation too ...
++			cortex_a8_exec_opcode(target,
++					ARMV4_5_MCR(15, 0, 0, 7, 5, 4));
++	 */
++
++	return retval;
++}
++
++/* just read the register -- rely on the core mode being right */
++static int dpm_read_reg(struct arm_dpm *dpm, struct reg *r, unsigned regnum)
++{
++	uint32_t value;
++	int retval;
++
++	switch (regnum) {
++	case 0 ... 14:
++		/* return via DCC:  &quot;MCR p14, 0, Rnum, c0, c5, 0&quot; */
++		retval = dpm-&gt;instr_read_data_dcc(dpm,
++				ARMV4_5_MCR(14, 0, regnum, 0, 5, 0),
++				&amp;value);
++		break;
++	case 15:	/* PC */
++		/* &quot;MOV r0, pc&quot;; then return via DCC */
++		retval = dpm-&gt;instr_read_data_r0(dpm, 0xe1a0000f, &amp;value);
++
++		/* NOTE: this seems like a slightly awkward place to update
++		 * this value ... but if the PC gets written (the only way
++		 * to change what we compute), the arch spec says subsequent
++		 * reads return values which are &quot;unpredictable&quot;.  So this
++		 * is always right except in those broken-by-intent cases.
++		 */
++		switch (dpm-&gt;arm-&gt;core_state) {
++		case ARMV4_5_STATE_ARM:
++			value -= 8;
++			break;
++		case ARMV4_5_STATE_THUMB:
++		case ARM_STATE_THUMB_EE:
++			value -= 4;
++			break;
++		case ARMV4_5_STATE_JAZELLE:
++			/* core-specific ... ? */
++			LOG_WARNING(&quot;Jazelle PC adjustment unknown&quot;);
++			break;
++		}
++		break;
++	default:
++		/* 16: &quot;MRS r0, CPSR&quot;; then return via DCC
++		 * 17: &quot;MRS r0, SPSR&quot;; then return via DCC
++		 */
++		retval = dpm-&gt;instr_read_data_r0(dpm,
++				ARMV4_5_MRS(0, regnum &amp; 1),
++				&amp;value);
++		break;
++	}
++
++	if (retval == ERROR_OK) {
++		buf_set_u32(r-&gt;value, 0, 32, value);
++		r-&gt;valid = true;
++		r-&gt;dirty = false;
++		LOG_DEBUG(&quot;READ: %s, %8.8x&quot;, r-&gt;name, (unsigned) value);
++	}
++
++	return retval;
++}
++
++/* just write the register -- rely on the core mode being right */
++static int dpm_write_reg(struct arm_dpm *dpm, struct reg *r, unsigned regnum)
++{
++	int retval;
++	uint32_t value = buf_get_u32(r-&gt;value, 0, 32);
++
++	switch (regnum) {
++	case 0 ... 14:
++		/* load register from DCC:  &quot;MCR p14, 0, Rnum, c0, c5, 0&quot; */
++		retval = dpm-&gt;instr_write_data_dcc(dpm,
++				ARMV4_5_MRC(14, 0, regnum, 0, 5, 0),
++				value);
++		break;
++	case 15:	/* PC */
++		/* read r0 from DCC; then &quot;MOV pc, r0&quot; */
++		retval = dpm-&gt;instr_write_data_r0(dpm, 0xe1a0f000, value);
++		break;
++	default:
++		/* 16: read r0 from DCC, then &quot;MSR r0, CPSR_cxsf&quot;
++		 * 17: read r0 from DCC, then &quot;MSR r0, SPSR_cxsf&quot;
++		 */
++		retval = dpm-&gt;instr_write_data_r0(dpm,
++				ARMV4_5_MSR_GP(0, 0xf, regnum &amp; 1),
++				value);
++
++		/* REVISIT on Cortex-A8, we need a Prefetch Flush operation
++		 * after writing CPSR ...
++			cortex_a8_exec_opcode(target,
++					ARMV4_5_MCR(15, 0, 0, 7, 5, 4));
++		 */
++
++		break;
++	}
++
++	if (retval == ERROR_OK) {
++		r-&gt;dirty = false;
++		LOG_DEBUG(&quot;WRITE: %s, %8.8x&quot;, r-&gt;name, (unsigned) value);
++	}
++
++	return retval;
++}
++
++/**
++ * Read basic registers of the the current context:  R0 to R15, and CPSR;
++ * sets the core mode (such as USR or IRQ) and state (such as ARM or Thumb).
++ * In normal operation this is called on entry to halting debug state,
++ * possibly after some other operations supporting restore of debug state
++ * or making sure the CPU is fully idle (drain write buffer, etc).
++ */
++int arm_dpm_read_current_registers(struct arm_dpm *dpm)
++{
++	struct arm *arm = dpm-&gt;arm;
++	uint32_t cpsr;
++	int retval;
++	struct reg *r;
++
++	retval = dpm-&gt;prepare(dpm);
++	if (retval != ERROR_OK)
++		return retval;
++
++	/* read R0 first (it's used for scratch), then CPSR */
++	r = arm-&gt;core_cache-&gt;reg_list + 0;
++	if (!r-&gt;valid) {
++		retval = dpm_read_reg(dpm, r, 0);
++		if (retval != ERROR_OK)
++			goto fail;
++	}
++	r-&gt;dirty = true;
++
++	retval = dpm-&gt;instr_read_data_r0(dpm, ARMV4_5_MRS(0, 0), &amp;cpsr);
++	if (retval != ERROR_OK)
++		goto fail;
++
++	/* update core mode and state, plus shadow mapping for R8..R14 */
++	arm_set_cpsr(arm, cpsr);
++
++	/* REVISIT we can probably avoid reading R1..R14, saving time... */
++	for (unsigned i = 1; i &lt; 16; i++) {
++		r = arm_reg_current(arm, i);
++		if (r-&gt;valid)
++			continue;
++
++		retval = dpm_read_reg(dpm, r, i);
++		if (retval != ERROR_OK)
++			goto fail;
++	}
++
++	/* NOTE: SPSR ignored (if it's even relevant). */
++
++fail:
++	/* (void) */ dpm-&gt;finish(dpm);
++	return retval;
++}
++
++/**
++ * Writes all modified core registers for all processor modes.  In normal
++ * operation this is called on exit from halting debug state.
++ */
++int arm_dpm_write_dirty_registers(struct arm_dpm *dpm)
++{
++	struct arm *arm = dpm-&gt;arm;
++	struct reg_cache *cache = arm-&gt;core_cache;
++	int retval;
++	bool did_write;
++
++	retval = dpm-&gt;prepare(dpm);
++	if (retval != ERROR_OK)
++		goto done;
++
++	/* Scan the registers until we find one that's both dirty and
++	 * eligible for flushing.  Flush that and everything else that
++	 * shares the same core mode setting.  Typically this won't
++	 * actually find anything to do...
++	 */
++	do {
++		enum armv4_5_mode mode = ARMV4_5_MODE_ANY;
++
++		did_write = false;
++
++		/* check everything except our scratch register R0 */
++		for (unsigned i = 1; i &lt; cache-&gt;num_regs; i++) {
++			struct arm_reg *r;
++			unsigned regnum;
++
++			/* also skip PC, CPSR, and non-dirty */
++			if (i == 15)
++				continue;
++			if (arm-&gt;cpsr == cache-&gt;reg_list + i)
++				continue;
++			if (!cache-&gt;reg_list[i].dirty)
++				continue;
++
++			r = cache-&gt;reg_list[i].arch_info;
++			regnum = r-&gt;num;
++
++			/* may need to pick and set a mode */
++			if (!did_write) {
++				enum armv4_5_mode tmode;
++
++				did_write = true;
++				mode = tmode = r-&gt;mode;
++
++				/* cope with special cases */
++				switch (regnum) {
++				case 8 ... 12:
++					/* r8..r12 &quot;anything but FIQ&quot; case;
++					 * we &quot;know&quot; core mode is accurate
++					 * since we haven't changed it yet
++					 */
++					if (arm-&gt;core_mode == ARMV4_5_MODE_FIQ
++							&amp;&amp; ARMV4_5_MODE_ANY
++								!= mode)
++						tmode = ARMV4_5_MODE_USR;
++					break;
++				case 16:
++					/* SPSR */
++					regnum++;
++					break;
++				}
++
++				/* REVISIT error checks */
++				if (tmode != ARMV4_5_MODE_ANY)
++					retval = dpm_modeswitch(dpm, tmode);
++			}
++			if (r-&gt;mode != mode)
++				continue;
++
++			retval = dpm_write_reg(dpm,
++					&amp;cache-&gt;reg_list[i],
++					regnum);
++
++		}
++
++	} while (did_write);
++
++	/* Restore original CPSR ... assuming either that we changed it,
++	 * or it's dirty.  Must write PC to ensure the return address is
++	 * defined, and must not write it before CPSR.
++	 */
++	retval = dpm_modeswitch(dpm, ARMV4_5_MODE_ANY);
++	arm-&gt;cpsr-&gt;dirty = false;
++
++	retval = dpm_write_reg(dpm, &amp;cache-&gt;reg_list[15], 15);
++	cache-&gt;reg_list[15].dirty = false;
++
++	/* flush R0 -- it's *very* dirty by now */
++	retval = dpm_write_reg(dpm, &amp;cache-&gt;reg_list[0], 0);
++	cache-&gt;reg_list[0].dirty = false;
++
++	/* (void) */ dpm-&gt;finish(dpm);
++done:
++	return retval;
++}
++
++/* Returns ARMV4_5_MODE_ANY or temporary mode to use while reading the
++ * specified register ... works around flakiness from ARM core calls.
++ * Caller already filtered out SPSR access; mode is never MODE_SYS
++ * or MODE_ANY.
++ */
++static enum armv4_5_mode dpm_mapmode(struct arm *arm,
++		unsigned num, enum armv4_5_mode mode)
++{
++	enum armv4_5_mode amode = arm-&gt;core_mode;
++
++	/* don't switch if the mode is already correct */
++	if (amode == ARMV4_5_MODE_SYS)
++		 amode = ARMV4_5_MODE_USR;
++	if (mode == amode)
++		return ARMV4_5_MODE_ANY;
++
++	switch (num) {
++	/* don't switch for non-shadowed registers (r0..r7, r15/pc, cpsr) */
++	case 0 ... 7:
++	case 15:
++	case 16:
++		break;
++	/* r8..r12 aren't shadowed for anything except FIQ */
++	case 8 ... 12:
++		if (mode == ARMV4_5_MODE_FIQ)
++			return mode;
++		break;
++	/* r13/sp, and r14/lr are always shadowed */
++	case 13:
++	case 14:
++		return mode;
++	default:
++		LOG_WARNING(&quot;invalid register #%u&quot;, num);
++		break;
++	}
++	return ARMV4_5_MODE_ANY;
++}
++
++static int arm_dpm_read_core_reg(struct target *target, struct reg *r,
++		int regnum, enum armv4_5_mode mode)
++{
++	struct arm_dpm *dpm = target_to_arm(target)-&gt;dpm;
++	int retval;
++
++	if (regnum &lt; 0 || regnum &gt; 16)
++		return ERROR_INVALID_ARGUMENTS;
++
++	if (regnum == 16) {
++		if (mode != ARMV4_5_MODE_ANY)
++			regnum = 17;
++	} else
++		mode = dpm_mapmode(dpm-&gt;arm, regnum, mode);
++
++	/* REVISIT what happens if we try to read SPSR in a core mode
++	 * which has no such register?
++	 */
++
++	retval = dpm-&gt;prepare(dpm);
++	if (retval != ERROR_OK)
++		return retval;
++
++	if (mode != ARMV4_5_MODE_ANY) {
++		retval = dpm_modeswitch(dpm, mode);
++		if (retval != ERROR_OK)
++			goto fail;
++	}
++
++	retval = dpm_read_reg(dpm, r, regnum);
++	/* always clean up, regardless of error */
++
++	if (mode != ARMV4_5_MODE_ANY)
++		/* (void) */ dpm_modeswitch(dpm, ARMV4_5_MODE_ANY);
++
++fail:
++	/* (void) */ dpm-&gt;finish(dpm);
++	return retval;
++}
++
++static int arm_dpm_write_core_reg(struct target *target, struct reg *r,
++		int regnum, enum armv4_5_mode mode, uint32_t value)
++{
++	struct arm_dpm *dpm = target_to_arm(target)-&gt;dpm;
++	int retval;
++
++
++	if (regnum &lt; 0 || regnum &gt; 16)
++		return ERROR_INVALID_ARGUMENTS;
++
++	if (regnum == 16) {
++		if (mode != ARMV4_5_MODE_ANY)
++			regnum = 17;
++	} else
++		mode = dpm_mapmode(dpm-&gt;arm, regnum, mode);
++
++	/* REVISIT what happens if we try to write SPSR in a core mode
++	 * which has no such register?
++	 */
++
++	retval = dpm-&gt;prepare(dpm);
++	if (retval != ERROR_OK)
++		return retval;
++
++	if (mode != ARMV4_5_MODE_ANY) {
++		retval = dpm_modeswitch(dpm, mode);
++		if (retval != ERROR_OK)
++			goto fail;
++	}
++
++	retval = dpm_write_reg(dpm, r, regnum);
++	/* always clean up, regardless of error */
++
++	if (mode != ARMV4_5_MODE_ANY)
++		/* (void) */ dpm_modeswitch(dpm, ARMV4_5_MODE_ANY);
++
++fail:
++	/* (void) */ dpm-&gt;finish(dpm);
++	return retval;
++}
++
++static int arm_dpm_full_context(struct target *target)
++{
++	struct arm *arm = target_to_arm(target);
++	struct arm_dpm *dpm = arm-&gt;dpm;
++	struct reg_cache *cache = arm-&gt;core_cache;
++	int retval;
++	bool did_read;
++
++	retval = dpm-&gt;prepare(dpm);
++	if (retval != ERROR_OK)
++		goto done;
++
++	do {
++		enum armv4_5_mode mode = ARMV4_5_MODE_ANY;
++
++		did_read = false;
++
++		/* We &quot;know&quot; arm_dpm_read_current_registers() was called so
++		 * the unmapped registers (R0..R7, PC, AND CPSR) and some
++		 * view of R8..R14 are current.  We also &quot;know&quot; oddities of
++		 * register mapping: special cases for R8..R12 and SPSR.
++		 *
++		 * Pick some mode with unread registers and read them all.
++		 * Repeat until done.
++		 */
++		for (unsigned i = 0; i &lt; cache-&gt;num_regs; i++) {
++			struct arm_reg *r;
++
++			if (cache-&gt;reg_list[i].valid)
++				continue;
++			r = cache-&gt;reg_list[i].arch_info;
++
++			/* may need to pick a mode and set CPSR */
++			if (!did_read) {
++				did_read = true;
++				mode = r-&gt;mode;
++
++				/* For R8..R12 when we've entered debug
++				 * state in FIQ mode... patch mode.
++				 */
++				if (mode == ARMV4_5_MODE_ANY)
++					mode = ARMV4_5_MODE_USR;
++
++				/* REVISIT error checks */
++				retval = dpm_modeswitch(dpm, mode);
++			}
++			if (r-&gt;mode != mode)
++				continue;
++
++			/* CPSR was read, so &quot;R16&quot; must mean SPSR */
++			retval = dpm_read_reg(dpm,
++					&amp;cache-&gt;reg_list[i],
++					(r-&gt;num == 16) ? 17 : r-&gt;num);
++
++		}
++
++	} while (did_read);
++
++	retval = dpm_modeswitch(dpm, ARMV4_5_MODE_ANY);
++	/* (void) */ dpm-&gt;finish(dpm);
++done:
++	return retval;
++}
++
++/**
++ * Hooks up this DPM to its associated target; call only once.
++ * Initially this only covers the register cache.
++ */
++int arm_dpm_setup(struct arm_dpm *dpm)
++{
++	struct arm *arm = dpm-&gt;arm;
++	struct target *target = arm-&gt;target;
++	struct reg_cache *cache;
++
++	arm-&gt;dpm = dpm;
++
++	arm-&gt;full_context = arm_dpm_full_context;
++	arm-&gt;read_core_reg = arm_dpm_read_core_reg;
++	arm-&gt;write_core_reg = arm_dpm_write_core_reg;
++
++	cache = armv4_5_build_reg_cache(target, arm);
++	if (!cache)
++		return ERROR_FAIL;
++
++	*register_get_last_cache_p(&amp;target-&gt;reg_cache) = cache;
++	return ERROR_OK;
++}
++
++/**
++ * Reinitializes DPM state at the beginning of a new debug session
++ * or after a reset which may have affected the debug module.
++ */
++int arm_dpm_initialize(struct arm_dpm *dpm)
++{
++	/* FIXME -- nothing yet */
++	return ERROR_OK;
++}
+diff --git a/src/target/arm_dpm.h b/src/target/arm_dpm.h
+new file mode 100644
+index 0000000..06b548e
+--- /dev/null
++++ b/src/target/arm_dpm.h
+@@ -0,0 +1,87 @@
++/*
++ * Copyright (C) 2009 by David Brownell
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the
++ * Free Software Foundation, Inc.,
++ * 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++ */
++
++#ifndef __ARM_DPM_H
++#define __ARM_DPM_H
++
++/**
++ * @file
++ * This is the interface to the Debug Programmers Model for ARMv6 and
++ * ARMv7 processors.  ARMv6 processors (such as ARM11xx implementations)
++ * introduced a model which became part of the ARMv7-AR architecture
++ * which is most familiar through the Cortex-A series parts.  While
++ * specific details differ (like how to write the instruction register),
++ * the high level models easily support shared code because those
++ * registers are compatible.
++ */
++
++/**
++ * This wraps an implementation of DPM primitives.  Each interface
++ * provider supplies a structure like this, which is the glue between
++ * upper level code and the lower level hardware access.
++ *
++ * It is a PRELIMINARY AND INCOMPLETE set of primitives, starting with
++ * support for CPU register access.
++ */
++struct arm_dpm {
++	struct arm *arm;
++
++	/** Cache of DIDR */
++	uint32_t didr;
++
++	/** Invoke before a series of instruction operations */
++	int (*prepare)(struct arm_dpm *);
++
++	/** Invoke after a series of instruction operations */
++	int (*finish)(struct arm_dpm *);
++
++	/* WRITE TO CPU */
++
++	/** Runs one instruction, writing data to DCC before execution. */
++	int (*instr_write_data_dcc)(struct arm_dpm *,
++			uint32_t opcode, uint32_t data);
++
++	/** Runs one instruction, writing data to R0 before execution. */
++	int (*instr_write_data_r0)(struct arm_dpm *,
++			uint32_t opcode, uint32_t data);
++
++	/* READ FROM CPU */
++
++	/** Runs one instruction, reading data from dcc after execution. */
++	int (*instr_read_data_dcc)(struct arm_dpm *,
++			uint32_t opcode, uint32_t *data);
++
++	/** Runs one instruction, reading data from r0 after execution. */
++	int (*instr_read_data_r0)(struct arm_dpm *,
++			uint32_t opcode, uint32_t *data);
++
++	// FIXME -- add breakpoint support
++
++	// FIXME -- add watchpoint support (including context-sensitive ones)
++
++	// FIXME -- read/write DCSR methods and symbols
++};
++
++int arm_dpm_setup(struct arm_dpm *dpm);
++int arm_dpm_reinitialize(struct arm_dpm *dpm);
++
++int arm_dpm_read_current_registers(struct arm_dpm *);
++int arm_dpm_write_dirty_registers(struct arm_dpm *);
++
++#endif /* __ARM_DPM_H */
+diff --git a/src/target/armv4_5.c b/src/target/armv4_5.c
+index 461d206..da5c75a 100644
+--- a/src/target/armv4_5.c
++++ b/src/target/armv4_5.c
+@@ -1233,6 +1233,7 @@ static int arm_full_context(struct target *target)
+ int armv4_5_init_arch_info(struct target *target, struct arm *armv4_5)
+ {
+ 	target-&gt;arch_info = armv4_5;
++	armv4_5-&gt;target = target;
+ 
+ 	armv4_5-&gt;common_magic = ARMV4_5_COMMON_MAGIC;
+ 	arm_set_cpsr(armv4_5, ARMV4_5_MODE_USR);
+diff --git a/src/target/armv4_5.h b/src/target/armv4_5.h
+index 4931455..7a6cb61 100644
+--- a/src/target/armv4_5.h
++++ b/src/target/armv4_5.h
+@@ -101,6 +101,12 @@ struct arm
+ 	/** Flag reporting unavailability of the BKPT instruction. */
+ 	bool is_armv4;
+ 
++	/** Backpointer to the target. */
++	struct target *target;
++
++	/** Handle for the debug module, if one is present. */
++	struct arm_dpm *dpm;
++
+ 	/** Handle for the Embedded Trace Module, if one is present. */
+ 	struct etm_context *etm;
+ 
+
+commit ad75af0b17af75d57b95298fb40784d33cc8f3e2
+Author: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+Date:   Tue Nov 24 00:13:43 2009 -0800
+
+    target: cope with *any* error setting a breakpoint
+    
+    It's wrong to map unrecognized failure codes to success.
+    
+    Signed-off-by: David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dbrownell at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/breakpoints.c b/src/target/breakpoints.c
+index f657ddc..3ab1464 100644
+--- a/src/target/breakpoints.c
++++ b/src/target/breakpoints.c
+@@ -46,6 +46,7 @@ int breakpoint_add(struct target *target, uint32_t address, uint32_t length, enu
+ {
+ 	struct breakpoint *breakpoint = target-&gt;breakpoints;
+ 	struct breakpoint **breakpoint_p = &amp;target-&gt;breakpoints;
++	char *reason;
+ 	int retval;
+ 	int n;
+ 
+@@ -53,7 +54,11 @@ int breakpoint_add(struct target *target, uint32_t address, uint32_t length, enu
+ 	while (breakpoint)
+ 	{
+ 		n++;
+-		if (breakpoint-&gt;address == address){
++		if (breakpoint-&gt;address == address) {
++			/* FIXME don't assume &quot;same address&quot; means &quot;same
++			 * breakpoint&quot; ... check all the parameters before
++			 * succeeding.
++			 */
+ 			LOG_DEBUG(&quot;Duplicate Breakpoint address: 0x%08&quot; PRIx32 &quot; (BP %d)&quot;,
+ 				  address, breakpoint-&gt;unique_id );
+ 			return ERROR_OK;
+@@ -71,31 +76,24 @@ int breakpoint_add(struct target *target, uint32_t address, uint32_t length, enu
+ 	(*breakpoint_p)-&gt;next = NULL;
+ 	(*breakpoint_p)-&gt;unique_id = bpwp_unique_id++;
+ 
+-	if ((retval = target_add_breakpoint(target, *breakpoint_p)) != ERROR_OK)
+-	{
+-		switch (retval)
+-		{
+-			case ERROR_TARGET_RESOURCE_NOT_AVAILABLE:
+-				LOG_INFO(&quot;can't add %s breakpoint, resource not available (BPID=%d)&quot;,
+-					 breakpoint_type_strings[(*breakpoint_p)-&gt;type],
+-					 (*breakpoint_p)-&gt;unique_id );
+-
+-				free((*breakpoint_p)-&gt;orig_instr);
+-				free(*breakpoint_p);
+-				*breakpoint_p = NULL;
+-				return retval;
+-				break;
+-			case ERROR_TARGET_NOT_HALTED:
+-				LOG_INFO(&quot;can't add breakpoint while target is running (BPID: %d)&quot;,
+-						 (*breakpoint_p)-&gt;unique_id );
+-				free((*breakpoint_p)-&gt;orig_instr);
+-				free(*breakpoint_p);
+-				*breakpoint_p = NULL;
+-				return retval;
+-				break;
+-			default:
+-				break;
+-		}
++	retval = target_add_breakpoint(target, *breakpoint_p);
++	switch (retval) {
++	case ERROR_OK:
++		break;
++	case ERROR_TARGET_RESOURCE_NOT_AVAILABLE:
++		reason = &quot;resource not available&quot;;
++		goto fail;
++	case ERROR_TARGET_NOT_HALTED:
++		reason = &quot;target running&quot;;
++		goto fail;
++	default:
++		reason = &quot;unknown reason&quot;;
++fail:
++		LOG_ERROR(&quot;can't add breakpoint: %s&quot;, reason);
++		free((*breakpoint_p)-&gt;orig_instr);
++		free(*breakpoint_p);
++		*breakpoint_p = NULL;
++		return retval;
+ 	}
+ 
+ 	LOG_DEBUG(&quot;added %s breakpoint at 0x%8.8&quot; PRIx32 &quot; of length 0x%8.8x, (BPID: %d)&quot;,
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/Makefile.am    |    2 +
+ src/target/arm11.c        |   50 -----
+ src/target/arm11.h        |   13 +-
+ src/target/arm11_dbgtap.c |   73 +++++++
+ src/target/arm11_dbgtap.h |    3 +
+ src/target/arm_dpm.c      |  529 +++++++++++++++++++++++++++++++++++++++++++++
+ src/target/arm_dpm.h      |   87 ++++++++
+ src/target/armv4_5.c      |    1 +
+ src/target/armv4_5.h      |    6 +
+ src/target/breakpoints.c  |   50 ++---
+ 10 files changed, 729 insertions(+), 85 deletions(-)
+ create mode 100644 src/target/arm_dpm.c
+ create mode 100644 src/target/arm_dpm.h
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001851.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-541-g0583cb0
+</A></li>
+	<LI>Next message: <A HREF="001853.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-549-g3efc99b
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1852">[ date ]</a>
+              <a href="thread.html#1852">[ thread ]</a>
+              <a href="subject.html#1852">[ subject ]</a>
+              <a href="author.html#1852">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

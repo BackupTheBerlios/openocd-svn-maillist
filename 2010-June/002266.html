@@ -1,0 +1,1311 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-287-g4532dc7
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-287-g4532dc7&In-Reply-To=%3CE1ON4hA-00036d-71%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002265.html">
+   <LINK REL="Next"  HREF="002267.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-287-g4532dc7</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-287-g4532dc7&In-Reply-To=%3CE1ON4hA-00036d-71%40sfp-scmshell-4.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-287-g4532dc7">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Fri Jun 11 15:54:48 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002265.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-284-g73aaaf4
+</A></li>
+        <LI>Next message: <A HREF="002267.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-291-g9e62f86
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2266">[ date ]</a>
+              <a href="thread.html#2266">[ thread ]</a>
+              <a href="subject.html#2266">[ subject ]</a>
+              <a href="author.html#2266">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  4532dc78314a543f205e15d37d1bc7fa03df7595 (commit)
+       via  0538081246fafbfb74d554bb1b758412534aa254 (commit)
+       via  ecc8041c0f4c30a7310c0f8414a5261ee7a090ca (commit)
+      from  73aaaf483035cfe79fe339d6c073e851bc9f8f9a (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 4532dc78314a543f205e15d37d1bc7fa03df7595
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Fri Jun 11 08:10:39 2010 +0200
+
+    flash: add error handling to get_flash_by_addr/name
+    
+    autoprobing can fail and this error has to be
+    reported up the call stack.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/flash/nor/core.c b/src/flash/nor/core.c
+index 429bad6..d2f2754 100644
+--- a/src/flash/nor/core.c
++++ b/src/flash/nor/core.c
+@@ -197,7 +197,7 @@ struct flash_bank *get_flash_bank_by_name_noprobe(const char *name)
+ 	return NULL;
+ }
+ 
+-struct flash_bank *get_flash_bank_by_name(const char *name)
++int get_flash_bank_by_name(const char *name, struct flash_bank **bank_result)
+ {
+ 	struct flash_bank *bank;
+ 	int retval;
+@@ -210,11 +210,12 @@ struct flash_bank *get_flash_bank_by_name(const char *name)
+ 		if (retval != ERROR_OK)
+ 		{
+ 			LOG_ERROR(&quot;auto_probe failed %d\n&quot;, retval);
+-			return NULL;
++			return retval;
+ 		}
+ 	}
+ 
+-	return bank;
++	*bank_result = bank;
++	return ERROR_OK;
+ }
+ 
+ int get_flash_bank_by_num(int num, struct flash_bank **bank)
+@@ -238,8 +239,9 @@ int get_flash_bank_by_num(int num, struct flash_bank **bank)
+ 	return ERROR_OK;
+ }
+ 
+-/* lookup flash bank by address */
+-struct flash_bank *get_flash_bank_by_addr(struct target *target, uint32_t addr)
++/* lookup flash bank by address, bank not found is success, but
++ * result_bank is set to NULL. */
++int get_flash_bank_by_addr(struct target *target, uint32_t addr, bool check, struct flash_bank **result_bank)
+ {
+ 	struct flash_bank *c;
+ 
+@@ -252,14 +254,22 @@ struct flash_bank *get_flash_bank_by_addr(struct target *target, uint32_t addr)
+ 		if (retval != ERROR_OK)
+ 		{
+ 			LOG_ERROR(&quot;auto_probe failed %d\n&quot;, retval);
+-			return NULL;
++			return retval;
+ 		}
+ 		/* check whether address belongs to this flash bank */
+ 		if ((addr &gt;= c-&gt;base) &amp;&amp; (addr &lt;= c-&gt;base + (c-&gt;size - 1)) &amp;&amp; target == c-&gt;target)
+-			return c;
++		{
++			*result_bank = c;
++			return ERROR_OK;
++		}
+ 	}
+-	LOG_ERROR(&quot;No flash at address 0x%08&quot; PRIx32 &quot;\n&quot;, addr);
+-	return NULL;
++	*result_bank = NULL;
++	if (check)
++	{
++		LOG_ERROR(&quot;No flash at address 0x%08&quot; PRIx32 &quot;\n&quot;, addr);
++		return ERROR_FAIL;
++	}
++	return ERROR_OK;
+ }
+ 
+ int default_flash_mem_blank_check(struct flash_bank *bank)
+@@ -379,8 +389,9 @@ static int flash_iterate_address_range(struct target *target,
+ 	int last = -1;
+ 	int i;
+ 
+-	if ((c = get_flash_bank_by_addr(target, addr)) == NULL)
+-		return ERROR_FLASH_DST_OUT_OF_BANK; /* no corresponding bank found */
++	int retval = get_flash_bank_by_addr(target, addr, true, &amp;c);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if (c-&gt;size == 0 || c-&gt;num_sectors == 0)
+ 	{
+@@ -588,7 +599,11 @@ int flash_write_unlock(struct target *target, struct image *image,
+ 		}
+ 
+ 		/* find the corresponding flash bank */
+-		if ((c = get_flash_bank_by_addr(target, run_address)) == NULL)
++		int retval;
++		retval = get_flash_bank_by_addr(target, run_address, false, &amp;c);
++		if (retval != ERROR_OK)
++			return retval;
++		if (c == NULL)
+ 		{
+ 			section++; /* and skip it */
+ 			section_offset = 0;
+diff --git a/src/flash/nor/core.h b/src/flash/nor/core.h
+index 17f1c53..ff14df0 100644
+--- a/src/flash/nor/core.h
++++ b/src/flash/nor/core.h
+@@ -168,7 +168,7 @@ int default_flash_mem_blank_check(struct flash_bank *bank);
+  * bank number: when two str9x banks are defined, then 'str9x.1' refers
+  * to the second.
+  */
+-struct flash_bank *get_flash_bank_by_name(const char *name);
++int get_flash_bank_by_name(const char *name, struct flash_bank **bank_result);
+ /**
+  * Returns the flash bank specified by @a name, which matches the
+  * driver name and a suffix (option) specify the driver-specific
+@@ -206,8 +206,9 @@ struct flash_bank *get_flash_bank_by_num_noprobe(int num);
+  * Returns the flash bank located at a specified address.
+  * @param target The target, presumed to contain one or more banks.
+  * @param addr An address that is within the range of the bank.
++ * @param check return ERROR_OK and result_bank NULL if the bank does not exist
+  * @returns The struct flash_bank located at @a addr, or NULL.
+  */
+-struct flash_bank *get_flash_bank_by_addr(struct target *target, uint32_t addr);
++int get_flash_bank_by_addr(struct target *target, uint32_t addr, bool check, struct flash_bank **result_bank);
+ 
+ #endif // FLASH_NOR_CORE_H
+diff --git a/src/flash/nor/tcl.c b/src/flash/nor/tcl.c
+index cf1ca4a..3d67327 100644
+--- a/src/flash/nor/tcl.c
++++ b/src/flash/nor/tcl.c
+@@ -35,7 +35,9 @@ COMMAND_HELPER(flash_command_get_bank, unsigned name_index,
+ 		struct flash_bank **bank)
+ {
+ 	const char *name = CMD_ARGV[name_index];
+-	*bank = get_flash_bank_by_name(name);
++	int retval = get_flash_bank_by_name(name, bank);
++	if (retval != ERROR_OK)
++		return retval;
+ 	if (*bank)
+ 		return ERROR_OK;
+ 
+@@ -238,11 +240,9 @@ COMMAND_HANDLER(handle_flash_erase_address_command)
+ 		return ERROR_COMMAND_SYNTAX_ERROR;
+ 	}
+ 
+-	p = get_flash_bank_by_addr(target, address);
+-	if (p == NULL)
+-	{
+-		return ERROR_FAIL;
+-	}
++	retval = get_flash_bank_by_addr(target, address, true, &amp;p);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	/* We can't know if we did a resume + halt, in which case we no longer know the erased state */
+ 	flash_set_dirty();
+@@ -544,12 +544,9 @@ COMMAND_HANDLER(handle_flash_fill_command)
+ 	{
+ 		struct flash_bank *bank;
+ 
+-		bank = get_flash_bank_by_addr(target, address);
+-		if (bank == NULL)
+-		{
+-			retval = ERROR_FAIL;
++		retval = get_flash_bank_by_addr(target, address, true, &amp;bank );
++		if (retval != ERROR_OK)
+ 			goto done;
+-		}
+ 
+ 		cur_size = MIN((count * wordsize - wrote), chunksize);
+ 		err = flash_driver_write(bank, chunk, address - bank-&gt;base + wrote, cur_size);
+
+commit 0538081246fafbfb74d554bb1b758412534aa254
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Thu Jun 10 16:18:14 2010 +0200
+
+    arm mmu: error propagation added for address translation
+    
+    The return value for MMU translation was a mess, either
+    error or value.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/target/arm720t.c b/src/target/arm720t.c
+index 0093360..867eb94 100644
+--- a/src/target/arm720t.c
++++ b/src/target/arm720t.c
+@@ -260,7 +260,10 @@ static int arm720_virt2phys(struct target *target,
+ 	uint32_t ap;
+ 	struct arm720t_common *arm720t = target_to_arm720(target);
+ 
+-	uint32_t ret = armv4_5_mmu_translate_va(target, &amp;arm720t-&gt;armv4_5_mmu, virtual, &amp;type, &amp;cb, &amp;domain, &amp;ap);
++	uint32_t ret;
++	int retval = armv4_5_mmu_translate_va(target, &amp;arm720t-&gt;armv4_5_mmu, virtual, &amp;type, &amp;cb, &amp;domain, &amp;ap, &amp;ret);
++	if (retval != ERROR_OK)
++		return retval;
+ 	if (type == -1)
+ 	{
+ 		return ret;
+diff --git a/src/target/arm920t.c b/src/target/arm920t.c
+index 658315b..3175196 100644
+--- a/src/target/arm920t.c
++++ b/src/target/arm920t.c
+@@ -514,8 +514,11 @@ static int arm920_virt2phys(struct target *target,
+ 	uint32_t ap;
+ 	struct arm920t_common *arm920t = target_to_arm920(target);
+ 
+-	uint32_t ret = armv4_5_mmu_translate_va(target,
+-			&amp;arm920t-&gt;armv4_5_mmu, virt, &amp;type, &amp;cb, &amp;domain, &amp;ap);
++	uint32_t ret;
++	int retval = armv4_5_mmu_translate_va(target,
++			&amp;arm920t-&gt;armv4_5_mmu, virt, &amp;type, &amp;cb, &amp;domain, &amp;ap, &amp;ret);
++	if (retval != ERROR_OK)
++		return retval;
+ 	if (type == -1)
+ 	{
+ 		return ret;
+@@ -589,8 +592,10 @@ int arm920t_write_memory(struct target *target, uint32_t address,
+ 		/*
+ 		 * We need physical address and cb
+ 		 */
+-		pa = armv4_5_mmu_translate_va(target, &amp;arm920t-&gt;armv4_5_mmu,
+-				address, &amp;type, &amp;cb, &amp;domain, &amp;ap);
++		int retval = armv4_5_mmu_translate_va(target, &amp;arm920t-&gt;armv4_5_mmu,
++				address, &amp;type, &amp;cb, &amp;domain, &amp;ap, &amp;pa);
++		if (retval != ERROR_OK)
++			return retval;
+ 		if (type == -1)
+ 			return pa;
+ 
+diff --git a/src/target/arm926ejs.c b/src/target/arm926ejs.c
+index 1f753a6..a7aac55 100644
+--- a/src/target/arm926ejs.c
++++ b/src/target/arm926ejs.c
+@@ -726,7 +726,10 @@ static int arm926ejs_virt2phys(struct target *target, uint32_t virtual, uint32_t
+ 	uint32_t ap;
+ 	struct arm926ejs_common *arm926ejs = target_to_arm926(target);
+ 
+-	uint32_t ret = armv4_5_mmu_translate_va(target, &amp;arm926ejs-&gt;armv4_5_mmu, virtual, &amp;type, &amp;cb, &amp;domain, &amp;ap);
++	uint32_t ret;
++	int retval = armv4_5_mmu_translate_va(target, &amp;arm926ejs-&gt;armv4_5_mmu, virtual, &amp;type, &amp;cb, &amp;domain, &amp;ap, &amp;ret);
++	if (retval != ERROR_OK)
++		return retval;
+ 	if (type == -1)
+ 	{
+ 		return ret;
+diff --git a/src/target/armv4_5_mmu.c b/src/target/armv4_5_mmu.c
+index fc1dde7..6990d13 100644
+--- a/src/target/armv4_5_mmu.c
++++ b/src/target/armv4_5_mmu.c
+@@ -26,15 +26,18 @@
+ #include &quot;armv4_5_mmu.h&quot;
+ 
+ 
+-uint32_t armv4_5_mmu_translate_va(struct target *target, struct armv4_5_mmu_common *armv4_5_mmu, uint32_t va, int *type, uint32_t *cb, int *domain, uint32_t *ap)
++int armv4_5_mmu_translate_va(struct target *target, struct armv4_5_mmu_common *armv4_5_mmu, uint32_t va, int *type, uint32_t *cb, int *domain, uint32_t *ap, uint32_t *val)
+ {
+ 	uint32_t first_lvl_descriptor = 0x0;
+ 	uint32_t second_lvl_descriptor = 0x0;
+ 	uint32_t ttb = armv4_5_mmu-&gt;get_ttb(target);
++	int retval;
+ 
+-	armv4_5_mmu_read_physical(target, armv4_5_mmu,
++	retval = armv4_5_mmu_read_physical(target, armv4_5_mmu,
+ 		(ttb &amp; 0xffffc000) | ((va &amp; 0xfff00000) &gt;&gt; 18),
+ 		4, 1, (uint8_t*)&amp;first_lvl_descriptor);
++	if (retval != ERROR_OK)
++	  return retval;
+ 	first_lvl_descriptor = target_buffer_get_u32(target, (uint8_t*)&amp;first_lvl_descriptor);
+ 
+ 	LOG_DEBUG(&quot;1st lvl desc: %8.8&quot; PRIx32 &quot;&quot;, first_lvl_descriptor);
+@@ -62,22 +65,27 @@ uint32_t armv4_5_mmu_translate_va(struct target *target, struct armv4_5_mmu_comm
+ 		*type = ARMV4_5_SECTION;
+ 		*cb = (first_lvl_descriptor &amp; 0xc) &gt;&gt; 2;
+ 		*ap = (first_lvl_descriptor &amp; 0xc00) &gt;&gt; 10;
+-		return (first_lvl_descriptor &amp; 0xfff00000) | (va &amp; 0x000fffff);
++		*val = (first_lvl_descriptor &amp; 0xfff00000) | (va &amp; 0x000fffff);
++		return ERROR_OK;
+ 	}
+ 
+ 	if ((first_lvl_descriptor &amp; 0x3) == 1)
+ 	{
+ 		/* coarse page table */
+-		armv4_5_mmu_read_physical(target, armv4_5_mmu,
++		retval = armv4_5_mmu_read_physical(target, armv4_5_mmu,
+ 			(first_lvl_descriptor &amp; 0xfffffc00) | ((va &amp; 0x000ff000) &gt;&gt; 10),
+ 			4, 1, (uint8_t*)&amp;second_lvl_descriptor);
++		if (retval != ERROR_OK)
++			return retval;
+ 	}
+ 	else if ((first_lvl_descriptor &amp; 0x3) == 3)
+ 	{
+ 		/* fine page table */
+-		armv4_5_mmu_read_physical(target, armv4_5_mmu,
++		retval = armv4_5_mmu_read_physical(target, armv4_5_mmu,
+ 			(first_lvl_descriptor &amp; 0xfffff000) | ((va &amp; 0x000ffc00) &gt;&gt; 8),
+ 			4, 1, (uint8_t*)&amp;second_lvl_descriptor);
++		if (retval != ERROR_OK)
++			return retval;
+ 	}
+ 
+ 	second_lvl_descriptor = target_buffer_get_u32(target, (uint8_t*)&amp;second_lvl_descriptor);
+@@ -99,7 +107,8 @@ uint32_t armv4_5_mmu_translate_va(struct target *target, struct armv4_5_mmu_comm
+ 		/* large page descriptor */
+ 		*type = ARMV4_5_LARGE_PAGE;
+ 		*ap = (second_lvl_descriptor &amp; 0xff0) &gt;&gt; 4;
+-		return (second_lvl_descriptor &amp; 0xffff0000) | (va &amp; 0x0000ffff);
++		*val = (second_lvl_descriptor &amp; 0xffff0000) | (va &amp; 0x0000ffff);
++		return ERROR_OK;
+ 	}
+ 
+ 	if ((second_lvl_descriptor &amp; 0x3) == 2)
+@@ -107,7 +116,8 @@ uint32_t armv4_5_mmu_translate_va(struct target *target, struct armv4_5_mmu_comm
+ 		/* small page descriptor */
+ 		*type = ARMV4_5_SMALL_PAGE;
+ 		*ap = (second_lvl_descriptor &amp; 0xff0) &gt;&gt; 4;
+-		return (second_lvl_descriptor &amp; 0xfffff000) | (va &amp; 0x00000fff);
++		*val = (second_lvl_descriptor &amp; 0xfffff000) | (va &amp; 0x00000fff);
++		return ERROR_OK;
+ 	}
+ 
+ 	if ((second_lvl_descriptor &amp; 0x3) == 3)
+@@ -115,7 +125,8 @@ uint32_t armv4_5_mmu_translate_va(struct target *target, struct armv4_5_mmu_comm
+ 		/* tiny page descriptor */
+ 		*type = ARMV4_5_TINY_PAGE;
+ 		*ap = (second_lvl_descriptor &amp; 0x30) &gt;&gt; 4;
+-		return (second_lvl_descriptor &amp; 0xfffffc00) | (va &amp; 0x000003ff);
++		*val = (second_lvl_descriptor &amp; 0xfffffc00) | (va &amp; 0x000003ff);
++		return ERROR_OK;
+ 	}
+ 
+ 	/* should not happen */
+diff --git a/src/target/armv4_5_mmu.h b/src/target/armv4_5_mmu.h
+index 6b9ed34..3a6851f 100644
+--- a/src/target/armv4_5_mmu.h
++++ b/src/target/armv4_5_mmu.h
+@@ -43,9 +43,9 @@ enum
+ 
+ extern char* armv4_5_page_type_names[];
+ 
+-uint32_t armv4_5_mmu_translate_va(struct target *target,
++int armv4_5_mmu_translate_va(struct target *target,
+ 		struct armv4_5_mmu_common *armv4_5_mmu, uint32_t va, int *type,
+-		uint32_t *cb, int *domain, uint32_t *ap);
++		uint32_t *cb, int *domain, uint32_t *ap, uint32_t *val);
+ 
+ int armv4_5_mmu_read_physical(struct target *target,
+ 		struct armv4_5_mmu_common *armv4_5_mmu,
+diff --git a/src/target/cortex_a8.c b/src/target/cortex_a8.c
+index aa0e030..2edb9e3 100644
+--- a/src/target/cortex_a8.c
++++ b/src/target/cortex_a8.c
+@@ -1817,8 +1817,11 @@ static int cortex_a8_virt2phys(struct target *target,
+         cortex_a8-&gt;current_address_mode = ARM_MODE_USR;
+     else /* Linux kernel */
+         cortex_a8-&gt;current_address_mode = ARM_MODE_SVC;
+-	uint32_t ret = armv4_5_mmu_translate_va(target,
+-			&amp;armv7a-&gt;armv4_5_mmu, virt, &amp;type, &amp;cb, &amp;domain, &amp;ap);
++	uint32_t ret;
++	int retval = armv4_5_mmu_translate_va(target,
++			&amp;armv7a-&gt;armv4_5_mmu, virt, &amp;type, &amp;cb, &amp;domain, &amp;ap, &amp;ret);
++	if (retval != ERROR_OK)
++		return retval;
+     /* Reset the flag. We don't want someone else to use it by error */
+     cortex_a8-&gt;current_address_mode = ARM_MODE_ANY;
+ 
+diff --git a/src/target/xscale.c b/src/target/xscale.c
+index ed0eef3..ab7eee3 100644
+--- a/src/target/xscale.c
++++ b/src/target/xscale.c
+@@ -3226,7 +3226,10 @@ static int xscale_virt2phys(struct target *target,
+ 		return ERROR_TARGET_INVALID;
+ 	}
+ 
+-	uint32_t ret = armv4_5_mmu_translate_va(target, &amp;xscale-&gt;armv4_5_mmu, virtual, &amp;type, &amp;cb, &amp;domain, &amp;ap);
++	uint32_t ret;
++	int retval = armv4_5_mmu_translate_va(target, &amp;xscale-&gt;armv4_5_mmu, virtual, &amp;type, &amp;cb, &amp;domain, &amp;ap, &amp;ret);
++	if (retval != ERROR_OK)
++		return retval;
+ 	if (type == -1)
+ 	{
+ 		return ret;
+
+commit ecc8041c0f4c30a7310c0f8414a5261ee7a090ca
+Author: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+Date:   Thu Jun 10 15:27:35 2010 +0200
+
+    cfi: fix error propagation
+    
+    any read/write operation to memory can fail.
+    
+    block write algorithm error propagation was broken
+    in that it would continue after an error was reported
+    writing data to ram or the algorithm failing.
+    
+    Signed-off-by: &#195;&#152;yvind Harboe &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">oyvind.harboe at zylin.com</A>&gt;
+
+diff --git a/src/flash/nor/cfi.c b/src/flash/nor/cfi.c
+index f0ab332..f911bb7 100644
+--- a/src/flash/nor/cfi.c
++++ b/src/flash/nor/cfi.c
+@@ -146,37 +146,45 @@ static int cfi_send_command(struct flash_bank *bank, uint8_t cmd, uint32_t addre
+  * flash banks are expected to be made of similar chips
+  * the query result should be the same for all
+  */
+-static uint8_t cfi_query_u8(struct flash_bank *bank, int sector, uint32_t offset)
++static int cfi_query_u8(struct flash_bank *bank, int sector, uint32_t offset, uint8_t *val)
+ {
+ 	struct target *target = bank-&gt;target;
+ 	uint8_t data[CFI_MAX_BUS_WIDTH];
+ 
+-	target_read_memory(target, flash_address(bank, sector, offset), bank-&gt;bus_width, 1, data);
++	int retval;
++	retval = target_read_memory(target, flash_address(bank, sector, offset), bank-&gt;bus_width, 1, data);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if (bank-&gt;target-&gt;endianness == TARGET_LITTLE_ENDIAN)
+-		return data[0];
++		*val = data[0];
+ 	else
+-		return data[bank-&gt;bus_width - 1];
++		*val = data[bank-&gt;bus_width - 1];
++
++	return ERROR_OK;
+ }
+ 
+ /* read unsigned 8-bit value from the bank
+  * in case of a bank made of multiple chips,
+  * the individual values are ORed
+  */
+-static uint8_t cfi_get_u8(struct flash_bank *bank, int sector, uint32_t offset)
++static int cfi_get_u8(struct flash_bank *bank, int sector, uint32_t offset, uint8_t *val)
+ {
+ 	struct target *target = bank-&gt;target;
+ 	uint8_t data[CFI_MAX_BUS_WIDTH];
+ 	int i;
+ 
+-	target_read_memory(target, flash_address(bank, sector, offset), bank-&gt;bus_width, 1, data);
++	int retval;
++	retval = target_read_memory(target, flash_address(bank, sector, offset), bank-&gt;bus_width, 1, data);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if (bank-&gt;target-&gt;endianness == TARGET_LITTLE_ENDIAN)
+ 	{
+ 		for (i = 0; i &lt; bank-&gt;bus_width / bank-&gt;chip_width; i++)
+ 			data[0] |= data[i];
+ 
+-		return data[0];
++		*val = data[0];
+ 	}
+ 	else
+ 	{
+@@ -184,53 +192,75 @@ static uint8_t cfi_get_u8(struct flash_bank *bank, int sector, uint32_t offset)
+ 		for (i = 0; i &lt; bank-&gt;bus_width / bank-&gt;chip_width; i++)
+ 			value |= data[bank-&gt;bus_width - 1 - i];
+ 
+-		return value;
++		*val = value;
+ 	}
++	return ERROR_OK;
+ }
+ 
+-static uint16_t cfi_query_u16(struct flash_bank *bank, int sector, uint32_t offset)
++static int cfi_query_u16(struct flash_bank *bank, int sector, uint32_t offset, uint16_t *val)
+ {
+ 	struct target *target = bank-&gt;target;
+ 	struct cfi_flash_bank *cfi_info = bank-&gt;driver_priv;
+ 	uint8_t data[CFI_MAX_BUS_WIDTH * 2];
++	int retval;
+ 
+ 	if (cfi_info-&gt;x16_as_x8)
+ 	{
+ 		uint8_t i;
+ 		for (i = 0;i &lt; 2;i++)
+-			target_read_memory(target, flash_address(bank, sector, offset + i), bank-&gt;bus_width, 1,
++		{
++			retval = target_read_memory(target, flash_address(bank, sector, offset + i), bank-&gt;bus_width, 1,
+ 				&amp;data[i*bank-&gt;bus_width]);
++			if (retval != ERROR_OK)
++				return retval;
++		}
++	} else
++	{
++		retval = target_read_memory(target, flash_address(bank, sector, offset), bank-&gt;bus_width, 2, data);
++		if (retval != ERROR_OK)
++			return retval;
+ 	}
+-	else
+-		target_read_memory(target, flash_address(bank, sector, offset), bank-&gt;bus_width, 2, data);
+ 
+ 	if (bank-&gt;target-&gt;endianness == TARGET_LITTLE_ENDIAN)
+-		return data[0] | data[bank-&gt;bus_width] &lt;&lt; 8;
++		*val = data[0] | data[bank-&gt;bus_width] &lt;&lt; 8;
+ 	else
+-		return data[bank-&gt;bus_width - 1] | data[(2 * bank-&gt;bus_width) - 1] &lt;&lt; 8;
++		*val = data[bank-&gt;bus_width - 1] | data[(2 * bank-&gt;bus_width) - 1] &lt;&lt; 8;
++
++	return ERROR_OK;
+ }
+ 
+-static uint32_t cfi_query_u32(struct flash_bank *bank, int sector, uint32_t offset)
++static int cfi_query_u32(struct flash_bank *bank, int sector, uint32_t offset, uint32_t *val)
+ {
+ 	struct target *target = bank-&gt;target;
+ 	struct cfi_flash_bank *cfi_info = bank-&gt;driver_priv;
+ 	uint8_t data[CFI_MAX_BUS_WIDTH * 4];
++	int retval;
+ 
+ 	if (cfi_info-&gt;x16_as_x8)
+ 	{
+ 		uint8_t i;
+ 		for (i = 0;i &lt; 4;i++)
+-			target_read_memory(target, flash_address(bank, sector, offset + i), bank-&gt;bus_width, 1,
++		{
++			retval = target_read_memory(target, flash_address(bank, sector, offset + i), bank-&gt;bus_width, 1,
+ 				&amp;data[i*bank-&gt;bus_width]);
++			if (retval != ERROR_OK)
++				return retval;
++		}
+ 	}
+ 	else
+-		target_read_memory(target, flash_address(bank, sector, offset), bank-&gt;bus_width, 4, data);
++	{
++		retval = target_read_memory(target, flash_address(bank, sector, offset), bank-&gt;bus_width, 4, data);
++		if (retval != ERROR_OK)
++			return retval;
++	}
+ 
+ 	if (bank-&gt;target-&gt;endianness == TARGET_LITTLE_ENDIAN)
+-		return data[0] | data[bank-&gt;bus_width] &lt;&lt; 8 | data[bank-&gt;bus_width * 2] &lt;&lt; 16 | data[bank-&gt;bus_width * 3] &lt;&lt; 24;
++		*val = data[0] | data[bank-&gt;bus_width] &lt;&lt; 8 | data[bank-&gt;bus_width * 2] &lt;&lt; 16 | data[bank-&gt;bus_width * 3] &lt;&lt; 24;
+ 	else
+-		return data[bank-&gt;bus_width - 1] | data[(2* bank-&gt;bus_width) - 1] &lt;&lt; 8 |
++		*val = data[bank-&gt;bus_width - 1] | data[(2* bank-&gt;bus_width) - 1] &lt;&lt; 8 |
+ 				data[(3 * bank-&gt;bus_width) - 1] &lt;&lt; 16 | data[(4 * bank-&gt;bus_width) - 1] &lt;&lt; 24;
++
++	return ERROR_OK;
+ }
+ 
+ static int cfi_reset(struct flash_bank *bank)
+@@ -275,13 +305,27 @@ static void cfi_intel_clear_status_register(struct flash_bank *bank)
+ 	cfi_send_command(bank, 0x50, flash_address(bank, 0, 0x0));
+ }
+ 
+-static uint8_t cfi_intel_wait_status_busy(struct flash_bank *bank, int timeout)
++static int cfi_intel_wait_status_busy(struct flash_bank *bank, int timeout, uint8_t *val)
+ {
+ 	uint8_t status;
+ 
+-	while ((!((status = cfi_get_u8(bank, 0, 0x0)) &amp; 0x80)) &amp;&amp; (timeout-- &gt; 0))
++	int retval = ERROR_OK;
++
++	for (;;)
+ 	{
+-		LOG_DEBUG(&quot;status: 0x%x&quot;, status);
++		if (timeout-- &lt; 0)
++		{
++		  LOG_ERROR(&quot;timeout while waiting for WSM to become ready&quot;);
++		  return ERROR_FAIL;
++		}
++
++		retval = cfi_get_u8(bank, 0, 0x0, &amp;status);
++		if (retval != ERROR_OK)
++			return retval;
++
++		if (status &amp; 0x80)
++			break;
++
+ 		alive_sleep(1);
+ 	}
+ 
+@@ -290,11 +334,7 @@ static uint8_t cfi_intel_wait_status_busy(struct flash_bank *bank, int timeout)
+ 
+ 	LOG_DEBUG(&quot;status: 0x%x&quot;, status);
+ 
+-	if ((status &amp; 0x80) != 0x80)
+-	{
+-		LOG_ERROR(&quot;timeout while waiting for WSM to become ready&quot;);
+-	}
+-	else if (status != 0x80)
++	if (status != 0x80)
+ 	{
+ 		LOG_ERROR(&quot;status register: 0x%x&quot;, status);
+ 		if (status &amp; 0x2)
+@@ -311,24 +351,38 @@ static uint8_t cfi_intel_wait_status_busy(struct flash_bank *bank, int timeout)
+ 			LOG_ERROR(&quot;Block Erase Suspended&quot;);
+ 
+ 		cfi_intel_clear_status_register(bank);
++
++		retval = ERROR_FAIL;
+ 	}
+ 
+-	return status;
++	*val = status;
++	return retval;
+ }
+ 
+ static int cfi_spansion_wait_status_busy(struct flash_bank *bank, int timeout)
+ {
+ 	uint8_t status, oldstatus;
+ 	struct cfi_flash_bank *cfi_info = bank-&gt;driver_priv;
++	int retval;
+ 
+-	oldstatus = cfi_get_u8(bank, 0, 0x0);
++	retval = cfi_get_u8(bank, 0, 0x0, &amp;oldstatus);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	do {
+-		status = cfi_get_u8(bank, 0, 0x0);
++		retval = cfi_get_u8(bank, 0, 0x0, &amp;status);
++
++		if (retval != ERROR_OK)
++			return retval;
++
+ 		if ((status ^ oldstatus) &amp; 0x40) {
+ 			if (status &amp; cfi_info-&gt;status_poll_mask &amp; 0x20) {
+-				oldstatus = cfi_get_u8(bank, 0, 0x0);
+-				status = cfi_get_u8(bank, 0, 0x0);
++				retval = cfi_get_u8(bank, 0, 0x0, &amp;oldstatus);
++				if (retval != ERROR_OK)
++					return retval;
++				retval = cfi_get_u8(bank, 0, 0x0, &amp;status);
++				if (retval != ERROR_OK)
++					return retval;
+ 				if ((status ^ oldstatus) &amp; 0x40) {
+ 					LOG_ERROR(&quot;dq5 timeout, status: 0x%x&quot;, status);
+ 					return(ERROR_FLASH_OPERATION_FAILED);
+@@ -368,9 +422,15 @@ static int cfi_read_intel_pri_ext(struct flash_bank *bank)
+ 	}
+ 	cfi_info-&gt;pri_ext = pri_ext;
+ 
+-	pri_ext-&gt;pri[0] = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 0);
+-	pri_ext-&gt;pri[1] = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 1);
+-	pri_ext-&gt;pri[2] = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 2);
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 0, &amp;pri_ext-&gt;pri[0]);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 1, &amp;pri_ext-&gt;pri[1]);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 2, &amp;pri_ext-&gt;pri[2]);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if ((pri_ext-&gt;pri[0] != 'P') || (pri_ext-&gt;pri[1] != 'R') || (pri_ext-&gt;pri[2] != 'I'))
+ 	{
+@@ -382,36 +442,58 @@ static int cfi_read_intel_pri_ext(struct flash_bank *bank)
+ 		return ERROR_FLASH_BANK_INVALID;
+ 	}
+ 
+-	pri_ext-&gt;major_version = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 3);
+-	pri_ext-&gt;minor_version = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 4);
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 3, &amp;pri_ext-&gt;major_version);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 4, &amp;pri_ext-&gt;minor_version);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	LOG_DEBUG(&quot;pri: '%c%c%c', version: %c.%c&quot;, pri_ext-&gt;pri[0], pri_ext-&gt;pri[1], pri_ext-&gt;pri[2], pri_ext-&gt;major_version, pri_ext-&gt;minor_version);
+ 
+-	pri_ext-&gt;feature_support = cfi_query_u32(bank, 0, cfi_info-&gt;pri_addr + 5);
+-	pri_ext-&gt;suspend_cmd_support = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 9);
+-	pri_ext-&gt;blk_status_reg_mask = cfi_query_u16(bank, 0, cfi_info-&gt;pri_addr + 0xa);
++	retval = cfi_query_u32(bank, 0, cfi_info-&gt;pri_addr + 5, &amp;pri_ext-&gt;feature_support);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 9, &amp;pri_ext-&gt;suspend_cmd_support);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u16(bank, 0, cfi_info-&gt;pri_addr + 0xa, &amp;pri_ext-&gt;blk_status_reg_mask);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	LOG_DEBUG(&quot;feature_support: 0x%&quot; PRIx32 &quot;, suspend_cmd_support: 0x%x, blk_status_reg_mask: 0x%x&quot;,
+ 		  pri_ext-&gt;feature_support,
+ 		  pri_ext-&gt;suspend_cmd_support,
+ 		  pri_ext-&gt;blk_status_reg_mask);
+ 
+-	pri_ext-&gt;vcc_optimal = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 0xc);
+-	pri_ext-&gt;vpp_optimal = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 0xd);
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 0xc, &amp;pri_ext-&gt;vcc_optimal);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 0xd, &amp;pri_ext-&gt;vpp_optimal);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	LOG_DEBUG(&quot;Vcc opt: %x.%x, Vpp opt: %u.%x&quot;,
+ 		  (pri_ext-&gt;vcc_optimal &amp; 0xf0) &gt;&gt; 4, pri_ext-&gt;vcc_optimal &amp; 0x0f,
+ 		  (pri_ext-&gt;vpp_optimal &amp; 0xf0) &gt;&gt; 4, pri_ext-&gt;vpp_optimal &amp; 0x0f);
+ 
+-	pri_ext-&gt;num_protection_fields = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 0xe);
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 0xe, &amp;pri_ext-&gt;num_protection_fields);
++	if (retval != ERROR_OK)
++		return retval;
+ 	if (pri_ext-&gt;num_protection_fields != 1)
+ 	{
+ 		LOG_WARNING(&quot;expected one protection register field, but found %i&quot;, pri_ext-&gt;num_protection_fields);
+ 	}
+ 
+-	pri_ext-&gt;prot_reg_addr = cfi_query_u16(bank, 0, cfi_info-&gt;pri_addr + 0xf);
+-	pri_ext-&gt;fact_prot_reg_size = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 0x11);
+-	pri_ext-&gt;user_prot_reg_size = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 0x12);
++	retval = cfi_query_u16(bank, 0, cfi_info-&gt;pri_addr + 0xf, &amp;pri_ext-&gt;prot_reg_addr);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 0x11, &amp;pri_ext-&gt;fact_prot_reg_size);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 0x12, &amp;pri_ext-&gt;user_prot_reg_size);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	LOG_DEBUG(&quot;protection_fields: %i, prot_reg_addr: 0x%x, factory pre-programmed: %i, user programmable: %i&quot;, pri_ext-&gt;num_protection_fields, pri_ext-&gt;prot_reg_addr, 1 &lt;&lt; pri_ext-&gt;fact_prot_reg_size, 1 &lt;&lt; pri_ext-&gt;user_prot_reg_size);
+ 
+@@ -435,9 +517,15 @@ static int cfi_read_spansion_pri_ext(struct flash_bank *bank)
+ 	}
+ 	cfi_info-&gt;pri_ext = pri_ext;
+ 
+-	pri_ext-&gt;pri[0] = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 0);
+-	pri_ext-&gt;pri[1] = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 1);
+-	pri_ext-&gt;pri[2] = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 2);
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 0, &amp;pri_ext-&gt;pri[0]);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 1, &amp;pri_ext-&gt;pri[1]);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 2, &amp;pri_ext-&gt;pri[2]);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if ((pri_ext-&gt;pri[0] != 'P') || (pri_ext-&gt;pri[1] != 'R') || (pri_ext-&gt;pri[2] != 'I'))
+ 	{
+@@ -449,22 +537,48 @@ static int cfi_read_spansion_pri_ext(struct flash_bank *bank)
+ 		return ERROR_FLASH_BANK_INVALID;
+ 	}
+ 
+-	pri_ext-&gt;major_version = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 3);
+-	pri_ext-&gt;minor_version = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 4);
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 3, &amp;pri_ext-&gt;major_version);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 4, &amp;pri_ext-&gt;minor_version);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	LOG_DEBUG(&quot;pri: '%c%c%c', version: %c.%c&quot;, pri_ext-&gt;pri[0], pri_ext-&gt;pri[1], pri_ext-&gt;pri[2], pri_ext-&gt;major_version, pri_ext-&gt;minor_version);
+ 
+-	pri_ext-&gt;SiliconRevision = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 5);
+-	pri_ext-&gt;EraseSuspend    = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 6);
+-	pri_ext-&gt;BlkProt         = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 7);
+-	pri_ext-&gt;TmpBlkUnprotect = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 8);
+-	pri_ext-&gt;BlkProtUnprot   = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 9);
+-	pri_ext-&gt;SimultaneousOps = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 10);
+-	pri_ext-&gt;BurstMode       = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 11);
+-	pri_ext-&gt;PageMode        = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 12);
+-	pri_ext-&gt;VppMin          = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 13);
+-	pri_ext-&gt;VppMax          = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 14);
+-	pri_ext-&gt;TopBottom       = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 15);
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 5, &amp;pri_ext-&gt;SiliconRevision);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 6, &amp;pri_ext-&gt;EraseSuspend);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 7, &amp;pri_ext-&gt;BlkProt);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 8, &amp;pri_ext-&gt;TmpBlkUnprotect);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 9, &amp;pri_ext-&gt;BlkProtUnprot);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 10, &amp;pri_ext-&gt;SimultaneousOps);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 11, &amp;pri_ext-&gt;BurstMode);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 12, &amp;pri_ext-&gt;PageMode);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 13, &amp;pri_ext-&gt;VppMin);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 14, &amp;pri_ext-&gt;VppMax);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 15, &amp;pri_ext-&gt;TopBottom);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	LOG_DEBUG(&quot;Silicon Revision: 0x%x, Erase Suspend: 0x%x, Block protect: 0x%x&quot;, pri_ext-&gt;SiliconRevision,
+ 	      pri_ext-&gt;EraseSuspend, pri_ext-&gt;BlkProt);
+@@ -515,9 +629,15 @@ static int cfi_read_atmel_pri_ext(struct flash_bank *bank)
+ 
+ 	cfi_info-&gt;pri_ext = pri_ext;
+ 
+-	atmel_pri_ext.pri[0] = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 0);
+-	atmel_pri_ext.pri[1] = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 1);
+-	atmel_pri_ext.pri[2] = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 2);
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 0, &amp;atmel_pri_ext.pri[0]);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 1, &amp;atmel_pri_ext.pri[1]);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 2, &amp;atmel_pri_ext.pri[2]);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	if ((atmel_pri_ext.pri[0] != 'P') || (atmel_pri_ext.pri[1] != 'R') || (atmel_pri_ext.pri[2] != 'I'))
+ 	{
+@@ -533,18 +653,30 @@ static int cfi_read_atmel_pri_ext(struct flash_bank *bank)
+ 	pri_ext-&gt;pri[1] = atmel_pri_ext.pri[1];
+ 	pri_ext-&gt;pri[2] = atmel_pri_ext.pri[2];
+ 
+-	atmel_pri_ext.major_version = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 3);
+-	atmel_pri_ext.minor_version = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 4);
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 3, &amp;atmel_pri_ext.major_version);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 4, &amp;atmel_pri_ext.minor_version);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	LOG_DEBUG(&quot;pri: '%c%c%c', version: %c.%c&quot;, atmel_pri_ext.pri[0], atmel_pri_ext.pri[1], atmel_pri_ext.pri[2], atmel_pri_ext.major_version, atmel_pri_ext.minor_version);
+ 
+ 	pri_ext-&gt;major_version = atmel_pri_ext.major_version;
+ 	pri_ext-&gt;minor_version = atmel_pri_ext.minor_version;
+ 
+-	atmel_pri_ext.features = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 5);
+-	atmel_pri_ext.bottom_boot = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 6);
+-	atmel_pri_ext.burst_mode = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 7);
+-	atmel_pri_ext.page_mode = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 8);
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 5, &amp;atmel_pri_ext.features);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 6, &amp;atmel_pri_ext.bottom_boot);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 7, &amp;atmel_pri_ext.burst_mode);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, cfi_info-&gt;pri_addr + 8, &amp;atmel_pri_ext.page_mode);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	LOG_DEBUG(&quot;features: 0x%2.2x, bottom_boot: 0x%2.2x, burst_mode: 0x%2.2x, page_mode: 0x%2.2x&quot;,
+ 		atmel_pri_ext.features, atmel_pri_ext.bottom_boot, atmel_pri_ext.burst_mode, atmel_pri_ext.page_mode);
+@@ -697,7 +829,7 @@ FLASH_BANK_COMMAND_HANDLER(cfi_flash_bank_command)
+ 	cfi_info-&gt;write_algorithm = NULL;
+ 
+ 	/* bank wasn't probed yet */
+-	cfi_info-&gt;qry[0] = -1;
++	cfi_info-&gt;qry[0] = 0xff;
+ 
+ 	return ERROR_OK;
+ }
+@@ -722,7 +854,12 @@ static int cfi_intel_erase(struct flash_bank *bank, int first, int last)
+ 			return retval;
+ 		}
+ 
+-		if (cfi_intel_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;block_erase_timeout_typ)) == 0x80)
++		uint8_t status;
++		retval = cfi_intel_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;block_erase_timeout_typ), &amp;status);
++		if (retval != ERROR_OK)
++			return retval;
++
++		if (status == 0x80)
+ 			bank-&gt;sectors[i].is_erased = 1;
+ 		else
+ 		{
+@@ -873,7 +1010,10 @@ static int cfi_intel_protect(struct flash_bank *bank, int set, int first, int la
+ 		if (!(pri_ext-&gt;feature_support &amp; 0x20))
+ 		{
+ 			/* Clear lock bits operation may take up to 1.4s */
+-			cfi_intel_wait_status_busy(bank, 1400);
++			uint8_t status;
++			retval = cfi_intel_wait_status_busy(bank, 1400, &amp;status);
++			if (retval != ERROR_OK)
++				return retval;
+ 		}
+ 		else
+ 		{
+@@ -883,7 +1023,9 @@ static int cfi_intel_protect(struct flash_bank *bank, int set, int first, int la
+ 			{
+ 				return retval;
+ 			}
+-			block_status = cfi_get_u8(bank, i, 0x2);
++			retval = cfi_get_u8(bank, i, 0x2, &amp;block_status);
++			if (retval != ERROR_OK)
++				return retval;
+ 
+ 			if ((block_status &amp; 0x1) != set)
+ 			{
+@@ -892,7 +1034,10 @@ static int cfi_intel_protect(struct flash_bank *bank, int set, int first, int la
+ 				{
+ 					return retval;
+ 				}
+-				cfi_intel_wait_status_busy(bank, 10);
++				uint8_t status;
++				retval = cfi_intel_wait_status_busy(bank, 10, &amp;status);
++				if (retval != ERROR_OK)
++					return retval;
+ 
+ 				if (retry &gt; 10)
+ 					return ERROR_FLASH_OPERATION_FAILED;
+@@ -937,7 +1082,10 @@ static int cfi_intel_protect(struct flash_bank *bank, int set, int first, int la
+ 					return retval;
+ 				}
+ 
+-				cfi_intel_wait_status_busy(bank, 100);
++				uint8_t status;
++				retval = cfi_intel_wait_status_busy(bank, 100, &amp;status);
++				if (retval != ERROR_OK)
++					return retval;
+ 			}
+ 		}
+ 	}
+@@ -1223,7 +1371,8 @@ static int cfi_intel_write_block(struct flash_bank *bank, uint8_t *buffer, uint3
+ 		if (wsm_error)
+ 		{
+ 			/* read status register (outputs debug inforation) */
+-			cfi_intel_wait_status_busy(bank, 100);
++			uint8_t status;
++			cfi_intel_wait_status_busy(bank, 100, &amp;status);
+ 			cfi_intel_clear_status_register(bank);
+ 			retval = ERROR_FLASH_OPERATION_FAILED;
+ 			goto cleanup;
+@@ -1268,8 +1417,7 @@ static int cfi_spansion_write_block(struct flash_bank *bank, uint8_t *buffer, ui
+ 	struct working_area *source;
+ 	uint32_t buffer_size = 32768;
+ 	uint32_t status;
+-	int retval, retvaltemp;
+-	int exit_code = ERROR_OK;
++	int retval = ERROR_OK;
+ 
+ 	/* input parameters - */
+ 	/*	R0 = source address */
+@@ -1515,7 +1663,11 @@ static int cfi_spansion_write_block(struct flash_bank *bank, uint8_t *buffer, ui
+ 	{
+ 		uint32_t thisrun_count = (count &gt; buffer_size) ? buffer_size : count;
+ 
+-		retvaltemp = target_write_buffer(target, source-&gt;address, thisrun_count, buffer);
++		retval = target_write_buffer(target, source-&gt;address, thisrun_count, buffer);
++		if (retval != ERROR_OK)
++		{
++			break;
++		}
+ 
+ 		buf_set_u32(reg_params[0].value, 0, 32, source-&gt;address);
+ 		buf_set_u32(reg_params[1].value, 0, 32, address);
+@@ -1531,13 +1683,16 @@ static int cfi_spansion_write_block(struct flash_bank *bank, uint8_t *buffer, ui
+ 						     cfi_info-&gt;write_algorithm-&gt;address,
+ 						     cfi_info-&gt;write_algorithm-&gt;address + ((target_code_size) - 4),
+ 						     10000, &amp;armv4_5_info);
++		if (retval != ERROR_OK)
++		{
++			break;
++		}
+ 
+ 		status = buf_get_u32(reg_params[5].value, 0, 32);
+-
+-		if ((retval != ERROR_OK) || (retvaltemp != ERROR_OK) || status != 0x80)
++		if (status != 0x80)
+ 		{
+-			LOG_DEBUG(&quot;status: 0x%&quot; PRIx32 , status);
+-			exit_code = ERROR_FLASH_OPERATION_FAILED;
++			LOG_ERROR(&quot;flash write block failed status: 0x%&quot; PRIx32 , status);
++			retval = ERROR_FLASH_OPERATION_FAILED;
+ 			break;
+ 		}
+ 
+@@ -1559,7 +1714,7 @@ static int cfi_spansion_write_block(struct flash_bank *bank, uint8_t *buffer, ui
+ 	destroy_reg_param(&amp;reg_params[8]);
+ 	destroy_reg_param(&amp;reg_params[9]);
+ 
+-	return exit_code;
++	return retval;
+ }
+ 
+ static int cfi_intel_write_word(struct flash_bank *bank, uint8_t *word, uint32_t address)
+@@ -1579,7 +1734,9 @@ static int cfi_intel_write_word(struct flash_bank *bank, uint8_t *word, uint32_t
+ 		return retval;
+ 	}
+ 
+-	if (cfi_intel_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;word_write_timeout_max)) != 0x80)
++	uint8_t status;
++	retval = cfi_intel_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;word_write_timeout_max), &amp;status);
++	if (retval != 0x80)
+ 	{
+ 		if ((retval = cfi_send_command(bank, 0xff, flash_address(bank, 0, 0x0))) != ERROR_OK)
+ 		{
+@@ -1629,7 +1786,11 @@ static int cfi_intel_write_words(struct flash_bank *bank, uint8_t *word, uint32_
+ 	{
+ 		return retval;
+ 	}
+-	if (cfi_intel_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;buf_write_timeout_max)) != 0x80)
++	uint8_t status;
++	retval = cfi_intel_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;buf_write_timeout_max), &amp;status);
++	if (retval != ERROR_OK)
++		return retval;
++	if (status != 0x80)
+ 	{
+ 		if ((retval = cfi_send_command(bank, 0xff, flash_address(bank, 0, 0x0))) != ERROR_OK)
+ 		{
+@@ -1656,7 +1817,12 @@ static int cfi_intel_write_words(struct flash_bank *bank, uint8_t *word, uint32_
+ 	{
+ 		return retval;
+ 	}
+-	if (cfi_intel_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;buf_write_timeout_max)) != 0x80)
++
++	retval = cfi_intel_wait_status_busy(bank, 1000 * (1 &lt;&lt; cfi_info-&gt;buf_write_timeout_max), &amp;status);
++	if (retval != ERROR_OK)
++		return retval;
++
++	if (status != 0x80)
+ 	{
+ 		if ((retval = cfi_send_command(bank, 0xff, flash_address(bank, 0, 0x0))) != ERROR_OK)
+ 		{
+@@ -2098,9 +2264,15 @@ static int cfi_query_string(struct flash_bank *bank, int address)
+ 		return retval;
+ 	}
+ 
+-	cfi_info-&gt;qry[0] = cfi_query_u8(bank, 0, 0x10);
+-	cfi_info-&gt;qry[1] = cfi_query_u8(bank, 0, 0x11);
+-	cfi_info-&gt;qry[2] = cfi_query_u8(bank, 0, 0x12);
++	retval = cfi_query_u8(bank, 0, 0x10, &amp;cfi_info-&gt;qry[0]);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, 0x11, &amp;cfi_info-&gt;qry[1]);
++	if (retval != ERROR_OK)
++		return retval;
++	retval = cfi_query_u8(bank, 0, 0x12, &amp;cfi_info-&gt;qry[2]);
++	if (retval != ERROR_OK)
++		return retval;
+ 
+ 	LOG_DEBUG(&quot;CFI qry returned: 0x%2.2x 0x%2.2x 0x%2.2x&quot;, cfi_info-&gt;qry[0], cfi_info-&gt;qry[1], cfi_info-&gt;qry[2]);
+ 
+@@ -2236,25 +2408,57 @@ static int cfi_probe(struct flash_bank *bank)
+ 		if (retval != ERROR_OK)
+ 			return retval;
+ 
+-		cfi_info-&gt;pri_id = cfi_query_u16(bank, 0, 0x13);
+-		cfi_info-&gt;pri_addr = cfi_query_u16(bank, 0, 0x15);
+-		cfi_info-&gt;alt_id = cfi_query_u16(bank, 0, 0x17);
+-		cfi_info-&gt;alt_addr = cfi_query_u16(bank, 0, 0x19);
++		retval = cfi_query_u16(bank, 0, 0x13, &amp;cfi_info-&gt;pri_id);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cfi_query_u16(bank, 0, 0x15, &amp;cfi_info-&gt;pri_addr);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cfi_query_u16(bank, 0, 0x17, &amp;cfi_info-&gt;alt_id);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cfi_query_u16(bank, 0, 0x19, &amp;cfi_info-&gt;alt_addr);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		LOG_DEBUG(&quot;qry: '%c%c%c', pri_id: 0x%4.4x, pri_addr: 0x%4.4x, alt_id: 0x%4.4x, alt_addr: 0x%4.4x&quot;, cfi_info-&gt;qry[0], cfi_info-&gt;qry[1], cfi_info-&gt;qry[2], cfi_info-&gt;pri_id, cfi_info-&gt;pri_addr, cfi_info-&gt;alt_id, cfi_info-&gt;alt_addr);
+ 
+-		cfi_info-&gt;vcc_min = cfi_query_u8(bank, 0, 0x1b);
+-		cfi_info-&gt;vcc_max = cfi_query_u8(bank, 0, 0x1c);
+-		cfi_info-&gt;vpp_min = cfi_query_u8(bank, 0, 0x1d);
+-		cfi_info-&gt;vpp_max = cfi_query_u8(bank, 0, 0x1e);
+-		cfi_info-&gt;word_write_timeout_typ = cfi_query_u8(bank, 0, 0x1f);
+-		cfi_info-&gt;buf_write_timeout_typ = cfi_query_u8(bank, 0, 0x20);
+-		cfi_info-&gt;block_erase_timeout_typ = cfi_query_u8(bank, 0, 0x21);
+-		cfi_info-&gt;chip_erase_timeout_typ = cfi_query_u8(bank, 0, 0x22);
+-		cfi_info-&gt;word_write_timeout_max = cfi_query_u8(bank, 0, 0x23);
+-		cfi_info-&gt;buf_write_timeout_max = cfi_query_u8(bank, 0, 0x24);
+-		cfi_info-&gt;block_erase_timeout_max = cfi_query_u8(bank, 0, 0x25);
+-		cfi_info-&gt;chip_erase_timeout_max = cfi_query_u8(bank, 0, 0x26);
++		retval = cfi_query_u8(bank, 0, 0x1b, &amp;cfi_info-&gt;vcc_min);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cfi_query_u8(bank, 0, 0x1c, &amp;cfi_info-&gt;vcc_max);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cfi_query_u8(bank, 0, 0x1d, &amp;cfi_info-&gt;vpp_min);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cfi_query_u8(bank, 0, 0x1e, &amp;cfi_info-&gt;vpp_max);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cfi_query_u8(bank, 0, 0x1f, &amp;cfi_info-&gt;word_write_timeout_typ);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cfi_query_u8(bank, 0, 0x20, &amp;cfi_info-&gt;buf_write_timeout_typ);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cfi_query_u8(bank, 0, 0x21, &amp;cfi_info-&gt;block_erase_timeout_typ);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cfi_query_u8(bank, 0, 0x22, &amp;cfi_info-&gt;chip_erase_timeout_typ);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cfi_query_u8(bank, 0, 0x23, &amp;cfi_info-&gt;word_write_timeout_max);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cfi_query_u8(bank, 0, 0x24, &amp;cfi_info-&gt;buf_write_timeout_max);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cfi_query_u8(bank, 0, 0x25, &amp;cfi_info-&gt;block_erase_timeout_max);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cfi_query_u8(bank, 0, 0x26, &amp;cfi_info-&gt;chip_erase_timeout_max);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		LOG_DEBUG(&quot;Vcc min: %x.%x, Vcc max: %x.%x, Vpp min: %u.%x, Vpp max: %u.%x&quot;,
+ 			(cfi_info-&gt;vcc_min &amp; 0xf0) &gt;&gt; 4, cfi_info-&gt;vcc_min &amp; 0x0f,
+@@ -2268,10 +2472,21 @@ static int cfi_probe(struct flash_bank *bank)
+ 			(1 &lt;&lt; cfi_info-&gt;block_erase_timeout_max) * (1 &lt;&lt; cfi_info-&gt;block_erase_timeout_typ),
+ 			(1 &lt;&lt; cfi_info-&gt;chip_erase_timeout_max) * (1 &lt;&lt; cfi_info-&gt;chip_erase_timeout_typ));
+ 
+-		cfi_info-&gt;dev_size = 1 &lt;&lt; cfi_query_u8(bank, 0, 0x27);
+-		cfi_info-&gt;interface_desc = cfi_query_u16(bank, 0, 0x28);
+-		cfi_info-&gt;max_buf_write_size = cfi_query_u16(bank, 0, 0x2a);
+-		cfi_info-&gt;num_erase_regions = cfi_query_u8(bank, 0, 0x2c);
++		uint8_t data;
++		retval = 1 &lt;&lt; cfi_query_u8(bank, 0, 0x27, &amp;data);
++		if (retval != ERROR_OK)
++			return retval;
++		cfi_info-&gt;dev_size = data;
++
++		retval = cfi_query_u16(bank, 0, 0x28, &amp;cfi_info-&gt;interface_desc);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cfi_query_u16(bank, 0, 0x2a, &amp;cfi_info-&gt;max_buf_write_size);
++		if (retval != ERROR_OK)
++			return retval;
++		retval = cfi_query_u8(bank, 0, 0x2c, &amp;cfi_info-&gt;num_erase_regions);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		LOG_DEBUG(&quot;size: 0x%&quot; PRIx32 &quot;, interface desc: %i, max buffer write size: %x&quot;, cfi_info-&gt;dev_size, cfi_info-&gt;interface_desc, (1 &lt;&lt; cfi_info-&gt;max_buf_write_size));
+ 
+@@ -2280,7 +2495,9 @@ static int cfi_probe(struct flash_bank *bank)
+ 			cfi_info-&gt;erase_region_info = malloc(4 * cfi_info-&gt;num_erase_regions);
+ 			for (i = 0; i &lt; cfi_info-&gt;num_erase_regions; i++)
+ 			{
+-				cfi_info-&gt;erase_region_info[i] = cfi_query_u32(bank, 0, 0x2d + (4 * i));
++				retval = cfi_query_u32(bank, 0, 0x2d + (4 * i), &amp;cfi_info-&gt;erase_region_info[i]);
++				if (retval != ERROR_OK)
++					return retval;
+ 				LOG_DEBUG(&quot;erase region[%i]: %&quot; PRIu32 &quot; blocks of size 0x%&quot; PRIx32 &quot;&quot;,
+ 					  i,
+ 					  (cfi_info-&gt;erase_region_info[i] &amp; 0xffff) + 1,
+@@ -2417,7 +2634,10 @@ static int cfi_intel_protect_check(struct flash_bank *bank)
+ 
+ 	for (i = 0; i &lt; bank-&gt;num_sectors; i++)
+ 	{
+-		uint8_t block_status = cfi_get_u8(bank, i, 0x2);
++		uint8_t block_status;
++		retval = cfi_get_u8(bank, i, 0x2, &amp;block_status);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		if (block_status &amp; 1)
+ 			bank-&gt;sectors[i].is_protected = 1;
+@@ -2452,7 +2672,10 @@ static int cfi_spansion_protect_check(struct flash_bank *bank)
+ 
+ 	for (i = 0; i &lt; bank-&gt;num_sectors; i++)
+ 	{
+-		uint8_t block_status = cfi_get_u8(bank, i, 0x2);
++		uint8_t block_status;
++		retval = cfi_get_u8(bank, i, 0x2, &amp;block_status);
++		if (retval != ERROR_OK)
++			return retval;
+ 
+ 		if (block_status &amp; 1)
+ 			bank-&gt;sectors[i].is_protected = 1;
+@@ -2498,7 +2721,7 @@ static int cfi_info(struct flash_bank *bank, char *buf, int buf_size)
+ 	int printed;
+ 	struct cfi_flash_bank *cfi_info = bank-&gt;driver_priv;
+ 
+-	if (cfi_info-&gt;qry[0] == (char)-1)
++	if (cfi_info-&gt;qry[0] == 0xff)
+ 	{
+ 		printed = snprintf(buf, buf_size, &quot;\ncfi flash bank not probed yet\n&quot;);
+ 		return ERROR_OK;
+diff --git a/src/flash/nor/cfi.h b/src/flash/nor/cfi.h
+index fa717dc..e2ff808 100644
+--- a/src/flash/nor/cfi.h
++++ b/src/flash/nor/cfi.h
+@@ -35,7 +35,7 @@ struct cfi_flash_bank
+ 	uint16_t manufacturer;
+ 	uint16_t device_id;
+ 
+-	char qry[3];
++	uint8_t qry[3];
+ 
+ 	/* identification string */
+ 	uint16_t pri_id;
+@@ -76,7 +76,7 @@ struct cfi_flash_bank
+  */
+ struct cfi_intel_pri_ext
+ {
+-	char pri[3];
++	uint8_t pri[3];
+ 	uint8_t major_version;
+ 	uint8_t minor_version;
+ 	uint32_t feature_support;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/flash/nor/cfi.c      |  455 ++++++++++++++++++++++++++++++++++------------
+ src/flash/nor/cfi.h      |    4 +-
+ src/flash/nor/core.c     |   39 +++--
+ src/flash/nor/core.h     |    5 +-
+ src/flash/nor/tcl.c      |   19 +-
+ src/target/arm720t.c     |    5 +-
+ src/target/arm920t.c     |   13 +-
+ src/target/arm926ejs.c   |    5 +-
+ src/target/armv4_5_mmu.c |   27 ++-
+ src/target/armv4_5_mmu.h |    4 +-
+ src/target/cortex_a8.c   |    7 +-
+ src/target/xscale.c      |    5 +-
+ 12 files changed, 426 insertions(+), 162 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002265.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-284-g73aaaf4
+</A></li>
+	<LI>Next message: <A HREF="002267.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-291-g9e62f86
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2266">[ date ]</a>
+              <a href="thread.html#2266">[ thread ]</a>
+              <a href="subject.html#2266">[ subject ]</a>
+              <a href="author.html#2266">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

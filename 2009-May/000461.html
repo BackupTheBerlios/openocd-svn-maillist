@@ -1,0 +1,131 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1677 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1677%20-%20trunk/src/jtag&In-Reply-To=%3C200905081812.n48ICiPk027122%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000460.html">
+   <LINK REL="Next"  HREF="000462.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1677 - trunk/src/jtag</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1677%20-%20trunk/src/jtag&In-Reply-To=%3C200905081812.n48ICiPk027122%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1677 - trunk/src/jtag">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Fri May  8 20:12:44 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000460.html">[Openocd-svn] r1676 - trunk/testing
+</A></li>
+        <LI>Next message: <A HREF="000462.html">[Openocd-svn] r1678 - trunk/src/flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#461">[ date ]</a>
+              <a href="thread.html#461">[ thread ]</a>
+              <a href="subject.html#461">[ subject ]</a>
+              <a href="author.html#461">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-05-08 20:12:43 +0200 (Fri, 08 May 2009)
+New Revision: 1677
+
+Modified:
+   trunk/src/jtag/jtag.c
+Log:
+fix gaffe in 1672
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-05-08 13:30:45 UTC (rev 1676)
++++ trunk/src/jtag/jtag.c	2009-05-08 18:12:43 UTC (rev 1677)
+@@ -45,6 +45,7 @@
+ 
+ int jtag_flush_queue_count; /* count # of flushes for profiling / debugging purposes */
+ 
++
+ /* note that this is not marked as static as it must be available from outside jtag.c for those
+    that implement the jtag_xxx() minidriver layer
+ */
+@@ -541,7 +542,6 @@
+ 	u32 id[8];
+ 	int modified[8];
+ 
+-
+ 	/* if we are to run a verification of the ir scan, we need to get the input back.
+ 	 * We may have to allocate space if the caller didn't ask for the input back.
+ 	 *
+@@ -621,10 +621,13 @@
+ 			break;
+ 		}
+ 		nth_tap++;
++
++		assert(nth_tap &lt; x );
++
+ 		scan_size = tap-&gt;ir_length;
+ 		(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].tap = tap;
+ 		(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].num_bits = scan_size;
+-		(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].in_value = fields[nth_tap].in_value;
++		(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].in_value = NULL; /* do not collect input for tap's in bypass */
+ 
+ 		/* search the list */
+ 		for (j = 0; j &lt; num_fields; j++)
+@@ -632,6 +635,7 @@
+ 			if (tap == fields[j].tap)
+ 			{
+ 				found = 1;
++				(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].in_value = fields[j].in_value;
+ 				(*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].out_value = buf_cpy(fields[j].out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+ 
+ 				tap-&gt;bypass = 0;
+@@ -649,6 +653,7 @@
+ 		/* update device information */
+ 		buf_cpy((*last_cmd)-&gt;cmd.scan-&gt;fields[nth_tap].out_value, tap-&gt;cur_instr, scan_size);
+ 	}
++	assert(nth_tap == (x-1));
+ 
+ 	return ERROR_OK;
+ }
+@@ -1450,7 +1455,7 @@
+ 	/* each flush can take as much as 1-2ms on high bandwidth low latency interfaces.
+ 	 * E.g. a JTAG over TCP/IP or USB....
+ 	 */
+-	jtag_flush_queue_count++; 
++	jtag_flush_queue_count++;
+ 
+ 	int retval=interface_jtag_execute_queue();
+ 	/* we keep the first error */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000460.html">[Openocd-svn] r1676 - trunk/testing
+</A></li>
+	<LI>Next message: <A HREF="000462.html">[Openocd-svn] r1678 - trunk/src/flash
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#461">[ date ]</a>
+              <a href="thread.html#461">[ thread ]</a>
+              <a href="subject.html#461">[ subject ]</a>
+              <a href="author.html#461">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

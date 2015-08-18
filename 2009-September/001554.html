@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2771 - trunk/src/server
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2771%20-%20trunk/src/server&In-Reply-To=%3C200909291424.n8TEO3mG026913%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001553.html">
+   <LINK REL="Next"  HREF="001555.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2771 - trunk/src/server</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2771%20-%20trunk/src/server&In-Reply-To=%3C200909291424.n8TEO3mG026913%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2771 - trunk/src/server">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Tue Sep 29 16:24:03 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001553.html">[Openocd-svn] r2770 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="001555.html">[Openocd-svn] r2772 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1554">[ date ]</a>
+              <a href="thread.html#1554">[ thread ]</a>
+              <a href="subject.html#1554">[ subject ]</a>
+              <a href="author.html#1554">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-09-29 16:24:02 +0200 (Tue, 29 Sep 2009)
+New Revision: 2771
+
+Modified:
+   trunk/src/server/httpd.c
+Log:
+handle single threading
+
+Modified: trunk/src/server/httpd.c
+===================================================================
+--- trunk/src/server/httpd.c	2009-09-29 14:23:42 UTC (rev 2770)
++++ trunk/src/server/httpd.c	2009-09-29 14:24:02 UTC (rev 2771)
+@@ -34,6 +34,20 @@
+ 
+ #define PAGE_NOT_FOUND &quot;&lt;html&gt;&lt;head&gt;&lt;title &gt; File not found&lt;/title&gt;&lt;/head&gt;&lt;body &gt; File not found&lt;/body&gt;&lt;/html&gt;&quot;
+ 
++static pthread_mutex_t mutex;
++
++void openocd_sleep_prelude(void)
++{
++	pthread_mutex_unlock(&amp;mutex);
++}
++
++void openocd_sleep_postlude(void)
++{
++	pthread_mutex_lock(&amp;mutex);
++}
++
++
++
+ int loadFile(const char *name, void **data, size_t *len);
+ 
+ static const char *appendf(const char *prev, const char *format, ...)
+@@ -184,7 +198,9 @@
+ 
+ 	if (r-&gt;postprocessor)
+ 	{
++		openocd_sleep_postlude();
+ 		MHD_destroy_post_processor(r-&gt;postprocessor);
++		openocd_sleep_prelude();
+ 	}
+ 
+ 	free(r);
+@@ -257,7 +273,7 @@
+ }
+ 
+ 
+-int handle_request(struct MHD_Connection * connection, const char * url)
++static int handle_request(struct MHD_Connection * connection, const char * url)
+ {
+ 	struct MHD_Response * response;
+ 
+@@ -335,7 +351,7 @@
+ 	}
+ }
+ 
+-static int ahc_echo(void * cls, struct MHD_Connection * connection,
++static int ahc_echo_inner(void * cls, struct MHD_Connection * connection,
+ 		const char * url, const char * method, const char * version,
+ 		const char * upload_data, unsigned int * upload_data_size, void ** ptr)
+ {
+@@ -423,10 +439,24 @@
+ 	return result;
+ }
+ 
++
++static int ahc_echo(void * cls, struct MHD_Connection * connection,
++		const char * url, const char * method, const char * version,
++		const char * upload_data, unsigned int * upload_data_size, void ** ptr)
++{
++	int result;
++
++	openocd_sleep_postlude();
++
++	result = ahc_echo_inner(cls, connection, url, method, version, upload_data, upload_data_size, ptr);
++
++	openocd_sleep_prelude();
++
++	return result;
++}
++
+ static struct MHD_Daemon * d;
+-static pthread_mutex_t mutex;
+ 
+-
+ int httpd_start(void)
+ {
+ 	pthread_mutexattr_t attr;
+@@ -464,13 +494,3 @@
+ 	pthread_mutex_destroy(&amp;mutex);
+ }
+ 
+-void openocd_sleep_prelude(void)
+-{
+-	pthread_mutex_unlock(&amp;mutex);
+-}
+-
+-void openocd_sleep_postlude(void)
+-{
+-	pthread_mutex_lock(&amp;mutex);
+-}
+-
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001553.html">[Openocd-svn] r2770 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="001555.html">[Openocd-svn] r2772 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1554">[ date ]</a>
+              <a href="thread.html#1554">[ thread ]</a>
+              <a href="subject.html#1554">[ subject ]</a>
+              <a href="author.html#1554">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

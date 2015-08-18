@@ -1,0 +1,282 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-704-g0cd8400
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-704-g0cd8400&In-Reply-To=%3CE1PaQMy-0003m9-BX%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002486.html">
+   <LINK REL="Next"  HREF="002488.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-704-g0cd8400</H1>
+    <B>Spencer Oliver</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-704-g0cd8400&In-Reply-To=%3CE1PaQMy-0003m9-BX%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-704-g0cd8400">ntfreak at users.sourceforge.net
+       </A><BR>
+    <I>Wed Jan  5 11:13:24 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002486.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-702-ge8eb5bb
+</A></li>
+        <LI>Next message: <A HREF="002488.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-705-ga665ef7
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2487">[ date ]</a>
+              <a href="thread.html#2487">[ thread ]</a>
+              <a href="subject.html#2487">[ subject ]</a>
+              <a href="author.html#2487">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  0cd84000daab056dea61eb9d60cca538a3716acd (commit)
+       via  dc1c5a750043a34ff94d51558b5473f567d84604 (commit)
+      from  e8eb5bbc04810ad61f0f9f8a54529eeea8fcda70 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 0cd84000daab056dea61eb9d60cca538a3716acd
+Author: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ntfreak at users.sourceforge.net</A>&gt;
+Date:   Tue Jan 4 12:29:49 2011 +0000
+
+    mips32: add fastdata loader working area
+    
+    Add a working area that is preserved between calls to
+    mips_m4k_bulk_write_memory - this gives us a speed increase
+    of approx 3kb/sec during flash writes to the pic32mx.
+    
+    This area is released during a resume/reset.
+    
+    Signed-off-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ntfreak at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/mips32.c b/src/target/mips32.c
+index 533701a..e48a040 100644
+--- a/src/target/mips32.c
++++ b/src/target/mips32.c
+@@ -309,6 +309,7 @@ int mips32_init_arch_info(struct target *target, struct mips32_common *mips32, s
+ {
+ 	target-&gt;arch_info = mips32;
+ 	mips32-&gt;common_magic = MIPS32_COMMON_MAGIC;
++	mips32-&gt;fast_data_area = NULL;
+ 
+ 	/* has breakpoint/watchpint unit been scanned */
+ 	mips32-&gt;bp_scanned = 0;
+diff --git a/src/target/mips32.h b/src/target/mips32.h
+index 7ffe95f..0d544a4 100644
+--- a/src/target/mips32.h
++++ b/src/target/mips32.h
+@@ -57,6 +57,9 @@ struct mips32_common
+ 	uint32_t core_regs[MIPS32NUMCOREREGS];
+ 	enum mips32_isa_mode isa_mode;
+ 
++	/* working area for fastdata access */
++	struct working_area *fast_data_area;
++
+ 	int bp_scanned;
+ 	int num_inst_bpoints;
+ 	int num_data_bpoints;
+diff --git a/src/target/mips32_pracc.c b/src/target/mips32_pracc.c
+index 236f389..a4ea2d3 100644
+--- a/src/target/mips32_pracc.c
++++ b/src/target/mips32_pracc.c
+@@ -985,7 +985,12 @@ int mips32_pracc_fastdata_xfer(struct mips_ejtag *ejtag_info, struct working_are
+ 	}
+ 
+ 	/* write program into RAM */
+-	mips32_pracc_write_mem32(ejtag_info, source-&gt;address, ARRAY_SIZE(handler_code), handler_code);
++	if (write_t != ejtag_info-&gt;fast_access_save)
++	{
++		mips32_pracc_write_mem32(ejtag_info, source-&gt;address, ARRAY_SIZE(handler_code), handler_code);
++		/* save previous operation to speed to any consecutive read/writes */
++		ejtag_info-&gt;fast_access_save = write_t;
++	}
+ 
+ 	LOG_DEBUG(&quot;%s using 0x%.8&quot; PRIx32 &quot; for write handler&quot;, __func__, source-&gt;address);
+ 
+diff --git a/src/target/mips_ejtag.c b/src/target/mips_ejtag.c
+index 33507b5..e381063 100644
+--- a/src/target/mips_ejtag.c
++++ b/src/target/mips_ejtag.c
+@@ -300,6 +300,7 @@ int mips_ejtag_init(struct mips_ejtag *ejtag_info)
+ 
+ 	/* set initial state for ejtag control reg */
+ 	ejtag_info-&gt;ejtag_ctrl = EJTAG_CTRL_ROCC | EJTAG_CTRL_PRACC | EJTAG_CTRL_PROBEN | EJTAG_CTRL_SETDEV;
++	ejtag_info-&gt;fast_access_save = -1;
+ 
+ 	return ERROR_OK;
+ }
+diff --git a/src/target/mips_ejtag.h b/src/target/mips_ejtag.h
+index a4430b6..0db0504 100644
+--- a/src/target/mips_ejtag.h
++++ b/src/target/mips_ejtag.h
+@@ -128,6 +128,7 @@ struct mips_ejtag
+ 	uint32_t impcode;
+ 	uint32_t idcode;
+ 	uint32_t ejtag_ctrl;
++	int fast_access_save;
+ };
+ 
+ int mips_ejtag_set_instr(struct mips_ejtag *ejtag_info,
+diff --git a/src/target/mips_m4k.c b/src/target/mips_m4k.c
+index c0adc06..8afee9c 100644
+--- a/src/target/mips_m4k.c
++++ b/src/target/mips_m4k.c
+@@ -964,7 +964,6 @@ static int mips_m4k_bulk_write_memory(struct target *target, uint32_t address,
+ {
+ 	struct mips32_common *mips32 = target_to_mips32(target);
+ 	struct mips_ejtag *ejtag_info = &amp;mips32-&gt;ejtag_info;
+-	struct working_area *source;
+ 	int retval;
+ 	int write_t = 1;
+ 
+@@ -980,12 +979,23 @@ static int mips_m4k_bulk_write_memory(struct target *target, uint32_t address,
+ 	if (address &amp; 0x3u)
+ 		return ERROR_TARGET_UNALIGNED_ACCESS;
+ 
+-	/* Get memory for block write handler */
+-	retval = target_alloc_working_area(target, MIPS32_FASTDATA_HANDLER_SIZE, &amp;source);
+-	if (retval != ERROR_OK)
++	if (mips32-&gt;fast_data_area == NULL)
+ 	{
+-		LOG_WARNING(&quot;No working area available, falling back to non-bulk write&quot;);
+-		return mips_m4k_write_memory(target, address, 4, count, buffer);
++		/* Get memory for block write handler
++		 * we preserve this area between calls and gain a speed increase
++		 * of about 3kb/sec when writing flash
++		 * this will be released/nulled by the system when the target is resumed or reset */
++		retval = target_alloc_working_area(target,
++				MIPS32_FASTDATA_HANDLER_SIZE,
++				&amp;mips32-&gt;fast_data_area);
++		if (retval != ERROR_OK)
++		{
++			LOG_WARNING(&quot;No working area available, falling back to non-bulk write&quot;);
++			return mips_m4k_write_memory(target, address, 4, count, buffer);
++		}
++
++		/* reset fastadata state so the algo get reloaded */
++		ejtag_info-&gt;fast_access_save = -1;
+ 	}
+ 
+ 	/* TAP data register is loaded LSB first (little endian) */
+@@ -999,7 +1009,7 @@ static int mips_m4k_bulk_write_memory(struct target *target, uint32_t address,
+ 		}
+ 	}
+ 
+-	retval = mips32_pracc_fastdata_xfer(ejtag_info, source, write_t, address,
++	retval = mips32_pracc_fastdata_xfer(ejtag_info, mips32-&gt;fast_data_area, write_t, address,
+ 			count, (uint32_t*) (void *)buffer);
+ 	if (retval != ERROR_OK)
+ 	{
+@@ -1008,9 +1018,6 @@ static int mips_m4k_bulk_write_memory(struct target *target, uint32_t address,
+ 		retval = mips_m4k_write_memory(target, address, 4, count, buffer);
+ 	}
+ 
+-	if (source)
+-		target_free_working_area(target, source);
+-
+ 	return retval;
+ }
+ 
+
+commit dc1c5a750043a34ff94d51558b5473f567d84604
+Author: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ntfreak at users.sourceforge.net</A>&gt;
+Date:   Fri Dec 24 11:17:09 2010 +0000
+
+    target: change working area free data type
+    
+    We only use the struct working_area member 'free' as a
+    true/false type so might as well use a bool data type.
+    
+    Signed-off-by: Spencer Oliver &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">ntfreak at users.sourceforge.net</A>&gt;
+
+diff --git a/src/target/target.c b/src/target/target.c
+index a9bb8e8..820e747 100644
+--- a/src/target/target.c
++++ b/src/target/target.c
+@@ -1213,7 +1213,7 @@ int target_alloc_working_area_try(struct target *target, uint32_t size, struct w
+ 	}
+ 
+ 	/* mark as used, and return the new (reused) area */
+-	new_wa-&gt;free = 0;
++	new_wa-&gt;free = false;
+ 	*area = new_wa;
+ 
+ 	/* user pointer */
+@@ -1247,7 +1247,7 @@ static int target_free_working_area_restore(struct target *target, struct workin
+ 			return retval;
+ 	}
+ 
+-	area-&gt;free = 1;
++	area-&gt;free = true;
+ 
+ 	/* mark user pointer invalid */
+ 	*area-&gt;user = NULL;
+diff --git a/src/target/target.h b/src/target/target.h
+index ef05e75..4d03018 100644
+--- a/src/target/target.h
++++ b/src/target/target.h
+@@ -94,7 +94,7 @@ struct working_area
+ {
+ 	uint32_t address;
+ 	uint32_t size;
+-	int free;
++	bool free;
+ 	uint8_t *backup;
+ 	struct working_area **user;
+ 	struct working_area *next;
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/target/mips32.c       |    1 +
+ src/target/mips32.h       |    3 +++
+ src/target/mips32_pracc.c |    7 ++++++-
+ src/target/mips_ejtag.c   |    1 +
+ src/target/mips_ejtag.h   |    1 +
+ src/target/mips_m4k.c     |   27 +++++++++++++++++----------
+ src/target/target.c       |    4 ++--
+ src/target/target.h       |    2 +-
+ 8 files changed, 32 insertions(+), 14 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002486.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-702-ge8eb5bb
+</A></li>
+	<LI>Next message: <A HREF="002488.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-705-ga665ef7
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2487">[ date ]</a>
+              <a href="thread.html#2487">[ thread ]</a>
+              <a href="subject.html#2487">[ subject ]</a>
+              <a href="author.html#2487">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

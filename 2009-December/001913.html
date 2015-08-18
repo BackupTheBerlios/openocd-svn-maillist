@@ -1,0 +1,169 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-834-gde27ebf
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-834-gde27ebf&In-Reply-To=%3CE1NGBtr-0002J8-A5%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001912.html">
+   <LINK REL="Next"  HREF="001914.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-834-gde27ebf</H1>
+    <B>Zach Welch</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.3.0-834-gde27ebf&In-Reply-To=%3CE1NGBtr-0002J8-A5%40sfp-scmshell-1.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-834-gde27ebf">zwelch at users.sourceforge.net
+       </A><BR>
+    <I>Thu Dec  3 14:39:12 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001912.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-832-g434f570
+</A></li>
+        <LI>Next message: <A HREF="001914.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-835-gadbf40a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1913">[ date ]</a>
+              <a href="thread.html#1913">[ thread ]</a>
+              <a href="subject.html#1913">[ subject ]</a>
+              <a href="author.html#1913">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  de27ebfa837a13309a03bfa0674513deed0d59e9 (commit)
+       via  23f07d08e3998642326aa115cdd4cb1199f2704b (commit)
+      from  434f570e51a0b0f2c09184646d91154c74bbff81 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit de27ebfa837a13309a03bfa0674513deed0d59e9
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Dec 3 05:23:16 2009 -0800
+
+    fix double 'init' regression
+    
+    To prevent regression in the behavior of 'init', we allow it to run in
+    any mode.  If provided with -c init and with -c noinit, then the second
+    init at startup caused a spurious mode failure.  Let 'init' handle it.
+
+diff --git a/src/openocd.c b/src/openocd.c
+index 793aa6a..03a57dc 100644
+--- a/src/openocd.c
++++ b/src/openocd.c
+@@ -171,7 +171,7 @@ static const struct command_registration openocd_command_handlers[] = {
+ 	{
+ 		.name = &quot;init&quot;,
+ 		.handler = &amp;handle_init_command,
+-		.mode = COMMAND_CONFIG,
++		.mode = COMMAND_ANY,
+ 		.help = &quot;Initializes configured targets and servers.  &quot;
+ 			&quot;Changes command mode from CONFIG to EXEC.  &quot;
+ 			&quot;Unless 'noinit' is called, this command is &quot;
+
+commit 23f07d08e3998642326aa115cdd4cb1199f2704b
+Author: Zachary T Welch &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">zw at superlucidity.net</A>&gt;
+Date:   Thu Dec 3 05:13:45 2009 -0800
+
+    fix regressions with GDB port numbers
+    
+    Use a separate variable for iterating GDB service port numbers than
+    the one set by the user.  Restores the behavior of returning the
+    original port number and only incrementing the port used on success.
+
+diff --git a/src/server/gdb_server.c b/src/server/gdb_server.c
+index 40380a8..21cd0fe 100644
+--- a/src/server/gdb_server.c
++++ b/src/server/gdb_server.c
+@@ -48,6 +48,7 @@ static enum breakpoint_type gdb_breakpoint_override_type;
+ 
+ extern int gdb_error(struct connection *connection, int retval);
+ static unsigned short gdb_port = 3333;
++static unsigned short gdb_port_next = 0;
+ static const char *DIGITS = &quot;0123456789abcdef&quot;;
+ 
+ static void gdb_log_callback(void *priv, const char *file, unsigned line,
+@@ -2217,6 +2218,8 @@ int gdb_target_add_one(struct target *target)
+ 		LOG_INFO(&quot;gdb port disabled&quot;);
+ 		return ERROR_OK;
+ 	}
++	if (0 == gdb_port_next)
++		gdb_port_next = gdb_port;
+ 
+ 	bool use_pipes = server_use_pipes;
+ 	static bool server_started_with_pipes = false;
+@@ -2229,10 +2232,12 @@ int gdb_target_add_one(struct target *target)
+ 		use_pipes = false;
+ 	}
+ 
+-	int e = gdb_target_start(target, use_pipes ? 0 : gdb_port++);
++	int e = gdb_target_start(target, use_pipes ? 0 : gdb_port_next);
+ 	if (ERROR_OK == e)
++	{
+ 		server_started_with_pipes |= use_pipes;
+-
++		gdb_port_next++;
++	}
+ 	return e;
+ }
+ 
+@@ -2278,7 +2283,10 @@ COMMAND_HANDLER(handle_gdb_sync_command)
+ /* daemon configuration command gdb_port */
+ COMMAND_HANDLER(handle_gdb_port_command)
+ {
+-	return CALL_COMMAND_HANDLER(server_port_command, &amp;gdb_port);
++	int retval = CALL_COMMAND_HANDLER(server_port_command, &amp;gdb_port);
++	if (ERROR_OK == retval)
++		gdb_port_next = gdb_port;
++	return retval;
+ }
+ 
+ COMMAND_HANDLER(handle_gdb_memory_map_command)
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/openocd.c           |    2 +-
+ src/server/gdb_server.c |   14 +++++++++++---
+ 2 files changed, 12 insertions(+), 4 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001912.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-832-g434f570
+</A></li>
+	<LI>Next message: <A HREF="001914.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.3.0-835-gadbf40a
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1913">[ date ]</a>
+              <a href="thread.html#1913">[ thread ]</a>
+              <a href="subject.html#1913">[ subject ]</a>
+              <a href="author.html#1913">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

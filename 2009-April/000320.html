@@ -1,0 +1,795 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1536 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1536%20-%20trunk/src/target&In-Reply-To=%3C200904270829.n3R8TU7d003650%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000319.html">
+   <LINK REL="Next"  HREF="000321.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1536 - trunk/src/target</H1>
+    <B>mlu at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1536%20-%20trunk/src/target&In-Reply-To=%3C200904270829.n3R8TU7d003650%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1536 - trunk/src/target">mlu at mail.berlios.de
+       </A><BR>
+    <I>Mon Apr 27 10:29:30 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000319.html">[Openocd-svn] r1535 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="000321.html">[Openocd-svn] r1537 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#320">[ date ]</a>
+              <a href="thread.html#320">[ thread ]</a>
+              <a href="subject.html#320">[ subject ]</a>
+              <a href="author.html#320">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: mlu
+Date: 2009-04-27 10:29:28 +0200 (Mon, 27 Apr 2009)
+New Revision: 1536
+
+Modified:
+   trunk/src/target/Makefile.am
+   trunk/src/target/armv7m.c
+   trunk/src/target/armv7m.h
+   trunk/src/target/cortex_m3.c
+   trunk/src/target/cortex_m3.h
+Log:
+Changed armv7m and cortexm3 to use nev arm_adi_v5 instead of cortex_swjdp.
+Added support for accessport ROM table identification, dap command. 
+
+Modified: trunk/src/target/Makefile.am
+===================================================================
+--- trunk/src/target/Makefile.am	2009-04-27 08:21:35 UTC (rev 1535)
++++ trunk/src/target/Makefile.am	2009-04-27 08:29:28 UTC (rev 1536)
+@@ -11,12 +11,12 @@
+ noinst_LIBRARIES = libtarget.a
+ libtarget_a_SOURCES = target.c register.c breakpoints.c armv4_5.c embeddedice.c etm.c arm7tdmi.c arm9tdmi.c \
+ 	arm_jtag.c arm7_9_common.c algorithm.c arm920t.c arm720t.c armv4_5_mmu.c armv4_5_cache.c arm_disassembler.c \
+-	arm966e.c arm926ejs.c feroceon.c etb.c xscale.c arm_simulator.c image.c armv7m.c cortex_m3.c cortex_swjdp.c \
++	arm966e.c arm926ejs.c feroceon.c etb.c xscale.c arm_simulator.c image.c armv7m.c cortex_m3.c arm_adi_v5.c \
+ 	etm_dummy.c $(OOCD_TRACE_FILES) target_request.c trace.c arm11.c arm11_dbgtap.c mips32.c mips_m4k.c \
+ 	mips32_pracc.c mips32_dmaacc.c mips_ejtag.c
+ noinst_HEADERS = target.h trace.h register.h armv4_5.h embeddedice.h etm.h arm7tdmi.h arm9tdmi.h \
+ 	arm_jtag.h arm7_9_common.h arm920t.h arm720t.h armv4_5_mmu.h armv4_5_cache.h breakpoints.h algorithm.h \
+-	arm_disassembler.h arm966e.h arm926ejs.h etb.h xscale.h arm_simulator.h image.h armv7m.h cortex_m3.h cortex_swjdp.h \
++	arm_disassembler.h arm966e.h arm926ejs.h etb.h xscale.h arm_simulator.h image.h armv7m.h cortex_m3.h arm_adi_v5.h \
+ 	etm_dummy.h oocd_trace.h target_request.h trace.h arm11.h mips32.h mips_m4k.h mips_ejtag.h mips32_pracc.h mips32_dmaacc.h
+ 
+ nobase_dist_pkglib_DATA =
+
+Modified: trunk/src/target/armv7m.c
+===================================================================
+--- trunk/src/target/armv7m.c	2009-04-27 08:21:35 UTC (rev 1535)
++++ trunk/src/target/armv7m.c	2009-04-27 08:29:28 UTC (rev 1536)
+@@ -550,6 +550,12 @@
+ 
+ int armv7m_register_commands(struct command_context_s *cmd_ctx)
+ {
++	command_t *arm_adi_v5_dap_cmd;
++
++	arm_adi_v5_dap_cmd = register_command(cmd_ctx, NULL, &quot;dap&quot;, NULL, COMMAND_ANY, &quot;cortex dap specific commands&quot;);		
++	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;info&quot;, handle_dap_info_command, COMMAND_EXEC, &quot;dap info for ap [num] (default 0)&quot;);
++	register_command(cmd_ctx, arm_adi_v5_dap_cmd, &quot;apsel&quot;, handle_dap_apsel_command, COMMAND_EXEC, &quot;select a different AP [num] (default 0)&quot;);
++
+ 	return ERROR_OK;
+ }
+ 
+@@ -695,3 +701,45 @@
+ 
+ 	return ERROR_OK;
+ }
++
++int handle_dap_apsel_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	target_t *target = get_current_target(cmd_ctx);
++	armv7m_common_t *armv7m = target-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
++	u32 apsel, apid;
++	int retval;
++
++	apsel = 0;
++	if (argc &gt; 0)
++	{	
++		apsel = strtoul(args[0], NULL, 0);
++	}
++
++	dap_ap_select(swjdp, apsel);
++	dap_ap_read_reg_u32(swjdp, 0xFC, &amp;apid);
++	retval = swjdp_transaction_endcheck(swjdp);
++	command_print(cmd_ctx, &quot;ap %i selected, identification register 0x%8.8x&quot;, apsel, apid);
++
++	return retval;
++}
++
++int handle_dap_info_command(struct command_context_s *cmd_ctx, char *cmd, char **args, int argc)
++{
++	target_t *target = get_current_target(cmd_ctx);
++	armv7m_common_t *armv7m = target-&gt;arch_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
++	int retval;
++	u32 apsel;
++
++	apsel = 0;
++	if (argc &gt; 0)
++	{	
++		apsel = strtoul(args[0], NULL, 0);
++	}
++	
++	retval = dap_info_command(cmd_ctx, swjdp, apsel);
++
++	return retval;
++}
++
+
+Modified: trunk/src/target/armv7m.h
+===================================================================
+--- trunk/src/target/armv7m.h	2009-04-27 08:21:35 UTC (rev 1535)
++++ trunk/src/target/armv7m.h	2009-04-27 08:29:28 UTC (rev 1536)
+@@ -29,6 +29,7 @@
+ #include &quot;register.h&quot;
+ #include &quot;target.h&quot;
+ #include &quot;arm_jtag.h&quot;
++#include &quot;arm_adi_v5.h&quot;
+ 
+ /* define for enabling armv7 gdb workarounds */
+ #if 1
+@@ -78,6 +79,8 @@
+ 	reg_cache_t *core_cache;
+ 	enum armv7m_mode core_mode;
+ 	int exception_number;
++	swjdp_common_t swjdp_info;
++
+ 	
+ 	/* Direct processor core register read and writes */
+ 	int (*load_core_reg_u32)(struct target_s *target, enum armv7m_regtype type, u32 num, u32 *value);
+
+Modified: trunk/src/target/cortex_m3.c
+===================================================================
+--- trunk/src/target/cortex_m3.c	2009-04-27 08:21:35 UTC (rev 1535)
++++ trunk/src/target/cortex_m3.c	2009-04-27 08:29:28 UTC (rev 1536)
+@@ -22,6 +22,10 @@
+  *   along with this program; if not, write to the                         *
+  *   Free Software Foundation, Inc.,                                       *
+  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ *                                                                         *
++ *                                                                         *
++ *   Cortex-M3(tm) TRM, ARM DDI 0337C                                      *
++ *                                                                         *
+  ***************************************************************************/
+ #ifdef HAVE_CONFIG_H
+ #include &quot;config.h&quot;
+@@ -101,19 +105,70 @@
+ 	.quit = cortex_m3_quit
+ };
+ 
++int cortexm3_dap_read_coreregister_u32(swjdp_common_t *swjdp, u32 *value, int regnum)
++{
++	int retval;
++	u32 dcrdr;
++
++	/* because the DCB_DCRDR is used for the emulated dcc channel
++	 * we gave to save/restore the DCB_DCRDR when used */
++
++	mem_ap_read_u32(swjdp, DCB_DCRDR, &amp;dcrdr);
++
++	swjdp-&gt;trans_mode = TRANS_MODE_COMPOSITE;
++
++	/* mem_ap_write_u32(swjdp, DCB_DCRSR, regnum); */
++	dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, DCB_DCRSR &amp; 0xFFFFFFF0);
++	dap_ap_write_reg_u32(swjdp, AP_REG_BD0 | (DCB_DCRSR &amp; 0xC), regnum );
++
++	/* mem_ap_read_u32(swjdp, DCB_DCRDR, value); */
++	dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, DCB_DCRDR &amp; 0xFFFFFFF0);
++	dap_ap_read_reg_u32(swjdp, AP_REG_BD0 | (DCB_DCRDR &amp; 0xC), value );
++
++	mem_ap_write_u32(swjdp, DCB_DCRDR, dcrdr);
++	retval = swjdp_transaction_endcheck(swjdp);
++	return retval;
++}
++
++int cortexm3_dap_write_coreregister_u32(swjdp_common_t *swjdp, u32 value, int regnum)
++{
++	int retval;
++	u32 dcrdr;
++
++	/* because the DCB_DCRDR is used for the emulated dcc channel
++	 * we gave to save/restore the DCB_DCRDR when used */
++
++	mem_ap_read_u32(swjdp, DCB_DCRDR, &amp;dcrdr);
++
++	swjdp-&gt;trans_mode = TRANS_MODE_COMPOSITE;
++
++	/* mem_ap_write_u32(swjdp, DCB_DCRDR, core_regs[i]); */
++	dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, DCB_DCRDR &amp; 0xFFFFFFF0);
++	dap_ap_write_reg_u32(swjdp, AP_REG_BD0 | (DCB_DCRDR &amp; 0xC), value );
++
++	/* mem_ap_write_u32(swjdp, DCB_DCRSR, i | DCRSR_WnR	); */
++	dap_setup_accessport(swjdp, CSW_32BIT | CSW_ADDRINC_OFF, DCB_DCRSR &amp; 0xFFFFFFF0);
++	dap_ap_write_reg_u32(swjdp, AP_REG_BD0 | (DCB_DCRSR &amp; 0xC), regnum | DCRSR_WnR );
++
++	mem_ap_write_u32(swjdp, DCB_DCRDR, dcrdr);
++	retval = swjdp_transaction_endcheck(swjdp);
++	return retval;
++}
++
++
+ int cortex_m3_write_debug_halt_mask(target_t *target, u32 mask_on, u32 mask_off)
+ {
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	
+ 	/* mask off status bits */
+ 	cortex_m3-&gt;dcb_dhcsr &amp;= ~((0xFFFF &lt;&lt; 16) | mask_off);
+ 	/* create new register mask */
+ 	cortex_m3-&gt;dcb_dhcsr |= DBGKEY | C_DEBUGEN | mask_on;
+ 	
+-	return ahbap_write_system_atomic_u32(swjdp, DCB_DHCSR, cortex_m3-&gt;dcb_dhcsr);
++	return mem_ap_write_atomic_u32(swjdp, DCB_DHCSR, cortex_m3-&gt;dcb_dhcsr);
+ }
+ 
+ int cortex_m3_clear_halt(target_t *target)
+@@ -121,15 +176,15 @@
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	
+ 	/* clear step if any */
+ 	cortex_m3_write_debug_halt_mask(target, C_HALT, C_STEP);
+ 	
+ 	/* Read Debug Fault Status Register */
+-	ahbap_read_system_atomic_u32(swjdp, NVIC_DFSR, &amp;cortex_m3-&gt;nvic_dfsr);
++	mem_ap_read_atomic_u32(swjdp, NVIC_DFSR, &amp;cortex_m3-&gt;nvic_dfsr);
+ 	/* Write Debug Fault Status Register to enable processing to resume ?? Try with and without this !! */
+-	ahbap_write_system_atomic_u32(swjdp, NVIC_DFSR, cortex_m3-&gt;nvic_dfsr);
++	mem_ap_write_atomic_u32(swjdp, NVIC_DFSR, cortex_m3-&gt;nvic_dfsr);
+ 	LOG_DEBUG(&quot; NVIC_DFSR 0x%x&quot;, cortex_m3-&gt;nvic_dfsr);
+ 
+ 	return ERROR_OK;
+@@ -140,7 +195,7 @@
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	u32 dhcsr_save;
+ 	
+ 	/* backup dhcsr reg */
+@@ -148,8 +203,8 @@
+ 	
+ 	/* mask interrupts if not done already */
+ 	if (!(cortex_m3-&gt;dcb_dhcsr &amp; C_MASKINTS))
+-		ahbap_write_system_atomic_u32(swjdp, DCB_DHCSR, DBGKEY | C_MASKINTS | C_HALT | C_DEBUGEN);
+-	ahbap_write_system_atomic_u32(swjdp, DCB_DHCSR, DBGKEY | C_MASKINTS | C_STEP | C_DEBUGEN);
++		mem_ap_write_atomic_u32(swjdp, DCB_DHCSR, DBGKEY | C_MASKINTS | C_HALT | C_DEBUGEN);
++	mem_ap_write_atomic_u32(swjdp, DCB_DHCSR, DBGKEY | C_MASKINTS | C_STEP | C_DEBUGEN);
+ 	LOG_DEBUG(&quot; &quot;);
+ 	
+ 	/* restore dhcsr reg */
+@@ -163,17 +218,16 @@
+ {
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+-	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	u32 savedram;
+ 	int retvalue;
+ 	
+-	ahbap_read_system_u32(swjdp, 0x20000000, &amp;savedram);
+-	ahbap_write_system_u32(swjdp, 0x20000000, opcode);
+-	ahbap_write_coreregister_u32(swjdp, 0x20000000, 15);
++	mem_ap_read_u32(swjdp, 0x20000000, &amp;savedram);
++	mem_ap_write_u32(swjdp, 0x20000000, opcode);
++	cortexm3_dap_write_coreregister_u32(swjdp, 0x20000000, 15);
+ 	cortex_m3_single_step_core(target);
+ 	armv7m-&gt;core_cache-&gt;reg_list[15].dirty = armv7m-&gt;core_cache-&gt;reg_list[15].valid;
+-	retvalue = ahbap_write_system_atomic_u32(swjdp, 0x20000000, savedram);
++	retvalue = mem_ap_write_atomic_u32(swjdp, 0x20000000, savedram);
+ 	
+ 	return retvalue;
+ }
+@@ -200,28 +254,28 @@
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	cortex_m3_fp_comparator_t *fp_list = cortex_m3-&gt;fp_comparator_list; 
+ 	cortex_m3_dwt_comparator_t *dwt_list = cortex_m3-&gt;dwt_comparator_list;
+ 
+-	ahbap_read_system_atomic_u32(swjdp, DCB_DEMCR, &amp;dcb_demcr);
++	mem_ap_read_atomic_u32(swjdp, DCB_DEMCR, &amp;dcb_demcr);
+ 	LOG_DEBUG(&quot;DCB_DEMCR = 0x%8.8x&quot;,dcb_demcr);
+ 	
+ 	/* this regsiter is used for emulated dcc channel */
+-	ahbap_write_system_u32(swjdp, DCB_DCRDR, 0);
++	mem_ap_write_u32(swjdp, DCB_DCRDR, 0);
+ 	
+ 	/* Enable debug requests */
+-	ahbap_read_system_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
++	mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
+ 	if (!(cortex_m3-&gt;dcb_dhcsr &amp; C_DEBUGEN))
+-		ahbap_write_system_u32(swjdp, DCB_DHCSR, DBGKEY | C_DEBUGEN);
++		mem_ap_write_u32(swjdp, DCB_DHCSR, DBGKEY | C_DEBUGEN);
+ 	
+ 	/* clear any interrupt masking */
+ 	cortex_m3_write_debug_halt_mask(target, 0, C_MASKINTS);
+ 	
+ 	/* Enable trace and dwt */
+-	ahbap_write_system_u32(swjdp, DCB_DEMCR, TRCENA | VC_HARDERR | VC_BUSERR);
++	mem_ap_write_u32(swjdp, DCB_DEMCR, TRCENA | VC_HARDERR | VC_BUSERR);
+ 	/* Monitor bus faults */
+-	ahbap_write_system_u32(swjdp, NVIC_SHCSR, SHCSR_BUSFAULTENA);
++	mem_ap_write_u32(swjdp, NVIC_SHCSR, SHCSR_BUSFAULTENA);
+ 
+ 	/* Enable FPB */
+ 	target_write_u32(target, FP_CTRL, 3);
+@@ -245,7 +299,7 @@
+ 	armv7m_invalidate_core_regs(target);
+ 	
+ 	/* make sure we have latest dhcsr flags */
+-	ahbap_read_system_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
++	mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
+ 	
+ 	return ERROR_OK;
+ }
+@@ -283,36 +337,35 @@
+ 
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+-	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 
+-	ahbap_read_system_u32(swjdp, NVIC_SHCSR, &amp;shcsr);
++	mem_ap_read_u32(swjdp, NVIC_SHCSR, &amp;shcsr);
+ 	switch (armv7m-&gt;exception_number)
+ 	{
+ 		case 2:	/* NMI */
+ 			break;
+ 		case 3:	/* Hard Fault */
+-			ahbap_read_system_atomic_u32(swjdp, NVIC_HFSR, &amp;except_sr);
++			mem_ap_read_atomic_u32(swjdp, NVIC_HFSR, &amp;except_sr);
+ 			if (except_sr &amp; 0x40000000)
+ 			{
+-				ahbap_read_system_u32(swjdp, NVIC_CFSR, &amp;cfsr);
++				mem_ap_read_u32(swjdp, NVIC_CFSR, &amp;cfsr);
+ 			}
+ 			break;
+ 		case 4:	/* Memory Management */
+-			ahbap_read_system_u32(swjdp, NVIC_CFSR, &amp;except_sr);
+-			ahbap_read_system_u32(swjdp, NVIC_MMFAR, &amp;except_ar);		
++			mem_ap_read_u32(swjdp, NVIC_CFSR, &amp;except_sr);
++			mem_ap_read_u32(swjdp, NVIC_MMFAR, &amp;except_ar);		
+ 			break;
+ 		case 5:	/* Bus Fault */
+-			ahbap_read_system_u32(swjdp, NVIC_CFSR, &amp;except_sr);
+-			ahbap_read_system_u32(swjdp, NVIC_BFAR, &amp;except_ar);				
++			mem_ap_read_u32(swjdp, NVIC_CFSR, &amp;except_sr);
++			mem_ap_read_u32(swjdp, NVIC_BFAR, &amp;except_ar);				
+ 			break;
+ 		case 6:	/* Usage Fault */
+-			ahbap_read_system_u32(swjdp, NVIC_CFSR, &amp;except_sr);
++			mem_ap_read_u32(swjdp, NVIC_CFSR, &amp;except_sr);
+ 			break;
+ 		case 11:	/* SVCall */
+ 			break;
+ 		case 12:	/* Debug Monitor */
+-			ahbap_read_system_u32(swjdp, NVIC_DFSR, &amp;except_sr);
++			mem_ap_read_u32(swjdp, NVIC_DFSR, &amp;except_sr);
+ 			break;
+ 		case 14:	/* PendSV */
+ 			break;
+@@ -337,14 +390,14 @@
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 
+ 	LOG_DEBUG(&quot; &quot;);
+ 	if (armv7m-&gt;pre_debug_entry)
+ 		armv7m-&gt;pre_debug_entry(target);
+ 
+ 	cortex_m3_clear_halt(target);
+-	ahbap_read_system_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
++	mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
+ 
+ 	if ((retval = armv7m-&gt;examine_debug_reason(target)) != ERROR_OK)
+ 		return retval;
+@@ -417,10 +470,10 @@
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 
+ 	/* Read from Debug Halting Control and Status Register */
+-	retval = ahbap_read_system_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
++	retval = mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
+ 	if (retval != ERROR_OK)
+ 	{
+ 		target-&gt;state = TARGET_UNKNOWN;
+@@ -430,7 +483,7 @@
+ 	if (cortex_m3-&gt;dcb_dhcsr &amp; S_RESET_ST)
+ 	{
+ 		/* check if still in reset */
+-		ahbap_read_system_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
++		mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
+ 		
+ 		if (cortex_m3-&gt;dcb_dhcsr &amp; S_RESET_ST)
+ 		{
+@@ -476,7 +529,7 @@
+ 
+ #if 0
+ 	/* Read Debug Fault Status Register, added to figure out the lockup when running flashtest.script  */
+-	ahbap_read_system_atomic_u32(swjdp, NVIC_DFSR, &amp;cortex_m3-&gt;nvic_dfsr);
++	mem_ap_read_atomic_u32(swjdp, NVIC_DFSR, &amp;cortex_m3-&gt;nvic_dfsr);
+ 	LOG_DEBUG(&quot;dcb_dhcsr 0x%x, nvic_dfsr 0x%x, target-&gt;state: %s&quot;, cortex_m3-&gt;dcb_dhcsr, cortex_m3-&gt;nvic_dfsr, Jim_Nvp_value2name_simple( nvp_target_state, target-&gt;state )-&gt;name );
+ #endif
+ 	
+@@ -530,15 +583,15 @@
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	u32 dcb_dhcsr = 0;
+ 	int retval, timeout = 0;
+ 
+ 	/* Enter debug state on reset, cf. end_reset_event() */
+-	ahbap_write_system_u32(swjdp, DCB_DEMCR, TRCENA | VC_HARDERR | VC_BUSERR | VC_CORERESET);
++	mem_ap_write_u32(swjdp, DCB_DEMCR, TRCENA | VC_HARDERR | VC_BUSERR | VC_CORERESET);
+ 	
+ 	/* Request a reset */ 
+-	ahbap_write_system_atomic_u32(swjdp, NVIC_AIRCR, AIRCR_VECTKEY | AIRCR_VECTRESET);
++	mem_ap_write_atomic_u32(swjdp, NVIC_AIRCR, AIRCR_VECTKEY | AIRCR_VECTRESET);
+ 	target-&gt;state = TARGET_RESET;
+ 
+ 	/* registers are now invalid */
+@@ -546,10 +599,10 @@
+ 
+ 	while (timeout &lt; 100)
+ 	{
+-		retval = ahbap_read_system_atomic_u32(swjdp, DCB_DHCSR, &amp;dcb_dhcsr);
++		retval = mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;dcb_dhcsr);
+ 		if (retval == ERROR_OK)
+ 		{
+-			ahbap_read_system_atomic_u32(swjdp, NVIC_DFSR, &amp;cortex_m3-&gt;nvic_dfsr);
++			mem_ap_read_atomic_u32(swjdp, NVIC_DFSR, &amp;cortex_m3-&gt;nvic_dfsr);
+ 			if ((dcb_dhcsr &amp; S_HALT) &amp;&amp; (cortex_m3-&gt;nvic_dfsr &amp; DFSR_VCATCH))
+ 			{
+ 				LOG_DEBUG(&quot;system reset-halted, dcb_dhcsr 0x%x, nvic_dfsr 0x%x&quot;, dcb_dhcsr, cortex_m3-&gt;nvic_dfsr);
+@@ -657,7 +710,7 @@
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	breakpoint_t *breakpoint = NULL;
+ 
+ 	if (target-&gt;state != TARGET_HALTED)
+@@ -683,7 +736,7 @@
+ 	
+ 	/* set step and clear halt */
+ 	cortex_m3_write_debug_halt_mask(target, C_STEP, C_HALT);
+-	ahbap_read_system_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
++	mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
+ 
+ 	/* registers are now invalid */
+ 	armv7m_invalidate_core_regs(target);
+@@ -704,7 +757,7 @@
+ {
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	int assert_srst = 1;
+ 	
+ 	LOG_DEBUG(&quot;target-&gt;state: %s&quot;, 
+@@ -717,17 +770,17 @@
+ 	}
+ 	
+ 	/* Enable debug requests */
+-	ahbap_read_system_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
++	mem_ap_read_atomic_u32(swjdp, DCB_DHCSR, &amp;cortex_m3-&gt;dcb_dhcsr);
+ 	if (!(cortex_m3-&gt;dcb_dhcsr &amp; C_DEBUGEN))
+-		ahbap_write_system_u32(swjdp, DCB_DHCSR, DBGKEY | C_DEBUGEN);
++		mem_ap_write_u32(swjdp, DCB_DHCSR, DBGKEY | C_DEBUGEN);
+ 		
+-	ahbap_write_system_u32(swjdp, DCB_DCRDR, 0 );
++	mem_ap_write_u32(swjdp, DCB_DCRDR, 0 );
+ 	
+ 	if (!target-&gt;reset_halt)
+ 	{
+ 		/* Set/Clear C_MASKINTS in a separate operation */
+ 		if (cortex_m3-&gt;dcb_dhcsr &amp; C_MASKINTS)
+-			ahbap_write_system_atomic_u32(swjdp, DCB_DHCSR, DBGKEY | C_DEBUGEN | C_HALT);
++			mem_ap_write_atomic_u32(swjdp, DCB_DHCSR, DBGKEY | C_DEBUGEN | C_HALT);
+ 
+ 		/* clear any debug flags before resuming */
+ 		cortex_m3_clear_halt(target);
+@@ -736,12 +789,12 @@
+ 		cortex_m3_write_debug_halt_mask(target, 0, C_HALT);
+ 							
+ 		/* Enter debug state on reset, cf. end_reset_event() */	
+-		ahbap_write_system_u32(swjdp, DCB_DEMCR, TRCENA | VC_HARDERR | VC_BUSERR);
++		mem_ap_write_u32(swjdp, DCB_DEMCR, TRCENA | VC_HARDERR | VC_BUSERR);
+ 	}
+ 	else
+ 	{
+ 		/* Enter debug state on reset, cf. end_reset_event() */
+-		ahbap_write_system_atomic_u32(swjdp, DCB_DEMCR, TRCENA | VC_HARDERR | VC_BUSERR | VC_CORERESET);
++		mem_ap_write_atomic_u32(swjdp, DCB_DEMCR, TRCENA | VC_HARDERR | VC_BUSERR | VC_CORERESET);
+ 	}
+ 	
+ 	/* following hack is to handle luminary reset
+@@ -789,14 +842,14 @@
+ 	else
+ 	{
+ 		/* this causes the luminary device to reset using the watchdog */
+-		ahbap_write_system_atomic_u32(swjdp, NVIC_AIRCR, AIRCR_VECTKEY | AIRCR_SYSRESETREQ);
++		mem_ap_write_atomic_u32(swjdp, NVIC_AIRCR, AIRCR_VECTKEY | AIRCR_SYSRESETREQ);
+ 		LOG_DEBUG(&quot;Using Luminary Reset: SYSRESETREQ&quot;);
+ 
+ 		{
+ 			/* I do not know why this is necessary, but it fixes strange effects
+ 			 * (step/resume cause a NMI after reset) on LM3S6918 -- Michael Schwingen */
+ 			u32 tmp;
+-			ahbap_read_system_atomic_u32(swjdp, NVIC_AIRCR, &amp;tmp);
++			mem_ap_read_atomic_u32(swjdp, NVIC_AIRCR, &amp;tmp);
+ 		}
+ 	}
+ 	
+@@ -1179,13 +1232,12 @@
+ 	int retval;
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+-	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 		
+ 	if ((type == ARMV7M_REGISTER_CORE_GP) &amp;&amp; (num &lt;= ARMV7M_PSP))
+ 	{
+ 		/* read a normal core register */
+-		retval = ahbap_read_coreregister_u32(swjdp, value, num);
++		retval = cortexm3_dap_read_coreregister_u32(swjdp, value, num);
+ 		
+ 		if (retval != ERROR_OK)
+ 		{
+@@ -1197,7 +1249,7 @@
+ 	else if (type == ARMV7M_REGISTER_CORE_SP) /* Special purpose core register */
+ 	{
+ 		/* read other registers */
+-		ahbap_read_coreregister_u32(swjdp, value, 20);
++		cortexm3_dap_read_coreregister_u32(swjdp, value, 20);
+ 		
+ 		switch (num)
+ 		{
+@@ -1235,8 +1287,7 @@
+ 	
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+-	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 
+ #ifdef ARMV7_GDB_HACKS
+ 	/* If the LR register is being modified, make sure it will put us
+@@ -1251,7 +1302,7 @@
+ 	 
+ 	if ((type == ARMV7M_REGISTER_CORE_GP) &amp;&amp; (num &lt;= ARMV7M_PSP))
+ 	{
+-		retval = ahbap_write_coreregister_u32(swjdp, value, num);
++		retval = cortexm3_dap_write_coreregister_u32(swjdp, value, num);
+ 		if (retval != ERROR_OK)
+ 		{
+ 			LOG_ERROR(&quot;JTAG failure %i&quot;, retval);
+@@ -1264,7 +1315,7 @@
+ 	{
+ 		/* write other registers */
+ 		
+-		ahbap_read_coreregister_u32(swjdp, &amp;reg, 20);
++		cortexm3_dap_read_coreregister_u32(swjdp, &amp;reg, 20);
+ 		
+ 		switch (num)
+ 		{
+@@ -1285,7 +1336,7 @@
+ 				break;
+ 		}
+ 		
+-		ahbap_write_coreregister_u32(swjdp, reg, 20);
++		cortexm3_dap_write_coreregister_u32(swjdp, reg, 20);
+ 		
+ 		LOG_DEBUG(&quot;write special reg %i value 0x%x &quot;, num, value);
+ 	}
+@@ -1301,8 +1352,7 @@
+ {
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+-	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	int retval;
+ 	
+ 	/* sanitize arguments */
+@@ -1314,13 +1364,13 @@
+ 	switch (size)
+ 	{
+ 		case 4:
+-			retval = ahbap_read_buf_u32(swjdp, buffer, 4 * count, address);
++			retval = mem_ap_read_buf_u32(swjdp, buffer, 4 * count, address);
+ 			break;
+ 		case 2:
+-			retval = ahbap_read_buf_u16(swjdp, buffer, 2 * count, address);
++			retval = mem_ap_read_buf_u16(swjdp, buffer, 2 * count, address);
+ 			break;
+ 		case 1:
+-			retval = ahbap_read_buf_u8(swjdp, buffer, count, address);
++			retval = mem_ap_read_buf_u8(swjdp, buffer, count, address);
+ 			break;
+ 		default:
+ 			LOG_ERROR(&quot;BUG: we shouldn't get here&quot;);
+@@ -1334,8 +1384,7 @@
+ {
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+-	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	int retval;
+ 	
+ 	/* sanitize arguments */
+@@ -1345,13 +1394,13 @@
+ 	switch (size)
+ 	{
+ 		case 4:
+-			retval = ahbap_write_buf_u32(swjdp, buffer, 4 * count, address);
++			retval = mem_ap_write_buf_u32(swjdp, buffer, 4 * count, address);
+ 			break;
+ 		case 2:
+-			retval = ahbap_write_buf_u16(swjdp, buffer, 2 * count, address);
++			retval = mem_ap_write_buf_u16(swjdp, buffer, 2 * count, address);
+ 			break;
+ 		case 1:
+-			retval = ahbap_write_buf_u8(swjdp, buffer, count, address);	
++			retval = mem_ap_write_buf_u8(swjdp, buffer, count, address);	
+ 			break;
+ 		default:
+ 			LOG_ERROR(&quot;BUG: we shouldn't get here&quot;);
+@@ -1386,7 +1435,7 @@
+ 	/* get pointers to arch-specific information */
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+ 	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	
+ 	if ((retval = ahbap_debugport_init(swjdp)) != ERROR_OK)
+ 		return retval;
+@@ -1451,7 +1500,7 @@
+ {
+ 	u16 dcrdr;
+ 	
+-	ahbap_read_buf_u16( swjdp, (u8*)&amp;dcrdr, 1, DCB_DCRDR);
++	mem_ap_read_buf_u16( swjdp, (u8*)&amp;dcrdr, 1, DCB_DCRDR);
+ 	*ctrl = (u8)dcrdr;
+ 	*value = (u8)(dcrdr &gt;&gt; 8);
+ 	
+@@ -1462,7 +1511,7 @@
+ 	if (dcrdr &amp; (1 &lt;&lt; 0))
+ 	{
+ 		dcrdr = 0;
+-		ahbap_write_buf_u16( swjdp, (u8*)&amp;dcrdr, 1, DCB_DCRDR);
++		mem_ap_write_buf_u16( swjdp, (u8*)&amp;dcrdr, 1, DCB_DCRDR);
+ 	}
+ 	
+ 	return ERROR_OK;
+@@ -1471,8 +1520,7 @@
+ int cortex_m3_target_request_data(target_t *target, u32 size, u8 *buffer)
+ {
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+-	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	u8 data;
+ 	u8 ctrl;
+ 	u32 i;
+@@ -1492,8 +1540,7 @@
+ 	if (!target-&gt;type-&gt;examined)
+ 		return ERROR_OK;
+ 	armv7m_common_t *armv7m = target-&gt;arch_info;
+-	cortex_m3_common_t *cortex_m3 = armv7m-&gt;arch_info;
+-	swjdp_common_t *swjdp = &amp;cortex_m3-&gt;swjdp_info;
++	swjdp_common_t *swjdp = &amp;armv7m-&gt;swjdp_info;
+ 	
+ 	if (!target-&gt;dbg_msg_enabled)
+ 		return ERROR_OK;
+@@ -1534,10 +1581,10 @@
+ 	cortex_m3-&gt;jtag_info.tap = tap;
+ 	cortex_m3-&gt;jtag_info.scann_size = 4;
+ 	
+-	cortex_m3-&gt;swjdp_info.dp_select_value = -1;
+-	cortex_m3-&gt;swjdp_info.ap_csw_value = -1;
+-	cortex_m3-&gt;swjdp_info.ap_tar_value = -1;
+-	cortex_m3-&gt;swjdp_info.jtag_info = &amp;cortex_m3-&gt;jtag_info;
++	armv7m-&gt;swjdp_info.dp_select_value = -1;
++	armv7m-&gt;swjdp_info.ap_csw_value = -1;
++	armv7m-&gt;swjdp_info.ap_tar_value = -1;
++	armv7m-&gt;swjdp_info.jtag_info = &amp;cortex_m3-&gt;jtag_info;
+ 
+ 	/* initialize arch-specific breakpoint handling */
+ 	
+
+Modified: trunk/src/target/cortex_m3.h
+===================================================================
+--- trunk/src/target/cortex_m3.h	2009-04-27 08:21:35 UTC (rev 1535)
++++ trunk/src/target/cortex_m3.h	2009-04-27 08:29:28 UTC (rev 1536)
+@@ -29,7 +29,7 @@
+ #include &quot;register.h&quot;
+ #include &quot;target.h&quot;
+ #include &quot;armv7m.h&quot;
+-#include &quot;cortex_swjdp.h&quot;
++//#include &quot;arm_adi_v5.h&quot;
+ 
+ extern char* cortex_m3_state_strings[];
+ 
+@@ -162,7 +162,7 @@
+ 	u32 *intsetenable;
+ 	
+ 	armv7m_common_t armv7m;
+-	swjdp_common_t swjdp_info;
++//	swjdp_common_t swjdp_info;
+ 	void *arch_info;
+ } cortex_m3_common_t;
+ 
+@@ -188,7 +188,7 @@
+ int cortex_m3_add_watchpoint(struct target_s *target, watchpoint_t *watchpoint);
+ int cortex_m3_remove_watchpoint(struct target_s *target, watchpoint_t *watchpoint);
+ 
+-extern int cortex_m3_register_commands(struct command_context_s *cmd_ctx);
++//extern int cortex_m3_register_commands(struct command_context_s *cmd_ctx);
+ extern int cortex_m3_init_arch_info(target_t *target, cortex_m3_common_t *cortex_m3, jtag_tap_t *tap);
+ 
+ #endif /* CORTEX_M3_H */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000319.html">[Openocd-svn] r1535 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="000321.html">[Openocd-svn] r1537 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#320">[ date ]</a>
+              <a href="thread.html#320">[ thread ]</a>
+              <a href="subject.html#320">[ subject ]</a>
+              <a href="author.html#320">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

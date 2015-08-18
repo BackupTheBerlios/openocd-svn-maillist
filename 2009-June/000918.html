@@ -1,0 +1,322 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2134 - in trunk/tcl: board target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2134%20-%20in%20trunk/tcl%3A%20board%20target&In-Reply-To=%3C200906090058.n590wTfU003886%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000917.html">
+   <LINK REL="Next"  HREF="000919.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2134 - in trunk/tcl: board target</H1>
+    <B>zwelch at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2134%20-%20in%20trunk/tcl%3A%20board%20target&In-Reply-To=%3C200906090058.n590wTfU003886%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2134 - in trunk/tcl: board target">zwelch at mail.berlios.de
+       </A><BR>
+    <I>Tue Jun  9 02:58:29 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000917.html">[Openocd-svn] r2133 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000919.html">[Openocd-svn] r2135 - trunk/tcl/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#918">[ date ]</a>
+              <a href="thread.html#918">[ thread ]</a>
+              <a href="subject.html#918">[ subject ]</a>
+              <a href="author.html#918">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zwelch
+Date: 2009-06-09 02:58:23 +0200 (Tue, 09 Jun 2009)
+New Revision: 2134
+
+Added:
+   trunk/tcl/board/csb337.cfg
+Modified:
+   trunk/tcl/target/str912.cfg
+Log:
+David Brownell &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">david-b at pacbell.net</A>&gt;:
+
+Add configuration for an old AT91rm9200 board, the Cogent CSB 337.
+Worth noting from the OpenOCD perspective:
+
+ - It got a real hardware trace port connector; wired up here as
+   much as we can, lacking inexpensive trace-aware dongles.
+
+ - This is the first in-tree use of the &quot;arm920t cp15&quot; command.
+   It adjusts the CPU clocking and enables i-cache, which gives
+   more than 4x speedup after booting Linux; it's visible even
+   just running U-Boot.
+
+
+Added: trunk/tcl/board/csb337.cfg
+===================================================================
+--- trunk/tcl/board/csb337.cfg	2009-06-08 22:18:16 UTC (rev 2133)
++++ trunk/tcl/board/csb337.cfg	2009-06-09 00:58:23 UTC (rev 2134)
+@@ -0,0 +1,118 @@
++# Cogent CSB337
++#   <A HREF="http://cogcomp.com/csb_csb337.htm">http://cogcomp.com/csb_csb337.htm</A>
++
++source [find target/at91rm9200.cfg]
++
++# boots from NOR on CS0:  8 MBytes CFI flash, 16-bit bus
++flash bank cfi 0x10000000 0x00800000 2 2 $_TARGETNAME
++
++# ETM9 trace port connector present on this board, 16 data pins.
++if { [info exists ETM_DRIVER] } {
++	etm config $_TARGETNAME 16 normal half $ETM_DRIVER
++	# OpenOCD may someday support a real trace port driver...
++	# system config file would need to configure it.
++} else {
++	etm config $_TARGETNAME 16 normal half dummy
++	etm_dummy config $_TARGETNAME
++}
++
++proc csb337_clk_init { } {
++	# CPU is in Slow Clock Mode (32KiHz) ... needs slow JTAG clock
++	jtag_khz 8
++
++	# CKGR_MOR:  start main oscillator (3.6864 MHz)
++	mww 0xfffffc20 0xff01
++	sleep 10
++
++	# CKGR_PLLAR:  start PLL A for CPU and peripherals (184.32 MHz)
++	mww 0xfffffc28 0x20313e01
++	# CKGR_PLLBR:  start PLL B for USB timing (96 MHz, with div2)
++	mww 0xfffffc2c 0x12703e18
++	# let PLLs lock
++	sleep 10
++
++	# PMC_MCKR:  switch to CPU clock = PLLA, master clock = CPU/4
++	mww 0xfffffc30 0x0302
++	sleep 20
++
++	# CPU is in Normal Mode ... allows faster JTAG clock speed
++	jtag_khz 40000
++}
++
++proc csb337_nor_init { } {
++	# SMC_CSR0:  adjust timings (10 wait states)
++	mww 0xffffff70 0x1100318a
++
++	flash probe 0
++}
++
++proc csb337_sdram_init { } {
++	# enable PIOC clock
++	mww 0xfffffc10 0x0010
++	# PC31..PC16 are D31..D16, with internal pullups like D15..D0
++	mww 0xfffff870 0xffff0000
++	mww 0xfffff874 0x0
++	mww 0xfffff804 0xffff0000
++
++	# SDRC_CR: set timings
++	mww 0xffffff98 0x2188b0d5
++
++	# SDRC_MR: issue all banks precharge to SDRAM
++	mww 0xffffff90 2
++	mww 0x20000000 0
++
++	# SDRC_MR: 8 autorefresh cycles
++	mww 0xffffff90 4
++	mww 0x20000000 0
++	mww 0x20000000 0
++	mww 0x20000000 0
++	mww 0x20000000 0
++	mww 0x20000000 0
++	mww 0x20000000 0
++	mww 0x20000000 0
++	mww 0x20000000 0
++
++	# SDRC_MR: set SDRAM mode registers (CAS, burst len, etc)
++	mww 0xffffff90 3
++	mww 0x20000080 0
++
++	# SDRC_TR: set refresh rate
++	mww 0xffffff94 0x200
++	mww 0x20000000 0
++
++	# SDRC_MR: normal mode, 32 bit bus
++	mww 0xffffff90 0
++	mww 0x20000000 0
++}
++
++# The rm9200 chip has just been reset.  Bring it up far enough
++# that we can write flash or run code from SDRAM.
++proc csb337_reset_init { } {
++	csb337_clk_init
++
++	# EBI_CSA:  CS0 = NOR, CS1 = SDRAM
++	mww 0xffffff60 0x02
++
++	csb337_nor_init
++	csb337_sdram_init
++
++	# Update CP15 control register ... we don't seem to be able to
++	# read/modify/write its value through a TCL variable, so just
++	# write it.  Fields are zero unless listed here ... and note
++	# that OpenOCD numbers this register &quot;2&quot;, not &quot;1&quot; (!).
++	#
++	#  - Core to use Async Clocking mode (so it uses 184 MHz most
++	#    of the time instead of limiting to the master clock rate):
++	#	iA(31) = 1, nF(30) = 1
++	#  - Icache on (it's disabled now, slowing i-fetches)
++	#	I(12) = 1
++	#  - Reserved/ones
++	#	6:3 = 1
++	#  - Alignment traps enabled
++	#	A(1) = 1
++	arm920t cp15 2 0xc000107a
++}
++
++$_TARGETNAME configure -event reset-init {csb337_reset_init}
++
++# vim:syntax tcl
+
+
+Property changes on: trunk/tcl/board/csb337.cfg
+___________________________________________________________________
+Name: eol:style
+   + native
+
+Modified: trunk/tcl/target/str912.cfg
+===================================================================
+--- trunk/tcl/target/str912.cfg	2009-06-08 22:18:16 UTC (rev 2133)
++++ trunk/tcl/target/str912.cfg	2009-06-09 00:58:23 UTC (rev 2134)
+@@ -1,4 +1,6 @@
+ # script for str9
++# For more information about the configuration files, take a look at:
++# openocd.texi
+ 
+ if { [info exists CHIPNAME] } {	
+    set  _CHIPNAME $CHIPNAME    
+@@ -19,52 +21,74 @@
+ jtag_ntrst_delay 100
+ 
+ #use combined on interfaces or targets that can't set TRST/SRST separately
+-reset_config trst_and_srst
++#reset_config trst_and_srst
+ 
+ if { [info exists FLASHTAPID ] } {
+    set _FLASHTAPID $FLASHTAPID
+ } else {
+    set _FLASHTAPID 0x04570041
+ }
+-jtag newtap $_CHIPNAME flash -irlen 8 -ircapture 0x1 -irmask 0x1 -expected-id $_FLASHTAPID
++jtag newtap $_CHIPNAME flash \
++	-irlen 8 -ircapture 0x1 -irmask 0x1 \
++	-expected-id $_FLASHTAPID
+ 
+ if { [info exists CPUTAPID ] } {
+    set _CPUTAPID $CPUTAPID
+ } else {
+    set _CPUTAPID 0x25966041
+ }
+-jtag newtap $_CHIPNAME cpu   -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_CPUTAPID
++jtag newtap $_CHIPNAME cpu \
++	-irlen 4 -ircapture 0x1 -irmask 0xf \
++	-expected-id $_CPUTAPID
+ 
+ 
+ if { [info exists BSTAPID ] } {
+-   set _BSTAPID $BSTAPID
++   set _BSTAPID1 $BSTAPID
++   set _BSTAPID2 $BSTAPID
+ } else {
+-   set _BSTAPID 0x1457f041
++   set _BSTAPID1 0x1457f041
++   set _BSTAPID2 0x2457f041
+ }
+-jtag newtap $_CHIPNAME bs    -irlen 5 -ircapture 0x1 -irmask 0x1 -expected-id $_BSTAPID
++jtag newtap $_CHIPNAME bs \
++	-irlen 5 -ircapture 0x1 -irmask 0x1 \
++	-expected-id $_BSTAPID1 -expected-id $_BSTAPID2
+ 
+ set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
+-target create $_TARGETNAME arm966e -endian $_ENDIAN -chain-position $_TARGETNAME -variant arm966e
++target create $_TARGETNAME arm966e \
++	-endian $_ENDIAN \
++	-chain-position $_TARGETNAME \
++	-variant arm966e
+ 
+ $_TARGETNAME configure -event reset-start { jtag_rclk 16 }
+ 
+-$_TARGETNAME configure -event reset-init {
+-	# We can increase speed now that we know the target is halted.
+-	#jtag_rclk 3000
+-	
+-	# -- Enable 96K RAM
+-	# PFQBC enabled / DTCM &amp; AHB wait-states disabled
+-	mww 0x5C002034 0x0191 
++proc str9x_config { } {
++	# -- Enable 96K RAM w/:
++	#    PFQBC enabled / DTCM &amp; AHB wait-states disabled
++	mww 0x5C002034 0x0191
++	#    PFQBC disabled / DTCM &amp; AHB wait-states enabled
++	#mww 0x5C002034 0x0196
+ 
+-	str9x flash_config 0 4 2 0 0x80000
+-	flash protect 0 0 7 off
++	# 256K/32k
++	str9x flash_config 0 3 2 0 0x40000
++	# 512K/32K 
++	#str9x flash_config 0 4 2 0 0x80000
+ }
+ 
+-$_TARGETNAME configure -work-area-virt 0 -work-area-phys 0x50000000 -work-area-size 16384 -work-area-backup 0
++proc str9x_init { } {
++	# enable RTCK
++	jtag_rclk 0
++	str9x_config
++}
+ 
++$_TARGETNAME configure -event reset-init str9x_init
++
++$_TARGETNAME configure \
++	-work-area-virt 0 \
++	-work-area-phys 0x50000000 \
++	-work-area-size 16384 \
++	-work-area-backup 0
++
+ #flash bank str9x &lt;base&gt; &lt;size&gt; 0 0 &lt;target#&gt; &lt;variant&gt;
+-flash bank str9x 0x00000000 0x00080000 0 0 0
+-flash bank str9x 0x00080000 0x00008000 0 0 0
++flash bank str9x 0x00000000 0x00040000 0 0 0
++flash bank str9x 0x00040000 0x00008000 0 0 0
+ 
+-# For more information about the configuration files, take a look at:
+-# openocd.texi
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000917.html">[Openocd-svn] r2133 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000919.html">[Openocd-svn] r2135 - trunk/tcl/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#918">[ date ]</a>
+              <a href="thread.html#918">[ thread ]</a>
+              <a href="subject.html#918">[ subject ]</a>
+              <a href="author.html#918">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

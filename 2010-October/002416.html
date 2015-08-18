@@ -1,0 +1,214 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-559-g1ceb2c7
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-559-g1ceb2c7&In-Reply-To=%3CE1PAG90-0000xt-PJ%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002415.html">
+   <LINK REL="Next"  HREF="002417.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-559-g1ceb2c7</H1>
+    <B>&#216;yvind Harboe</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5Bopenocd-svn%5D%20Main%20OpenOCD%20repository%20branch%2C%20master%2C%0A%09updated.%20v0.4.0-559-g1ceb2c7&In-Reply-To=%3CE1PAG90-0000xt-PJ%40sfp-scmshell-2.v30.ch3.sourceforge.com%3E"
+       TITLE="[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-559-g1ceb2c7">gowinex at users.sourceforge.net
+       </A><BR>
+    <I>Mon Oct 25 08:02:47 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002415.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-557-ged44447
+</A></li>
+        <LI>Next message: <A HREF="002417.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-561-gf176278
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2416">[ date ]</a>
+              <a href="thread.html#2416">[ thread ]</a>
+              <a href="subject.html#2416">[ subject ]</a>
+              <a href="author.html#2416">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>This is an automated email from the git hooks/post-receive script. It was
+generated because a ref change was pushed to the repository containing
+the project &quot;Main OpenOCD repository&quot;.
+
+The branch, master has been updated
+       via  1ceb2c7e7ac1014d25d1544b44f59404e636ef5c (commit)
+       via  d4de14dafe43f264b9490b543b9cd50a1345fe9e (commit)
+      from  ed44447e3dfe69084b9960b844c326746681e539 (commit)
+
+Those revisions listed above that are new to this repository have
+not appeared on any other notification email; so we list those
+revisions in full, below.
+
+- Log -----------------------------------------------------------------
+commit 1ceb2c7e7ac1014d25d1544b44f59404e636ef5c
+Author: Michal Demin &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">michaldemin at gmail.com</A>&gt;
+Date:   Fri Oct 22 23:26:43 2010 +0200
+
+    buspirate: change handling of communication speed setting + create serial port open function
+    
+    Signed-off-by: Michal Demin &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">michaldemin at gmail.com</A>&gt;
+
+diff --git a/src/jtag/drivers/buspirate.c b/src/jtag/drivers/buspirate.c
+index 85b76ed..13819ba 100644
+--- a/src/jtag/drivers/buspirate.c
++++ b/src/jtag/drivers/buspirate.c
+@@ -108,7 +108,8 @@ static void buspirate_jtag_set_feature(int, char, char);
+ static void buspirate_jtag_get_adcs(int);
+ 
+ /* low level HW communication interface */
+-static int buspirate_serial_setspeed(int fd, speed_t speed);
++static int buspirate_serial_open(char *port);
++static int buspirate_serial_setspeed(int fd, char speed);
+ static int buspirate_serial_write(int fd, char *buf, int size);
+ static int buspirate_serial_read(int fd, char *buf, int size);
+ static void buspirate_serial_close(int fd);
+@@ -215,13 +216,13 @@ static int buspirate_init(void)
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
+-	buspirate_fd = open(buspirate_port, O_RDWR | O_NOCTTY);
++	buspirate_fd = buspirate_serial_open(buspirate_port);
+ 	if (buspirate_fd == -1) {
+ 		LOG_ERROR(&quot;Could not open serial port.&quot;);
+ 		return ERROR_JTAG_INIT_FAILED;
+ 	}
+ 
+-	buspirate_serial_setspeed(buspirate_fd, B115200);
++	buspirate_serial_setspeed(buspirate_fd, SERIAL_NORMAL);
+ 
+ 	buspirate_jtag_enable(buspirate_fd);
+ 
+@@ -770,7 +771,6 @@ static void buspirate_jtag_set_speed(int fd, char speed)
+ 	int ret;
+ 	char tmp[2];
+ 	char ack[2];
+-	speed_t baudrate = B115200;
+ 
+ 	ack[0] = 0xAA;
+ 	ack[1] = 0x55;
+@@ -780,10 +780,7 @@ static void buspirate_jtag_set_speed(int fd, char speed)
+ 	buspirate_jtag_command(fd, tmp, 2);
+ 
+ 	/* here the adapter changes speed, we need follow */
+-	if (speed == SERIAL_FAST)
+-		baudrate = B1000000;
+-
+-	buspirate_serial_setspeed(fd, baudrate);
++	buspirate_serial_setspeed(fd, speed);
+ 
+ 	buspirate_serial_write(fd, ack, 2);
+ 	ret = buspirate_serial_read(fd, tmp, 2);
+@@ -873,15 +870,23 @@ static unsigned char buspirate_jtag_command(int fd,
+ 
+ /* low level serial port */
+ /* TODO add support for WIN32 and others ! */
+-static int buspirate_serial_setspeed(int fd, speed_t speed)
++static int buspirate_serial_open(char *port)
++{
++	int fd;
++	fd = open(buspirate_port, O_RDWR | O_NOCTTY | O_NDELAY);
++	return fd;
++}
++
++static int buspirate_serial_setspeed(int fd, char speed)
+ {
+ 	struct termios t_opt;
++	speed_t baud = (speed == SERIAL_FAST) ? B1000000 : B115200;
+ 
+ 	/* set the serial port parameters */
+ 	fcntl(fd, F_SETFL, 0);
+ 	tcgetattr(fd, &amp;t_opt);
+-	cfsetispeed(&amp;t_opt, speed);
+-	cfsetospeed(&amp;t_opt, speed);
++	cfsetispeed(&amp;t_opt, baud);
++	cfsetospeed(&amp;t_opt, baud);
+ 	t_opt.c_cflag |= (CLOCAL | CREAD);
+ 	t_opt.c_cflag &amp;= ~PARENB;
+ 	t_opt.c_cflag &amp;= ~CSTOPB;
+
+commit d4de14dafe43f264b9490b543b9cd50a1345fe9e
+Author: Michal Demin &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">michaldemin at gmail.com</A>&gt;
+Date:   Fri Oct 22 21:06:31 2010 +0200
+
+    buspirate: Serial port was not correctly closed.
+    
+    Signed-off-by: Michal Demin &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">michaldemin at gmail.com</A>&gt;
+
+diff --git a/src/jtag/drivers/buspirate.c b/src/jtag/drivers/buspirate.c
+index e5f8fb6..85b76ed 100644
+--- a/src/jtag/drivers/buspirate.c
++++ b/src/jtag/drivers/buspirate.c
+@@ -111,6 +111,7 @@ static void buspirate_jtag_get_adcs(int);
+ static int buspirate_serial_setspeed(int fd, speed_t speed);
+ static int buspirate_serial_write(int fd, char *buf, int size);
+ static int buspirate_serial_read(int fd, char *buf, int size);
++static void buspirate_serial_close(int fd);
+ static void buspirate_print_buffer(char *buf, int size);
+ 
+ static int buspirate_speed(int speed)
+@@ -247,6 +248,9 @@ static int buspirate_quit(void)
+ 
+ 	buspirate_jtag_set_speed(buspirate_fd, SERIAL_NORMAL);
+ 	buspirate_jtag_reset(buspirate_fd);
++
++	buspirate_serial_close(buspirate_fd);
++
+ 	if (buspirate_port) {
+ 		free(buspirate_port);
+ 		buspirate_port = NULL;
+@@ -941,6 +945,11 @@ static int buspirate_serial_read(int fd, char *buf, int size)
+ 	return len;
+ }
+ 
++static void buspirate_serial_close(int fd)
++{
++	close(fd);
++}
++
+ #define LINE_SIZE      81
+ #define BYTES_PER_LINE 16
+ static void buspirate_print_buffer(char *buf, int size)
+
+-----------------------------------------------------------------------
+
+Summary of changes:
+ src/jtag/drivers/buspirate.c |   36 +++++++++++++++++++++++++-----------
+ 1 files changed, 25 insertions(+), 11 deletions(-)
+
+
+hooks/post-receive
+-- 
+Main OpenOCD repository
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002415.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-557-ged44447
+</A></li>
+	<LI>Next message: <A HREF="002417.html">[openocd-svn] Main OpenOCD repository branch, master,	updated. v0.4.0-561-gf176278
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2416">[ date ]</a>
+              <a href="thread.html#2416">[ thread ]</a>
+              <a href="subject.html#2416">[ subject ]</a>
+              <a href="author.html#2416">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

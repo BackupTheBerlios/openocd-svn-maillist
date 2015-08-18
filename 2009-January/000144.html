@@ -1,0 +1,480 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1360 - in trunk/src: jtag xsvf
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1360%20-%20in%20trunk/src%3A%20jtag%20xsvf&In-Reply-To=%3C200901230710.n0N7AMj1009840%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000143.html">
+   <LINK REL="Next"  HREF="000145.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1360 - in trunk/src: jtag xsvf</H1>
+    <B>kc8apf at mail.berlios.de</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1360%20-%20in%20trunk/src%3A%20jtag%20xsvf&In-Reply-To=%3C200901230710.n0N7AMj1009840%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1360 - in trunk/src: jtag xsvf">kc8apf at mail.berlios.de
+       </A><BR>
+    <I>Fri Jan 23 08:10:22 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000143.html">[Openocd-svn] r1359 - trunk/src/svf
+</A></li>
+        <LI>Next message: <A HREF="000145.html">[Openocd-svn] r1361 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#144">[ date ]</a>
+              <a href="thread.html#144">[ thread ]</a>
+              <a href="subject.html#144">[ subject ]</a>
+              <a href="author.html#144">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kc8apf
+Date: 2009-01-23 08:10:11 +0100 (Fri, 23 Jan 2009)
+New Revision: 1360
+
+Modified:
+   trunk/src/jtag/bitbang.c
+   trunk/src/jtag/ft2232.c
+   trunk/src/jtag/jtag.c
+   trunk/src/jtag/jtag.h
+   trunk/src/xsvf/xsvf.c
+Log:
+xvsf player fixes by Dick Hollenbeck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">dick at softplc.com</A>&gt;
+
+Modified: trunk/src/jtag/bitbang.c
+===================================================================
+--- trunk/src/jtag/bitbang.c	2009-01-23 07:08:18 UTC (rev 1359)
++++ trunk/src/jtag/bitbang.c	2009-01-23 07:10:11 UTC (rev 1360)
+@@ -38,6 +38,14 @@
+ #include &lt;unistd.h&gt;
+ 
+ 
++/**
++ * Function bitbang_stableclocks
++ * issues a number of clock cycles while staying in a stable state.
++ * Because the TMS value required to stay in the RESET state is a 1, whereas
++ * the TMS value required to stay in any of the other stable states is a 0,
++ * this function checks the current stable state to decide on the value of TMS
++ * to use.
++ */
+ static void bitbang_stableclocks(int num_cycles);
+ 
+ 
+@@ -162,13 +170,14 @@
+ 
+ static void bitbang_stableclocks(int num_cycles)
+ {
++	int tms = (cur_state == TAP_RESET ? 1 : 0);
+ 	int i;
+ 
+ 	/* send num_cycles clocks onto the cable */
+ 	for (i = 0; i &lt; num_cycles; i++)
+ 	{
+-		bitbang_interface-&gt;write(1, 0, 0);
+-		bitbang_interface-&gt;write(0, 0, 0);
++		bitbang_interface-&gt;write(1, tms, 0);
++		bitbang_interface-&gt;write(0, tms, 0);
+ 	}
+ }
+ 
+@@ -293,6 +302,9 @@
+ 				break;
+ 
+ 			case JTAG_STABLECLOCKS:
++				/* this is only allowed while in a stable state.  A check for a stable
++				 * state was done in jtag_add_clocks()
++				 */
+ 				bitbang_stableclocks(cmd-&gt;cmd.stableclocks-&gt;num_cycles);
+ 				break;
+ 
+
+Modified: trunk/src/jtag/ft2232.c
+===================================================================
+--- trunk/src/jtag/ft2232.c	2009-01-23 07:08:18 UTC (rev 1359)
++++ trunk/src/jtag/ft2232.c	2009-01-23 07:10:11 UTC (rev 1360)
+@@ -1415,22 +1415,9 @@
+ 				break;
+ 
+ 			case JTAG_STABLECLOCKS:
+-				/* &quot;if (tap_move_map[cur_state] != -1)&quot; is of no help when cur_state==TAP_IDLE */
+-				switch(cur_state)
+-				{
+-				case TAP_DRSHIFT:
+-				case TAP_IDLE:
+-				case TAP_RESET:
+-				case TAP_DRPAUSE:
+-				case TAP_IRSHIFT:
+-				case TAP_IRPAUSE:
+-					 break;			/* above stable states are OK */
+-				default:
+-					 LOG_ERROR( &quot;jtag_add_clocks() was called with TAP in non-stable state \&quot;%s\&quot;&quot;,
+-							 jtag_state_name(cur_state) );
+-					 retval = ERROR_JTAG_QUEUE_FAILED;
+-				}
+-
++				/* this is only allowed while in a stable state.  A check for a stable
++				 * state was done in jtag_add_clocks()
++				 */
+ 				if (ft2232_stableclocks(cmd-&gt;cmd.stableclocks-&gt;num_cycles, cmd) != ERROR_OK)
+ 					retval = ERROR_JTAG_QUEUE_FAILED;
+ #ifdef _DEBUG_JTAG_IO_
+@@ -2336,11 +2323,15 @@
+ {
+ 	int retval = 0;
+ 
++	/* 7 bits of either ones or zeros. */
++	u8 tms = (cur_state == TAP_RESET ? 0x7F : 0x00);
++
+ 	while (num_cycles &gt; 0)
+ 	{
+ 		/* the command 0x4b, &quot;Clock Data to TMS/CS Pin (no Read)&quot; handles
+ 		 * at most 7 bits per invocation.  Here we invoke it potentially
+ 		 * several times.
++		 * see: <A HREF="http://www.ftdichip.com/Documents/AppNotes/AN2232C-01_MPSSE_Cmnd.pdf">http://www.ftdichip.com/Documents/AppNotes/AN2232C-01_MPSSE_Cmnd.pdf</A>
+ 		 */
+ 		int bitcount_per_command = (num_cycles &gt; 7) ? 7 : num_cycles;
+ 
+@@ -2358,8 +2349,8 @@
+ 		/* scan 7 bit */
+ 		BUFFER_ADD = bitcount_per_command - 1;
+ 
+-		/* TMS data bits are all zeros to stay in the current stable state */
+-		BUFFER_ADD = 0x0;
++		/* TMS data bits are either all zeros or ones to stay in the current stable state */
++		BUFFER_ADD = tms;
+ 
+ 		require_send = 1;
+ 
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-01-23 07:08:18 UTC (rev 1359)
++++ trunk/src/jtag/jtag.c	2009-01-23 07:10:11 UTC (rev 1360)
+@@ -1093,11 +1093,31 @@
+ {
+ 	int retval;
+ 
+-	jtag_prelude1();
++	/* &quot;if (tap_move_map[cm_queue_cur_state] != -1)&quot; is of no help when cur_state==TAP_IDLE */
++	switch(cmd_queue_cur_state)
++	{
++	case TAP_DRSHIFT:
++	case TAP_IDLE:
++	case TAP_RESET:
++	case TAP_DRPAUSE:
++	case TAP_IRSHIFT:
++	case TAP_IRPAUSE:
++		 break;			/* above stable states are OK */
++	default:
++		 LOG_ERROR( &quot;jtag_add_clocks() was called with TAP in non-stable state \&quot;%s\&quot;&quot;,
++				 jtag_state_name(cmd_queue_cur_state) );
++		 jtag_error = ERROR_JTAG_NOT_STABLE_STATE;
++		 return;
++	}
+ 
+-	retval=interface_jtag_add_clocks(num_cycles);
+-	if (retval!=ERROR_OK)
+-		jtag_error=retval;
++	if( num_cycles &gt; 0 )
++	{
++		jtag_prelude1();
++
++		retval=interface_jtag_add_clocks(num_cycles);
++		if (retval!=ERROR_OK)
++			jtag_error=retval;
++	}
+ }
+ 
+ void jtag_add_reset(int req_tlr_or_trst, int req_srst)
+@@ -1287,7 +1307,7 @@
+ 		if (cmd-&gt;fields[i].out_value)
+ 		{
+ #ifdef _DEBUG_JTAG_IO_
+-			char* char_buf = buf_to_str(cmd-&gt;fields[i].out_value, (cmd-&gt;fields[i].num_bits &gt; 64) ? 64 : cmd-&gt;fields[i].num_bits, 16);
++			char* char_buf = buf_to_str(cmd-&gt;fields[i].out_value, (cmd-&gt;fields[i].num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : cmd-&gt;fields[i].num_bits, 16);
+ #endif
+ 			buf_set_buf(cmd-&gt;fields[i].out_value, 0, *buffer, bit_count, cmd-&gt;fields[i].num_bits);
+ #ifdef _DEBUG_JTAG_IO_
+@@ -1297,9 +1317,6 @@
+ 		}
+ 
+ 		bit_count += cmd-&gt;fields[i].num_bits;
+-#ifdef _DEBUG_JTAG_IO_
+-		LOG_DEBUG(&quot;bit_count totalling: %i&quot;,  bit_count );
+-#endif
+ 	}
+ 
+ 	return bit_count;
+@@ -1325,7 +1342,7 @@
+ 			u8 *captured = buf_set_buf(buffer, bit_count, malloc(CEIL(num_bits, 8)), 0, num_bits);
+ 
+ #ifdef _DEBUG_JTAG_IO_
+-			char *char_buf = buf_to_str(captured, (num_bits &gt; 64) ? 64 : num_bits, 16);
++			char *char_buf = buf_to_str(captured, (num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : num_bits, 16);
+ 			LOG_DEBUG(&quot;fields[%i].in_value[%i]: 0x%s&quot;, i, num_bits, char_buf);
+ 			free(char_buf);
+ #endif
+@@ -1391,13 +1408,13 @@
+ 					jtag_tap_name(field-&gt;tap));
+ 		if (compare_failed)
+ 		{
+-			char *captured_char = buf_to_str(captured, (num_bits &gt; 64) ? 64 : num_bits, 16);
+-			char *in_check_value_char = buf_to_str(field-&gt;in_check_value, (num_bits &gt; 64) ? 64 : num_bits, 16);
++			char *captured_char = buf_to_str(captured, (num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : num_bits, 16);
++			char *in_check_value_char = buf_to_str(field-&gt;in_check_value, (num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : num_bits, 16);
+ 
+ 			if (field-&gt;in_check_mask)
+ 			{
+ 				char *in_check_mask_char;
+-				in_check_mask_char = buf_to_str(field-&gt;in_check_mask, (num_bits &gt; 64) ? 64 : num_bits, 16);
++				in_check_mask_char = buf_to_str(field-&gt;in_check_mask, (num_bits &gt; DEBUG_JTAG_IOZ) ? DEBUG_JTAG_IOZ : num_bits, 16);
+ 				LOG_WARNING(&quot;value captured during scan didn't pass the requested check:&quot;);
+ 				LOG_WARNING(&quot;captured: 0x%s check_value: 0x%s check_mask: 0x%s&quot;,
+ 							captured_char, in_check_value_char, in_check_mask_char);
+
+Modified: trunk/src/jtag/jtag.h
+===================================================================
+--- trunk/src/jtag/jtag.h	2009-01-23 07:08:18 UTC (rev 1359)
++++ trunk/src/jtag/jtag.h	2009-01-23 07:10:11 UTC (rev 1360)
+@@ -34,6 +34,11 @@
+ #define _DEBUG_JTAG_IO_
+ #endif
+ 
++#ifndef DEBUG_JTAG_IOZ
++#define DEBUG_JTAG_IOZ		64
++#endif
++
++
+ /* 16 Tap States, from page 21 of ASSET InterTech, Inc.'s svf.pdf
+  */
+ typedef enum tap_state
+@@ -499,12 +504,14 @@
+  * JTAG subsystem uses codes between -100 and -199 */
+ 
+ #define ERROR_JTAG_INIT_FAILED			(-100)
+-#define ERROR_JTAG_INVALID_INTERFACE	(-101)
++#define ERROR_JTAG_INVALID_INTERFACE		(-101)
+ #define ERROR_JTAG_NOT_IMPLEMENTED		(-102)
+-#define ERROR_JTAG_TRST_ASSERTED		(-103)
++#define ERROR_JTAG_TRST_ASSERTED			(-103)
+ #define ERROR_JTAG_QUEUE_FAILED			(-104)
++#define ERROR_JTAG_NOT_STABLE_STATE		(-105)
+ #define ERROR_JTAG_DEVICE_ERROR			(-107)
+ 
++
+ /* this allows JTAG devices to implement the entire jtag_xxx() layer in hw/sw */
+ #ifdef HAVE_JTAG_MINIDRIVER_H
+ /* Here a #define MINIDRIVER() and an inline version of hw fifo interface_jtag_add_dr_out can be defined */
+
+Modified: trunk/src/xsvf/xsvf.c
+===================================================================
+--- trunk/src/xsvf/xsvf.c	2009-01-23 07:08:18 UTC (rev 1359)
++++ trunk/src/xsvf/xsvf.c	2009-01-23 07:10:11 UTC (rev 1360)
+@@ -107,6 +107,7 @@
+ #define LCOUNT			0x19
+ #define LDELAY			0x1A
+ #define LSDR				0x1B
++#define XTRST			0x1C
+ 
+ 
+ /* XSVF valid state values for the XSTATE command, from appendix B of xapp503.pdf */
+@@ -127,6 +128,11 @@
+ #define XSV_IREXIT2		0x0E
+ #define XSV_IRUPDATE		0x0F
+ 
++/* arguments to XTRST */
++#define XTRST_ON			0
++#define XTRST_OFF		1
++#define XTRST_Z			2
++#define XTRST_ABSENT		3
+ 
+ #define XSTATE_MAX_PATH 12
+ 
+@@ -210,7 +216,7 @@
+ int xsvf_register_commands(struct command_context_s *cmd_ctx)
+ {
+ 	register_command(cmd_ctx, NULL, &quot;xsvf&quot;, handle_xsvf_command,
+-		COMMAND_EXEC, &quot;run xsvf &lt;file&gt; [virt2]&quot;);
++		COMMAND_EXEC, &quot;run xsvf &lt;file&gt; [virt2] [quiet]&quot;);
+ 
+ 	return ERROR_OK;
+ }
+@@ -288,6 +294,8 @@
+ 	int 		unsupported = 0;
+ 	int 		tdo_mismatch = 0;
+ 	int 		result;
++	int		verbose = 1;
++	char*	filename;
+ 
+ 	int 		runtest_requires_tck = 0;	/* a flag telling whether to clock TCK during waits, or simply sleep, controled by virt2 */
+ 
+@@ -300,10 +308,12 @@
+ 
+ 	if (argc &lt; 2)
+ 	{
+-		command_print(cmd_ctx, &quot;usage: xsvf &lt;device#|plain&gt; &lt;file&gt; &lt;variant&gt;&quot;);
++		command_print(cmd_ctx, &quot;usage: xsvf &lt;device#|plain&gt; &lt;file&gt; [&lt;variant&gt;] [quiet]&quot;);
+ 		return ERROR_FAIL;
+ 	}
+ 
++	filename = args[1];		/* we mess with args starting point below, snapshot filename here */
++
+ 	if (strcmp(args[0], &quot;plain&quot;) != 0)
+ 	{
+ 		tap = jtag_TapByString( args[0] );
+@@ -314,9 +324,9 @@
+ 		}
+ 	}
+ 
+-	if ((xsvf_fd = open(args[1], O_RDONLY)) &lt; 0)
++	if ((xsvf_fd = open(filename, O_RDONLY)) &lt; 0)
+ 	{
+-		command_print(cmd_ctx, &quot;file \&quot;%s\&quot; not found&quot;, args[1]);
++		command_print(cmd_ctx, &quot;file \&quot;%s\&quot; not found&quot;, filename);
+ 		return ERROR_FAIL;
+ 	}
+ 
+@@ -324,10 +334,17 @@
+ 	if ((argc &gt; 2) &amp;&amp; (strcmp(args[2], &quot;virt2&quot;) == 0))
+ 	{
+ 		runtest_requires_tck = 1;
++		--argc;
++		++args;
+ 	}
+ 
+-	LOG_USER(&quot;xsvf processing file: \&quot;%s\&quot;&quot;, args[1]);
++	if ((argc &gt; 2) &amp;&amp; (strcmp(args[2], &quot;quiet&quot;) == 0))
++	{
++		verbose = 0;
++	}
+ 
++	LOG_USER(&quot;xsvf processing file: \&quot;%s\&quot;&quot;, filename);
++
+ 	while( read(xsvf_fd, &amp;opcode, 1) &gt; 0 )
+ 	{
+ 		/* record the position of the just read opcode within the file */
+@@ -462,7 +479,8 @@
+ 
+ 							jtag_add_pathmove( sizeof(exception_path)/sizeof(exception_path[0]), exception_path);
+ 
+-							LOG_USER(&quot;%s %d retry %d&quot;, op_name, xsdrsize, attempt);
++							if (verbose)
++								LOG_USER(&quot;%s %d retry %d&quot;, op_name, xsdrsize, attempt);
+ 						}
+ 
+ 						field.tap = tap;
+@@ -749,7 +767,8 @@
+ 					} while (uc != 0);
+ 
+ 					comment[sizeof(comment)-1] = 0;		/* regardless, terminate */
+-					LOG_USER(comment);
++					if (verbose)
++						LOG_USER(comment);
+ 				}
+ 				break;
+ 
+@@ -918,20 +937,24 @@
+ 					{
+ 						scan_field_t field;
+ 
++						xsvf_add_statemove( loop_state );
++						jtag_add_clocks(loop_clocks);
++						jtag_add_sleep(loop_usecs);
++
+ 						field.tap = tap;
+ 						field.num_bits = xsdrsize;
+ 						field.out_value = dr_out_buf;
+ 						field.out_mask = NULL;
+ 						field.in_value = NULL;
+ 
+-						if (attempt &gt; 0)
++						if (attempt &gt; 0 &amp;&amp; verbose)
+ 							LOG_USER(&quot;LSDR retry %d&quot;, attempt);
+ 
+ 						jtag_set_check_value(&amp;field, dr_in_buf, dr_in_mask, NULL);
+ 						if (tap == NULL)
+-							jtag_add_plain_dr_scan(1, &amp;field, loop_state);
++							jtag_add_plain_dr_scan(1, &amp;field, TAP_DRPAUSE);
+ 						else
+-							jtag_add_dr_scan(1, &amp;field, loop_state);
++							jtag_add_dr_scan(1, &amp;field, TAP_DRPAUSE);
+ 
+ 						/* LOG_DEBUG(&quot;FLUSHING QUEUE&quot;); */
+ 						result = jtag_execute_queue();
+@@ -940,9 +963,6 @@
+ 							matched = 1;
+ 							break;
+ 						}
+-
+-						jtag_add_clocks(loop_clocks);
+-						jtag_add_sleep(loop_usecs);
+ 					}
+ 
+ 					if (!matched )
+@@ -954,6 +974,34 @@
+ 				}
+ 				break;
+ 
++			case XTRST:
++				{
++					u8	trst_mode;
++
++					if (read(xsvf_fd, &amp;trst_mode, 1) &lt; 0)
++					{
++						do_abort = 1;
++						break;
++					}
++
++					switch( trst_mode )
++					{
++					case XTRST_ON:
++						jtag_add_reset(1, 0);
++						break;
++					case XTRST_OFF:
++					case XTRST_Z:
++						jtag_add_reset(0, 0);
++						break;
++					case XTRST_ABSENT:
++						break;
++					default:
++						LOG_ERROR( &quot;XTRST mode argument (0x%02X) out of range&quot;, trst_mode );
++						do_abort = 1;
++					}
++				}
++				break;
++
+ 			default:
+ 				LOG_ERROR(&quot;unknown xsvf command (0x%02X)\n&quot;, uc);
+ 				unsupported = 1;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000143.html">[Openocd-svn] r1359 - trunk/src/svf
+</A></li>
+	<LI>Next message: <A HREF="000145.html">[Openocd-svn] r1361 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#144">[ date ]</a>
+              <a href="thread.html#144">[ thread ]</a>
+              <a href="subject.html#144">[ subject ]</a>
+              <a href="author.html#144">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

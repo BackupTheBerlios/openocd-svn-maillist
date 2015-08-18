@@ -1,0 +1,207 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r2641 - trunk/src/target
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2641%20-%20trunk/src/target&In-Reply-To=%3C200908270735.n7R7ZlH2013240%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001423.html">
+   <LINK REL="Next"  HREF="001425.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r2641 - trunk/src/target</H1>
+    <B>oharboe at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r2641%20-%20trunk/src/target&In-Reply-To=%3C200908270735.n7R7ZlH2013240%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r2641 - trunk/src/target">oharboe at mail.berlios.de
+       </A><BR>
+    <I>Thu Aug 27 09:35:47 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001423.html">[Openocd-svn] r2640 - trunk/src/target
+</A></li>
+        <LI>Next message: <A HREF="001425.html">[Openocd-svn] r2642 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1424">[ date ]</a>
+              <a href="thread.html#1424">[ thread ]</a>
+              <a href="subject.html#1424">[ subject ]</a>
+              <a href="author.html#1424">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: oharboe
+Date: 2009-08-27 09:35:47 +0200 (Thu, 27 Aug 2009)
+New Revision: 2641
+
+Modified:
+   trunk/src/target/arm11.c
+Log:
+arm11 single stepping wip
+
+Modified: trunk/src/target/arm11.c
+===================================================================
+--- trunk/src/target/arm11.c	2009-08-27 06:50:36 UTC (rev 2640)
++++ trunk/src/target/arm11.c	2009-08-27 07:35:47 UTC (rev 2641)
+@@ -27,6 +27,8 @@
+ #endif
+ 
+ #include &quot;arm11.h&quot;
++#include &quot;armv4_5.h&quot;
++#include &quot;arm_simulator.h&quot;
+ #include &quot;target_type.h&quot;
+ 
+ 
+@@ -884,9 +886,97 @@
+ 	return ERROR_OK;
+ }
+ 
++
++static int armv4_5_to_arm11(int reg)
++{
++	if (reg &lt; 16)
++		return reg;
++	switch (reg)
++	{
++	case ARMV4_5_CPSR:
++		return ARM11_RC_CPSR;
++	case 16:
++		/* FIX!!! handle thumb better! */
++		return ARM11_RC_CPSR;
++	default:
++		LOG_ERROR(&quot;BUG: register translation from armv4_5 to arm11 not supported %d&quot;, reg);
++		exit(-1);
++	}
++}
++
++
++static uint32_t arm11_sim_get_reg(struct arm_sim_interface *sim, int reg)
++{
++	arm11_common_t * arm11 = (arm11_common_t *)sim-&gt;user_data;
++
++	reg=armv4_5_to_arm11(reg);
++
++	return buf_get_u32(arm11-&gt;reg_list[reg].value, 0, 32);
++}
++
++static void arm11_sim_set_reg(struct arm_sim_interface *sim, int reg, uint32_t value)
++{
++	arm11_common_t * arm11 = (arm11_common_t *)sim-&gt;user_data;
++
++	reg=armv4_5_to_arm11(reg);
++
++	buf_set_u32(arm11-&gt;reg_list[reg].value, 0, 32, value);
++}
++
++static uint32_t arm11_sim_get_cpsr(struct arm_sim_interface *sim, int pos, int bits)
++{
++	arm11_common_t * arm11 = (arm11_common_t *)sim-&gt;user_data;
++
++	return buf_get_u32(arm11-&gt;reg_list[ARM11_RC_CPSR].value, pos, bits);
++}
++
++static enum armv4_5_state arm11_sim_get_state(struct arm_sim_interface *sim)
++{
++//	arm11_common_t * arm11 = (arm11_common_t *)sim-&gt;user_data;
++
++	/* FIX!!!! we should implement thumb for arm11 */
++	return ARMV4_5_STATE_ARM;
++}
++
++static void arm11_sim_set_state(struct arm_sim_interface *sim, enum armv4_5_state mode)
++{
++//	arm11_common_t * arm11 = (arm11_common_t *)sim-&gt;user_data;
++
++	/* FIX!!!! we should implement thumb for arm11 */
++	LOG_ERROR(&quot;Not implemetned!&quot;);
++}
++
++
++static enum armv4_5_mode arm11_sim_get_mode(struct arm_sim_interface *sim)
++{
++	//arm11_common_t * arm11 = (arm11_common_t *)sim-&gt;user_data;
++
++	/* FIX!!!! we should implement something that returns the current mode here!!! */
++	return ARMV4_5_MODE_USR;
++}
++
++static int arm11_simulate_step(target_t *target, uint32_t *dry_run_pc)
++{
++	struct arm_sim_interface sim;
++
++	sim.user_data=target-&gt;arch_info;
++	sim.get_reg=&amp;arm11_sim_get_reg;
++	sim.set_reg=&amp;arm11_sim_set_reg;
++	sim.get_reg_mode=&amp;arm11_sim_get_reg;
++	sim.set_reg_mode=&amp;arm11_sim_set_reg;
++	sim.get_cpsr=&amp;arm11_sim_get_cpsr;
++	sim.get_mode=&amp;arm11_sim_get_mode;
++	sim.get_state=&amp;arm11_sim_get_state;
++	sim.set_state=&amp;arm11_sim_set_state;
++
++	return arm_simulate_step_core(target, dry_run_pc, &amp;sim);
++
++}
++
+ int arm11_step(struct target_s *target, int current, uint32_t address, int handle_breakpoints)
+ {
+ 	FNC_INFO;
++	int retval;
+ 
+ 	LOG_DEBUG(&quot;target-&gt;state: %s&quot;,
+ 		target_state_name(target));
+@@ -904,6 +994,12 @@
+ 
+ 	LOG_DEBUG(&quot;STEP PC %08&quot; PRIx32 &quot;%s&quot;, R(PC), !current ? &quot;!&quot; : &quot;&quot;);
+ 
++	uint32_t next_pc;
++	retval = arm11_simulate_step(target, &amp;next_pc);
++	if (retval != ERROR_OK)
++		return retval;
++
++
+ 	/** \todo TODO: Thumb not supported here */
+ 
+ 	uint32_t	next_instruction;
+@@ -1002,6 +1098,11 @@
+ 
+ 	CHECK_RETVAL(target_call_event_callbacks(target, TARGET_EVENT_HALTED));
+ 
++	if (R(PC) != next_pc)
++	{
++		LOG_WARNING(&quot;next pc != simulated address %08&quot; PRIx32 &quot;!=%08&quot; PRIx32, R(PC), next_pc);
++	}
++
+ 	return ERROR_OK;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001423.html">[Openocd-svn] r2640 - trunk/src/target
+</A></li>
+	<LI>Next message: <A HREF="001425.html">[Openocd-svn] r2642 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1424">[ date ]</a>
+              <a href="thread.html#1424">[ thread ]</a>
+              <a href="subject.html#1424">[ subject ]</a>
+              <a href="author.html#1424">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

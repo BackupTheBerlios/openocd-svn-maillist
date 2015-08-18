@@ -1,0 +1,173 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1867 - trunk/src/jtag
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1867%20-%20trunk/src/jtag&In-Reply-To=%3C200905210453.n4L4r8dl006516%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000650.html">
+   <LINK REL="Next"  HREF="000652.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1867 - trunk/src/jtag</H1>
+    <B>kc8apf at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1867%20-%20trunk/src/jtag&In-Reply-To=%3C200905210453.n4L4r8dl006516%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1867 - trunk/src/jtag">kc8apf at mail.berlios.de
+       </A><BR>
+    <I>Thu May 21 06:53:08 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000650.html">[Openocd-svn] r1866 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000652.html">[Openocd-svn] r1868 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#651">[ date ]</a>
+              <a href="thread.html#651">[ thread ]</a>
+              <a href="subject.html#651">[ subject ]</a>
+              <a href="author.html#651">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kc8apf
+Date: 2009-05-21 06:53:07 +0200 (Thu, 21 May 2009)
+New Revision: 1867
+
+Modified:
+   trunk/src/jtag/jtag.c
+Log:
+Author: Michael Bruck &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/openocd-svn">mbruck at digenius.de</A>&gt;
+   -jtag.c, interface_jtag_add_dr_out():
+        - use pointer 'field' instead of scan-&gt;fields[field_count]
+        - restructure the main loop to clearly separate the two cases: TAP is not bypassed / TAP is bypassed
+          (this is to keep the function similar to interface_jtag_add_dr_scan())
+        - fix bug where only the first output field has its tap field set
+        - add asserts to verify that target_tap points to the one not bypassed TAP
+
+
+
+Modified: trunk/src/jtag/jtag.c
+===================================================================
+--- trunk/src/jtag/jtag.c	2009-05-21 04:50:00 UTC (rev 1866)
++++ trunk/src/jtag/jtag.c	2009-05-21 04:53:07 UTC (rev 1867)
+@@ -916,8 +916,6 @@
+ 		const u32 *value,
+ 		tap_state_t end_state)
+ {
+-	int field_count = 0;
+-
+ 	/* count devices in bypass */
+ 
+ 	size_t bypass_devices = 0;
+@@ -943,47 +941,52 @@
+ 	scan-&gt;fields			= out_fields;
+ 	scan-&gt;end_state			= end_state;
+ 
++
++	bool target_tap_match	= false;
++
++	scan_field_t * field = out_fields;	/* keep track where we insert data */
++
++	/* loop over all enabled TAPs */
++
+ 	for (jtag_tap_t * tap = jtag_NextEnabledTap(NULL); tap != NULL; tap = jtag_NextEnabledTap(tap))
+ 	{
+-		scan-&gt;fields[field_count].tap = tap;
++		/* if TAP is not bypassed insert matching input fields */
+ 
+-		if (tap == target_tap)
++		if (!tap-&gt;bypass)
+ 		{
+-#ifdef _DEBUG_JTAG_IO_
+-			/* if a device is listed, the BYPASS register must not be selected */
+-			if (tap-&gt;bypass)
+-			{
+-				LOG_ERROR(&quot;BUG: scan data for a device in BYPASS&quot;);
+-				exit(-1);
+-			}
+-#endif
++			assert(tap == target_tap); /* target_tap must match the one not bypassed TAP */
++
++			target_tap_match = true;
++
+ 			for (int j = 0; j &lt; in_num_fields; j++)
+ 			{
+ 				u8 out_value[4];
+ 				size_t scan_size = num_bits[j];
+ 				buf_set_u32(out_value, 0, scan_size, value[j]);
+-				scan-&gt;fields[field_count].num_bits		= scan_size;
+-				scan-&gt;fields[field_count].out_value		= buf_cpy(out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
+-				scan-&gt;fields[field_count].in_value		= NULL;
+-				field_count++;
++
++				field-&gt;tap			= tap;
++				field-&gt;num_bits		= scan_size;
++				field-&gt;out_value	= buf_cpy(out_value, cmd_queue_alloc(CEIL(scan_size, 8)), scan_size);
++				field-&gt;in_value		= NULL;
++
++				field++;
+ 			}
+-		} else
++		}
++
++		/* if a TAP is bypassed, generated a dummy bit*/
++		else
+ 		{
+-#ifdef _DEBUG_JTAG_IO_
+-			/* if a device isn't listed, the BYPASS register should be selected */
+-			if (! tap-&gt;bypass)
+-			{
+-				LOG_ERROR(&quot;BUG: no scan data for a device not in BYPASS&quot;);
+-				exit(-1);
+-			}
+-#endif
+-			/* program the scan field to 1 bit length, and ignore it's value */
+-			scan-&gt;fields[field_count].num_bits			= 1;
+-			scan-&gt;fields[field_count].out_value			= NULL;
+-			scan-&gt;fields[field_count].in_value			= NULL;
+-			field_count++;
++
++			field-&gt;tap				= tap;
++			field-&gt;num_bits			= 1;
++			field-&gt;out_value		= NULL;
++			field-&gt;in_value			= NULL;
++
++			field++;
+ 		}
+ 	}
++
++	assert(target_tap_match);	/* target_tap should be enabled and not bypassed */
+ }
+ 
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000650.html">[Openocd-svn] r1866 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000652.html">[Openocd-svn] r1868 - trunk/src/jtag
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#651">[ date ]</a>
+              <a href="thread.html#651">[ thread ]</a>
+              <a href="subject.html#651">[ subject ]</a>
+              <a href="author.html#651">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>

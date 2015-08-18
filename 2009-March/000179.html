@@ -1,0 +1,994 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Openocd-svn] r1395 - in trunk/src: flash target/board	target/interface target/target target/test
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/openocd-svn/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1395%20-%20in%20trunk/src%3A%20flash%20target/board%0A%09target/interface%20target/target%20target/test&In-Reply-To=%3C200903021251.n22CphWL021291%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000178.html">
+   <LINK REL="Next"  HREF="000180.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Openocd-svn] r1395 - in trunk/src: flash target/board	target/interface target/target target/test</H1>
+    <B>ntfreak at BerliOS</B> 
+    <A HREF="mailto:openocd-svn%40lists.berlios.de?Subject=Re%3A%20%5BOpenocd-svn%5D%20r1395%20-%20in%20trunk/src%3A%20flash%20target/board%0A%09target/interface%20target/target%20target/test&In-Reply-To=%3C200903021251.n22CphWL021291%40sheep.berlios.de%3E"
+       TITLE="[Openocd-svn] r1395 - in trunk/src: flash target/board	target/interface target/target target/test">ntfreak at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar  2 13:51:43 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000178.html">[Openocd-svn] r1394 - trunk/src/jtag
+</A></li>
+        <LI>Next message: <A HREF="000180.html">[Openocd-svn] r1396 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#179">[ date ]</a>
+              <a href="thread.html#179">[ thread ]</a>
+              <a href="subject.html#179">[ subject ]</a>
+              <a href="author.html#179">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: ntfreak
+Date: 2009-03-02 13:51:42 +0100 (Mon, 02 Mar 2009)
+New Revision: 1395
+
+Modified:
+   trunk/src/flash/orion_nand.c
+   trunk/src/target/board/sheevaplug.cfg
+   trunk/src/target/interface/sheevaplug.cfg
+   trunk/src/target/target/feroceon.cfg
+   trunk/src/target/test/syntax1.cfg
+Log:
+- add missing svn props from previous commit
+
+Modified: trunk/src/flash/orion_nand.c
+===================================================================
+--- trunk/src/flash/orion_nand.c	2009-03-01 21:07:44 UTC (rev 1394)
++++ trunk/src/flash/orion_nand.c	2009-03-02 12:51:42 UTC (rev 1395)
+@@ -1,256 +1,256 @@
+-/***************************************************************************
+- *   Copyright (C) 2009 by Marvell Semiconductors, Inc.                    *
+- *   Written by Nicolas Pitre &lt;nico at marvell.com&gt;                           *
+- *                                                                         *
+- *   This program is free software; you can redistribute it and/or modify  *
+- *   it under the terms of the GNU General Public License as published by  *
+- *   the Free Software Foundation; either version 2 of the License, or     *
+- *   (at your option) any later version.                                   *
+- *                                                                         *
+- *   This program is distributed in the hope that it will be useful,       *
+- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+- *   GNU General Public License for more details.                          *
+- *                                                                         *
+- *   You should have received a copy of the GNU General Public License     *
+- *   along with this program; if not, write to the                         *
+- *   Free Software Foundation, Inc.,                                       *
+- *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
+- ***************************************************************************/
+-
+-/*
+- * NAND controller interface for Marvell Orion/Kirkwood SoCs.
+- */
+-
+-#ifdef HAVE_CONFIG_H
+-#include &quot;config.h&quot;
+-#endif
+-
+-#include &quot;replacements.h&quot;
+-#include &quot;log.h&quot;
+-
+-#include &lt;stdlib.h&gt;
+-#include &lt;string.h&gt;
+-
+-#include &quot;nand.h&quot;
+-#include &quot;target.h&quot;
+-#include &quot;armv4_5.h&quot;
+-#include &quot;binarybuffer.h&quot;
+-
+-typedef struct orion_nand_controller_s
+-{
+-	struct target_s	*target;
+-	working_area_t *copy_area;
+-
+-	u32		cmd;
+-	u32		addr;
+-	u32		data;
+-} orion_nand_controller_t;
+-
+-#define CHECK_HALTED \
+-	do { \
+-		if (target-&gt;state != TARGET_HALTED) { \
+-			LOG_ERROR(&quot;NAND flash access requires halted target&quot;); \
+-			return ERROR_NAND_OPERATION_FAILED; \
+-		} \
+-	} while (0)
+-
+-int orion_nand_command(struct nand_device_s *device, u8 command)
+-{
+-	orion_nand_controller_t *hw = device-&gt;controller_priv;
+-	target_t *target = hw-&gt;target;
+-
+-	CHECK_HALTED;
+-	target_write_u8(target, hw-&gt;cmd, command);
+-	return ERROR_OK;
+-}
+-
+-int orion_nand_address(struct nand_device_s *device, u8 address)
+-{
+-	orion_nand_controller_t *hw = device-&gt;controller_priv;
+-	target_t *target = hw-&gt;target;
+-
+-	CHECK_HALTED;
+-	target_write_u8(target, hw-&gt;addr, address);
+-	return ERROR_OK;
+-}
+-
+-int orion_nand_read(struct nand_device_s *device, void *data)
+-{
+-	orion_nand_controller_t *hw = device-&gt;controller_priv;
+-	target_t *target = hw-&gt;target;
+-
+-	CHECK_HALTED;
+-	target_read_u8(target, hw-&gt;data, data);
+-	return ERROR_OK;
+-}
+-
+-int orion_nand_write(struct nand_device_s *device, u16 data)
+-{
+-	orion_nand_controller_t *hw = device-&gt;controller_priv;
+-	target_t *target = hw-&gt;target;
+-
+-	CHECK_HALTED;
+-	target_write_u8(target, hw-&gt;data, data);
+-	return ERROR_OK;
+-}
+-
+-int orion_nand_slow_block_write(struct nand_device_s *device, u8 *data, int size)
+-{
+-	while (size--)
+-		orion_nand_write(device, *data++);
+-	return ERROR_OK;
+-}
+-
+-int orion_nand_fast_block_write(struct nand_device_s *device, u8 *data, int size)
+-{
+-	orion_nand_controller_t *hw = device-&gt;controller_priv;
+-	target_t *target = hw-&gt;target;
+-	armv4_5_algorithm_t algo;
+-	reg_param_t reg_params[3];
+-	u32 target_buf;
+-	int retval;
+-
+-	static const u32 code[] = {
+-		0xe4d13001,	/* ldrb	r3, [r1], #1	*/
+-		0xe5c03000,	/* strb	r3, [r0]	*/
+-		0xe2522001,	/* subs	r2, r2, #1	*/
+-		0x1afffffb,	/* bne	0		*/
+-		0xeafffffe,	/* b	.		*/
+-	};
+-	int code_size = sizeof(code);
+-
+-	if (!hw-&gt;copy_area) {
+-		u8 code_buf[code_size];
+-		int i;
+-
+-		/* make sure we have a working area */
+-		if (target_alloc_working_area(target,
+-					      code_size + device-&gt;page_size,
+-					      &amp;hw-&gt;copy_area) != ERROR_OK)
+-		{
+-			return orion_nand_slow_block_write(device, data, size);
+-		}
+-
+-		/* copy target instructions to target endianness */
+-		for (i = 0; i &lt; code_size/4; i++)
+-			target_buffer_set_u32(target, code_buf + i*4, code[i]);
+-
+-		/* write code to working area */
+-                retval = target-&gt;type-&gt;write_memory(target,
+-					hw-&gt;copy_area-&gt;address,
+-					4, code_size/4, code_buf);
+-		if (retval != ERROR_OK)
+-			return retval;
+-	}
+-
+-	/* copy data to target's memory */
+-	target_buf = hw-&gt;copy_area-&gt;address + code_size;
+-	retval = target-&gt;type-&gt;bulk_write_memory(target, target_buf,
+-						 size/4, data);
+-	if (retval == ERROR_OK &amp;&amp; size &amp; 3) {
+-		retval = target-&gt;type-&gt;write_memory(target,
+-					target_buf + (size &amp; ~3),
+-					1, size &amp; 3, data + (size &amp; ~3));
+-	}
+-	if (retval != ERROR_OK)
+-		return retval;
+-
+-	algo.common_magic = ARMV4_5_COMMON_MAGIC;
+-	algo.core_mode = ARMV4_5_MODE_SVC;
+-	algo.core_state = ARMV4_5_STATE_ARM;
+-
+-	init_reg_param(&amp;reg_params[0], &quot;r0&quot;, 32, PARAM_IN);
+-	init_reg_param(&amp;reg_params[1], &quot;r1&quot;, 32, PARAM_IN);
+-	init_reg_param(&amp;reg_params[2], &quot;r2&quot;, 32, PARAM_IN);
+-
+-	buf_set_u32(reg_params[0].value, 0, 32, hw-&gt;data);
+-	buf_set_u32(reg_params[1].value, 0, 32, target_buf);
+-	buf_set_u32(reg_params[2].value, 0, 32, size);
+-
+-	retval = target-&gt;type-&gt;run_algorithm(target, 0, NULL, 3, reg_params,
+-					hw-&gt;copy_area-&gt;address,
+-					hw-&gt;copy_area-&gt;address + code_size - 4,
+-					1000, &amp;algo);
+-	if (retval != ERROR_OK)
+-		LOG_ERROR(&quot;error executing hosted NAND write&quot;);
+-
+-	destroy_reg_param(&amp;reg_params[0]);
+-	destroy_reg_param(&amp;reg_params[1]);
+-	destroy_reg_param(&amp;reg_params[2]);
+-	return retval;
+-}
+-
+-int orion_nand_reset(struct nand_device_s *device)
+-{
+-	return orion_nand_command(device, NAND_CMD_RESET);
+-}
+-
+-int orion_nand_controller_ready(struct nand_device_s *device, int timeout)
+-{
+-	return 1;
+-}
+-
+-int orion_nand_register_commands(struct command_context_s *cmd_ctx)
+-{
+-	return ERROR_OK;
+-}
+-
+-int orion_nand_device_command(struct command_context_s *cmd_ctx, char *cmd,
+-			      char **args, int argc,
+-			      struct nand_device_s *device)
+-{
+-	orion_nand_controller_t *hw;
+-	u32 base;
+-	u8 ale, cle;
+-
+-	if (argc != 3) {
+-		LOG_ERROR(&quot;arguments must be: &lt;target_number&gt; &lt;NAND_address&gt;\n&quot;);
+-		return ERROR_NAND_DEVICE_INVALID;
+-	}
+-
+-	hw = calloc(1, sizeof(*hw));
+-	if (!hw) {
+-		LOG_ERROR(&quot;no memory for nand controller\n&quot;);
+-		return ERROR_NAND_DEVICE_INVALID;
+-	}
+-
+-	device-&gt;controller_priv = hw;
+-	hw-&gt;target = get_target_by_num(strtoul(args[1], NULL, 0));
+-	if (!hw-&gt;target) {
+-		LOG_ERROR(&quot;no target '%s' configured&quot;, args[1]);
+-		free(hw);
+-		return ERROR_NAND_DEVICE_INVALID;
+-	}
+-
+-	base = strtoul(args[2], NULL, 0);
+-	cle = 0;
+-	ale = 1;
+-
+-	hw-&gt;data = base;
+-	hw-&gt;cmd = base + (1 &lt;&lt; cle);
+-	hw-&gt;addr = base + (1 &lt;&lt; ale);
+-
+-	return ERROR_OK;
+-}
+-
+-int orion_nand_init(struct nand_device_s *device)
+-{
+-	return ERROR_OK;
+-}
+-
+-nand_flash_controller_t orion_nand_controller =
+-{
+-	.name			= &quot;orion&quot;,
+-	.command		= orion_nand_command,
+-	.address		= orion_nand_address,
+-	.read_data		= orion_nand_read,
+-	.write_data		= orion_nand_write,
+-	.write_block_data	= orion_nand_fast_block_write,
+-	.reset			= orion_nand_reset,
+-	.controller_ready	= orion_nand_controller_ready,
+-	.nand_device_command	= orion_nand_device_command,
+-	.register_commands	= orion_nand_register_commands,
+-	.init			= orion_nand_init,
+-};
+-
++/***************************************************************************
++ *   Copyright (C) 2009 by Marvell Semiconductors, Inc.                    *
++ *   Written by Nicolas Pitre &lt;nico at marvell.com&gt;                           *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
++ ***************************************************************************/
++
++/*
++ * NAND controller interface for Marvell Orion/Kirkwood SoCs.
++ */
++
++#ifdef HAVE_CONFIG_H
++#include &quot;config.h&quot;
++#endif
++
++#include &quot;replacements.h&quot;
++#include &quot;log.h&quot;
++
++#include &lt;stdlib.h&gt;
++#include &lt;string.h&gt;
++
++#include &quot;nand.h&quot;
++#include &quot;target.h&quot;
++#include &quot;armv4_5.h&quot;
++#include &quot;binarybuffer.h&quot;
++
++typedef struct orion_nand_controller_s
++{
++	struct target_s	*target;
++	working_area_t *copy_area;
++
++	u32		cmd;
++	u32		addr;
++	u32		data;
++} orion_nand_controller_t;
++
++#define CHECK_HALTED \
++	do { \
++		if (target-&gt;state != TARGET_HALTED) { \
++			LOG_ERROR(&quot;NAND flash access requires halted target&quot;); \
++			return ERROR_NAND_OPERATION_FAILED; \
++		} \
++	} while (0)
++
++int orion_nand_command(struct nand_device_s *device, u8 command)
++{
++	orion_nand_controller_t *hw = device-&gt;controller_priv;
++	target_t *target = hw-&gt;target;
++
++	CHECK_HALTED;
++	target_write_u8(target, hw-&gt;cmd, command);
++	return ERROR_OK;
++}
++
++int orion_nand_address(struct nand_device_s *device, u8 address)
++{
++	orion_nand_controller_t *hw = device-&gt;controller_priv;
++	target_t *target = hw-&gt;target;
++
++	CHECK_HALTED;
++	target_write_u8(target, hw-&gt;addr, address);
++	return ERROR_OK;
++}
++
++int orion_nand_read(struct nand_device_s *device, void *data)
++{
++	orion_nand_controller_t *hw = device-&gt;controller_priv;
++	target_t *target = hw-&gt;target;
++
++	CHECK_HALTED;
++	target_read_u8(target, hw-&gt;data, data);
++	return ERROR_OK;
++}
++
++int orion_nand_write(struct nand_device_s *device, u16 data)
++{
++	orion_nand_controller_t *hw = device-&gt;controller_priv;
++	target_t *target = hw-&gt;target;
++
++	CHECK_HALTED;
++	target_write_u8(target, hw-&gt;data, data);
++	return ERROR_OK;
++}
++
++int orion_nand_slow_block_write(struct nand_device_s *device, u8 *data, int size)
++{
++	while (size--)
++		orion_nand_write(device, *data++);
++	return ERROR_OK;
++}
++
++int orion_nand_fast_block_write(struct nand_device_s *device, u8 *data, int size)
++{
++	orion_nand_controller_t *hw = device-&gt;controller_priv;
++	target_t *target = hw-&gt;target;
++	armv4_5_algorithm_t algo;
++	reg_param_t reg_params[3];
++	u32 target_buf;
++	int retval;
++
++	static const u32 code[] = {
++		0xe4d13001,	/* ldrb	r3, [r1], #1	*/
++		0xe5c03000,	/* strb	r3, [r0]	*/
++		0xe2522001,	/* subs	r2, r2, #1	*/
++		0x1afffffb,	/* bne	0		*/
++		0xeafffffe,	/* b	.		*/
++	};
++	int code_size = sizeof(code);
++
++	if (!hw-&gt;copy_area) {
++		u8 code_buf[code_size];
++		int i;
++
++		/* make sure we have a working area */
++		if (target_alloc_working_area(target,
++					      code_size + device-&gt;page_size,
++					      &amp;hw-&gt;copy_area) != ERROR_OK)
++		{
++			return orion_nand_slow_block_write(device, data, size);
++		}
++
++		/* copy target instructions to target endianness */
++		for (i = 0; i &lt; code_size/4; i++)
++			target_buffer_set_u32(target, code_buf + i*4, code[i]);
++
++		/* write code to working area */
++                retval = target-&gt;type-&gt;write_memory(target,
++					hw-&gt;copy_area-&gt;address,
++					4, code_size/4, code_buf);
++		if (retval != ERROR_OK)
++			return retval;
++	}
++
++	/* copy data to target's memory */
++	target_buf = hw-&gt;copy_area-&gt;address + code_size;
++	retval = target-&gt;type-&gt;bulk_write_memory(target, target_buf,
++						 size/4, data);
++	if (retval == ERROR_OK &amp;&amp; size &amp; 3) {
++		retval = target-&gt;type-&gt;write_memory(target,
++					target_buf + (size &amp; ~3),
++					1, size &amp; 3, data + (size &amp; ~3));
++	}
++	if (retval != ERROR_OK)
++		return retval;
++
++	algo.common_magic = ARMV4_5_COMMON_MAGIC;
++	algo.core_mode = ARMV4_5_MODE_SVC;
++	algo.core_state = ARMV4_5_STATE_ARM;
++
++	init_reg_param(&amp;reg_params[0], &quot;r0&quot;, 32, PARAM_IN);
++	init_reg_param(&amp;reg_params[1], &quot;r1&quot;, 32, PARAM_IN);
++	init_reg_param(&amp;reg_params[2], &quot;r2&quot;, 32, PARAM_IN);
++
++	buf_set_u32(reg_params[0].value, 0, 32, hw-&gt;data);
++	buf_set_u32(reg_params[1].value, 0, 32, target_buf);
++	buf_set_u32(reg_params[2].value, 0, 32, size);
++
++	retval = target-&gt;type-&gt;run_algorithm(target, 0, NULL, 3, reg_params,
++					hw-&gt;copy_area-&gt;address,
++					hw-&gt;copy_area-&gt;address + code_size - 4,
++					1000, &amp;algo);
++	if (retval != ERROR_OK)
++		LOG_ERROR(&quot;error executing hosted NAND write&quot;);
++
++	destroy_reg_param(&amp;reg_params[0]);
++	destroy_reg_param(&amp;reg_params[1]);
++	destroy_reg_param(&amp;reg_params[2]);
++	return retval;
++}
++
++int orion_nand_reset(struct nand_device_s *device)
++{
++	return orion_nand_command(device, NAND_CMD_RESET);
++}
++
++int orion_nand_controller_ready(struct nand_device_s *device, int timeout)
++{
++	return 1;
++}
++
++int orion_nand_register_commands(struct command_context_s *cmd_ctx)
++{
++	return ERROR_OK;
++}
++
++int orion_nand_device_command(struct command_context_s *cmd_ctx, char *cmd,
++			      char **args, int argc,
++			      struct nand_device_s *device)
++{
++	orion_nand_controller_t *hw;
++	u32 base;
++	u8 ale, cle;
++
++	if (argc != 3) {
++		LOG_ERROR(&quot;arguments must be: &lt;target_number&gt; &lt;NAND_address&gt;\n&quot;);
++		return ERROR_NAND_DEVICE_INVALID;
++	}
++
++	hw = calloc(1, sizeof(*hw));
++	if (!hw) {
++		LOG_ERROR(&quot;no memory for nand controller\n&quot;);
++		return ERROR_NAND_DEVICE_INVALID;
++	}
++
++	device-&gt;controller_priv = hw;
++	hw-&gt;target = get_target_by_num(strtoul(args[1], NULL, 0));
++	if (!hw-&gt;target) {
++		LOG_ERROR(&quot;no target '%s' configured&quot;, args[1]);
++		free(hw);
++		return ERROR_NAND_DEVICE_INVALID;
++	}
++
++	base = strtoul(args[2], NULL, 0);
++	cle = 0;
++	ale = 1;
++
++	hw-&gt;data = base;
++	hw-&gt;cmd = base + (1 &lt;&lt; cle);
++	hw-&gt;addr = base + (1 &lt;&lt; ale);
++
++	return ERROR_OK;
++}
++
++int orion_nand_init(struct nand_device_s *device)
++{
++	return ERROR_OK;
++}
++
++nand_flash_controller_t orion_nand_controller =
++{
++	.name			= &quot;orion&quot;,
++	.command		= orion_nand_command,
++	.address		= orion_nand_address,
++	.read_data		= orion_nand_read,
++	.write_data		= orion_nand_write,
++	.write_block_data	= orion_nand_fast_block_write,
++	.reset			= orion_nand_reset,
++	.controller_ready	= orion_nand_controller_ready,
++	.nand_device_command	= orion_nand_device_command,
++	.register_commands	= orion_nand_register_commands,
++	.init			= orion_nand_init,
++};
++
+
+
+Property changes on: trunk/src/flash/orion_nand.c
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/src/target/board/sheevaplug.cfg
+===================================================================
+--- trunk/src/target/board/sheevaplug.cfg	2009-03-01 21:07:44 UTC (rev 1394)
++++ trunk/src/target/board/sheevaplug.cfg	2009-03-02 12:51:42 UTC (rev 1395)
+@@ -1,111 +1,111 @@
+-# Marvell SheevaPlug 
+-
+-source [find interface/sheevaplug.cfg]
+-source [find target/feroceon.cfg]
+-
+-$_TARGETNAME configure -event reset-init { sheevaplug_init }
+-
+-$_TARGETNAME configure \
+-	-work-area-phys 0x10000000 \
+-	-work-area-size 65536 \
+-	-work-area-backup 0
+-
+-arm7_9 dcc_downloads enable
+-
+-# this assumes the hardware default peripherals location before u-Boot moves it
+-nand device orion 0 0xd8000000
+-
+-proc sheevaplug_init { } {
+-
+-	arm926ejs cp15 0 0 1 0 0x00052078
+-
+-	mww 0xD0001400 0x43000C30 #  DDR SDRAM Configuration Register
+-	mww 0xD0001404 0x39543000 #  Dunit Control Low Register
+-	mww 0xD0001408 0x22125451 #  DDR SDRAM Timing (Low) Register
+-	mww 0xD000140C 0x00000833 #  DDR SDRAM Timing (High) Register
+-	mww 0xD0001410 0x000000CC #  DDR SDRAM Address Control Register
+-	mww 0xD0001414 0x00000000 #  DDR SDRAM Open Pages Control Register
+-	mww 0xD0001418 0x00000000 #  DDR SDRAM Operation Register
+-	mww 0xD000141C 0x00000C52 #  DDR SDRAM Mode Register
+-	mww 0xD0001420 0x00000042 #  DDR SDRAM Extended Mode Register
+-	mww 0xD0001424 0x0000F17F #  Dunit Control High Register
+-	mww 0xD0001428 0x00085520 #  Dunit Control High Register
+-	mww 0xD000147c 0x00008552 #  Dunit Control High Register
+-	mww 0xD0001504 0x0FFFFFF1 #  CS0n Size Register
+-	mww 0xD0001508 0x10000000 #  CS1n Base Register
+-	mww 0xD000150C 0x0FFFFFF5 #  CS1n Size Register
+-	mww 0xD0001514 0x00000000 #  CS2n Size Register
+-	mww 0xD000151C 0x00000000 #  CS3n Size Register
+-	mww 0xD0001494 0x003C0000 #  DDR2 SDRAM ODT Control (Low) Register
+-	mww 0xD0001498 0x00000000 #  DDR2 SDRAM ODT Control (High) REgister
+-	mww 0xD000149C 0x0000F80F #  DDR2 Dunit ODT Control Register
+-	mww 0xD0001480 0x00000001 #  DDR SDRAM Initialization Control Register
+-	mww 0xD0020204 0x00000000 #  Main IRQ Interrupt Mask Register
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-	mww 0xD0020204 0x00000000 #              &quot;
+-
+-	mww 0xD0010000 0x01111111 #  MPP  0 to 7
+-	mww 0xD0010004 0x11113322 #  MPP  8 to 15
+-	mww 0xD0010008 0x00001111 #  MPP 16 to 23
+-
+-	mww 0xD0010418 0x003E07CF #  NAND Read Parameters REgister
+-	mww 0xD001041C 0x000F0F0F #  NAND Write Parameters Register
+-	mww 0xD0010470 0x01C7D943 #  NAND Flash Control Register
+-
+-}
+-
+-proc sheevaplug_reflash_uboot { } {
+-
+-	# reflash the u-Boot binary
+-	#reset init
+-	nand probe 0
+-	nand erase 0 0 4
+-	nand write 0 uboot.bin 0
+-	reset run
+-
+-}
+-
+-proc sheevaplug_load_uboot { } {
+-
+-	# load u-Boot into RAM
+-	#reset init
+-	load_image /tmp/uboot.elf
+-	verify_image uboot.elf
+-	resume 0x00600000
+-
+-}
+-
++# Marvell SheevaPlug 
++
++source [find interface/sheevaplug.cfg]
++source [find target/feroceon.cfg]
++
++$_TARGETNAME configure -event reset-init { sheevaplug_init }
++
++$_TARGETNAME configure \
++	-work-area-phys 0x10000000 \
++	-work-area-size 65536 \
++	-work-area-backup 0
++
++arm7_9 dcc_downloads enable
++
++# this assumes the hardware default peripherals location before u-Boot moves it
++nand device orion 0 0xd8000000
++
++proc sheevaplug_init { } {
++
++	arm926ejs cp15 0 0 1 0 0x00052078
++
++	mww 0xD0001400 0x43000C30 #  DDR SDRAM Configuration Register
++	mww 0xD0001404 0x39543000 #  Dunit Control Low Register
++	mww 0xD0001408 0x22125451 #  DDR SDRAM Timing (Low) Register
++	mww 0xD000140C 0x00000833 #  DDR SDRAM Timing (High) Register
++	mww 0xD0001410 0x000000CC #  DDR SDRAM Address Control Register
++	mww 0xD0001414 0x00000000 #  DDR SDRAM Open Pages Control Register
++	mww 0xD0001418 0x00000000 #  DDR SDRAM Operation Register
++	mww 0xD000141C 0x00000C52 #  DDR SDRAM Mode Register
++	mww 0xD0001420 0x00000042 #  DDR SDRAM Extended Mode Register
++	mww 0xD0001424 0x0000F17F #  Dunit Control High Register
++	mww 0xD0001428 0x00085520 #  Dunit Control High Register
++	mww 0xD000147c 0x00008552 #  Dunit Control High Register
++	mww 0xD0001504 0x0FFFFFF1 #  CS0n Size Register
++	mww 0xD0001508 0x10000000 #  CS1n Base Register
++	mww 0xD000150C 0x0FFFFFF5 #  CS1n Size Register
++	mww 0xD0001514 0x00000000 #  CS2n Size Register
++	mww 0xD000151C 0x00000000 #  CS3n Size Register
++	mww 0xD0001494 0x003C0000 #  DDR2 SDRAM ODT Control (Low) Register
++	mww 0xD0001498 0x00000000 #  DDR2 SDRAM ODT Control (High) REgister
++	mww 0xD000149C 0x0000F80F #  DDR2 Dunit ODT Control Register
++	mww 0xD0001480 0x00000001 #  DDR SDRAM Initialization Control Register
++	mww 0xD0020204 0x00000000 #  Main IRQ Interrupt Mask Register
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++	mww 0xD0020204 0x00000000 #              &quot;
++
++	mww 0xD0010000 0x01111111 #  MPP  0 to 7
++	mww 0xD0010004 0x11113322 #  MPP  8 to 15
++	mww 0xD0010008 0x00001111 #  MPP 16 to 23
++
++	mww 0xD0010418 0x003E07CF #  NAND Read Parameters REgister
++	mww 0xD001041C 0x000F0F0F #  NAND Write Parameters Register
++	mww 0xD0010470 0x01C7D943 #  NAND Flash Control Register
++
++}
++
++proc sheevaplug_reflash_uboot { } {
++
++	# reflash the u-Boot binary
++	#reset init
++	nand probe 0
++	nand erase 0 0 4
++	nand write 0 uboot.bin 0
++	reset run
++
++}
++
++proc sheevaplug_load_uboot { } {
++
++	# load u-Boot into RAM
++	#reset init
++	load_image /tmp/uboot.elf
++	verify_image uboot.elf
++	resume 0x00600000
++
++}
++
+
+
+Property changes on: trunk/src/target/board/sheevaplug.cfg
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/src/target/interface/sheevaplug.cfg
+===================================================================
+--- trunk/src/target/interface/sheevaplug.cfg	2009-03-01 21:07:44 UTC (rev 1394)
++++ trunk/src/target/interface/sheevaplug.cfg	2009-03-02 12:51:42 UTC (rev 1395)
+@@ -1,4 +1,4 @@
+-interface ft2232
+-ft2232_layout sheevaplug
+-ft2232_vid_pid 0x0403 0x6010
+-jtag_khz 3000
++interface ft2232
++ft2232_layout sheevaplug
++ft2232_vid_pid 0x0403 0x6010
++jtag_khz 3000
+
+
+Property changes on: trunk/src/target/interface/sheevaplug.cfg
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/src/target/target/feroceon.cfg
+===================================================================
+--- trunk/src/target/target/feroceon.cfg	2009-03-01 21:07:44 UTC (rev 1394)
++++ trunk/src/target/target/feroceon.cfg	2009-03-02 12:51:42 UTC (rev 1395)
+@@ -1,30 +1,30 @@
+-######################################
+-# Target:    Marvell Feroceon CPU core
+-######################################
+-
+-if { [info exists CHIPNAME] } {	
+-   set  _CHIPNAME $CHIPNAME    
+-} else {	 
+-   set  _CHIPNAME feroceon
+-}
+-
+-if { [info exists ENDIAN] } {	
+-   set  _ENDIAN $ENDIAN    
+-} else {	 
+-   set  _ENDIAN little
+-}
+-
+-if { [info exists CPUTAPID ] } {
+-   set _CPUTAPID $CPUTAPID
+-} else {
+-   set _CPUTAPID 0x20a023d3
+-}
+-
+-jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_CPUTAPID
+-set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
+-target create $_TARGETNAME feroceon -endian $_ENDIAN -chain-position $_TARGETNAME
+-
+-reset_config trst_and_srst
+-jtag_nsrst_delay 200
+-jtag_ntrst_delay 200
+-
++######################################
++# Target:    Marvell Feroceon CPU core
++######################################
++
++if { [info exists CHIPNAME] } {	
++   set  _CHIPNAME $CHIPNAME    
++} else {	 
++   set  _CHIPNAME feroceon
++}
++
++if { [info exists ENDIAN] } {	
++   set  _ENDIAN $ENDIAN    
++} else {	 
++   set  _ENDIAN little
++}
++
++if { [info exists CPUTAPID ] } {
++   set _CPUTAPID $CPUTAPID
++} else {
++   set _CPUTAPID 0x20a023d3
++}
++
++jtag newtap $_CHIPNAME cpu -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id $_CPUTAPID
++set _TARGETNAME [format &quot;%s.cpu&quot; $_CHIPNAME]
++target create $_TARGETNAME feroceon -endian $_ENDIAN -chain-position $_TARGETNAME
++
++reset_config trst_and_srst
++jtag_nsrst_delay 200
++jtag_ntrst_delay 200
++
+
+
+Property changes on: trunk/src/target/target/feroceon.cfg
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/src/target/test/syntax1.cfg
+===================================================================
+--- trunk/src/target/test/syntax1.cfg	2009-03-01 21:07:44 UTC (rev 1394)
++++ trunk/src/target/test/syntax1.cfg	2009-03-02 12:51:42 UTC (rev 1395)
+@@ -1,29 +1,29 @@
+-jtag_nsrst_delay 200
+-jtag_ntrst_delay 200
+-
+-#use combined on interfaces or targets that can't set TRST/SRST separately
+-reset_config trst_and_srst srst_pulls_trst
+-
+-#LPCs need reset pulled while RTCK is low. 0 to activate JTAG, power-on reset is not enough
+-jtag_reset 1 1
+-jtag_reset 0 0
+-
+-#jtag scan chain
+-#format L IRC IRCM IDCODE (Length, IR Capture, IR Capture Mask, IDCODE)
+-jtag newtap lpc2148 one -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id 0x4f1f0f0f
+-
+-#target configuration
+-#daemon_startup reset
+-
+-set _TARGETNAME [format &quot;%s.cpu&quot; lpc2148]
+-target create lpc2148.cpu arm7tdmi -endian little -work-area-size 0x4000 -work-area-phys 0x40000000 -work-area-virt 0 -work-area-backup 0
+-
+-$_TARGETNAME configure -event reset-init { 
+-soft_reset_halt 
+-mvb 0xE01FC040 0x01 
+-}
+-
+-
+-
+-flash bank lpc2000 0x0 0x7d000 0 0 0 lpc2000_v2 14765
+-
++jtag_nsrst_delay 200
++jtag_ntrst_delay 200
++
++#use combined on interfaces or targets that can't set TRST/SRST separately
++reset_config trst_and_srst srst_pulls_trst
++
++#LPCs need reset pulled while RTCK is low. 0 to activate JTAG, power-on reset is not enough
++jtag_reset 1 1
++jtag_reset 0 0
++
++#jtag scan chain
++#format L IRC IRCM IDCODE (Length, IR Capture, IR Capture Mask, IDCODE)
++jtag newtap lpc2148 one -irlen 4 -ircapture 0x1 -irmask 0xf -expected-id 0x4f1f0f0f
++
++#target configuration
++#daemon_startup reset
++
++set _TARGETNAME [format &quot;%s.cpu&quot; lpc2148]
++target create lpc2148.cpu arm7tdmi -endian little -work-area-size 0x4000 -work-area-phys 0x40000000 -work-area-virt 0 -work-area-backup 0
++
++$_TARGETNAME configure -event reset-init { 
++soft_reset_halt 
++mvb 0xE01FC040 0x01 
++}
++
++
++
++flash bank lpc2000 0x0 0x7d000 0 0 0 lpc2000_v2 14765
++
+
+
+Property changes on: trunk/src/target/test/syntax1.cfg
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000178.html">[Openocd-svn] r1394 - trunk/src/jtag
+</A></li>
+	<LI>Next message: <A HREF="000180.html">[Openocd-svn] r1396 - trunk/src/target
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#179">[ date ]</a>
+              <a href="thread.html#179">[ thread ]</a>
+              <a href="subject.html#179">[ subject ]</a>
+              <a href="author.html#179">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/openocd-svn">More information about the openocd-svn
+mailing list</a><br>
+</body></html>
